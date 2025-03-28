@@ -1,0 +1,67 @@
+{
+  "project_info": {
+    "project_number": "649307052685",
+    "project_id": "test-6dec8",
+    "storage_bucket": "test-6dec8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:649307052685:android:5ec0e3e1458ec1e737e0c4",
+        "android_client_info": {
+          "package_name": "com.example.neu_7"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzNUh87Q63aL3ZLHsuX_8jcnfeKhteWjU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:649307052685:android:ac7ad44cc0ec0fab37e0c4",
+        "android_client_info": {
+          "package_name": "com.example.neu_8"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzNUh87Q63aL3ZLHsuX_8jcnfeKhteWjU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:649307052685:android:e71074757e20fa1b37e0c4",
+        "android_client_info": {
+          "package_name": "com.serdal.termini"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzNUh87Q63aL3ZLHsuX_8jcnfeKhteWjU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
