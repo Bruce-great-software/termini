@@ -5,6 +5,7 @@ import 'package:termini/pages/branchen_page.dart';
 import 'firebase_options.dart';
 import 'pages/friseur_list_page.dart';
 
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(

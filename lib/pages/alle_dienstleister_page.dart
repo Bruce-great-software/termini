@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
+import 'dienstleister_detail_page.dart';
+
 
 class AlleDienstleisterPage extends StatefulWidget {
   const AlleDienstleisterPage({super.key});
@@ -10,20 +12,25 @@ class AlleDienstleisterPage extends StatefulWidget {
 }
 
 class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> {
-  List<Map<String, dynamic>> alleDienstleister = [];
-  bool isLoading = true;
   Position? userPosition;
+  bool isLoading = true;
 
   final List<String> kategorien = ['Alle', 'friseure', 'kosmetiker', 'massagen'];
   String selectedKategorie = 'Alle';
 
+  final List<String> unterkategorien = ['Alle', 'Damen', 'Herren', 'Kinder'];
+  String selectedUnterkategorie = 'Alle';
+
+  String selectedHauptLeistung = 'Alle';
+  List<String> kategorienAusFirebase = [];
+
   @override
   void initState() {
     super.initState();
-    ladeAlleDienstleister();
+    _initLocation();
   }
 
-  Future<void> ladeAlleDienstleister() async {
+  Future<void> _initLocation() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       setState(() => isLoading = false);
@@ -41,103 +48,213 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> {
     }
 
     userPosition = await Geolocator.getCurrentPosition();
+    setState(() => isLoading = false);
+  }
 
-    final branchenSnapshot = await FirebaseFirestore.instance.collection('branchen').get();
-    List<Map<String, dynamic>> dienstleisterGesamt = [];
-
-    for (var branche in branchenSnapshot.docs) {
-      final brancheId = branche.id;
-      final dienstleisterSnapshot = await FirebaseFirestore.instance
-          .collection('branchen')
-          .doc(brancheId)
-          .collection('dienstleister')
-          .get();
-
-      for (var doc in dienstleisterSnapshot.docs) {
-        final data = doc.data();
-        data['branche'] = brancheId;
-
-        if (data['geo'] != null && userPosition != null) {
-          final geo = data['geo'];
-          final distanceInMeters = Geolocator.distanceBetween(
-            userPosition!.latitude,
-            userPosition!.longitude,
-            geo.latitude,
-            geo.longitude,
-          );
-          data['distance'] = distanceInMeters / 1000;
+  void aktualisiereKategorienAusFirebase(List<Map<String, dynamic>> alleDienstleister) {
+    kategorienAusFirebase = [];
+    if (selectedUnterkategorie != 'Alle') {
+      for (var e in alleDienstleister) {
+        final passtZurKategorie = selectedKategorie == 'Alle' || e['branche'] == selectedKategorie;
+        final passtZurUnterkategorie = e['zielgruppen'] != null &&
+            (e['zielgruppen'] as List).contains(selectedUnterkategorie.toLowerCase());
+        if (passtZurKategorie && passtZurUnterkategorie) {
+          final leistungen = e['leistungen'];
+          if (leistungen != null && leistungen[selectedUnterkategorie.toLowerCase()] != null) {
+            final map = leistungen[selectedUnterkategorie.toLowerCase()] as Map<String, dynamic>;
+            for (var key in map.keys) {
+              if (!kategorienAusFirebase.contains(key)) {
+                kategorienAusFirebase.add(key);
+              }
+            }
+          }
         }
-
-        dienstleisterGesamt.add(data);
       }
     }
+  }
 
-    dienstleisterGesamt.sort((a, b) => (a['distance'] ?? 99999).compareTo(b['distance'] ?? 99999));
-
-    setState(() {
-      alleDienstleister = dienstleisterGesamt;
-      isLoading = false;
-    });
+  void oeffneDienstleisterDetails(Map<String, dynamic> dienstleister) {
+    final zielgruppe = selectedUnterkategorie.toLowerCase();
+    final kategorie = selectedHauptLeistung.toLowerCase();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DienstleisterDetailPage(
+          dienstleister: dienstleister,
+          selektierteZielgruppe: zielgruppe,
+          selektierteKategorie: kategorie,
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final gefiltert = alleDienstleister.where((e) {
-      if (selectedKategorie == 'Alle') return true;
-      return e['branche'] == selectedKategorie;
-    }).toList();
+    if (isLoading || userPosition == null) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(title: const Text('Dienstleister')),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-        children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-            child: Row(
-              children: kategorien.map((kategorie) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: ChoiceChip(
-                    label: Text(kategorie[0].toUpperCase() + kategorie.substring(1)),
-                    selected: selectedKategorie == kategorie,
-                    onSelected: (_) {
-                      setState(() {
-                        selectedKategorie = kategorie;
-                      });
-                    },
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-          Expanded(
-            child: gefiltert.isEmpty
-                ? const Center(child: Text('Keine Dienstleister gefunden.'))
-                : ListView.builder(
-              itemCount: gefiltert.length,
-              itemBuilder: (context, index) {
-                final data = gefiltert[index];
-                final distance = data['distance'];
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collectionGroup('dienstleister').snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
-                return ListTile(
-                  title: Text(data['name'] ?? 'Kein Name'),
-                  subtitle: Text(
-                    '${data['adresse'] ?? 'Keine Adresse'}, '
-                        '${data['plz'] ?? ''} ${data['ort'] ?? ''}',
+          final dienstleisterGesamt = snapshot.data!.docs.map((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            data['id'] = doc.id;
+            data['branche'] = doc.reference.parent.parent?.id;
+
+            if (data['geo'] != null) {
+              final geo = data['geo'];
+              final distanceInMeters = Geolocator.distanceBetween(
+                userPosition!.latitude,
+                userPosition!.longitude,
+                geo.latitude,
+                geo.longitude,
+              );
+              data['distance'] = distanceInMeters / 1000;
+            }
+
+            return data;
+          }).toList();
+
+          final gefiltert = dienstleisterGesamt.where((e) {
+            final passtZurKategorie = selectedKategorie == 'Alle' || e['branche'] == selectedKategorie;
+
+            final passtZurUnterkategorie = selectedUnterkategorie == 'Alle' ||
+                (e['zielgruppen'] != null &&
+                    (e['zielgruppen'] as List).contains(selectedUnterkategorie.toLowerCase()));
+
+            final passtZurLeistung = selectedHauptLeistung == 'Alle' ||
+                (e['leistungen'] != null &&
+                    e['leistungen'][selectedUnterkategorie.toLowerCase()] != null &&
+                    (e['leistungen'][selectedUnterkategorie.toLowerCase()] as Map<String, dynamic>)
+                        .containsKey(selectedHauptLeistung.toLowerCase()));
+
+            return passtZurKategorie && passtZurUnterkategorie && passtZurLeistung;
+          }).toList();
+
+
+          final basisGefiltert = dienstleisterGesamt.where((e) {
+            final passtZurKategorie = selectedKategorie == 'Alle' || e['branche'] == selectedKategorie;
+            final passtZurUnterkategorie = selectedUnterkategorie == 'Alle' ||
+                (e['zielgruppen'] != null &&
+                    (e['zielgruppen'] as List).contains(selectedUnterkategorie.toLowerCase()));
+            return passtZurKategorie && passtZurUnterkategorie;
+          }).toList();
+
+          aktualisiereKategorienAusFirebase(basisGefiltert);
+
+
+          return Column(
+            children: [
+              // Kategorie-Filter
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                child: Row(
+                  children: kategorien.map((kategorie) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: ChoiceChip(
+                        label: Text(kategorie[0].toUpperCase() + kategorie.substring(1)),
+                        selected: selectedKategorie == kategorie,
+                        onSelected: (_) {
+                          setState(() {
+                            selectedKategorie = kategorie;
+                            selectedUnterkategorie = 'Alle';
+                            selectedHauptLeistung = 'Alle';
+                          });
+                        },
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              // Zielgruppen-Filter
+              if (selectedKategorie == 'friseure')
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Row(
+                    children: unterkategorien.map((option) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: ChoiceChip(
+                          label: Text(option),
+                          selected: selectedUnterkategorie == option,
+                          onSelected: (_) {
+                            setState(() {
+                              selectedUnterkategorie = option;
+                              selectedHauptLeistung = 'Alle';
+                            });
+                          },
+                        ),
+                      );
+                    }).toList(),
                   ),
-                  isThreeLine: true,
-                  trailing: distance != null
-                      ? Text('${distance.toStringAsFixed(1)} km')
-                      : const Text('—'),
-                );
-              },
-            ),
-          )
-        ],
+                ),
+              // Leistungen-Filter
+              if (kategorienAusFirebase.isNotEmpty)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Row(
+                    children: kategorienAusFirebase.map((kategorie) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: ChoiceChip(
+                          label: Text(kategorie[0].toUpperCase() + kategorie.substring(1)),
+                          selected: selectedHauptLeistung == kategorie,
+                          onSelected: (_) {
+                            setState(() {
+                              selectedHauptLeistung = kategorie;
+                            });
+                          },
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              // Dienstleister-Liste
+              Expanded(
+                child: gefiltert.isEmpty
+                    ? const Center(child: Text('Keine Dienstleister gefunden.'))
+                    : ListView.builder(
+                  itemCount: gefiltert.length,
+                  itemBuilder: (context, index) {
+                    final data = gefiltert[index];
+                    final distance = data['distance'];
+
+                    return ListTile(
+                      title: Text(data['name'] ?? 'Kein Name'),
+                      subtitle: Text(
+                        '${data['adresse'] ?? 'Keine Adresse'}, ${data['plz'] ?? ''} ${data['ort'] ?? ''}',
+                      ),
+                      isThreeLine: true,
+                      trailing: distance != null
+                          ? Text('${distance.toStringAsFixed(1)} km')
+                          : const Text('—'),
+                      onTap: () => oeffneDienstleisterDetails(data),
+                    );
+                  },
+                ),
+              )
+            ],
+          );
+        },
       ),
     );
   }
 }
+
+
+
+
+
+
+
