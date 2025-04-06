@@ -7,6 +7,12 @@ import 'package:flutter/services.dart';
 import '../services/location_service.dart';
 import '../services/filter_helper.dart';
 import '../widgets/kategorie_filter_chips.dart';
+import '../widgets/zielgruppen_filter_chips.dart';
+import '../widgets/leistungs_filter_chips.dart';
+import '../widgets/dienstleister_tile.dart';
+
+
+
 
 
 
@@ -158,49 +164,29 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
 
               // Zielgruppen-Filter
               if (selectedKategorie == 'friseure')
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    children: unterkategorien.map((option) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: ChoiceChip(
-                          label: Text(option),
-                          selected: selectedUnterkategorie == option,
-                          onSelected: (_) {
-                            setState(() {
-                              selectedUnterkategorie = option;
-                              selectedHauptLeistung = 'Alle';
-                            });
-                          },
-                        ),
-                      );
-                    }).toList(),
-                  ),
+                ZielgruppenFilterChips(
+                  zielgruppen: unterkategorien,
+                  selectedZielgruppe: selectedUnterkategorie,
+                  onChanged: (value) {
+                    setState(() {
+                      selectedUnterkategorie = value;
+                      selectedHauptLeistung = 'Alle';
+                    });
+                  },
                 ),
+
               // Leistungen-Filter
               if (kategorienAusFirebase.isNotEmpty)
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    children: kategorienAusFirebase.map((kategorie) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: ChoiceChip(
-                          label: Text(kategorie[0].toUpperCase() + kategorie.substring(1)),
-                          selected: selectedHauptLeistung == kategorie,
-                          onSelected: (_) {
-                            setState(() {
-                              selectedHauptLeistung = kategorie;
-                            });
-                          },
-                        ),
-                      );
-                    }).toList(),
-                  ),
+                LeistungsFilterChips(
+                  leistungskategorien: kategorienAusFirebase,
+                  selectedLeistung: selectedHauptLeistung,
+                  onChanged: (value) {
+                    setState(() {
+                      selectedHauptLeistung = value;
+                    });
+                  },
                 ),
+
               // Dienstleister-Liste
               Expanded(
                 child: gefiltert.isEmpty
@@ -211,17 +197,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
                     final data = gefiltert[index];
                     final distance = data['distance'];
 
-                    return ListTile(
-                      title: Text(data['name'] ?? 'Kein Name'),
-                      subtitle: Text(
-                        '${data['adresse'] ?? 'Keine Adresse'}, ${data['plz'] ?? ''} ${data['ort'] ?? ''}',
-                      ),
-                      isThreeLine: true,
-                      trailing: distance != null
-                          ? Text('${distance.toStringAsFixed(1)} km')
-                          : const Text('—'),
+                    return DienstleisterTile(
+                      data: data,
                       onTap: () => oeffneDienstleisterDetails(data),
                     );
+
                   },
                 ),
               )
