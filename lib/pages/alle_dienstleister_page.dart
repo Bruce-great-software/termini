@@ -5,6 +5,10 @@ import 'dienstleister_detail_page.dart';
 import 'package:app_settings/app_settings.dart';
 import 'package:flutter/services.dart';
 import '../services/location_service.dart';
+import '../services/filter_helper.dart';
+import '../widgets/kategorie_filter_chips.dart';
+
+
 
 
 class AlleDienstleisterPage extends StatefulWidget {
@@ -58,27 +62,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
   }
 
 
-  void aktualisiereKategorienAusFirebase(List<Map<String, dynamic>> alleDienstleister) {
-    kategorienAusFirebase = [];
-    if (selectedUnterkategorie != 'Alle') {
-      for (var e in alleDienstleister) {
-        final passtZurKategorie = selectedKategorie == 'Alle' || e['branche'] == selectedKategorie;
-        final passtZurUnterkategorie = e['zielgruppen'] != null &&
-            (e['zielgruppen'] as List).contains(selectedUnterkategorie.toLowerCase());
-        if (passtZurKategorie && passtZurUnterkategorie) {
-          final leistungen = e['leistungen'];
-          if (leistungen != null && leistungen[selectedUnterkategorie.toLowerCase()] != null) {
-            final map = leistungen[selectedUnterkategorie.toLowerCase()] as Map<String, dynamic>;
-            for (var key in map.keys) {
-              if (!kategorienAusFirebase.contains(key)) {
-                kategorienAusFirebase.add(key);
-              }
-            }
-          }
-        }
-      }
-    }
-  }
+
 
   void oeffneDienstleisterDetails(Map<String, dynamic> dienstleister) {
     final zielgruppe = selectedUnterkategorie.toLowerCase();
@@ -150,33 +134,28 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
             return passtZurKategorie && passtZurUnterkategorie;
           }).toList();
 
-          aktualisiereKategorienAusFirebase(basisGefiltert);
+          kategorienAusFirebase = FilterHelper.getLeistungskategorien(
+            alleDienstleister: basisGefiltert,
+            selectedKategorie: selectedKategorie,
+            selectedUnterkategorie: selectedUnterkategorie,
+          );
+
 
           return Column(
             children: [
               // Kategorie-Filter
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                child: Row(
-                  children: kategorien.map((kategorie) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: ChoiceChip(
-                        label: Text(kategorie[0].toUpperCase() + kategorie.substring(1)),
-                        selected: selectedKategorie == kategorie,
-                        onSelected: (_) {
-                          setState(() {
-                            selectedKategorie = kategorie;
-                            selectedUnterkategorie = 'Alle';
-                            selectedHauptLeistung = 'Alle';
-                          });
-                        },
-                      ),
-                    );
-                  }).toList(),
-                ),
+              KategorieFilterChips(
+                kategorien: kategorien,
+                selectedKategorie: selectedKategorie,
+                onChanged: (value) {
+                  setState(() {
+                    selectedKategorie = value;
+                    selectedUnterkategorie = 'Alle';
+                    selectedHauptLeistung = 'Alle';
+                  });
+                },
               ),
+
               // Zielgruppen-Filter
               if (selectedKategorie == 'friseure')
                 SingleChildScrollView(
