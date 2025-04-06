@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dienstleister_detail_page.dart';
-
+import 'package:app_settings/app_settings.dart';
+import 'package:flutter/services.dart';
 
 class AlleDienstleisterPage extends StatefulWidget {
   const AlleDienstleisterPage({super.key});
@@ -11,7 +12,7 @@ class AlleDienstleisterPage extends StatefulWidget {
   State<AlleDienstleisterPage> createState() => _AlleDienstleisterPageState();
 }
 
-class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> {
+class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with WidgetsBindingObserver {
   Position? userPosition;
   bool isLoading = true;
 
@@ -27,12 +28,49 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initLocation();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _initLocation();
+    }
   }
 
   Future<void> _initLocation() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
     if (!serviceEnabled) {
+      await showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Standort deaktiviert'),
+          content: const Text('Bitte aktiviere den Standortdienst in den Systemeinstellungen, um Dienstleister in deiner Nähe zu sehen.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Geolocator.openLocationSettings();
+              },
+              child: const Text('Standort aktivieren'),
+            ),
+            TextButton(
+              onPressed: () {
+                SystemChannels.platform.invokeMethod('SystemNavigator.pop');
+              },
+              child: const Text('App schließen'),
+            ),
+          ],
+        ),
+      );
       setState(() => isLoading = false);
       return;
     }
@@ -42,7 +80,32 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> {
       permission = await Geolocator.requestPermission();
     }
 
-    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+    if (permission == LocationPermission.deniedForever) {
+      await showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Standortberechtigung verweigert'),
+          content: const Text('Du hast den Standort dauerhaft blockiert. Bitte öffne die App-Einstellungen, um die Berechtigung manuell zu erteilen.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                AppSettings.openAppSettings();
+              },
+              child: const Text('Einstellungen öffnen'),
+            ),
+            TextButton(
+              onPressed: () => SystemNavigator.pop(),
+              child: const Text('App schließen'),
+            ),
+          ],
+        ),
+      );
+      setState(() => isLoading = false);
+      return;
+    }
+
+    if (permission == LocationPermission.denied) {
       setState(() => isLoading = false);
       return;
     }
@@ -124,20 +187,16 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> {
 
           final gefiltert = dienstleisterGesamt.where((e) {
             final passtZurKategorie = selectedKategorie == 'Alle' || e['branche'] == selectedKategorie;
-
             final passtZurUnterkategorie = selectedUnterkategorie == 'Alle' ||
                 (e['zielgruppen'] != null &&
                     (e['zielgruppen'] as List).contains(selectedUnterkategorie.toLowerCase()));
-
             final passtZurLeistung = selectedHauptLeistung == 'Alle' ||
                 (e['leistungen'] != null &&
                     e['leistungen'][selectedUnterkategorie.toLowerCase()] != null &&
                     (e['leistungen'][selectedUnterkategorie.toLowerCase()] as Map<String, dynamic>)
                         .containsKey(selectedHauptLeistung.toLowerCase()));
-
             return passtZurKategorie && passtZurUnterkategorie && passtZurLeistung;
           }).toList();
-
 
           final basisGefiltert = dienstleisterGesamt.where((e) {
             final passtZurKategorie = selectedKategorie == 'Alle' || e['branche'] == selectedKategorie;
@@ -148,7 +207,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> {
           }).toList();
 
           aktualisiereKategorienAusFirebase(basisGefiltert);
-
 
           return Column(
             children: [
@@ -251,10 +309,3 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> {
     );
   }
 }
-
-
-
-
-
-
-
