@@ -4,6 +4,8 @@ import 'package:geolocator/geolocator.dart';
 import 'dienstleister_detail_page.dart';
 import 'package:app_settings/app_settings.dart';
 import 'package:flutter/services.dart';
+import '../services/location_service.dart';
+
 
 class AlleDienstleisterPage extends StatefulWidget {
   const AlleDienstleisterPage({super.key});
@@ -46,73 +48,15 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
   }
 
   Future<void> _initLocation() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-
-    if (!serviceEnabled) {
-      await showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Standort deaktiviert'),
-          content: const Text('Bitte aktiviere den Standortdienst in den Systemeinstellungen, um Dienstleister in deiner Nähe zu sehen.'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                Geolocator.openLocationSettings();
-              },
-              child: const Text('Standort aktivieren'),
-            ),
-            TextButton(
-              onPressed: () {
-                SystemChannels.platform.invokeMethod('SystemNavigator.pop');
-              },
-              child: const Text('App schließen'),
-            ),
-          ],
-        ),
-      );
-      setState(() => isLoading = false);
-      return;
-    }
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      await showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Standortberechtigung verweigert'),
-          content: const Text('Du hast den Standort dauerhaft blockiert. Bitte öffne die App-Einstellungen, um die Berechtigung manuell zu erteilen.'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                AppSettings.openAppSettings();
-              },
-              child: const Text('Einstellungen öffnen'),
-            ),
-            TextButton(
-              onPressed: () => SystemNavigator.pop(),
-              child: const Text('App schließen'),
-            ),
-          ],
-        ),
-      );
-      setState(() => isLoading = false);
-      return;
-    }
-
-    if (permission == LocationPermission.denied) {
-      setState(() => isLoading = false);
-      return;
-    }
-
-    userPosition = await Geolocator.getCurrentPosition();
+    setState(() => isLoading = true);
+    userPosition = await LocationService.initLocation(
+      context: context,
+      onExitApp: () => SystemChannels.platform.invokeMethod('SystemNavigator.pop'),
+      onOpenAppSettings: () => AppSettings.openAppSettings(),
+    );
     setState(() => isLoading = false);
   }
+
 
   void aktualisiereKategorienAusFirebase(List<Map<String, dynamic>> alleDienstleister) {
     kategorienAusFirebase = [];
