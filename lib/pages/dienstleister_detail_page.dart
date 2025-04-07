@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-
 class DienstleisterDetailPage extends StatefulWidget {
   final Map<String, dynamic> dienstleister;
   final String selektierteZielgruppe;
@@ -73,6 +72,23 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           body: ListView(
             padding: const EdgeInsets.all(16.0),
             children: [
+              // ⬇️ Neues: Logo anzeigen
+              if (widget.dienstleister['logoUrl'] != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16.0),
+                  child: Center(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.network(
+                        widget.dienstleister['logoUrl'],
+                        width: 120,
+                        height: 120,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                ),
+
               // Zielgruppenfilter
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -94,6 +110,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   }).toList(),
                 ),
               ),
+
               // Leistungsanzeige
               ...gefiltert.map((zielgruppeEintrag) {
                 return Column(
@@ -170,6 +187,3 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     );
   }
 }
-
-
-
