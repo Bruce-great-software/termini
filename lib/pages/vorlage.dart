@@ -30,7 +30,7 @@ class DienstleisterVorlagePage extends StatelessWidget {
         },
         'damen': {
           'haare': [
-            {'name': 'Waschen & Föhnen', 'preis': 25, 'dauer': 25},
+            {'name': 'Waschen & Foehnen', 'preis': 25, 'dauer': 25},
           ],
         },
         'kinder': {

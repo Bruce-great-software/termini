@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
-import 'dienstleister_detail_page.dart';
-import 'dienstleister_registrierung_page.dart';
 import 'package:app_settings/app_settings.dart';
 import 'package:flutter/services.dart';
 import '../services/location_service.dart';
@@ -11,6 +9,8 @@ import '../widgets/kategorie_filter_chips.dart';
 import '../widgets/zielgruppen_filter_chips.dart';
 import '../widgets/leistungs_filter_chips.dart';
 import '../widgets/dienstleister_tile.dart';
+import 'dienstleister_registrierung_page.dart';
+import 'dienstleister_detail_page.dart';
 
 class AlleDienstleisterPage extends StatefulWidget {
   const AlleDienstleisterPage({super.key});
@@ -23,6 +23,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
   Position? userPosition;
   bool isLoading = true;
 
+  int _selectedIndex = 0;
+
   final List<String> kategorien = ['Alle', 'friseure', 'kosmetiker', 'massagen'];
   String selectedKategorie = 'Alle';
 
@@ -31,6 +33,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
 
   String selectedHauptLeistung = 'Alle';
   List<String> kategorienAusFirebase = [];
+
+  Map<String, dynamic>? geoeffneterDienstleister;
 
   @override
   void initState() {
@@ -62,21 +66,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
     setState(() => isLoading = false);
   }
 
-  void oeffneDienstleisterDetails(Map<String, dynamic> dienstleister) {
-    final zielgruppe = selectedUnterkategorie.toLowerCase();
-    final kategorie = selectedHauptLeistung.toLowerCase();
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => DienstleisterDetailPage(
-          dienstleister: dienstleister,
-          selektierteZielgruppe: zielgruppe,
-          selektierteKategorie: kategorie,
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     if (isLoading || userPosition == null) {
@@ -86,124 +75,167 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Dienstleister')),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collectionGroup('dienstleister').snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+      appBar: AppBar(
+          title: const Text('Dienstleister'),
+          leading: geoeffneterDienstleister != null
+      ? IconButton(
+      icon: const Icon(Icons.arrow_back),
+      onPressed: () {
+        setState(() {
+          geoeffneterDienstleister = null;
+        });
+      },
+    )
+        : null,
+    ),
+    body: geoeffneterDienstleister != null
+    ? DienstleisterDetailPage(
+    dienstleister: geoeffneterDienstleister!,
+    selektierteZielgruppe: selectedUnterkategorie.toLowerCase(),
+    selektierteKategorie: selectedHauptLeistung.toLowerCase(),
+    )
+        : (_selectedIndex == 0 ? dienstleisterListeView() : favoritenPlaceholder()),
+    bottomNavigationBar: BottomNavigationBar(
+    currentIndex: _selectedIndex,
+    onTap: (index) {
+    setState(() {
+    geoeffneterDienstleister = null;
+    _selectedIndex = index;
+    });
+    },
+    items: const [
+    BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Suchen'),
+    BottomNavigationBarItem(icon: Icon(Icons.favorite), label: 'Favoriten'),
+    ],
+    ),
+    );
+  }
 
-          final dienstleisterGesamt = snapshot.data!.docs.map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
-            data['id'] = doc.id;
-            data['branche'] = doc.reference.parent.parent?.id;
+  Widget dienstleisterListeView() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collectionGroup('dienstleister').snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
-            if (data['geo'] != null) {
-              final geo = data['geo'];
-              final distanceInMeters = Geolocator.distanceBetween(
-                userPosition!.latitude,
-                userPosition!.longitude,
-                geo.latitude,
-                geo.longitude,
-              );
-              data['distance'] = distanceInMeters / 1000;
-            }
+        final dienstleisterGesamt = snapshot.data!.docs.map((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          data['id'] = doc.id;
+          data['branche'] = doc.reference.parent.parent?.id;
 
-            return data;
-          }).toList();
+          if (data['geo'] != null) {
+            final geo = data['geo'];
+            final distanceInMeters = Geolocator.distanceBetween(
+              userPosition!.latitude,
+              userPosition!.longitude,
+              geo.latitude,
+              geo.longitude,
+            );
+            data['distance'] = distanceInMeters / 1000;
+          }
 
-          final gefiltert = dienstleisterGesamt.where((e) {
-            final passtZurKategorie = selectedKategorie == 'Alle' || e['branche'] == selectedKategorie;
-            final passtZurUnterkategorie = selectedUnterkategorie == 'Alle' ||
-                (e['zielgruppen'] != null &&
-                    (e['zielgruppen'] as List).contains(selectedUnterkategorie.toLowerCase()));
-            final passtZurLeistung = selectedHauptLeistung == 'Alle' ||
-                (e['leistungen'] != null &&
-                    e['leistungen'][selectedUnterkategorie.toLowerCase()] != null &&
-                    (e['leistungen'][selectedUnterkategorie.toLowerCase()] as Map<String, dynamic>)
-                        .containsKey(selectedHauptLeistung.toLowerCase()));
-            return passtZurKategorie && passtZurUnterkategorie && passtZurLeistung;
-          }).toList();
+          return data;
+        }).toList();
 
-          final basisGefiltert = dienstleisterGesamt.where((e) {
-            final passtZurKategorie = selectedKategorie == 'Alle' || e['branche'] == selectedKategorie;
-            final passtZurUnterkategorie = selectedUnterkategorie == 'Alle' ||
-                (e['zielgruppen'] != null &&
-                    (e['zielgruppen'] as List).contains(selectedUnterkategorie.toLowerCase()));
-            return passtZurKategorie && passtZurUnterkategorie;
-          }).toList();
+        final gefiltert = dienstleisterGesamt.where((e) {
+          final passtZurKategorie = selectedKategorie == 'Alle' || e['branche'] == selectedKategorie;
+          final passtZurUnterkategorie = selectedUnterkategorie == 'Alle' ||
+              (e['zielgruppen'] != null &&
+                  (e['zielgruppen'] as List).contains(selectedUnterkategorie.toLowerCase()));
+          final passtZurLeistung = selectedHauptLeistung == 'Alle' ||
+              (e['leistungen'] != null &&
+                  e['leistungen'][selectedUnterkategorie.toLowerCase()] != null &&
+                  (e['leistungen'][selectedUnterkategorie.toLowerCase()] as Map<String, dynamic>)
+                      .containsKey(selectedHauptLeistung.toLowerCase()));
+          return passtZurKategorie && passtZurUnterkategorie && passtZurLeistung;
+        }).toList();
 
-          kategorienAusFirebase = FilterHelper.getLeistungskategorien(
-            alleDienstleister: basisGefiltert,
-            selectedKategorie: selectedKategorie,
-            selectedUnterkategorie: selectedUnterkategorie,
-          );
+        final basisGefiltert = dienstleisterGesamt.where((e) {
+          final passtZurKategorie = selectedKategorie == 'Alle' || e['branche'] == selectedKategorie;
+          final passtZurUnterkategorie = selectedUnterkategorie == 'Alle' ||
+              (e['zielgruppen'] != null &&
+                  (e['zielgruppen'] as List).contains(selectedUnterkategorie.toLowerCase()));
+          return passtZurKategorie && passtZurUnterkategorie;
+        }).toList();
 
-          return Column(
-            children: [
-              KategorieFilterChips(
-                kategorien: kategorien,
-                selectedKategorie: selectedKategorie,
+        kategorienAusFirebase = FilterHelper.getLeistungskategorien(
+          alleDienstleister: basisGefiltert,
+          selectedKategorie: selectedKategorie,
+          selectedUnterkategorie: selectedUnterkategorie,
+        );
+
+        return Column(
+          children: [
+            KategorieFilterChips(
+              kategorien: kategorien,
+              selectedKategorie: selectedKategorie,
+              onChanged: (value) {
+                setState(() {
+                  selectedKategorie = value;
+                  selectedUnterkategorie = 'Alle';
+                  selectedHauptLeistung = 'Alle';
+                });
+              },
+            ),
+            if (selectedKategorie == 'friseure')
+              ZielgruppenFilterChips(
+                zielgruppen: unterkategorien,
+                selectedZielgruppe: selectedUnterkategorie,
                 onChanged: (value) {
                   setState(() {
-                    selectedKategorie = value;
-                    selectedUnterkategorie = 'Alle';
+                    selectedUnterkategorie = value;
                     selectedHauptLeistung = 'Alle';
                   });
                 },
               ),
-              if (selectedKategorie == 'friseure')
-                ZielgruppenFilterChips(
-                  zielgruppen: unterkategorien,
-                  selectedZielgruppe: selectedUnterkategorie,
-                  onChanged: (value) {
-                    setState(() {
-                      selectedUnterkategorie = value;
-                      selectedHauptLeistung = 'Alle';
-                    });
-                  },
-                ),
-              if (kategorienAusFirebase.isNotEmpty)
-                LeistungsFilterChips(
-                  leistungskategorien: kategorienAusFirebase,
-                  selectedLeistung: selectedHauptLeistung,
-                  onChanged: (value) {
-                    setState(() {
-                      selectedHauptLeistung = value;
-                    });
-                  },
-                ),
-              Expanded(
-                child: gefiltert.isEmpty
-                    ? const Center(child: Text('Keine Dienstleister gefunden.'))
-                    : ListView.builder(
-                  itemCount: gefiltert.length,
-                  itemBuilder: (context, index) {
-                    final data = gefiltert[index];
-                    return DienstleisterTile(
-                      data: data,
-                      onTap: () => oeffneDienstleisterDetails(data),
-                    );
-                  },
-                ),
+            if (kategorienAusFirebase.isNotEmpty)
+              LeistungsFilterChips(
+                leistungskategorien: kategorienAusFirebase,
+                selectedLeistung: selectedHauptLeistung,
+                onChanged: (value) {
+                  setState(() {
+                    selectedHauptLeistung = value;
+                  });
+                },
               ),
-              const SizedBox(height: 8),
-              Center(
-                child: TextButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const DienstleisterRegistrierungPage(),
-                      ),
-                    );
-                  },
-                  child: const Text('Dienstleister registrieren'),
-                ),
+            Expanded(
+              child: gefiltert.isEmpty
+                  ? const Center(child: Text('Keine Dienstleister gefunden.'))
+                  : ListView.builder(
+                itemCount: gefiltert.length,
+                itemBuilder: (context, index) {
+                  final data = gefiltert[index];
+                  return DienstleisterTile(
+                    data: data,
+                    onTap: () {
+                      setState(() {
+                        geoeffneterDienstleister = data;
+                      });
+                    },
+                  );
+                },
               ),
-            ],
-          );
-        },
-      ),
+            ),
+            const SizedBox(height: 8),
+            Center(
+              child: TextButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DienstleisterRegistrierungPage()),
+                  );
+                },
+                child: const Text('Dienstleister registrieren'),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget favoritenPlaceholder() {
+    return const Center(
+      child: Text('Favoriten kommen bald!'),
     );
   }
 }

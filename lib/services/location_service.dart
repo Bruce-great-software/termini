@@ -68,14 +68,14 @@ class LocationService {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Standortberechtigung verweigert'),
-        content: const Text('Du hast den Standort dauerhaft blockiert. Bitte öffne die App-Einstellungen, um die Berechtigung manuell zu erteilen.'),
+        content: const Text('Du hast den Standort dauerhaft blockiert. Bitte oeffne die App-Einstellungen, um die Berechtigung manuell zu erteilen.'),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               onOpenAppSettings();
             },
-            child: const Text('Einstellungen öffnen'),
+            child: const Text('Einstellungen oeffnen'),
           ),
           TextButton(
             onPressed: onExitApp,

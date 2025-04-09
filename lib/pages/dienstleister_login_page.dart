@@ -2,21 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'dienstleister_home_page.dart';
+import 'dienstleister_registrierung_page.dart';
 
-class DienstleisterRegistrierungPage extends StatefulWidget {
-  const DienstleisterRegistrierungPage({super.key});
+class DienstleisterLoginPage extends StatefulWidget {
+  const DienstleisterLoginPage({super.key});
 
   @override
-  State<DienstleisterRegistrierungPage> createState() => _DienstleisterRegistrierungPageState();
+  State<DienstleisterLoginPage> createState() => _DienstleisterLoginPageState();
 }
 
-class _DienstleisterRegistrierungPageState extends State<DienstleisterRegistrierungPage> {
+class _DienstleisterLoginPageState extends State<DienstleisterLoginPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  Future<void> _register() async {
+  Future<void> _login() async {
     try {
-      final userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      final userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
@@ -34,7 +35,7 @@ class _DienstleisterRegistrierungPageState extends State<DienstleisterRegistrier
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Registrierung')),
+      appBar: AppBar(title: const Text('Login')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -52,8 +53,19 @@ class _DienstleisterRegistrierungPageState extends State<DienstleisterRegistrier
             ),
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: _register,
-              child: const Text('Registrieren'),
+              onPressed: _login,
+              child: const Text('Login'),
+            ),
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: () {
+                // Zur Registrierungsseite weiterleiten
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DienstleisterRegistrierungPage()),
+                );
+              },
+              child: const Text('Noch kein Konto? Jetzt registrieren'),
             ),
           ],
         ),
