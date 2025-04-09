@@ -197,7 +197,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
                       ),
                     );
                   },
-                  child: const Text('Als Dienstleister registrieren'),
+                  child: const Text('Dienstleister registrieren'),
                 ),
               ),
             ],
