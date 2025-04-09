@@ -1,0 +1,1 @@
+C:\Users\User\AndroidStudioProjects\termini\android\app\src\main\kotlin\com\serdal\termini\MainActivity.kt

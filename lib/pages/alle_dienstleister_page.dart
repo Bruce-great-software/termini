@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dienstleister_detail_page.dart';
+import 'dienstleister_registrierung_page.dart';
 import 'package:app_settings/app_settings.dart';
 import 'package:flutter/services.dart';
 import '../services/location_service.dart';
@@ -10,12 +11,6 @@ import '../widgets/kategorie_filter_chips.dart';
 import '../widgets/zielgruppen_filter_chips.dart';
 import '../widgets/leistungs_filter_chips.dart';
 import '../widgets/dienstleister_tile.dart';
-
-
-
-
-
-
 
 class AlleDienstleisterPage extends StatefulWidget {
   const AlleDienstleisterPage({super.key});
@@ -66,9 +61,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
     );
     setState(() => isLoading = false);
   }
-
-
-
 
   void oeffneDienstleisterDetails(Map<String, dynamic> dienstleister) {
     final zielgruppe = selectedUnterkategorie.toLowerCase();
@@ -146,10 +138,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
             selectedUnterkategorie: selectedUnterkategorie,
           );
 
-
           return Column(
             children: [
-              // Kategorie-Filter
               KategorieFilterChips(
                 kategorien: kategorien,
                 selectedKategorie: selectedKategorie,
@@ -161,8 +151,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
                   });
                 },
               ),
-
-              // Zielgruppen-Filter
               if (selectedKategorie == 'friseure')
                 ZielgruppenFilterChips(
                   zielgruppen: unterkategorien,
@@ -174,8 +162,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
                     });
                   },
                 ),
-
-              // Leistungen-Filter
               if (kategorienAusFirebase.isNotEmpty)
                 LeistungsFilterChips(
                   leistungskategorien: kategorienAusFirebase,
@@ -186,8 +172,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
                     });
                   },
                 ),
-
-              // Dienstleister-Liste
               Expanded(
                 child: gefiltert.isEmpty
                     ? const Center(child: Text('Keine Dienstleister gefunden.'))
@@ -195,16 +179,27 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
                   itemCount: gefiltert.length,
                   itemBuilder: (context, index) {
                     final data = gefiltert[index];
-                    final distance = data['distance'];
-
                     return DienstleisterTile(
                       data: data,
                       onTap: () => oeffneDienstleisterDetails(data),
                     );
-
                   },
                 ),
-              )
+              ),
+              const SizedBox(height: 8),
+              Center(
+                child: TextButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const DienstleisterRegistrierungPage(),
+                      ),
+                    );
+                  },
+                  child: const Text('Als Dienstleister registrieren'),
+                ),
+              ),
             ],
           );
         },
