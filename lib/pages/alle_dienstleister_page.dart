@@ -76,39 +76,65 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
 
     return Scaffold(
       appBar: AppBar(
-          title: const Text('Dienstleister'),
-          leading: geoeffneterDienstleister != null
-      ? IconButton(
-      icon: const Icon(Icons.arrow_back),
-      onPressed: () {
-        setState(() {
-          geoeffneterDienstleister = null;
-        });
-      },
-    )
-        : null,
-    ),
-    body: geoeffneterDienstleister != null
-    ? DienstleisterDetailPage(
-    dienstleister: geoeffneterDienstleister!,
-    selektierteZielgruppe: selectedUnterkategorie.toLowerCase(),
-    selektierteKategorie: selectedHauptLeistung.toLowerCase(),
-    )
-        : (_selectedIndex == 0 ? dienstleisterListeView() : favoritenPlaceholder()),
-    bottomNavigationBar: BottomNavigationBar(
-    currentIndex: _selectedIndex,
-    onTap: (index) {
-    setState(() {
-    geoeffneterDienstleister = null;
-    _selectedIndex = index;
-    });
-    },
-    items: const [
-    BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Suchen'),
-    BottomNavigationBarItem(icon: Icon(Icons.favorite), label: 'Favoriten'),
-    ],
-    ),
+        title: const Text('Dienstleister'),
+        leading: geoeffneterDienstleister != null
+            ? IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            setState(() {
+              geoeffneterDienstleister = null;
+            });
+          },
+        )
+            : null,
+      ),
+      body: geoeffneterDienstleister != null
+          ? DienstleisterDetailPage(
+        dienstleister: geoeffneterDienstleister!,
+        selektierteZielgruppe: selectedUnterkategorie.toLowerCase(),
+        selektierteKategorie: selectedHauptLeistung.toLowerCase(),
+      )
+          : _buildBodyByIndex(_selectedIndex),
+      bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed, // Wichtig für permanente Labels
+        currentIndex: _selectedIndex,
+        onTap: (index) {
+          setState(() {
+            geoeffneterDienstleister = null;
+            _selectedIndex = index;
+          });
+        },
+        selectedItemColor: Colors.deepOrange,
+        unselectedItemColor: Colors.grey,
+        selectedFontSize: 12,
+        unselectedFontSize: 12,
+        backgroundColor: Colors.white,
+        elevation: 8,
+        showUnselectedLabels: true, // <- Das zeigt ALLE Labels dauerhaft
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Suchen'),
+          BottomNavigationBarItem(icon: Icon(Icons.favorite_border), label: 'Favoriten'),
+          BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Termine'),
+          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profil'),
+        ],
+      ),
+
     );
+  }
+
+  Widget _buildBodyByIndex(int index) {
+    switch (index) {
+      case 0:
+        return dienstleisterListeView();
+      case 1:
+        return const Center(child: Text('Favoriten kommen bald!'));
+      case 2:
+        return const Center(child: Text('Buchungen kommen bald!'));
+      case 3:
+        return const Center(child: Text('Anmeldung kommt bald!'));
+      default:
+        return const SizedBox.shrink();
+    }
   }
 
   Widget dienstleisterListeView() {
@@ -230,12 +256,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
           ],
         );
       },
-    );
-  }
-
-  Widget favoritenPlaceholder() {
-    return const Center(
-      child: Text('Favoriten kommen bald!'),
     );
   }
 }
