@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'alle_dienstleister_page.dart';
 
 class KundenProfilPage extends StatelessWidget {
   const KundenProfilPage({super.key});
@@ -25,7 +26,11 @@ class KundenProfilPage extends StatelessWidget {
             ElevatedButton.icon(
               onPressed: () async {
                 await FirebaseAuth.instance.signOut();
-                Navigator.pop(context); // zurück zur vorherigen Ansicht
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AlleDienstleisterPage()),
+                      (route) => false,
+                );
               },
               icon: const Icon(Icons.logout),
               label: const Text('Abmelden'),
