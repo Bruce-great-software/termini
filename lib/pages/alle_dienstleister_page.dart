@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:app_settings/app_settings.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 import '../services/location_service.dart';
 import '../services/filter_helper.dart';
 import '../widgets/kategorie_filter_chips.dart';
@@ -11,6 +13,8 @@ import '../widgets/leistungs_filter_chips.dart';
 import '../widgets/dienstleister_tile.dart';
 import 'dienstleister_registrierung_page.dart';
 import 'dienstleister_detail_page.dart';
+import 'login_register_page.dart';
+import 'kunden_profil_page.dart';
 
 class AlleDienstleisterPage extends StatefulWidget {
   const AlleDienstleisterPage({super.key});
@@ -96,7 +100,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
       )
           : _buildBodyByIndex(_selectedIndex),
       bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed, // Wichtig für permanente Labels
+        type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
         onTap: (index) {
           setState(() {
@@ -110,7 +114,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
         unselectedFontSize: 12,
         backgroundColor: Colors.white,
         elevation: 8,
-        showUnselectedLabels: true, // <- Das zeigt ALLE Labels dauerhaft
+        showUnselectedLabels: true,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Suchen'),
           BottomNavigationBarItem(icon: Icon(Icons.favorite_border), label: 'Favoriten'),
@@ -118,7 +122,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
           BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profil'),
         ],
       ),
-
     );
   }
 
@@ -131,7 +134,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
       case 2:
         return const Center(child: Text('Buchungen kommen bald!'));
       case 3:
-        return const Center(child: Text('Anmeldung kommt bald!'));
+        final user = FirebaseAuth.instance.currentUser;
+        return user == null ? const LoginRegisterPage() : const KundenProfilPage();
       default:
         return const SizedBox.shrink();
     }
