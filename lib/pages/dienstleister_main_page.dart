@@ -74,6 +74,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     final pages = [
       _buildHomePage(),
       const Center(child: Text('Kalender kommt bald!')),
+      Center(child: ElevatedButton(onPressed: () {}, child: Text('Leistungen erstellen'))),
       _buildProfilPage(),
     ];
 
@@ -87,6 +88,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       ),
       body: pages[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed, // <--- Das sorgt für alle Labels!
         currentIndex: _selectedIndex,
         onTap: _onTabTapped,
         selectedItemColor: Colors.deepOrange,
@@ -94,8 +96,10 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
           BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Kalender'),
+          BottomNavigationBarItem(icon: Icon(Icons.design_services), label: 'Leistungen'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profil'),
         ],
+
       ),
     );
   }
