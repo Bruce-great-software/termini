@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'login_register_page.dart';
 import 'alle_dienstleister_page.dart';
+import 'dienstleister_edit_page.dart';
+
 
 class DienstleisterMainPage extends StatefulWidget {
   final String branche;
@@ -113,19 +115,35 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     );
   }
 
+// In der build-Methode, unter dem Profil-Tab
   Widget _buildProfilPage() {
+    final user = FirebaseAuth.instance.currentUser;
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text('Eingeloggt als: ${FirebaseAuth.instance.currentUser?.email ?? 'Unbekannt'}'),
+          Text('Willkommen, ${user?.displayName ?? 'Dienstleister'}!'),
           const SizedBox(height: 20),
           ElevatedButton(
-            onPressed: _logout,
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => DienstleisterEditPageEditPage(userId: user?.uid ?? ''),
+                ),
+              );
+            },
+            child: const Text('Persönliche Daten bearbeiten'),
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: _logout, // Der Logout-Button ruft die _logout-Methode auf
             child: const Text('Abmelden'),
           ),
         ],
       ),
     );
   }
+
 }

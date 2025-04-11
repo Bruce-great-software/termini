@@ -143,17 +143,19 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
 
   Widget dienstleisterListeView() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collectionGroup('dienstleister').snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .where('rolle', isEqualTo: 'dienstleister')
+          .snapshots(),  // Hier verwenden wir snapshots() statt get()
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
-        final dienstleisterGesamt = snapshot.data!.docs.map((doc) {
+        final dienstleisterListe = snapshot.data!.docs.map((doc) {
           final data = doc.data() as Map<String, dynamic>;
           data['id'] = doc.id;
-          data['branche'] = doc.reference.parent.parent?.id;
 
           if (data['geo'] != null) {
-            final geo = data['geo'];
+            final geo = data['geo'] as GeoPoint;
             final distanceInMeters = Geolocator.distanceBetween(
               userPosition!.latitude,
               userPosition!.longitude,
@@ -161,105 +163,33 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
               geo.longitude,
             );
             data['distance'] = distanceInMeters / 1000;
+          } else {
+            data['distance'] = double.infinity;
           }
 
           return data;
         }).toList();
 
-        final gefiltert = dienstleisterGesamt.where((e) {
-          final passtZurKategorie = selectedKategorie == 'Alle' || e['branche'] == selectedKategorie;
-          final passtZurUnterkategorie = selectedUnterkategorie == 'Alle' ||
-              (e['zielgruppen'] != null &&
-                  (e['zielgruppen'] as List).contains(selectedUnterkategorie.toLowerCase()));
-          final passtZurLeistung = selectedHauptLeistung == 'Alle' ||
-              (e['leistungen'] != null &&
-                  e['leistungen'][selectedUnterkategorie.toLowerCase()] != null &&
-                  (e['leistungen'][selectedUnterkategorie.toLowerCase()] as Map<String, dynamic>)
-                      .containsKey(selectedHauptLeistung.toLowerCase()));
-          return passtZurKategorie && passtZurUnterkategorie && passtZurLeistung;
-        }).toList();
+        dienstleisterListe.sort((a, b) => (a['distance'] as double).compareTo(b['distance'] as double));
 
-        final basisGefiltert = dienstleisterGesamt.where((e) {
-          final passtZurKategorie = selectedKategorie == 'Alle' || e['branche'] == selectedKategorie;
-          final passtZurUnterkategorie = selectedUnterkategorie == 'Alle' ||
-              (e['zielgruppen'] != null &&
-                  (e['zielgruppen'] as List).contains(selectedUnterkategorie.toLowerCase()));
-          return passtZurKategorie && passtZurUnterkategorie;
-        }).toList();
+        final gefiltert = dienstleisterListe; // Hier kannst du später weitere Filter einbauen
 
-        kategorienAusFirebase = FilterHelper.getLeistungskategorien(
-          alleDienstleister: basisGefiltert,
-          selectedKategorie: selectedKategorie,
-          selectedUnterkategorie: selectedUnterkategorie,
-        );
-
-        return Column(
-          children: [
-            KategorieFilterChips(
-              kategorien: kategorien,
-              selectedKategorie: selectedKategorie,
-              onChanged: (value) {
+        return ListView.builder(
+          itemCount: gefiltert.length,
+          itemBuilder: (context, index) {
+            final data = gefiltert[index];
+            return DienstleisterTile(
+              data: data,
+              onTap: () {
                 setState(() {
-                  selectedKategorie = value;
-                  selectedUnterkategorie = 'Alle';
-                  selectedHauptLeistung = 'Alle';
+                  geoeffneterDienstleister = data;
                 });
               },
-            ),
-            if (selectedKategorie == 'friseure')
-              ZielgruppenFilterChips(
-                zielgruppen: unterkategorien,
-                selectedZielgruppe: selectedUnterkategorie,
-                onChanged: (value) {
-                  setState(() {
-                    selectedUnterkategorie = value;
-                    selectedHauptLeistung = 'Alle';
-                  });
-                },
-              ),
-            if (kategorienAusFirebase.isNotEmpty)
-              LeistungsFilterChips(
-                leistungskategorien: kategorienAusFirebase,
-                selectedLeistung: selectedHauptLeistung,
-                onChanged: (value) {
-                  setState(() {
-                    selectedHauptLeistung = value;
-                  });
-                },
-              ),
-            Expanded(
-              child: gefiltert.isEmpty
-                  ? const Center(child: Text('Keine Dienstleister gefunden.'))
-                  : ListView.builder(
-                itemCount: gefiltert.length,
-                itemBuilder: (context, index) {
-                  final data = gefiltert[index];
-                  return DienstleisterTile(
-                    data: data,
-                    onTap: () {
-                      setState(() {
-                        geoeffneterDienstleister = data;
-                      });
-                    },
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 8),
-            Center(
-              child: TextButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const DienstleisterRegistrierungPage()),
-                  );
-                },
-                child: const Text('Dienstleister registrieren'),
-              ),
-            ),
-          ],
+            );
+          },
         );
       },
     );
   }
+
 }
