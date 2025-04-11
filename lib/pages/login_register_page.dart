@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_main_page.dart';
+import 'admin_page.dart';
 
 class LoginRegisterPage extends StatefulWidget {
   const LoginRegisterPage({super.key});
@@ -34,8 +35,11 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
           password: _passwordController.text.trim(),
         );
 
-        // Kunde wird neu in Firestore eingetragen
-        await FirebaseFirestore.instance.collection('users').doc(credential.user!.uid).set({
+        // Neuer Kunde wird in Firestore gespeichert
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(credential.user!.uid)
+            .set({
           'email': _emailController.text.trim(),
           'rolle': 'kunde',
           'name': '',
@@ -43,7 +47,10 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
       }
 
       // Rolle prüfen
-      final doc = await FirebaseFirestore.instance.collection('users').doc(credential.user!.uid).get();
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(credential.user!.uid)
+          .get();
 
       if (!doc.exists) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -54,7 +61,7 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
       }
 
       final data = doc.data();
-      final rolle = data?['rolle'];
+      final rolle = data?['rolle']?.toString().toLowerCase();
 
       if (rolle == 'kunde') {
         Navigator.pushReplacement(
@@ -80,6 +87,11 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
             const SnackBar(content: Text('Daten für Dienstleister unvollständig.')),
           );
         }
+      } else if (rolle == 'admin') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AdminMainPage()),
+        );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Unbekannte oder fehlende Rolle im Nutzerprofil.')),
