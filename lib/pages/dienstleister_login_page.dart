@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-
-import 'dienstleister_home_page.dart';
-import 'dienstleister_registrierung_page.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dienstleister_main_page.dart';
+import 'login_register_page.dart';
+import 'admin_page.dart';
+import 'alle_dienstleister_page.dart';
 
 class DienstleisterLoginPage extends StatefulWidget {
   const DienstleisterLoginPage({super.key});
@@ -12,33 +14,81 @@ class DienstleisterLoginPage extends StatefulWidget {
 }
 
 class _DienstleisterLoginPageState extends State<DienstleisterLoginPage> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  String _fehlermeldung = '';
 
   Future<void> _login() async {
+    setState(() => _fehlermeldung = '');
+
     try {
-      final userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+      final credential = await _auth.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
 
-      // Weiterleitung zur DienstleisterHomePage
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const DienstleisterHomePage()),
-      );
+      final uid = credential.user!.uid;
+      final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+
+      if (!doc.exists) {
+        setState(() => _fehlermeldung = 'Benutzerprofil nicht gefunden.');
+        return;
+      }
+
+      final data = doc.data()!;
+      final rolle = data['rolle'];
+
+      if (rolle == 'admin') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AdminMainPage()),
+        );
+      } else if (rolle == 'dienstleister') {
+        final branche = data['branche'];
+        final dienstleisterId = data['dienstleisterId'];
+
+        if (branche != null && dienstleisterId != null) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => DienstleisterMainPage(
+                branche: branche,
+                dienstleisterId: dienstleisterId,
+              ),
+            ),
+          );
+        } else {
+          setState(() => _fehlermeldung = 'Unvollständige Dienstleisterdaten.');
+        }
+      } else {
+        setState(() => _fehlermeldung = 'Unbekannte oder fehlende Rolle im Nutzerprofil.');
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Fehler: ${e.toString()}')));
+      setState(() => _fehlermeldung = 'Login fehlgeschlagen: ${e.toString()}');
+    }
+  }
+
+  void _logout() async {
+    await _auth.signOut();
+    if (context.mounted) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const AlleDienstleisterPage()),
+            (route) => false,
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Login')),
+      appBar: AppBar(title: const Text('Dienstleister Login')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             TextField(
               controller: _emailController,
@@ -56,17 +106,23 @@ class _DienstleisterLoginPageState extends State<DienstleisterLoginPage> {
               onPressed: _login,
               child: const Text('Login'),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             TextButton(
               onPressed: () {
-                // Zur Registrierungsseite weiterleiten
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const DienstleisterRegistrierungPage()),
+                  MaterialPageRoute(builder: (_) => const LoginRegisterPage()),
                 );
               },
               child: const Text('Noch kein Konto? Jetzt registrieren'),
             ),
+            const SizedBox(height: 12),
+            if (_fehlermeldung.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.all(8),
+                color: Colors.brown[200],
+                child: Text(_fehlermeldung, style: const TextStyle(color: Colors.white)),
+              ),
           ],
         ),
       ),

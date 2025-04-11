@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'alle_dienstleister_page.dart';
-import 'dienstleister_home_page.dart';
+import 'dienstleister_main_page.dart';
 
 class LoginRegisterPage extends StatefulWidget {
   const LoginRegisterPage({super.key});
@@ -44,7 +44,17 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
 
       // Rolle prüfen
       final doc = await FirebaseFirestore.instance.collection('users').doc(credential.user!.uid).get();
-      final rolle = doc.data()?['rolle'];
+
+      if (!doc.exists) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Benutzer existiert nicht in der Nutzersammlung.')),
+        );
+        setState(() => isLoading = false);
+        return;
+      }
+
+      final data = doc.data();
+      final rolle = data?['rolle'];
 
       if (rolle == 'kunde') {
         Navigator.pushReplacement(
@@ -52,13 +62,27 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
           MaterialPageRoute(builder: (_) => const AlleDienstleisterPage()),
         );
       } else if (rolle == 'dienstleister') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const DienstleisterHomePage()),
-        );
+        final branche = data?['branche'];
+        final dienstleisterId = data?['dienstleisterId'];
+
+        if (branche != null && dienstleisterId != null) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => DienstleisterMainPage(
+                branche: branche,
+                dienstleisterId: dienstleisterId,
+              ),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Daten für Dienstleister unvollständig.')),
+          );
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unbekannte Rolle.')),
+          const SnackBar(content: Text('Unbekannte oder fehlende Rolle im Nutzerprofil.')),
         );
       }
     } catch (e) {
