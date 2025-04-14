@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:termini/pages/all_places_page.dart';
 import 'firebase_options.dart';
 import 'pages/alle_dienstleister_page.dart';
 import 'pages/dienstleister_main_page.dart';
 import 'pages/admin_page.dart';
 import 'pages/login_register_page.dart';
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,7 +25,7 @@ class MyApp extends StatelessWidget {
     final user = FirebaseAuth.instance.currentUser;
 
     if (user == null) {
-      return const AlleDienstleisterPage();
+      return AllPlacesPage();
     }
 
     final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
