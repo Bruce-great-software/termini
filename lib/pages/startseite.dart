@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dienstleister_home_page.dart';
 import 'dienstleister_login_page.dart';  // Beispiel für Login
-import 'dienstleister_registrierung_page.dart';
 
 
 class Startseite extends StatefulWidget {

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'alle_dienstleister_page.dart';
+import 'package:flutter_typeahead/flutter_typeahead.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class AdminMainPage extends StatefulWidget {
   const AdminMainPage({super.key});
@@ -26,7 +29,6 @@ class _AdminMainPageState extends State<AdminMainPage> {
           MaterialPageRoute(builder: (_) => const AlleDienstleisterPage()),
         );
       });
-
     }
   }
 
@@ -63,7 +65,8 @@ class AdminDienstleisterFormular extends StatefulWidget {
   const AdminDienstleisterFormular({super.key});
 
   @override
-  State<AdminDienstleisterFormular> createState() => _AdminDienstleisterFormularState();
+  State<AdminDienstleisterFormular> createState() =>
+      _AdminDienstleisterFormularState();
 }
 
 class _AdminDienstleisterFormularState extends State<AdminDienstleisterFormular> {
@@ -74,6 +77,76 @@ class _AdminDienstleisterFormularState extends State<AdminDienstleisterFormular>
   final _ortController = TextEditingController();
   final _plzController = TextEditingController();
   final _brancheController = TextEditingController();
+  final _latitudeController = TextEditingController();
+  final _longitudeController = TextEditingController();
+  final _ortSuchController = TextEditingController();
+
+  final String apiKey = 'AIzaSyAAydUpc7KvbbEGeUDsw4DF8w2BkpL_Rq0';
+
+  Future<List<Map<String, dynamic>>> _getOrtVorschlaege(String input) async {
+    final url =
+        'https://maps.googleapis.com/maps/api/place/autocomplete/json?input=$input&language=de&components=country:de&key=$apiKey';
+    final response = await http.get(Uri.parse(url));
+    final data = json.decode(response.body);
+
+    if (response.statusCode == 200 && data['status'] == 'OK') {
+      return List<Map<String, dynamic>>.from(data['predictions']);
+    } else {
+      return [];
+    }
+  }
+
+  Future<void> _ladeDetailsUndSetzeAdresse(String placeId) async {
+    final detailsUrl =
+        'https://maps.googleapis.com/maps/api/place/details/json?place_id=$placeId&language=de&key=$apiKey';
+
+    final response = await http.get(Uri.parse(detailsUrl));
+    final data = json.decode(response.body);
+
+    if (response.statusCode == 200 &&
+        data['status'] == 'OK' &&
+        data['result'] != null) {
+      final result = data['result'];
+      final geometry = result['geometry'];
+
+      final name = result['name'] ?? '';
+      final addressComponents = result['address_components'] as List<dynamic>? ?? [];
+
+      String street = '';
+      String streetNumber = '';
+      String plz = '';
+      String ort = '';
+
+      for (final component in addressComponents) {
+        final types = List<String>.from(component['types']);
+
+        if (types.contains('route')) {
+          street = component['long_name'];
+        } else if (types.contains('street_number')) {
+          streetNumber = component['long_name'];
+        } else if (types.contains('postal_code')) {
+          plz = component['long_name'];
+        } else if (types.contains('locality')) {
+          ort = component['long_name'];
+        }
+      }
+
+      final adresse = '$street $streetNumber'.trim();
+      final lat = geometry['location']['lat'];
+      final lng = geometry['location']['lng'];
+
+      setState(() {
+        _nameController.text = name;
+        _adresseController.text = adresse;
+        _plzController.text = plz;
+        _ortController.text = ort;
+        _latitudeController.text = lat.toString();
+        _longitudeController.text = lng.toString();
+      });
+    } else {
+      debugPrint('Fehler beim Laden der Details');
+    }
+  }
 
   Future<void> _registriereDienstleister() async {
     if (!_formKey.currentState!.validate()) return;
@@ -84,14 +157,14 @@ class _AdminDienstleisterFormularState extends State<AdminDienstleisterFormular>
     final ort = _ortController.text.trim();
     final plz = _plzController.text.trim();
     final branche = _brancheController.text.trim();
+    final latitude = double.tryParse(_latitudeController.text.trim()) ?? 0.0;
+    final longitude = double.tryParse(_longitudeController.text.trim()) ?? 0.0;
 
     try {
-      // Nutzer in Firebase Auth erstellen
       UserCredential userCredential = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(email: email, password: 'barber123');
       final uid = userCredential.user!.uid;
 
-      // Nutzer-Daten in Firestore unter users/{UID} speichern
       await FirebaseFirestore.instance.collection('users').doc(uid).set({
         'name': name,
         'email': email,
@@ -102,20 +175,21 @@ class _AdminDienstleisterFormularState extends State<AdminDienstleisterFormular>
         'dienstleisterId': uid,
         'rolle': 'dienstleister',
         'createAt': FieldValue.serverTimestamp(),
+        'geo': GeoPoint(latitude, longitude),
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Dienstleister erfolgreich registriert')),
       );
       _formKey.currentState!.reset();
+      _latitudeController.clear();
+      _longitudeController.clear();
     } on FirebaseAuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Fehler: ${e.message}')),
       );
     }
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -125,6 +199,36 @@ class _AdminDienstleisterFormularState extends State<AdminDienstleisterFormular>
         key: _formKey,
         child: ListView(
           children: [
+            TypeAheadField<Map<String, dynamic>>(
+              suggestionsCallback: (String pattern) async {
+                if (pattern.length < 2) return [];
+                return await _getOrtVorschlaege(pattern);
+              },
+              itemBuilder: (context, suggestion) {
+                return ListTile(
+                  title: Text(suggestion['description']),
+                );
+              },
+              onSelected: (suggestion) async {
+                final placeId = suggestion['place_id'];
+                _ortSuchController.text = suggestion['description'];
+                await _ladeDetailsUndSetzeAdresse(placeId);
+              },
+              builder: (context, controller, focusNode) {
+                return TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  decoration: InputDecoration(
+                    hintText: 'Ort oder PLZ suchen',
+                    prefixIcon: const Icon(Icons.search),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 20),
             TextFormField(
               controller: _nameController,
               decoration: const InputDecoration(labelText: 'Name'),
@@ -155,6 +259,38 @@ class _AdminDienstleisterFormularState extends State<AdminDienstleisterFormular>
               decoration: const InputDecoration(labelText: 'Branche'),
               validator: (value) => value!.isEmpty ? 'Pflichtfeld' : null,
             ),
+            TextFormField(
+              controller: _latitudeController,
+              decoration: InputDecoration(
+                labelText: 'Latitude',
+                filled: _latitudeController.text.isNotEmpty,
+                fillColor: _latitudeController.text.isNotEmpty ? Colors.grey[200] : null,
+              ),
+              style: TextStyle(
+                color: _latitudeController.text.isNotEmpty ? Colors.grey[700] : null,
+              ),
+              keyboardType: TextInputType.number,
+              readOnly: _latitudeController.text.isNotEmpty,
+              validator: (value) =>
+              value!.isEmpty ? 'Latitude erforderlich' : null,
+            ),
+
+            TextFormField(
+              controller: _longitudeController,
+              decoration: InputDecoration(
+                labelText: 'Longitude',
+                filled: _longitudeController.text.isNotEmpty,
+                fillColor: _longitudeController.text.isNotEmpty ? Colors.grey[200] : null,
+              ),
+              style: TextStyle(
+                color: _longitudeController.text.isNotEmpty ? Colors.grey[700] : null,
+              ),
+              keyboardType: TextInputType.number,
+              readOnly: _longitudeController.text.isNotEmpty,
+              validator: (value) =>
+              value!.isEmpty ? 'Longitude erforderlich' : null,
+            ),
+
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: _registriereDienstleister,

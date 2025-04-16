@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:app_settings/app_settings.dart';
-import 'package:flutter/services.dart';
 
 class LocationService {
   static Future<Position?> initLocation({

@@ -5,6 +5,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
 
 class AllPlacesPage extends StatefulWidget {
+  const AllPlacesPage({super.key});
+
   @override
   _AllPlacesPageState createState() => _AllPlacesPageState();
 }

@@ -13,7 +13,7 @@ class DienstleisterTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final distance = data['distance'];
-    final logoUrl = data['logoUrl']; // ← Stelle sicher, dass dieses Feld in Firestore vorhanden ist
+    final logoUrl = data['logoUrl']; // ← Logo-URL aus Firestore
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -35,6 +35,12 @@ class DienstleisterTile extends StatelessWidget {
                   width: 60,
                   height: 60,
                   fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    width: 60,
+                    height: 60,
+                    color: Colors.grey.shade300,
+                    child: const Icon(Icons.store, size: 30, color: Colors.grey),
+                  ),
                 )
                     : Container(
                   width: 60,

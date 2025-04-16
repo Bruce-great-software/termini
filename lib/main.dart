@@ -7,7 +7,6 @@ import 'firebase_options.dart';
 import 'pages/alle_dienstleister_page.dart';
 import 'pages/dienstleister_main_page.dart';
 import 'pages/admin_page.dart';
-import 'pages/login_register_page.dart';
 
 
 void main() async {
@@ -25,7 +24,7 @@ class MyApp extends StatelessWidget {
     final user = FirebaseAuth.instance.currentUser;
 
     if (user == null) {
-      return AllPlacesPage();
+      return const AlleDienstleisterPage();
     }
 
     final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
@@ -35,7 +34,7 @@ class MyApp extends StatelessWidget {
     final branche = data?['branche'];
 
     if (rolle == 'admin') {
-      return const AdminMainPage();
+      return const AlleDienstleisterPage();
     } else if (rolle == 'dienstleister' && dienstleisterId != null && branche != null) {
       return DienstleisterMainPage(
         branche: branche,

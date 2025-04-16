@@ -6,12 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../services/location_service.dart';
-import '../services/filter_helper.dart';
-import '../widgets/kategorie_filter_chips.dart';
-import '../widgets/zielgruppen_filter_chips.dart';
-import '../widgets/leistungs_filter_chips.dart';
 import '../widgets/dienstleister_tile.dart';
-import 'dienstleister_registrierung_page.dart';
 import 'dienstleister_detail_page.dart';
 import 'login_register_page.dart';
 import 'kunden_profil_page.dart';

@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 class AdminDienstleisterErstellenPage extends StatefulWidget {
-  const AdminDienstleisterErstellenPage({Key? key}) : super(key: key);
+  const AdminDienstleisterErstellenPage({super.key});
 
   @override
   _AdminDienstleisterErstellenPageState createState() =>
@@ -22,20 +22,21 @@ class _AdminDienstleisterErstellenPageState
   String plz = '';
   String ort = '';
   String branche = 'friseure';
+  double? latitude;
+  double? longitude;
 
   Future<void> _createDienstleister() async {
     if (_formKey.currentState?.validate() ?? false) {
+      _formKey.currentState?.save();
       try {
-        // Nutzer in Firebase Authentication anlegen
-        UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+        UserCredential userCredential =
+        await _auth.createUserWithEmailAndPassword(
           email: email,
-          password: 'defaultPassword123', // Ein Standardpasswort für den Dienstleister
+          password: 'defaultPassword123',
         );
 
-        // UID des Nutzers aus Authentication
         String uid = userCredential.user?.uid ?? '';
 
-        // Daten in der Firestore-Sammlung 'users' speichern
         await _firestore.collection('users').doc(uid).set({
           'name': name,
           'email': email,
@@ -43,18 +44,17 @@ class _AdminDienstleisterErstellenPageState
           'plz': plz,
           'ort': ort,
           'branche': branche,
-          'dienstleisterId': uid, // UID als Dienstleister-ID
+          'dienstleisterId': uid,
           'rolle': 'dienstleister',
           'createAt': FieldValue.serverTimestamp(),
+          'geo': GeoPoint(latitude ?? 0.0, longitude ?? 0.0),
         });
 
-        // Erfolgreiche Erstellung, zur Admin-Seite zurückkehren
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Dienstleister erfolgreich erstellt!')),
         );
       } on FirebaseAuthException catch (e) {
-        // Fehler beim Erstellen des Nutzers
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Fehler: ${e.message}')),
         );
@@ -72,59 +72,58 @@ class _AdminDienstleisterErstellenPageState
         padding: const EdgeInsets.all(16.0),
         child: Form(
           key: _formKey,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: ListView(
             children: <Widget>[
               TextFormField(
                 decoration: const InputDecoration(labelText: 'Name'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Bitte einen Namen eingeben';
-                  }
-                  return null;
-                },
+                validator: (value) =>
+                value == null || value.isEmpty ? 'Bitte einen Namen eingeben' : null,
                 onSaved: (value) => name = value!,
               ),
               TextFormField(
                 decoration: const InputDecoration(labelText: 'Email'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Bitte eine E-Mail-Adresse eingeben';
-                  }
-                  return null;
-                },
+                validator: (value) =>
+                value == null || value.isEmpty ? 'Bitte eine E-Mail-Adresse eingeben' : null,
                 onSaved: (value) => email = value!,
               ),
               TextFormField(
                 decoration: const InputDecoration(labelText: 'Adresse'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Bitte eine Adresse eingeben';
-                  }
-                  return null;
-                },
+                validator: (value) =>
+                value == null || value.isEmpty ? 'Bitte eine Adresse eingeben' : null,
                 onSaved: (value) => adresse = value!,
               ),
               TextFormField(
-                decoration: const InputDecoration(labelText: 'PLZ'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Bitte eine PLZ eingeben';
-                  }
-                  return null;
-                },
-                onSaved: (value) => plz = value!,
-              ),
-              TextFormField(
                 decoration: const InputDecoration(labelText: 'Ort'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Bitte einen Ort eingeben';
-                  }
-                  return null;
-                },
+                validator: (value) =>
+                value == null || value.isEmpty ? 'Bitte einen Ort eingeben' : null,
                 onSaved: (value) => ort = value!,
               ),
+              TextFormField(
+                decoration: const InputDecoration(labelText: 'PLZ'),
+                validator: (value) =>
+                value == null || value.isEmpty ? 'Bitte eine PLZ eingeben' : null,
+                onSaved: (value) => plz = value!,
+              ),
+
+              // 👇 Geokoordinaten direkt unter PLZ eingefügt
+              TextFormField(
+                decoration: const InputDecoration(labelText: 'Latitude'),
+                keyboardType: TextInputType.number,
+                validator: (value) =>
+                value == null || value.isEmpty ? 'Bitte Latitude eingeben' : null,
+                onSaved: (value) =>
+                latitude = double.tryParse(value ?? '') ?? 0.0,
+              ),
+              TextFormField(
+                decoration: const InputDecoration(labelText: 'Longitude'),
+                keyboardType: TextInputType.number,
+                validator: (value) =>
+                value == null || value.isEmpty ? 'Bitte Longitude eingeben' : null,
+                onSaved: (value) =>
+                longitude = double.tryParse(value ?? '') ?? 0.0,
+              ),
+
+              // 👇 Branche kommt danach
               DropdownButtonFormField<String>(
                 value: branche,
                 items: <String>['friseure', 'kosmetiker', 'massagen']
@@ -141,6 +140,7 @@ class _AdminDienstleisterErstellenPageState
                 },
                 decoration: const InputDecoration(labelText: 'Branche'),
               ),
+
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: _createDienstleister,

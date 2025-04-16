@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'login_register_page.dart';
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_edit_page.dart';
-
+import 'leistung_erstellen_page.dart';
+import '../widgets/leistung_erstellen_dialog.dart';
 
 class DienstleisterMainPage extends StatefulWidget {
   final String branche;
@@ -64,33 +64,49 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     if (context.mounted) {
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (_) => const AlleDienstleisterPage()), // ← Hier liegt der Unterschied!
+        MaterialPageRoute(builder: (_) => const AlleDienstleisterPage()),
             (route) => false,
       );
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
     final pages = [
       _buildHomePage(),
       const Center(child: Text('Kalender kommt bald!')),
-      Center(child: ElevatedButton(onPressed: () {}, child: Text('Leistungen erstellen'))),
+      _buildLeistungenPage(),
       _buildProfilPage(),
     ];
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_selectedIndex == 0
-            ? 'Hallo, ${dienstleisterName ?? '...'}'
-            : _selectedIndex == 1
-            ? 'Kalender'
-            : 'Profil'),
+        title: Text(
+          _selectedIndex == 0
+              ? "Hallo, ${dienstleisterName ?? '...'}"
+              : _selectedIndex == 1
+              ? 'Kalender'
+              : _selectedIndex == 2
+              ? 'Leistungen'
+              : 'Profil',
+        ),
       ),
       body: pages[_selectedIndex],
+      floatingActionButton: _selectedIndex == 2
+          ? FloatingActionButton.extended(
+        onPressed: () {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => const StepDialog(),
+          );
+        },
+        icon: const Icon(Icons.add),
+        label: const Text('Leistungen erstellen'),
+      )
+          : null,
       bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed, // <--- Das sorgt für alle Labels!
+        type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
         onTap: _onTabTapped,
         selectedItemColor: Colors.deepOrange,
@@ -101,7 +117,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           BottomNavigationBarItem(icon: Icon(Icons.design_services), label: 'Leistungen'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profil'),
         ],
-
       ),
     );
   }
@@ -109,13 +124,21 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   Widget _buildHomePage() {
     return Center(
       child: Text(
-        'Willkommen zurück, ${dienstleisterName ?? 'Dienstleister'}!',
+        "Willkommen zurück, ${dienstleisterName ?? 'Dienstleister'}!",
         style: const TextStyle(fontSize: 20),
       ),
     );
   }
 
-// In der build-Methode, unter dem Profil-Tab
+  Widget _buildLeistungenPage() {
+    return const Center(
+      child: Text(
+        'Hier kommen bald deine Leistungen hin!',
+        style: TextStyle(fontSize: 16),
+      ),
+    );
+  }
+
   Widget _buildProfilPage() {
     final user = FirebaseAuth.instance.currentUser;
 
@@ -123,8 +146,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text('Willkommen, ${user?.displayName ?? 'Dienstleister'}!'),
-          const SizedBox(height: 20),
+
           ElevatedButton(
             onPressed: () {
               Navigator.push(
@@ -138,12 +160,11 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           ),
           const SizedBox(height: 20),
           ElevatedButton(
-            onPressed: _logout, // Der Logout-Button ruft die _logout-Methode auf
+            onPressed: _logout,
             child: const Text('Abmelden'),
           ),
         ],
       ),
     );
   }
-
 }
