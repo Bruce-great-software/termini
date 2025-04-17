@@ -57,7 +57,7 @@ class AdminBranchenPage extends StatelessWidget {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => AdminBranchenVerwaltungPage(brancheId: name),
+                            builder: (_) => AdminBranchenVerwaltungPage(branchenId: name),
                           ),
                         );
                       },
