@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'admin_branchen_page.dart';
 import 'alle_dienstleister_page.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
 import 'package:http/http.dart' as http;
@@ -36,6 +37,7 @@ class _AdminMainPageState extends State<AdminMainPage> {
   Widget build(BuildContext context) {
     final pages = [
       const AdminDienstleisterFormular(),
+      const AdminBranchenPage(),
       Center(
         child: ElevatedButton(
           onPressed: _logout,
@@ -54,6 +56,7 @@ class _AdminMainPageState extends State<AdminMainPage> {
         unselectedItemColor: Colors.grey,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.business), label: 'Dienstleister'),
+          BottomNavigationBarItem(icon: Icon(Icons.category), label: 'Branchen'),
           BottomNavigationBarItem(icon: Icon(Icons.logout), label: 'Logout'),
         ],
       ),

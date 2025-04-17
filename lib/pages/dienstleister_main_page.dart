@@ -3,7 +3,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_edit_page.dart';
-import 'leistung_erstellen_page.dart';
 import '../widgets/leistung_erstellen_dialog.dart';
 
 class DienstleisterMainPage extends StatefulWidget {
@@ -70,6 +69,17 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     }
   }
 
+  Future<void> _leistungLoeschen(String docId) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('leistungen')
+        .doc(docId)
+        .delete();
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = [
@@ -98,7 +108,8 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           showDialog(
             context: context,
             barrierDismissible: false,
-            builder: (_) => const StepDialog(),
+            builder: (_) => const LeistungErstellenDialog(),
+
           );
         },
         icon: const Icon(Icons.add),
@@ -131,11 +142,67 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   }
 
   Widget _buildLeistungenPage() {
-    return const Center(
-      child: Text(
-        'Hier kommen bald deine Leistungen hin!',
-        style: TextStyle(fontSize: 16),
-      ),
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return const Center(child: Text('Nicht eingeloggt.'));
+    }
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('leistungen')
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const Center(child: Text('Noch keine Leistungen vorhanden.'));
+        }
+
+        final leistungen = snapshot.data!.docs;
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: leistungen.length,
+          itemBuilder: (context, index) {
+            final doc = leistungen[index];
+            final leistung = doc.data() as Map<String, dynamic>;
+
+            return Card(
+              elevation: 2,
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              child: ListTile(
+                title: Text(leistung['name'] ?? 'Unbenannt'),
+                subtitle: Text(
+                  'Zielgruppe: ${leistung['zielgruppe']}, Dauer: ${leistung['dauer']} Min\nPreis: ${leistung['preis']} €',
+                ),
+                trailing: PopupMenuButton<String>(
+                  onSelected: (value) {
+                    if (value == 'delete') {
+                      _leistungLoeschen(doc.id);
+                    }
+                    // TODO: Bearbeiten-Dialog bei 'edit'
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'edit',
+                      child: Text('Bearbeiten'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Text('Löschen'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -146,7 +213,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-
           ElevatedButton(
             onPressed: () {
               Navigator.push(

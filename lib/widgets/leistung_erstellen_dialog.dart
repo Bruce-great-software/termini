@@ -1,43 +1,49 @@
+// Speichern-Button wird aktiviert nach Eingabe aller Felder inkl. Dauer
 import 'package:flutter/material.dart';
-import '../pages/leistung_erstellen_page.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-class StepDialog extends StatefulWidget {
-  const StepDialog({super.key});
+class LeistungErstellenDialog extends StatefulWidget {
+  const LeistungErstellenDialog({super.key});
 
   @override
-  State<StepDialog> createState() => _StepDialogState();
+  State<LeistungErstellenDialog> createState() => _LeistungErstellenDialogState();
 }
 
-class _StepDialogState extends State<StepDialog> {
-  int _step = 0;
+class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> {
   String? zielgruppe;
   String? kategorie;
-
-  final zielgruppen = ['Damen', 'Herren', 'Kinder'];
-  final kategorien = ['Haare', 'Bart', 'Gesicht'];
+  List<String> ausgewaehlteOptionen = [];
 
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _preisController = TextEditingController();
   final TextEditingController _dauerController = TextEditingController();
 
-  void _weiter() {
-    if (_step == 0 && zielgruppe == null) return;
-    if (_step == 1 && kategorie == null) return;
-    if (_step == 2 && !_formValid()) return;
+  List<String> zielgruppen = [];
+  List<String> kategorien = [];
+  List<String> optionen = ['Schneiden', 'Waschen', 'Föhnen', 'Stylen'];
 
-    if (_step < 2) {
-      setState(() => _step++);
-    } else {
-      Navigator.pop(context); // Dialog schließen
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => LeistungErstellenPage(
-            zielgruppe: zielgruppe!,
-            kategorie: kategorie!,
-          ),
-        ),
-      );
+  @override
+  void initState() {
+    super.initState();
+    _ladeZielgruppenUndKategorien();
+  }
+
+  Future<void> _ladeZielgruppenUndKategorien() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    final branche = userDoc.data()?['branche'];
+    if (branche == null) return;
+
+    final doc = await FirebaseFirestore.instance.collection('branchen').doc(branche.toString().toLowerCase()).get();
+    final data = doc.data();
+    if (data != null) {
+      setState(() {
+        zielgruppen = List<String>.from(data['zielgruppe'] ?? []);
+        kategorien = List<String>.from(data['kategorien'] ?? []);
+      });
     }
   }
 
@@ -47,113 +53,161 @@ class _StepDialogState extends State<StepDialog> {
         _dauerController.text.trim().isNotEmpty;
   }
 
-  void _zurueck() {
-    if (_step > 0) setState(() => _step--);
+  void _updateLeistungsName() {
+    if (zielgruppe != null && ausgewaehlteOptionen.isNotEmpty) {
+      final name = "$zielgruppe - ${ausgewaehlteOptionen.join(', ')}";
+      _nameController.text = name;
+    }
   }
 
-  Widget _buildHeader() {
-    List<IconData> icons = [Icons.person, Icons.category, Icons.edit];
-    List<String> labels = ['Zielgruppe', 'Kategorie', 'Leistung'];
+  Future<void> _leistungSpeichern() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: List.generate(3, (index) {
-        final isActive = _step == index;
-        final isDone = _step > index;
-        return Column(
-          children: [
-            CircleAvatar(
-              backgroundColor:
-              isDone ? Colors.green : isActive ? Colors.deepOrange : Colors.grey[300],
-              child: Icon(
-                icons[index],
-                color: isDone || isActive ? Colors.white : Colors.black54,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              labels[index],
-              style: TextStyle(
-                fontSize: 12,
-                color: isDone || isActive ? Colors.black : Colors.grey,
-              ),
-            )
-          ],
-        );
-      }),
-    );
-  }
+    final preis = double.tryParse(_preisController.text.trim());
+    final dauer = int.tryParse(_dauerController.text.trim());
 
-  Widget _buildStepContent() {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      child: _step == 0
-          ? _buildAuswahl(zielgruppen, zielgruppe, (value) => setState(() => zielgruppe = value))
-          : _step == 1
-          ? _buildAuswahl(kategorien, kategorie, (value) => setState(() => kategorie = value))
-          : _buildFormular(),
-    );
-  }
+    if (preis == null || dauer == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bitte gültige Zahlen eingeben.')),
+      );
+      return;
+    }
 
-  Widget _buildAuswahl(
-      List<String> optionen, String? selected, Function(String) onSelected) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: optionen.map((option) {
-        final isSelected = selected == option;
-        return ChoiceChip(
-          label: Text(option),
-          selected: isSelected,
-          selectedColor: Colors.deepOrange,
-          onSelected: (_) => onSelected(option),
-        );
-      }).toList(),
-    );
-  }
+    final leistung = {
+      'name': _nameController.text.trim(),
+      'zielgruppe': zielgruppe,
+      'kategorie': kategorie,
+      'optionen': ausgewaehlteOptionen,
+      'preis': preis,
+      'dauer': dauer,
+      'createdAt': Timestamp.now(),
+    };
 
-  Widget _buildFormular() {
-    return Column(
-      key: const ValueKey('formular'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        TextFormField(
-          controller: _nameController,
-          decoration: const InputDecoration(labelText: 'Name der Leistung'),
-        ),
-        TextFormField(
-          controller: _preisController,
-          decoration: const InputDecoration(labelText: 'Preis in €'),
-          keyboardType: TextInputType.number,
-        ),
-        TextFormField(
-          controller: _dauerController,
-          decoration: const InputDecoration(labelText: 'Dauer in Minuten'),
-          keyboardType: TextInputType.number,
-        ),
-      ],
-    );
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('leistungen')
+        .add(leistung);
+
+    if (context.mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Leistung erfolgreich gespeichert.')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final Color chipSelectedColor = Colors.deepOrange;
+    final Color chipTextColor = Colors.white;
+
     return AlertDialog(
-      title: _buildHeader(),
+      backgroundColor: Colors.white,
       content: SizedBox(
         width: double.maxFinite,
-        child: _buildStepContent(),
-      ),
-      actions: [
-        if (_step > 0)
-          TextButton(
-            onPressed: _zurueck,
-            child: const Text('Zurück'),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Zielgruppe', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 10,
+                children: zielgruppen.map((z) {
+                  return ChoiceChip(
+                    label: Text(z, style: TextStyle(color: zielgruppe == z ? chipTextColor : null)),
+                    selected: zielgruppe == z,
+                    onSelected: (_) => setState(() {
+                      zielgruppe = z;
+                      kategorie = null;
+                      ausgewaehlteOptionen.clear();
+                      _nameController.clear();
+                      _preisController.clear();
+                      _dauerController.clear();
+                      _updateLeistungsName();
+                    }),
+                    selectedColor: chipSelectedColor,
+                  );
+                }).toList(),
+              ),
+              if (zielgruppe != null) ...[
+                const SizedBox(height: 20),
+                const Text('Kategorie', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 10,
+                  children: kategorien.map((k) {
+                    return ChoiceChip(
+                      label: Text(k, style: TextStyle(color: kategorie == k ? chipTextColor : null)),
+                      selected: kategorie == k,
+                      onSelected: (_) => setState(() {
+                        kategorie = k;
+                      }),
+                      selectedColor: chipSelectedColor,
+                    );
+                  }).toList(),
+                ),
+              ],
+              if (zielgruppe != null && kategorie != null) ...[
+                const SizedBox(height: 20),
+                const Text('Inklusive Optionen:'),
+                Wrap(
+                  spacing: 10,
+                  children: optionen.map((opt) {
+                    final selected = ausgewaehlteOptionen.contains(opt);
+                    return FilterChip(
+                      label: Text(opt, style: TextStyle(color: selected ? chipTextColor : null)),
+                      selected: selected,
+                      selectedColor: chipSelectedColor,
+                      onSelected: (val) {
+                        setState(() {
+                          if (val) {
+                            ausgewaehlteOptionen.add(opt);
+                          } else {
+                            ausgewaehlteOptionen.remove(opt);
+                          }
+                          _updateLeistungsName();
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+              ],
+              if (zielgruppe != null && kategorie != null && ausgewaehlteOptionen.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                const Text('Leistung', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _nameController,
+                  readOnly: true,
+                  decoration: const InputDecoration(labelText: 'Name der Leistung'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _preisController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Preis in €'),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _dauerController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Dauer in Minuten'),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: _formValid() ? _leistungSpeichern : null,
+                  child: const Text('Speichern'),
+                ),
+              ]
+            ],
           ),
-        ElevatedButton(
-          onPressed: _weiter,
-          child: Text(_step < 2 ? 'Weiter' : 'Loslegen'),
         ),
-      ],
+      ),
     );
   }
 }
