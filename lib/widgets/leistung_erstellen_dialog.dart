@@ -1,4 +1,4 @@
-// Speichern-Button wird aktiviert nach Eingabe aller Felder inkl. Dauer
+// Neuer Dialog basierend auf admin_branchen_verwaltung-Struktur
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -12,53 +12,71 @@ class LeistungErstellenDialog extends StatefulWidget {
 
 class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> {
   String? zielgruppe;
-  String? kategorie;
-  List<String> ausgewaehlteOptionen = [];
+  String? leistungskategorie;
+  String? leistung;
 
-  final TextEditingController _nameController = TextEditingController();
   final TextEditingController _preisController = TextEditingController();
   final TextEditingController _dauerController = TextEditingController();
 
-  List<String> zielgruppen = [];
-  List<String> kategorien = [];
-  List<String> optionen = ['Schneiden', 'Waschen', 'Föhnen', 'Stylen'];
+  Map<String, dynamic> struktur = {}; // komplette Struktur aus Firestore
 
   @override
   void initState() {
     super.initState();
-    _ladeZielgruppenUndKategorien();
+    _ladeBranchenStruktur();
+    _preisController.addListener(_onFormChanged);
+    _dauerController.addListener(_onFormChanged);
   }
 
-  Future<void> _ladeZielgruppenUndKategorien() async {
+  @override
+  void dispose() {
+    _preisController.removeListener(_onFormChanged);
+    _dauerController.removeListener(_onFormChanged);
+    _preisController.dispose();
+    _dauerController.dispose();
+    super.dispose();
+  }
+
+  void _onFormChanged() {
+    setState(() {});
+  }
+
+  Future<void> _ladeBranchenStruktur() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-
     final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
     final branche = userDoc.data()?['branche'];
     if (branche == null) return;
 
-    final doc = await FirebaseFirestore.instance.collection('branchen').doc(branche.toString().toLowerCase()).get();
-    final data = doc.data();
-    if (data != null) {
+    final branchenDoc = await FirebaseFirestore.instance.collection('branchen').doc(branche.toLowerCase()).get();
+    final data = branchenDoc.data();
+    if (data != null && data.containsKey('zielgruppen')) {
       setState(() {
-        zielgruppen = List<String>.from(data['zielgruppe'] ?? []);
-        kategorien = List<String>.from(data['kategorien'] ?? []);
+        struktur = Map<String, dynamic>.from(data['zielgruppen']);
       });
     }
   }
 
-  bool _formValid() {
-    return _nameController.text.trim().isNotEmpty &&
-        _preisController.text.trim().isNotEmpty &&
-        _dauerController.text.trim().isNotEmpty;
+  List<String> getZielgruppen() => struktur.keys.toList();
+
+  List<String> getLeistungskategorien() {
+    if (zielgruppe == null) return [];
+    final map = struktur[zielgruppe]?['leistungskategorien'] as Map<String, dynamic>?;
+    return map?.keys.toList() ?? [];
   }
 
-  void _updateLeistungsName() {
-    if (zielgruppe != null && ausgewaehlteOptionen.isNotEmpty) {
-      final name = "$zielgruppe - ${ausgewaehlteOptionen.join(', ')}";
-      _nameController.text = name;
-    }
+  List<String> getLeistungen() {
+    if (zielgruppe == null || leistungskategorie == null) return [];
+    final list = struktur[zielgruppe]?['leistungskategorien']?[leistungskategorie] as List<dynamic>?;
+    return List<String>.from(list ?? []);
   }
+
+  bool _formValid() =>
+      zielgruppe != null &&
+          leistungskategorie != null &&
+          leistung != null &&
+          _preisController.text.trim().isNotEmpty &&
+          _dauerController.text.trim().isNotEmpty;
 
   Future<void> _leistungSpeichern() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -69,16 +87,16 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> {
 
     if (preis == null || dauer == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bitte gültige Zahlen eingeben.')),
+        const SnackBar(content: Text('Bitte gültige Preis- und Dauerangaben machen.')),
       );
       return;
     }
 
-    final leistung = {
-      'name': _nameController.text.trim(),
+    final leistungObjekt = {
+      'name': "$zielgruppe - $leistung",
       'zielgruppe': zielgruppe,
-      'kategorie': kategorie,
-      'optionen': ausgewaehlteOptionen,
+      'kategorie': leistungskategorie,
+      'leistung': leistung,
       'preis': preis,
       'dauer': dauer,
       'createdAt': Timestamp.now(),
@@ -88,7 +106,7 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> {
         .collection('users')
         .doc(user.uid)
         .collection('leistungen')
-        .add(leistung);
+        .add(leistungObjekt);
 
     if (context.mounted) {
       Navigator.pop(context);
@@ -100,112 +118,62 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final Color chipSelectedColor = Colors.deepOrange;
-    final Color chipTextColor = Colors.white;
-
     return AlertDialog(
-      backgroundColor: Colors.white,
-      content: SizedBox(
-        width: double.maxFinite,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Zielgruppe', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 10,
-                children: zielgruppen.map((z) {
-                  return ChoiceChip(
-                    label: Text(z, style: TextStyle(color: zielgruppe == z ? chipTextColor : null)),
-                    selected: zielgruppe == z,
-                    onSelected: (_) => setState(() {
-                      zielgruppe = z;
-                      kategorie = null;
-                      ausgewaehlteOptionen.clear();
-                      _nameController.clear();
-                      _preisController.clear();
-                      _dauerController.clear();
-                      _updateLeistungsName();
-                    }),
-                    selectedColor: chipSelectedColor,
-                  );
-                }).toList(),
+      title: const Text('Leistung erstellen'),
+      content: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DropdownButton<String>(
+              value: zielgruppe,
+              hint: const Text('Zielgruppe wählen'),
+              isExpanded: true,
+              items: getZielgruppen().map((z) => DropdownMenuItem(value: z, child: Text(z))).toList(),
+              onChanged: (val) => setState(() {
+                zielgruppe = val;
+                leistungskategorie = null;
+                leistung = null;
+              }),
+            ),
+            if (zielgruppe != null)
+              DropdownButton<String>(
+                value: leistungskategorie,
+                hint: const Text('Leistungskategorie wählen'),
+                isExpanded: true,
+                items: getLeistungskategorien().map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(),
+                onChanged: (val) => setState(() {
+                  leistungskategorie = val;
+                  leistung = null;
+                }),
               ),
-              if (zielgruppe != null) ...[
-                const SizedBox(height: 20),
-                const Text('Kategorie', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 10,
-                  children: kategorien.map((k) {
-                    return ChoiceChip(
-                      label: Text(k, style: TextStyle(color: kategorie == k ? chipTextColor : null)),
-                      selected: kategorie == k,
-                      onSelected: (_) => setState(() {
-                        kategorie = k;
-                      }),
-                      selectedColor: chipSelectedColor,
-                    );
-                  }).toList(),
-                ),
-              ],
-              if (zielgruppe != null && kategorie != null) ...[
-                const SizedBox(height: 20),
-                const Text('Inklusive Optionen:'),
-                Wrap(
-                  spacing: 10,
-                  children: optionen.map((opt) {
-                    final selected = ausgewaehlteOptionen.contains(opt);
-                    return FilterChip(
-                      label: Text(opt, style: TextStyle(color: selected ? chipTextColor : null)),
-                      selected: selected,
-                      selectedColor: chipSelectedColor,
-                      onSelected: (val) {
-                        setState(() {
-                          if (val) {
-                            ausgewaehlteOptionen.add(opt);
-                          } else {
-                            ausgewaehlteOptionen.remove(opt);
-                          }
-                          _updateLeistungsName();
-                        });
-                      },
-                    );
-                  }).toList(),
-                ),
-              ],
-              if (zielgruppe != null && kategorie != null && ausgewaehlteOptionen.isNotEmpty) ...[
-                const SizedBox(height: 20),
-                const Text('Leistung', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _nameController,
-                  readOnly: true,
-                  decoration: const InputDecoration(labelText: 'Name der Leistung'),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _preisController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Preis in €'),
-                  onChanged: (_) => setState(() {}),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _dauerController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Dauer in Minuten'),
-                  onChanged: (_) => setState(() {}),
-                ),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  onPressed: _formValid() ? _leistungSpeichern : null,
-                  child: const Text('Speichern'),
-                ),
-              ]
-            ],
-          ),
+            if (leistungskategorie != null)
+              DropdownButton<String>(
+                value: leistung,
+                hint: const Text('Leistung wählen'),
+                isExpanded: true,
+                items: getLeistungen().map((l) => DropdownMenuItem(value: l, child: Text(l))).toList(),
+                onChanged: (val) => setState(() => leistung = val),
+              ),
+            if (leistung != null) ...[
+              const SizedBox(height: 10),
+              TextField(
+                controller: _preisController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Preis in €'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _dauerController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Dauer in Minuten'),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: _formValid() ? _leistungSpeichern : null,
+                child: const Text('Speichern'),
+              ),
+            ]
+          ],
         ),
       ),
     );

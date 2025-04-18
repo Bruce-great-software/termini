@@ -89,8 +89,10 @@ class _AdminBranchenVerwaltungPageState extends State<AdminBranchenVerwaltungPag
         ? (struktur[ausgewaehlteZielgruppe]!['leistungskategorien'] as Map).keys.toList()
         : [];
     final leistungen = (ausgewaehlteZielgruppe != null && ausgewaehlteKategorie != null)
-        ? List<String>.from(struktur[ausgewaehlteZielgruppe]!['leistungskategorien'][ausgewaehlteKategorie])
+        ? List<String>.from(
+        ((struktur[ausgewaehlteZielgruppe]?['leistungskategorien'] as Map?)?[ausgewaehlteKategorie] as List?) ?? [])
         : [];
+
 
     return Scaffold(
       appBar: AppBar(title: const Text('Branchenstruktur verwalten')),
@@ -121,12 +123,19 @@ class _AdminBranchenVerwaltungPageState extends State<AdminBranchenVerwaltungPag
             const Text('Leistungskategorien verwalten:'),
             Wrap(
               spacing: 8,
-              children: struktur.values
-                  .expand((zg) => (zg['leistungskategorien'] as Map).keys)
-                  .toSet()
-                  .map((k) => Chip(label: Text(k)))
-                  .toList(),
+              children: ausgewaehlteZielgruppe != null
+                  ? (struktur[ausgewaehlteZielgruppe]?['leistungskategorien'] as Map?)?.keys.map((k) {
+                return InputChip(
+                  label: Text(k),
+                  selected: k == ausgewaehlteKategorie,
+                  onSelected: (_) => setState(() => ausgewaehlteKategorie = k),
+                  onDeleted: () => _leistungskategorieEntfernen(k),
+                );
+              }).toList() ?? []
+                  : [],
             ),
+
+
             Row(
               children: [
                 Expanded(
@@ -154,21 +163,7 @@ class _AdminBranchenVerwaltungPageState extends State<AdminBranchenVerwaltungPag
             ),
 
             const Divider(height: 40),
-            if (ausgewaehlteZielgruppe != null) ...[
-              Text(
-                'Leistungskategorien für "$ausgewaehlteZielgruppe" verwalten:',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              Wrap(
-                spacing: 8,
-                children: leistungskategorien.map((k) => InputChip(
-                  label: Text(k),
-                  selected: k == ausgewaehlteKategorie,
-                  onSelected: (_) => setState(() => ausgewaehlteKategorie = k),
-                  onDeleted: () => _leistungskategorieEntfernen(k),
-                )).toList(),
-              ),
-            ],
+
 
             const Divider(height: 40),
             if (ausgewaehlteKategorie != null) ...[
