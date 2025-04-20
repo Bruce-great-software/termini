@@ -360,14 +360,16 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
             bool leistungPasst = true;
             if (ausgewaehlteLeistungen.isNotEmpty) {
               final ausgewaehlteKombination = ausgewaehlteLeistungen.values.expand((e) => e).toList();
-            final sortierteAuswahl = [...ausgewaehlteKombination]..sort();
+              final ausgewaehlteSet = ausgewaehlteKombination.toSet();
 
-            leistungPasst = leistungen.any((leistungDoc) {
-            final leistungsliste = List<String>.from(leistungDoc['leistung'] ?? []);
-            leistungsliste.sort();
-            return listEquals(leistungsliste, sortierteAuswahl);
-            });
+              leistungPasst = leistungen.any((leistungDoc) {
+                final leistungsliste = (leistungDoc['leistung'] as List?)?.cast<String>() ?? [];
+                final leistungSet = leistungsliste.toSet();
+                return leistungSet.containsAll(ausgewaehlteSet) &&
+                    leistungSet.length == ausgewaehlteSet.length;
+              });
             }
+
 
 
 
