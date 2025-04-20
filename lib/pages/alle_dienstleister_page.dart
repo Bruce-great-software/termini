@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
@@ -21,7 +22,6 @@ class AlleDienstleisterPage extends StatefulWidget {
 class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with WidgetsBindingObserver {
   Position? userPosition;
   bool isLoading = true;
-
   int _selectedIndex = 0;
 
   List<String> verfuegbareBranchen = [];
@@ -33,8 +33,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
   List<String> verfuegbareKategorien = [];
   List<String> ausgewaehlteKategorien = [];
 
-  bool filterChipOffen = false;
+  Map<String, List<String>> kategorieZuLeistungen = {};
+  Map<String, List<String>> ausgewaehlteLeistungen = {};
+  String? offeneKategorie;
 
+  bool filterChipOffen = false;
   Map<String, dynamic>? geoeffneterDienstleister;
 
   @override
@@ -81,6 +84,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
       setState(() {
         verfuegbareZielgruppen = [];
         verfuegbareKategorien = [];
+        kategorieZuLeistungen = {};
       });
       return;
     }
@@ -95,8 +99,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
     setState(() {
       verfuegbareZielgruppen = zielgruppen;
       verfuegbareKategorien = [];
+      kategorieZuLeistungen = {};
       ausgewaehlteZielgruppen = [];
       ausgewaehlteKategorien = [];
+      ausgewaehlteLeistungen = {};
     });
   }
 
@@ -106,13 +112,295 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
     if (data == null || !data.containsKey('zielgruppen')) return;
 
     final zielgruppenMap = Map<String, dynamic>.from(data['zielgruppen']);
-    final kategorieMap = zielgruppenMap[zielgruppe]['leistungskategorien'] as Map<String, dynamic>;
-    final kategorien = kategorieMap.keys.toList();
+    final leistungskategorien = Map<String, dynamic>.from(zielgruppenMap[zielgruppe]['leistungskategorien']);
+
+    final kategorien = leistungskategorien.keys.toList();
+    final tempMap = <String, List<String>>{};
+    for (var kategorie in kategorien) {
+      final leistungen = List<String>.from(leistungskategorien[kategorie]);
+      tempMap[kategorie] = leistungen;
+    }
 
     setState(() {
       verfuegbareKategorien = kategorien;
+      kategorieZuLeistungen = tempMap;
       ausgewaehlteKategorien = [];
+      ausgewaehlteLeistungen = {};
     });
+  }
+
+  Widget _buildCheckboxLeistungen(String kategorie) {
+    final leistungen = kategorieZuLeistungen[kategorie] ?? [];
+    final ausgewaehlt = ausgewaehlteLeistungen[kategorie] ?? [];
+
+    return Column(
+      children: leistungen.map((leistung) {
+        return CheckboxListTile(
+          title: Text(leistung),
+          value: ausgewaehlt.contains(leistung),
+          onChanged: (bool? checked) {
+            setState(() {
+              if (checked == true) {
+                ausgewaehlteLeistungen[kategorie] = [...ausgewaehlt, leistung];
+              } else {
+                ausgewaehlteLeistungen[kategorie]?.remove(leistung);
+                if (ausgewaehlteLeistungen[kategorie]!.isEmpty) {
+                  ausgewaehlteLeistungen.remove(kategorie);
+                }
+              }
+            });
+          },
+
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildKategorieChips() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: verfuegbareKategorien.map((kategorie) {
+              final selected = ausgewaehlteKategorien.contains(kategorie);
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: ChoiceChip(
+                  label: Text(kategorie),
+                  selected: selected,
+                  onSelected: (_) {
+                    setState(() {
+                      if (offeneKategorie == kategorie) {
+                        offeneKategorie = null;
+                      } else {
+                        offeneKategorie = kategorie;
+                        if (!ausgewaehlteKategorien.contains(kategorie)) {
+                          ausgewaehlteKategorien.add(kategorie);
+                        }
+                      }
+                    });
+                  },
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        if (offeneKategorie != null) _buildCheckboxLeistungen(offeneKategorie!),
+      ],
+    );
+  }
+
+  Widget _buildBodyByIndex(int index) {
+    switch (index) {
+      case 0:
+        return geoeffneterDienstleister != null
+            ? DienstleisterDetailPage(
+          dienstleister: geoeffneterDienstleister!,
+          selektierteZielgruppe: 'alle',
+          selektierteKategorie: 'alle',
+        )
+            : Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildFilterChip(),
+                      ],
+                    ),
+                  ),
+                  if (filterChipOffen)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildChipReihe(verfuegbareBranchen, ausgewaehlteBranchen, (branche) {
+                          setState(() {
+                            ausgewaehlteBranchen = [branche];
+                            _ladeZielgruppenUndKategorien();
+                          });
+                        }),
+                        _buildChipReihe(verfuegbareZielgruppen, ausgewaehlteZielgruppen, (zielgruppe) {
+                          setState(() {
+                            ausgewaehlteZielgruppen = [zielgruppe];
+                            _ladeKategorienZuZielgruppe(zielgruppe);
+                          });
+                        }),
+                        _buildKategorieChips(),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+            Expanded(child: dienstleisterListeView()),
+          ],
+        );
+      case 1:
+        return const Center(child: Text('Favoriten kommen bald!'));
+      case 2:
+        return const Center(child: Text('Buchungen kommen bald!'));
+      case 3:
+        final user = FirebaseAuth.instance.currentUser;
+        return user == null ? const LoginRegisterPage() : const KundenProfilPage();
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget _buildChipReihe(List<String> items, List<String> selectedItems, Function(String) onTap) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 0.5),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: items.map((item) {
+            final selected = selectedItems.contains(item);
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: FilterChip(
+                label: Text(
+                  item,
+                  style: TextStyle(
+                    color: selected ? Colors.white : Colors.black,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                selected: selected,
+                onSelected: (_) => onTap(item),
+                selectedColor: Colors.green,
+                backgroundColor: Colors.white,
+                checkmarkColor: Colors.white,
+                shape: const StadiumBorder(
+                  side: BorderSide(color: Colors.black),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+
+
+  Widget _buildFilterChip() {
+    return GestureDetector(
+      onTap: () => setState(() => filterChipOffen = !filterChipOffen),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          children: const [
+            Icon(Icons.filter_list, size: 20),
+            SizedBox(width: 4),
+            Text('Filter'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget dienstleisterListeView() {
+    return FutureBuilder<QuerySnapshot>(
+      future: FirebaseFirestore.instance
+          .collection('users')
+          .where('rolle', isEqualTo: 'dienstleister')
+          .get(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+
+        final List<Map<String, dynamic>> dienstleisterMitLeistungen = [];
+        final docs = snapshot.data!.docs;
+
+        return FutureBuilder(
+          future: Future.wait(docs.map((doc) async {
+            final data = doc.data() as Map<String, dynamic>;
+            data['id'] = doc.id;
+
+            if (data['geo'] != null) {
+              final geo = data['geo'] as GeoPoint;
+              final distanceInMeters = Geolocator.distanceBetween(
+                userPosition!.latitude,
+                userPosition!.longitude,
+                geo.latitude,
+                geo.longitude,
+              );
+              data['distance'] = distanceInMeters / 1000;
+            } else {
+              data['distance'] = double.infinity;
+            }
+
+            final leistungenSnap = await FirebaseFirestore.instance
+                .collection('users')
+                .doc(doc.id)
+                .collection('leistungen')
+                .get();
+
+            final leistungen = leistungenSnap.docs.map((l) => l.data()).toList();
+            data['leistungen'] = leistungen;
+
+            final branche = data['branche']?.toString();
+            final zielgruppen = leistungen.map((l) => l['zielgruppe']?.toString()).toSet();
+            final kategorien = leistungen.map((l) => l['kategorie']?.toString()).toSet();
+            final einzelneLeistungen = leistungen.map((l) => l['name']?.toString()).toSet();
+
+            final branchePasst = ausgewaehlteBranchen.isEmpty || ausgewaehlteBranchen.contains(branche);
+            final zielgruppePasst = ausgewaehlteZielgruppen.isEmpty || zielgruppen.any(ausgewaehlteZielgruppen.contains);
+            final kategoriePasst = ausgewaehlteKategorien.isEmpty || kategorien.any(ausgewaehlteKategorien.contains);
+
+            bool leistungPasst = true;
+            if (ausgewaehlteLeistungen.isNotEmpty) {
+              final ausgewaehlteKombination = ausgewaehlteLeistungen.values.expand((e) => e).toList();
+            final sortierteAuswahl = [...ausgewaehlteKombination]..sort();
+
+            leistungPasst = leistungen.any((leistungDoc) {
+            final leistungsliste = List<String>.from(leistungDoc['leistung'] ?? []);
+            leistungsliste.sort();
+            return listEquals(leistungsliste, sortierteAuswahl);
+            });
+            }
+
+
+
+
+            if (branchePasst && zielgruppePasst && kategoriePasst && leistungPasst) {
+              dienstleisterMitLeistungen.add(data);
+            }
+          })),
+          builder: (context, AsyncSnapshot<List<void>> snapshot2) {
+            if (snapshot2.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            dienstleisterMitLeistungen.sort((a, b) => (a['distance'] as double).compareTo(b['distance'] as double));
+
+            return ListView.builder(
+              itemCount: dienstleisterMitLeistungen.length,
+              itemBuilder: (context, index) {
+                final data = dienstleisterMitLeistungen[index];
+                return DienstleisterTile(
+                  data: data,
+                  onTap: () {
+                    setState(() {
+                      geoeffneterDienstleister = data;
+                    });
+                  },
+                );
+              },
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -161,238 +449,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
           BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profil'),
         ],
       ),
-    );
-  }
-
-  Widget _buildBodyByIndex(int index) {
-    switch (index) {
-      case 0:
-        return geoeffneterDienstleister != null
-            ? DienstleisterDetailPage(
-          dienstleister: geoeffneterDienstleister!,
-          selektierteZielgruppe: 'alle',
-          selektierteKategorie: 'alle',
-        )
-            : Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        _buildFilterChip(),
-                      ],
-                    ),
-                  ),
-                  if (filterChipOffen)
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildChipReihe(verfuegbareBranchen, ausgewaehlteBranchen, (branche) {
-                          setState(() {
-                            ausgewaehlteBranchen = [branche];
-                            _ladeZielgruppenUndKategorien();
-                          });
-                        }),
-                        _buildChipReihe(verfuegbareZielgruppen, ausgewaehlteZielgruppen, (zielgruppe) {
-                          setState(() {
-                            ausgewaehlteZielgruppen = [zielgruppe];
-                            _ladeKategorienZuZielgruppe(zielgruppe);
-                          });
-                        }),
-                        _buildChipReihe(verfuegbareKategorien, ausgewaehlteKategorien, (kategorie) {
-                          setState(() {
-                            if (ausgewaehlteKategorien.contains(kategorie)) {
-                              ausgewaehlteKategorien.remove(kategorie);
-                            } else {
-                              ausgewaehlteKategorien.add(kategorie);
-                            }
-                          });
-                        }),
-                      ],
-                    ),
-                ],
-              ),
-            ),
-            Expanded(child: dienstleisterListeView()),
-          ],
-        );
-      case 1:
-        return const Center(child: Text('Favoriten kommen bald!'));
-      case 2:
-        return const Center(child: Text('Buchungen kommen bald!'));
-      case 3:
-        final user = FirebaseAuth.instance.currentUser;
-        return user == null ? const LoginRegisterPage() : const KundenProfilPage();
-      default:
-        return const SizedBox.shrink();
-    }
-  }
-
-  Widget _buildFilterChip() {
-    return GestureDetector(
-      onTap: () => setState(() => filterChipOffen = !filterChipOffen),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          children: const [
-            Icon(Icons.filter_list, size: 20),
-            SizedBox(width: 4),
-            Text('Filter'),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildChipReihe(List<String> items, List<String> selectedItems, Function(String) onTap) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: items.map((item) {
-            final selected = selectedItems.contains(item);
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: FilterChip(
-                label: Text(
-                  items == verfuegbareBranchen ? '${item[0].toUpperCase()}${item.substring(1)}' : item,
-                  style: TextStyle(
-                    color: selected ? Colors.white : Colors.black,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                selected: selected,
-                onSelected: (_) {
-                  setState(() {
-                    if (selected) {
-                      selectedItems.remove(item);
-                      if (items == verfuegbareBranchen) {
-                        ausgewaehlteZielgruppen.clear();
-                        ausgewaehlteKategorien.clear();
-                        verfuegbareZielgruppen.clear();
-                        verfuegbareKategorien.clear();
-                      } else if (items == verfuegbareZielgruppen) {
-                        ausgewaehlteKategorien.clear();
-                        verfuegbareKategorien.clear();
-                      }
-                    } else {
-                      if (items == verfuegbareBranchen) {
-                        selectedItems.clear();
-                        selectedItems.add(item);
-                        _ladeZielgruppenUndKategorien();
-                      } else if (items == verfuegbareZielgruppen) {
-                        selectedItems.clear();
-                        selectedItems.add(item);
-                        if (ausgewaehlteBranchen.isNotEmpty) {
-                          _ladeKategorienZuZielgruppe(item);
-                        }
-                      } else {
-                        selectedItems.add(item);
-                      }
-                    }
-                  });
-                },
-                selectedColor: Colors.green,
-                backgroundColor: Colors.white,
-                checkmarkColor: Colors.white,
-                shape: StadiumBorder(
-                  side: BorderSide(
-                    color: Colors.black,
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-
-  Widget dienstleisterListeView() {
-    return FutureBuilder<QuerySnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('users')
-          .where('rolle', isEqualTo: 'dienstleister')
-          .get(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-
-        final List<Map<String, dynamic>> dienstleisterMitLeistungen = [];
-        final docs = snapshot.data!.docs;
-
-        return FutureBuilder(
-          future: Future.wait(docs.map((doc) async {
-            final data = doc.data() as Map<String, dynamic>;
-            data['id'] = doc.id;
-
-            if (data['geo'] != null) {
-              final geo = data['geo'] as GeoPoint;
-              final distanceInMeters = Geolocator.distanceBetween(
-                userPosition!.latitude,
-                userPosition!.longitude,
-                geo.latitude,
-                geo.longitude,
-              );
-              data['distance'] = distanceInMeters / 1000;
-            } else {
-              data['distance'] = double.infinity;
-            }
-
-            final leistungenSnap = await FirebaseFirestore.instance
-                .collection('users')
-                .doc(doc.id)
-                .collection('leistungen')
-                .get();
-
-            final leistungen = leistungenSnap.docs.map((l) => l.data()).toList();
-            data['leistungen'] = leistungen;
-
-            final branche = data['branche']?.toString();
-            final zielgruppen = leistungen.map((l) => l['zielgruppe']?.toString()).toSet();
-            final kategorien = leistungen.map((l) => l['kategorie']?.toString()).toSet();
-
-            final branchePasst = ausgewaehlteBranchen.isEmpty || ausgewaehlteBranchen.contains(branche);
-            final zielgruppePasst = ausgewaehlteZielgruppen.isEmpty || zielgruppen.any(ausgewaehlteZielgruppen.contains);
-            final kategoriePasst = ausgewaehlteKategorien.isEmpty || kategorien.any(ausgewaehlteKategorien.contains);
-
-            if (branchePasst && zielgruppePasst && kategoriePasst) {
-              dienstleisterMitLeistungen.add(data);
-            }
-          })),
-          builder: (context, AsyncSnapshot<List<void>> snapshot2) {
-            if (snapshot2.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            dienstleisterMitLeistungen.sort((a, b) => (a['distance'] as double).compareTo(b['distance'] as double));
-
-            return ListView.builder(
-              itemCount: dienstleisterMitLeistungen.length,
-              itemBuilder: (context, index) {
-                final data = dienstleisterMitLeistungen[index];
-                return DienstleisterTile(
-                  data: data,
-                  onTap: () {
-                    setState(() {
-                      geoeffneterDienstleister = data;
-                    });
-                  },
-                );
-              },
-            );
-          },
-        );
-      },
     );
   }
 }
