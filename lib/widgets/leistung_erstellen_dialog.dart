@@ -93,23 +93,22 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> {
 
     final name = "$leistungskategorie - ${selectedLeistungen.join(', ')}";
 
-    for (final l in selectedLeistungen) {
-      final leistungObjekt = {
-        'name': name,
-        'zielgruppe': zielgruppe,
-        'kategorie': leistungskategorie,
-        'leistung': l,
-        'preis': preis,
-        'dauer': dauer,
-        'createdAt': Timestamp.now(),
-      };
+    final leistungObjekt = {
+      'name': name,
+      'zielgruppe': zielgruppe,
+      'kategorie': leistungskategorie,
+      'leistung': selectedLeistungen,
+      'preis': preis,
+      'dauer': dauer,
+      'createdAt': Timestamp.now(),
+    };
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('leistungen')
-          .add(leistungObjekt);
-    }
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('leistungen')
+        .add(leistungObjekt);
+
 
     if (context.mounted) {
       Navigator.pop(context);
