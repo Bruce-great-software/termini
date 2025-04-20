@@ -1,4 +1,3 @@
-// Neuer Dialog basierend auf admin_branchen_verwaltung-Struktur
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -13,12 +12,12 @@ class LeistungErstellenDialog extends StatefulWidget {
 class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> {
   String? zielgruppe;
   String? leistungskategorie;
-  String? leistung;
+  List<String> selectedLeistungen = [];
 
   final TextEditingController _preisController = TextEditingController();
   final TextEditingController _dauerController = TextEditingController();
 
-  Map<String, dynamic> struktur = {}; // komplette Struktur aus Firestore
+  Map<String, dynamic> struktur = {};
 
   @override
   void initState() {
@@ -74,7 +73,7 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> {
   bool _formValid() =>
       zielgruppe != null &&
           leistungskategorie != null &&
-          leistung != null &&
+          selectedLeistungen.isNotEmpty &&
           _preisController.text.trim().isNotEmpty &&
           _dauerController.text.trim().isNotEmpty;
 
@@ -92,26 +91,30 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> {
       return;
     }
 
-    final leistungObjekt = {
-      'name': "$zielgruppe - $leistung",
-      'zielgruppe': zielgruppe,
-      'kategorie': leistungskategorie,
-      'leistung': leistung,
-      'preis': preis,
-      'dauer': dauer,
-      'createdAt': Timestamp.now(),
-    };
+    final name = "$leistungskategorie - ${selectedLeistungen.join(', ')}";
 
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .collection('leistungen')
-        .add(leistungObjekt);
+    for (final l in selectedLeistungen) {
+      final leistungObjekt = {
+        'name': name,
+        'zielgruppe': zielgruppe,
+        'kategorie': leistungskategorie,
+        'leistung': l,
+        'preis': preis,
+        'dauer': dauer,
+        'createdAt': Timestamp.now(),
+      };
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('leistungen')
+          .add(leistungObjekt);
+    }
 
     if (context.mounted) {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Leistung erfolgreich gespeichert.')),
+        const SnackBar(content: Text('Leistungen erfolgreich gespeichert.')),
       );
     }
   }
@@ -132,7 +135,7 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> {
               onChanged: (val) => setState(() {
                 zielgruppe = val;
                 leistungskategorie = null;
-                leistung = null;
+                selectedLeistungen.clear();
               }),
             ),
             if (zielgruppe != null)
@@ -143,18 +146,32 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> {
                 items: getLeistungskategorien().map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(),
                 onChanged: (val) => setState(() {
                   leistungskategorie = val;
-                  leistung = null;
+                  selectedLeistungen.clear();
                 }),
               ),
             if (leistungskategorie != null)
-              DropdownButton<String>(
-                value: leistung,
-                hint: const Text('Leistung wählen'),
-                isExpanded: true,
-                items: getLeistungen().map((l) => DropdownMenuItem(value: l, child: Text(l))).toList(),
-                onChanged: (val) => setState(() => leistung = val),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Leistungen auswählen'),
+                  ...getLeistungen().map((l) {
+                    return CheckboxListTile(
+                      title: Text(l),
+                      value: selectedLeistungen.contains(l),
+                      onChanged: (selected) {
+                        setState(() {
+                          if (selected == true) {
+                            selectedLeistungen.add(l);
+                          } else {
+                            selectedLeistungen.remove(l);
+                          }
+                        });
+                      },
+                    );
+                  }).toList(),
+                ],
               ),
-            if (leistung != null) ...[
+            if (selectedLeistungen.isNotEmpty) ...[
               const SizedBox(height: 10),
               TextField(
                 controller: _preisController,

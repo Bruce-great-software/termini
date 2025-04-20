@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class DienstleisterDetailPage extends StatefulWidget {
   final Map<String, dynamic> dienstleister;
@@ -29,30 +30,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final dienstleister = widget.dienstleister;
-    final Map<String, dynamic> leistungen = dienstleister['leistungen'] ?? {};
-    final Map<String, Map<String, List<Map<String, dynamic>>>> nachZielgruppen = {};
-
-    leistungen.forEach((zielgruppe, kategorienMap) {
-      final kategorien = kategorienMap as Map<String, dynamic>;
-      nachZielgruppen[zielgruppe] = {};
-
-      kategorien.forEach((kategorieName, eintraege) {
-        if (eintraege is List) {
-          nachZielgruppen[zielgruppe]![kategorieName] = [];
-          for (var eintrag in eintraege) {
-            if (eintrag is Map<String, dynamic>) {
-              nachZielgruppen[zielgruppe]![kategorieName]!.add(eintrag);
-            }
-          }
-        }
-      });
-    });
-
-    final gefiltert = ausgewaehlteZielgruppe == 'Alle'
-        ? nachZielgruppen.entries
-        : nachZielgruppen.entries
-        .where((e) => e.key.toLowerCase() == ausgewaehlteZielgruppe.toLowerCase());
+    final dienstleisterId = widget.dienstleister['id'];
 
     return Scaffold(
       appBar: AppBar(
@@ -61,22 +39,21 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.black),
         title: Text(
-          dienstleister['name'] ?? 'Profil',
+          widget.dienstleister['name'] ?? 'Profil',
           style: const TextStyle(color: Colors.black),
         ),
-
       ),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          if (dienstleister['logoUrl'] != null)
+          if (widget.dienstleister['logoUrl'] != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 16.0),
               child: Center(
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: Image.network(
-                    dienstleister['logoUrl'],
+                    widget.dienstleister['logoUrl'],
                     width: 120,
                     height: 120,
                     fit: BoxFit.cover,
@@ -104,41 +81,43 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               }).toList(),
             ),
           ),
-          ...gefiltert.map((zielgruppeEintrag) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  margin: const EdgeInsets.only(top: 16.0, bottom: 16.0),
-                  padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade100,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  width: double.infinity,
-                  child: Center(
-                    child: Text(
-                      zielgruppeEintrag.key[0].toUpperCase() + zielgruppeEintrag.key.substring(1),
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
-                      ),
-                    ),
-                  ),
-                ),
-                ...zielgruppeEintrag.value.entries.map((kategorieEintrag) {
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('users')
+                .doc(dienstleisterId)
+                .collection('leistungen')
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final leistungen = snapshot.data!.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
+
+              final gefiltert = ausgewaehlteZielgruppe == 'Alle'
+                  ? leistungen
+                  : leistungen.where((l) => l['zielgruppe']?.toLowerCase() == ausgewaehlteZielgruppe.toLowerCase()).toList();
+
+              final Map<String, List<Map<String, dynamic>>> gruppiert = {};
+              for (var eintrag in gefiltert) {
+                final kategorie = eintrag['kategorie'] ?? 'Sonstiges';
+                gruppiert.putIfAbsent(kategorie, () => []).add(eintrag);
+              }
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: gruppiert.entries.map((eintrag) {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 16.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          kategorieEintrag.key[0].toUpperCase() + kategorieEintrag.key.substring(1),
+                          eintrag.key,
                           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                         ),
                         const SizedBox(height: 6),
-                        ...kategorieEintrag.value.map((leistung) {
+                        ...eintrag.value.map((leistung) {
                           final name = leistung['name'] ?? 'Unbenannt';
                           final preis = leistung['preis']?.toString() ?? '–';
                           final dauer = leistung['dauer']?.toString() ?? '–';
@@ -167,11 +146,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       ],
                     ),
                   );
-                }),
-                const Divider(height: 32),
-              ],
-            );
-          }),
+                }).toList(),
+              );
+            },
+          )
         ],
       ),
     );
