@@ -208,33 +208,18 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        _buildFilterChip(),
-                      ],
-                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildChipReihe(verfuegbareBranchen, ausgewaehlteBranchen, (branche) {
+                        setState(() {
+                          ausgewaehlteBranchen = [branche];
+                        });
+                      }),
+                    ],
                   ),
-                  if (filterChipOffen)
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildChipReihe(verfuegbareBranchen, ausgewaehlteBranchen, (branche) {
-                          setState(() {
-                            ausgewaehlteBranchen = [branche];
-                            _ladeZielgruppenUndKategorien();
-                          });
-                        }),
-                        _buildChipReihe(verfuegbareZielgruppen, ausgewaehlteZielgruppen, (zielgruppe) {
-                          setState(() {
-                            ausgewaehlteZielgruppen = [zielgruppe];
-                            _ladeKategorienZuZielgruppe(zielgruppe);
-                          });
-                        }),
-                        _buildKategorieChips(),
-                      ],
-                    ),
+
+
                 ],
               ),
             ),
