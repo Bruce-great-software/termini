@@ -94,18 +94,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
               final leistungen = snapshot.data!.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
 
-              final gefiltert = ausgewaehlteZielgruppe == 'Alle'
-                  ? leistungen
-                  : leistungen.where((l) => l['zielgruppe']?.toLowerCase() == ausgewaehlteZielgruppe.toLowerCase()).toList();
+              List<Widget> buildKategorieTiles(List<Map<String, dynamic>> items) {
+                final Map<String, List<Map<String, dynamic>>> gruppiert = {};
+                for (var eintrag in items) {
+                  final kategorie = eintrag['kategorie'] ?? 'Sonstiges';
+                  gruppiert.putIfAbsent(kategorie, () => []).add(eintrag);
+                }
 
-              final Map<String, List<Map<String, dynamic>>> gruppiert = {};
-              for (var eintrag in gefiltert) {
-                final kategorie = eintrag['kategorie'] ?? 'Sonstiges';
-                gruppiert.putIfAbsent(kategorie, () => []).add(eintrag);
-              }
-
-              return Column(
-                children: gruppiert.entries.map((eintrag) {
+                return gruppiert.entries.map((eintrag) {
                   return ExpansionTile(
                     title: Text(
                       eintrag.key,
@@ -122,9 +118,66 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       );
                     }).toList(),
                   );
-                }).toList(),
-              );
+                }).toList();
+              }
 
+              if (ausgewaehlteZielgruppe == 'Alle') {
+                return Column(
+                  children: ['Herren', 'Damen', 'Kinder'].map((zielgruppe) {
+                    final leistungenZielgruppe = leistungen
+                        .where((l) => l['zielgruppe']?.toLowerCase() == zielgruppe.toLowerCase())
+                        .toList();
+
+                    if (leistungenZielgruppe.isEmpty) return const SizedBox.shrink();
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          color: Colors.orange,
+                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                          margin: const EdgeInsets.only(top: 16, bottom: 8),
+                          child: Text(
+                            zielgruppe.toUpperCase(),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                        ...buildKategorieTiles(leistungenZielgruppe),
+                      ],
+                    );
+                  }).toList(),
+                );
+              } else {
+                final leistungenZielgruppe = leistungen
+                    .where((l) => l['zielgruppe']?.toLowerCase() == ausgewaehlteZielgruppe.toLowerCase())
+                    .toList();
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      color: Colors.orange,
+                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                      margin: const EdgeInsets.only(top: 8, bottom: 8),
+                      child: Text(
+                        ausgewaehlteZielgruppe.toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    ...buildKategorieTiles(leistungenZielgruppe),
+                  ],
+                );
+              }
             },
           )
         ],
