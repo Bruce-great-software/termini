@@ -5,6 +5,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:app_settings/app_settings.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:geocoding/geocoding.dart';
+
 
 import '../services/location_service.dart';
 import '../widgets/dienstleister_tile.dart';
@@ -20,6 +22,8 @@ class AlleDienstleisterPage extends StatefulWidget {
 }
 
 class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with WidgetsBindingObserver {
+
+  String? currentCity;
   Position? userPosition;
   bool isLoading = true;
   int _selectedIndex = 0;
@@ -61,6 +65,27 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
     }
   }
 
+  Future<void> _ermittleOrtAusKoordinaten() async {
+    if (userPosition == null) return;
+
+    try {
+      List<Placemark> placemarks = await placemarkFromCoordinates(
+        userPosition!.latitude,
+        userPosition!.longitude,
+      );
+
+      if (placemarks.isNotEmpty) {
+        Placemark ort = placemarks.first;
+        setState(() {
+          currentCity = ort.locality ?? ort.subAdministrativeArea ?? ort.administrativeArea ?? 'Unbekannt';
+        });
+      }
+    } catch (e) {
+      print("Fehler beim Reverse Geocoding: $e");
+    }
+  }
+
+
   Future<void> _initLocation() async {
     setState(() => isLoading = true);
     userPosition = await LocationService.initLocation(
@@ -68,8 +93,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
       onExitApp: () => SystemChannels.platform.invokeMethod('SystemNavigator.pop'),
       onOpenAppSettings: () => AppSettings.openAppSettings(),
     );
+    await _ermittleOrtAusKoordinaten();
     setState(() => isLoading = false);
   }
+
 
   Future<void> _ladeBranchen() async {
     final snapshot = await FirebaseFirestore.instance.collection('branchen').get();
@@ -250,7 +277,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: FilterChip(
                 label: Text(
-                  item,
+                  item[0].toUpperCase() + item.substring(1),
+
                   style: TextStyle(
                     color: selected ? Colors.white : Colors.black,
                     fontWeight: FontWeight.w500,
@@ -258,7 +286,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
                 ),
                 selected: selected,
                 onSelected: (_) => onTap(item),
-                selectedColor: Colors.green,
+                selectedColor: Color(0xFFF7931E),
                 backgroundColor: Colors.white,
                 checkmarkColor: Colors.white,
                 shape: const StadiumBorder(
@@ -400,10 +428,19 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dienstleister'),
+        backgroundColor: Colors.orange, // 👈 dein Farbbalken
+        centerTitle: true,
+        title: Text(
+          currentCity != null ? currentCity! : 'Ort wird geladen...',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+          ),
+        ),
         leading: geoeffneterDienstleister != null
             ? IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () {
             setState(() {
               geoeffneterDienstleister = null;
@@ -412,6 +449,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
         )
             : null,
       ),
+
+
       body: _buildBodyByIndex(_selectedIndex),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,

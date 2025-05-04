@@ -105,49 +105,26 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               }
 
               return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: gruppiert.entries.map((eintrag) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          eintrag.key,
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 6),
-                        ...eintrag.value.map((leistung) {
-                          final name = leistung['name'] ?? 'Unbenannt';
-                          final preis = leistung['preis']?.toString() ?? '–';
-                          final dauer = leistung['dauer']?.toString() ?? '–';
-
-                          return Padding(
-                            padding: const EdgeInsets.only(left: 12.0, bottom: 10.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  name,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Preis: $preis €   •   Dauer: $dauer Min',
-                                  style: const TextStyle(fontSize: 13, color: Colors.grey),
-                                ),
-                              ],
-                            ),
-                          );
-                        }),
-                      ],
+                  return ExpansionTile(
+                    title: Text(
+                      eintrag.key,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
+                    children: eintrag.value.map((leistung) {
+                      final name = leistung['name'] ?? 'Unbenannt';
+                      final preis = leistung['preis']?.toString() ?? '–';
+                      final dauer = leistung['dauer']?.toString() ?? '–';
+
+                      return ListTile(
+                        title: Text(name),
+                        subtitle: Text('Preis: $preis €   •   Dauer: $dauer Min'),
+                      );
+                    }).toList(),
                   );
                 }).toList(),
               );
+
             },
           )
         ],
