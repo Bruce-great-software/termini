@@ -49,7 +49,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initLocation();
-    _ladeBranchen();
+    //_ladeBranchen();
   }
 
   @override
@@ -99,8 +99,16 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
 
 
   Future<void> _ladeBranchen() async {
-    final snapshot = await FirebaseFirestore.instance.collection('branchen').get();
-    final alleBranchen = snapshot.docs.map((doc) => doc.id).toList();
+    final snapshot = await FirebaseFirestore.instance
+        .collection('branchen')
+        .where('aktiv', isEqualTo: true)
+        .get();
+
+    final alleBranchen = snapshot.docs.map((doc) {
+      final data = doc.data();
+      return data.containsKey('name') ? data['name'] as String : doc.id;
+    }).toList();
+
     setState(() {
       verfuegbareBranchen = alleBranchen;
     });
@@ -238,11 +246,32 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildChipReihe(verfuegbareBranchen, ausgewaehlteBranchen, (branche) {
-                        setState(() {
-                          ausgewaehlteBranchen = [branche];
-                        });
-                      }),
+                      StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('branchen')
+                            .where('aktiv', isEqualTo: true)
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const Center(child: CircularProgressIndicator());
+                          }
+
+                          final branchen = snapshot.data!.docs.map((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            return data.containsKey('name') ? data['name'] as String : doc.id;
+                          }).toList();
+
+                          branchen.sort();
+
+                          return _buildChipReihe(branchen, ausgewaehlteBranchen, (branche) {
+                            setState(() {
+                              ausgewaehlteBranchen = [branche];
+                              _ladeZielgruppenUndKategorien();
+                            });
+                          });
+                        },
+                      ),
+
                     ],
                   ),
 

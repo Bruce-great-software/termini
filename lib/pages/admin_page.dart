@@ -257,11 +257,42 @@ class _AdminDienstleisterFormularState extends State<AdminDienstleisterFormular>
               decoration: const InputDecoration(labelText: 'PLZ'),
               validator: (value) => value!.isEmpty ? 'Pflichtfeld' : null,
             ),
-            TextFormField(
-              controller: _brancheController,
-              decoration: const InputDecoration(labelText: 'Branche'),
-              validator: (value) => value!.isEmpty ? 'Pflichtfeld' : null,
+            FutureBuilder<QuerySnapshot>(
+              future: FirebaseFirestore.instance.collection('branchen').get(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                final docs = snapshot.data!.docs;
+                final branchenListe = docs.map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  return data.containsKey('name') ? data['name'] as String : doc.id;
+                }).toList();
+
+                branchenListe.sort();
+
+                return DropdownButtonFormField<String>(
+                  value: _brancheController.text.isNotEmpty && branchenListe.contains(_brancheController.text)
+                      ? _brancheController.text
+                      : null,
+                  items: branchenListe.map((value) {
+                    return DropdownMenuItem<String>(
+                      value: value,
+                      child: Text(value),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _brancheController.text = value!;
+                    });
+                  },
+                  decoration: const InputDecoration(labelText: 'Branche'),
+                  validator: (value) => value == null || value.isEmpty ? 'Bitte eine Branche wählen' : null,
+                );
+              },
             ),
+
             TextFormField(
               controller: _latitudeController,
               decoration: InputDecoration(
