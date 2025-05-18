@@ -1,197 +1,158 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 
 class LeistungErstellenDialog extends StatefulWidget {
-  const LeistungErstellenDialog({super.key});
+  const LeistungErstellenDialog({Key? key}) : super(key: key);
 
   @override
   State<LeistungErstellenDialog> createState() => _LeistungErstellenDialogState();
 }
 
 class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> {
-  String? zielgruppe;
-  String? leistungskategorie;
-  List<String> selectedLeistungen = [];
+  List<String> leistungskategorien = [];
+  String? ausgewaehlteLeistungskategorie;
+  List<String> leistungen = [];
+  List<String> ausgewaehlteLeistungen = [];
 
-  final TextEditingController _preisController = TextEditingController();
-  final TextEditingController _dauerController = TextEditingController();
-
-  Map<String, dynamic> struktur = {};
+  String? aktuelleBranche;
 
   @override
   void initState() {
     super.initState();
-    _ladeBranchenStruktur();
-    _preisController.addListener(_onFormChanged);
-    _dauerController.addListener(_onFormChanged);
+    _ladeBrancheDesDienstleisters();
   }
 
-  @override
-  void dispose() {
-    _preisController.removeListener(_onFormChanged);
-    _dauerController.removeListener(_onFormChanged);
-    _preisController.dispose();
-    _dauerController.dispose();
-    super.dispose();
+  Future<void> _ladeBrancheDesDienstleisters() async {
+    print('➤ ladeBrancheDesDienstleisters gestartet');
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final data = userDoc.data();
+    if (data == null) return;
+
+    final branche = data['branche'];
+    print('✅ Geladene Branche: \$branche');
+    if (branche == null || branche.isEmpty) return;
+
+    setState(() {
+      aktuelleBranche = branche;
+    });
+
+
   }
 
-  void _onFormChanged() {
-    setState(() {});
+
+
+  Future<void> _ladeLeistungenZurKategorie(String kategorie) async {
+    final snapshot = await FirebaseFirestore.instance.collection('leistungen').get();
+
+    final gefilterteLeistungen = snapshot.docs.where((doc) {
+      final data = doc.data();
+      final kategorien = List<String>.from(data['kategorien'] ?? []);
+      return kategorien.contains(kategorie);
+    }).map((doc) {
+      final titel = doc.data()['titel'] ?? doc.id;
+      return titel.toString();
+    }).toList();
+
+    setState(() {
+      leistungen = gefilterteLeistungen;
+      ausgewaehlteLeistungen.clear();
+    });
   }
-
-  Future<void> _ladeBranchenStruktur() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-    final branche = userDoc.data()?['branche'];
-    if (branche == null) return;
-
-    final branchenDoc = await FirebaseFirestore.instance.collection('branchen').doc(branche.toLowerCase()).get();
-    final data = branchenDoc.data();
-    if (data != null && data.containsKey('zielgruppen')) {
-      setState(() {
-        struktur = Map<String, dynamic>.from(data['zielgruppen']);
-      });
-    }
-  }
-
-  List<String> getZielgruppen() => struktur.keys.toList();
-
-  List<String> getLeistungskategorien() {
-    if (zielgruppe == null) return [];
-    final map = struktur[zielgruppe]?['leistungskategorien'] as Map<String, dynamic>?;
-    return map?.keys.toList() ?? [];
-  }
-
-  List<String> getLeistungen() {
-    if (zielgruppe == null || leistungskategorie == null) return [];
-    final list = struktur[zielgruppe]?['leistungskategorien']?[leistungskategorie] as List<dynamic>?;
-    return List<String>.from(list ?? []);
-  }
-
-  bool _formValid() =>
-      zielgruppe != null &&
-          leistungskategorie != null &&
-          selectedLeistungen.isNotEmpty &&
-          _preisController.text.trim().isNotEmpty &&
-          _dauerController.text.trim().isNotEmpty;
-
-  Future<void> _leistungSpeichern() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    final preis = double.tryParse(_preisController.text.trim());
-    final dauer = int.tryParse(_dauerController.text.trim());
-
-    if (preis == null || dauer == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bitte gültige Preis- und Dauerangaben machen.')),
-      );
-      return;
-    }
-
-    final name = "$leistungskategorie - ${selectedLeistungen.join(', ')}";
-
-    final leistungObjekt = {
-      'name': name,
-      'zielgruppe': zielgruppe,
-      'kategorie': leistungskategorie,
-      'leistungen': selectedLeistungen, // <-- jetzt als Liste
-      'preis': preis,
-      'dauer': dauer,
-      'createdAt': Timestamp.now(),
-    };
-
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .collection('leistungen')
-        .add(leistungObjekt);
-
-    if (context.mounted) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Leistungen erfolgreich gespeichert.')),
-      );
-    }
-  }
-
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Leistung erstellen'),
-      content: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            DropdownButton<String>(
-              value: zielgruppe,
-              hint: const Text('Zielgruppe wählen'),
-              isExpanded: true,
-              items: getZielgruppen().map((z) => DropdownMenuItem(value: z, child: Text(z))).toList(),
-              onChanged: (val) => setState(() {
-                zielgruppe = val;
-                leistungskategorie = null;
-                selectedLeistungen.clear();
-              }),
-            ),
-            if (zielgruppe != null)
-              DropdownButton<String>(
-                value: leistungskategorie,
-                hint: const Text('Leistungskategorie wählen'),
-                isExpanded: true,
-                items: getLeistungskategorien().map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(),
-                onChanged: (val) => setState(() {
-                  leistungskategorie = val;
-                  selectedLeistungen.clear();
-                }),
-              ),
-            if (leistungskategorie != null)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Leistungen auswählen'),
-                  ...getLeistungen().map((l) {
-                    return CheckboxListTile(
-                      title: Text(l),
-                      value: selectedLeistungen.contains(l),
-                      onChanged: (selected) {
+      backgroundColor: Colors.orange[50],
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Leistungskategorie wählen'),
+          const SizedBox(height: 8),
+          if (aktuelleBranche == null)
+            const CircularProgressIndicator()
+          else
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance.collection('leistungskategorien').snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const CircularProgressIndicator();
+
+                final docs = snapshot.data!.docs.where((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  if (data.containsKey('branchen')) {
+                    final branchen = List<String>.from(data['branchen']);
+                    return branchen.map((b) => b.toLowerCase()).contains(aktuelleBranche!.toLowerCase());
+                  }
+                  return false;
+                }).toList();
+
+                if (docs.isEmpty) return const Text("Keine Leistungskategorien verfügbar");
+
+                return Wrap(
+                  spacing: 8,
+                  children: docs.map((doc) {
+                    final titel = doc['titel'] ?? doc.id;
+                    return ChoiceChip(
+                      label: Text(titel),
+                      selected: ausgewaehlteLeistungskategorie == titel,
+                      onSelected: (ausgewaehlt) {
                         setState(() {
-                          if (selected == true) {
-                            selectedLeistungen.add(l);
-                          } else {
-                            selectedLeistungen.remove(l);
-                          }
+                          ausgewaehlteLeistungskategorie = ausgewaehlt ? titel : null;
                         });
+                        if (ausgewaehlt) {
+                          _ladeLeistungenZurKategorie(titel);
+                        } else {
+                          setState(() {
+                            leistungen.clear();
+                            ausgewaehlteLeistungen.clear();
+                          });
+                        }
                       },
                     );
                   }).toList(),
-                ],
-              ),
-            if (selectedLeistungen.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              TextField(
-                controller: _preisController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Preis in €'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _dauerController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Dauer in Minuten'),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _formValid() ? _leistungSpeichern : null,
-                child: const Text('Speichern'),
-              ),
-            ]
-          ],
-        ),
+                );
+              },
+            ),
+
+          const SizedBox(height: 16),
+          const Text('Leistungen'),
+          const SizedBox(height: 8),
+          if (leistungen.isEmpty)
+            const Text('Keine Leistungen gefunden')
+          else
+            Wrap(
+              spacing: 8,
+              children: leistungen.map((leistung) {
+                final selected = ausgewaehlteLeistungen.contains(leistung);
+                return FilterChip(
+                  label: Text(leistung),
+                  selected: selected,
+                  onSelected: (value) {
+                    setState(() {
+                      if (value) {
+                        ausgewaehlteLeistungen.add(leistung);
+                      } else {
+                        ausgewaehlteLeistungen.remove(leistung);
+                      }
+                    });
+                  },
+                );
+              }).toList(),
+            ),
+        ],
       ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            Navigator.pop(context);
+            print("Ausgewählte Leistungen: $ausgewaehlteLeistungen");
+          },
+          child: const Text('Schließen'),
+        ),
+      ],
     );
   }
 }

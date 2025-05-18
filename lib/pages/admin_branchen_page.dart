@@ -27,7 +27,10 @@ class AdminBranchenPage extends StatelessWidget {
                 await FirebaseFirestore.instance
                     .collection('branchen')
                     .doc(neueBranche.toLowerCase())
-                    .set({'name': neueBranche});
+                    .set({
+                  'name': neueBranche,
+                  'aktiv': true,
+                });
               }
               Navigator.pop(context);
             },
@@ -48,7 +51,10 @@ class AdminBranchenPage extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.start,
               children: [
-                Text('Branchen verwalten', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Text(
+                  'Branchen verwalten',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
               ],
             ),
           ),
@@ -65,7 +71,6 @@ class AdminBranchenPage extends StatelessWidget {
 
                 final docs = snapshot.data!.docs;
 
-                // Fallback-Sortierung nach name oder id
                 docs.sort((a, b) {
                   final aName = a.data()!.toString().contains('name') ? a['name'] : a.id;
                   final bName = b.data()!.toString().contains('name') ? b['name'] : b.id;
@@ -80,27 +85,21 @@ class AdminBranchenPage extends StatelessWidget {
                     final name = data.containsKey('name') ? data['name'] : doc.id;
                     final aktiv = data['aktiv'] ?? true;
 
-
                     return ListTile(
+                      leading: Switch(
+                        value: aktiv,
+                        onChanged: (value) {
+                          FirebaseFirestore.instance
+                              .collection('branchen')
+                              .doc(doc.id)
+                              .update({'aktiv': value});
+                        },
+                      ),
                       title: Text(
                         name[0].toUpperCase() + name.substring(1),
                         style: const TextStyle(fontSize: 16),
                       ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Switch(
-                            value: aktiv,
-                            onChanged: (value) {
-                              FirebaseFirestore.instance
-                                  .collection('branchen')
-                                  .doc(doc.id)
-                                  .update({'aktiv': value});
-                            },
-                          ),
-                          const Icon(Icons.chevron_right),
-                        ],
-                      ),
+                      trailing: const Icon(Icons.chevron_right),
                       onTap: () {
                         Navigator.push(
                           context,
@@ -110,7 +109,6 @@ class AdminBranchenPage extends StatelessWidget {
                         );
                       },
                     );
-
                   },
                 );
               },
