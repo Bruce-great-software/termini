@@ -1,3 +1,4 @@
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -59,8 +60,6 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
     if (name.isEmpty) return;
 
     final aktuelleBranchen = List<String>.from(_ausgewaehlteBranchen);
-    print("Speichere Kategorie '$name' mit Branchen: $aktuelleBranchen");
-
     final docRef = FirebaseFirestore.instance.collection('leistungskategorien').doc(name);
     await docRef.set({
       'titel': name,
@@ -75,7 +74,6 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
   }
 
   Future<void> _zuordnungSpeichern() async {
-    // Leistungen aktualisieren
     for (var leistung in _ausgewaehlteLeistungen) {
       await FirebaseFirestore.instance.collection('leistungen').doc(leistung).update({
         'leistungskategorien': _ausgewaehlteLeistungskategorien,
@@ -83,7 +81,6 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
       });
     }
 
-    // Leistungskategorien aktualisieren (z. B. "Haare")
     for (var kategorie in _ausgewaehlteLeistungskategorien) {
       await FirebaseFirestore.instance.collection('leistungskategorien').doc(kategorie).update({
         'branchen': _ausgewaehlteBranchen,
@@ -95,9 +92,8 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
     );
   }
 
-
-
   Widget _baueChips(List<String> items, List<String> ausgewaehlt, void Function(String) onChanged) {
+    items.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return Wrap(
       spacing: 8,
       children: items.map((item) {
@@ -121,65 +117,166 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Admin Dashboard")),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text("Admin Dashboard"),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: "Erstellen"),
+              Tab(text: "Verwaltung"),
+            ],
+          ),
+        ),
+        body: TabBarView(
           children: [
-            const Text("Leistung erstellen", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-
-            const Text("Leistung hinzufügen"),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _leistungsController,
-                    decoration: const InputDecoration(hintText: "z. B. Schneiden"),
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => _leistungHinzufuegen(_leistungsController.text),
-                  icon: const Icon(Icons.add),
-                ),
-              ],
-            ),
-            _baueChips(_leistungen, _ausgewaehlteLeistungen, (_) {}),
-
-            const SizedBox(height: 24),
-            const Text("Leistungskategorie hinzufügen"),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _kategorieController,
-                    decoration: const InputDecoration(hintText: "z. B. Haare"),
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => _kategorieHinzufuegen(_kategorieController.text),
-                  icon: const Icon(Icons.add),
-                ),
-              ],
-            ),
-            _baueChips(_leistungskategorien, _ausgewaehlteLeistungskategorien, (_) {}),
-
-            const SizedBox(height: 24),
-            const Text("Branchen zuordnen"),
-            _baueChips(_branchen, _ausgewaehlteBranchen, (_) {}),
-
-            const SizedBox(height: 24),
-            Center(
-              child: ElevatedButton(
-                onPressed: _zuordnungSpeichern,
-                child: const Text("Zuordnung speichern"),
-              ),
-            )
+            _erstellenTab(),
+            _verwaltungTab(),
           ],
         ),
       ),
     );
   }
+
+  Widget _erstellenTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Leistung erstellen", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          const Text("Leistung hinzufügen"),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _leistungsController,
+                  decoration: const InputDecoration(hintText: "z. B. Schneiden"),
+                ),
+              ),
+              IconButton(
+                onPressed: () => _leistungHinzufuegen(_leistungsController.text),
+                icon: const Icon(Icons.add),
+              ),
+            ],
+          ),
+          _baueChips(_leistungen, _ausgewaehlteLeistungen, (_) {}),
+
+          const SizedBox(height: 24),
+          const Text("Leistungskategorie hinzufügen"),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _kategorieController,
+                  decoration: const InputDecoration(hintText: "z. B. Haare"),
+                ),
+              ),
+              IconButton(
+                onPressed: () => _kategorieHinzufuegen(_kategorieController.text),
+                icon: const Icon(Icons.add),
+              ),
+            ],
+          ),
+          _baueChips(_leistungskategorien, _ausgewaehlteLeistungskategorien, (_) {}),
+
+          const SizedBox(height: 24),
+          const Text("Branchen zuordnen"),
+          _baueChips(
+            _branchen.map((b) => b[0].toUpperCase() + b.substring(1)).toList(),
+            _ausgewaehlteBranchen,
+                (_) {},
+          ),
+
+          const SizedBox(height: 24),
+          Center(
+            child: ElevatedButton(
+              onPressed: _zuordnungSpeichern,
+              child: const Text("Zuordnung speichern"),
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+
+  Widget _verwaltungTab() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: Row(
+              children: [
+                Expanded(child: Text("Leistungskategorie", style: TextStyle(fontWeight: FontWeight.bold))),
+                SizedBox(width: 100, child: Text("Zielgruppen", style: TextStyle(fontWeight: FontWeight.bold))),
+                SizedBox(width: 100, child: Text("Varianten", style: TextStyle(fontWeight: FontWeight.bold))),
+              ],
+            ),
+          ),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance.collection('leistungskategorien').snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final docs = snapshot.data!.docs;
+
+                return ListView.builder(
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final doc = docs[index];
+                    final data = doc.data() as Map<String, dynamic>;
+                    final name = doc.id;
+                    final zielgruppenAktiv = data['zielgruppenAktiv'] ?? false;
+                    final variantenAktiv = data['variantenAktiv'] ?? false;
+
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        children: [
+                          Expanded(child: Text(name)),
+                          SizedBox(
+                            width: 100,
+                            child: Switch(
+                              value: zielgruppenAktiv,
+                              onChanged: (value) {
+                                FirebaseFirestore.instance
+                                    .collection('leistungskategorien')
+                                    .doc(name)
+                                    .update({'zielgruppenAktiv': value});
+                              },
+                            ),
+                          ),
+                          SizedBox(
+                            width: 100,
+                            child: Switch(
+                              value: variantenAktiv,
+                              onChanged: (value) {
+                                FirebaseFirestore.instance
+                                    .collection('leistungskategorien')
+                                    .doc(name)
+                                    .update({'variantenAktiv': value});
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
 }
