@@ -9,51 +9,30 @@ class LeistungErstellenDialog extends StatefulWidget {
   State<LeistungErstellenDialog> createState() => _LeistungErstellenDialogState();
 }
 
-class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> {
+class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> with SingleTickerProviderStateMixin {
+  int currentStep = 0;
 
-  Widget _buildPreisDauerForm(String zielgruppe) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
-      child: Column(
-        children: [
-          TextFormField(
-            controller: preisController[zielgruppe],
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(
-              labelText: 'Preis für $zielgruppe (in €)',
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextFormField(
-            controller: dauerController[zielgruppe],
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(
-              labelText: 'Dauer für $zielgruppe (in Minuten)',
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  bool individuellePreise = false;
+  String? aktuelleBranche;
+  String? ausgewaehlteLeistungskategorie;
+  List<String> leistungskategorien = [];
+  List<String> leistungen = [];
+  List<String> ausgewaehlteLeistungen = [];
 
+  final TextEditingController standardPreisController = TextEditingController();
+  final TextEditingController standardDauerController = TextEditingController();
 
   final Map<String, TextEditingController> preisController = {
     'Damen': TextEditingController(),
     'Herren': TextEditingController(),
+    'Kinder': TextEditingController(),
   };
 
   final Map<String, TextEditingController> dauerController = {
     'Damen': TextEditingController(),
     'Herren': TextEditingController(),
+    'Kinder': TextEditingController(),
   };
-
-
-  List<String> leistungskategorien = [];
-  String? ausgewaehlteLeistungskategorie;
-  List<String> leistungen = [];
-  List<String> ausgewaehlteLeistungen = [];
-
-  String? aktuelleBranche;
 
   @override
   void initState() {
@@ -62,26 +41,16 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> {
   }
 
   Future<void> _ladeBrancheDesDienstleisters() async {
-    print('➤ ladeBrancheDesDienstleisters gestartet');
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-
-    final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-    final data = userDoc.data();
-    if (data == null) return;
-
-    final branche = data['branche'];
-    print('✅ Geladene Branche: \$branche');
-    if (branche == null || branche.isEmpty) return;
-
-    setState(() {
-      aktuelleBranche = branche;
-    });
-
-
+    final snapshot = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final data = snapshot.data();
+    if (data != null && data['branche'] != null) {
+      setState(() {
+        aktuelleBranche = data['branche'];
+      });
+    }
   }
-
-
 
   Future<void> _ladeLeistungenZurKategorie(String leistungskategorie) async {
     final snapshot = await FirebaseFirestore.instance.collection('leistungen').get();
@@ -101,134 +70,224 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> {
     });
   }
 
+  Widget _buildKategorieStep() {
+    return Column(
+      children: [
+        const Text('Leistungskategorie wählen', style: TextStyle(color: Colors.blue)),
+        const SizedBox(height: 8),
+        if (aktuelleBranche == null)
+          const CircularProgressIndicator()
+        else
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('leistungskategorien').snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) return const CircularProgressIndicator();
+
+              final docs = snapshot.data!.docs.where((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                if (data.containsKey('branchen')) {
+                  final branchen = List<String>.from(data['branchen']);
+                  return branchen.map((b) => b.toLowerCase()).contains(aktuelleBranche!.toLowerCase());
+                }
+                return false;
+              }).toList();
+
+              return Wrap(
+                spacing: 8,
+                children: docs.map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  final titel = data['titel'] ?? doc.id;
+                  return ChoiceChip(
+                    label: Text(titel, style: const TextStyle(color: Colors.white)),
+                    selected: ausgewaehlteLeistungskategorie == titel,
+                    selectedColor: Colors.blue,
+                    backgroundColor: Colors.blue.shade100,
+                    onSelected: (_) {
+                      setState(() {
+                        ausgewaehlteLeistungskategorie = titel;
+                      });
+                      _ladeLeistungenZurKategorie(titel);
+                    },
+                  );
+                }).toList(),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildLeistungenStep() {
+    if (ausgewaehlteLeistungskategorie == null) {
+      return const Text('Bitte zuerst eine Leistungskategorie auswählen.', style: TextStyle(color: Colors.blue));
+    }
+
+    if (leistungen.isEmpty) {
+      return const Text('Keine Leistungen gefunden.', style: TextStyle(color: Colors.blue));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: leistungen.map((leistung) {
+        final selected = ausgewaehlteLeistungen.contains(leistung);
+        return CheckboxListTile(
+          title: Text(leistung, style: const TextStyle(color: Colors.blue)),
+          value: selected,
+          activeColor: Colors.blue,
+          checkColor: Colors.white,
+          onChanged: (value) {
+            setState(() {
+              if (value == true) {
+                ausgewaehlteLeistungen.add(leistung);
+              } else {
+                ausgewaehlteLeistungen.remove(leistung);
+              }
+            });
+          },
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildPreisDauerForm(String zielgruppe) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+      child: Column(
+        children: [
+          TextFormField(
+            controller: preisController[zielgruppe],
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Preis',
+              suffixText: '€',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: dauerController[zielgruppe],
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Dauer',
+              suffixText: 'Minuten',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+  Widget _buildPreisDauerStep() {
+    return Column(
+      children: [
+        const TabBar(
+          labelColor: Colors.blue,
+          unselectedLabelColor: Colors.blueAccent,
+          indicatorColor: Colors.blue,
+          tabs: [
+            Tab(text: 'Damen'),
+            Tab(text: 'Herren'),
+            Tab(text: 'Kinder'),
+          ],
+        ),
+        SizedBox(
+          height: 200,
+          child: TabBarView(
+            children: [
+              _buildPreisDauerForm('Damen'),
+              _buildPreisDauerForm('Herren'),
+              _buildPreisDauerForm('Kinder'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: Colors.orange[50],
-      content: SizedBox(
-        width: double.maxFinite,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Leistungskategorie wählen'),
-              const SizedBox(height: 8),
-              if (aktuelleBranche == null)
-                const CircularProgressIndicator()
-              else
-                StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance.collection('leistungskategorien').snapshots(),
-                  builder: (context, snapshot) {
-                    if (!snapshot.hasData) return const CircularProgressIndicator();
-
-                    final docs = snapshot.data!.docs.where((doc) {
-                      final data = doc.data() as Map<String, dynamic>;
-                      if (data.containsKey('branchen')) {
-                        final branchen = List<String>.from(data['branchen']);
-                        return branchen.map((b) => b.toLowerCase()).contains(aktuelleBranche!.toLowerCase());
-                      }
-                      return false;
-                    }).toList();
-
-                    if (docs.isEmpty) return const Text("Keine Leistungskategorien verfügbar");
-
-                    return Wrap(
-                      spacing: 8,
-                      children: docs.map((doc) {
-                        final titel = doc['titel'] ?? doc.id;
-                        return ChoiceChip(
-                          label: Text(titel),
-                          selected: ausgewaehlteLeistungskategorie == titel,
-                          onSelected: (ausgewaehlt) {
-                            setState(() {
-                              ausgewaehlteLeistungskategorie = ausgewaehlt ? titel : null;
-                            });
-                            if (ausgewaehlt) {
-                              _ladeLeistungenZurKategorie(titel);
-                            } else {
-                              setState(() {
-                                leistungen.clear();
-                                ausgewaehlteLeistungen.clear();
-                              });
-                            }
-                          },
-                        );
-                      }).toList(),
-                    );
-                  },
-                ),
-              const SizedBox(height: 16),
-              const Text('Leistungen'),
-              const SizedBox(height: 8),
-              if (ausgewaehlteLeistungskategorie != null)
-                StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('leistungen')
-                      .where('leistungskategorien', arrayContains: ausgewaehlteLeistungskategorie)
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    if (!snapshot.hasData) return const CircularProgressIndicator();
-                    final docs = snapshot.data!.docs;
-                    return Wrap(
-                      spacing: 8,
-                      children: docs.map((doc) {
-                        final leistung = doc.id;
-                        final selected = ausgewaehlteLeistungen.contains(leistung);
-                        return FilterChip(
-                          label: Text(leistung),
-                          selected: selected,
-                          onSelected: (bool value) {
-                            setState(() {
-                              if (value) {
-                                ausgewaehlteLeistungen.add(leistung);
-                              } else {
-                                ausgewaehlteLeistungen.remove(leistung);
-                              }
-                            });
-                          },
-                        );
-                      }).toList(),
-                    );
-                  },
-                ),
-              const SizedBox(height: 16),
-              DefaultTabController(
-                length: 2,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const TabBar(
-                      tabs: [
-                        Tab(text: 'Damen'),
-                        Tab(text: 'Herren'),
-                      ],
-                    ),
-                    SizedBox(
-                      height: 200,
-                      child: TabBarView(
-                        children: [
-                          _buildPreisDauerForm('Damen'),
-                          _buildPreisDauerForm('Herren'),
-                        ],
+    return DefaultTabController(
+      length: 3,
+      child: AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Text('Leistung erstellen', style: TextStyle(color: Colors.blue)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Stepper(
+            type: StepperType.horizontal,
+            currentStep: currentStep,
+            controlsBuilder: (context, _) {
+              return Column(
+                children: [
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: currentStep > 0
+                            ? () {
+                          setState(() {
+                            currentStep = (currentStep - 1).clamp(0, 2);
+                          });
+                        }
+                            : null,
+                        icon: const Icon(Icons.arrow_back),
+                        label: const Text('Zurück'),
+                        style: ElevatedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          backgroundColor: Colors.blue,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                      const SizedBox(width: 20),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          if (currentStep < 2) {
+                            setState(() {
+                              currentStep += 1;
+                            });
+                          } else {
+                            Navigator.of(context).pop();
+                          }
+                        },
+                        icon: const Text('Weiter'),
+                        label: const Icon(Icons.arrow_forward),
+                        style: ElevatedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          backgroundColor: Colors.blue,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              );
+            },
+            steps: [
+              Step(
+                title: const Text('Kategorie', style: TextStyle(color: Colors.blue)),
+                content: _buildKategorieStep(),
+                isActive: currentStep >= 0,
+              ),
+              Step(
+                title: const Text('Leistungen', style: TextStyle(color: Colors.blue)),
+                content: _buildLeistungenStep(),
+                isActive: currentStep >= 1,
+              ),
+              Step(
+                title: const Text('Preis & Dauer', style: TextStyle(color: Colors.blue)),
+                content: _buildPreisDauerStep(),
+                isActive: currentStep >= 2,
               ),
             ],
           ),
         ),
       ),
-
-      actions: [
-        TextButton(
-          onPressed: () {
-            Navigator.pop(context);
-            print("Ausgewählte Leistungen: $ausgewaehlteLeistungen");
-          },
-          child: const Text('Schließen'),
-        ),
-      ],
     );
   }
 }
