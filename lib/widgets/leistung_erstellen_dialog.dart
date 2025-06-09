@@ -178,7 +178,6 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> with 
     );
   }
 
-
   Widget _buildPreisDauerStep() {
     return Column(
       children: [
@@ -202,8 +201,51 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog> with 
             ],
           ),
         ),
+        const SizedBox(height: 24),
+        ElevatedButton.icon(
+          onPressed: _speichereAngebot,
+          icon: const Icon(Icons.save),
+          label: const Text('Speichern'),
+          style: ElevatedButton.styleFrom(
+            foregroundColor: Colors.white,
+            backgroundColor: Colors.green,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
       ],
     );
+  }
+
+  Future<void> _speichereAngebot() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    final titel = '$ausgewaehlteLeistungskategorie – ${ausgewaehlteLeistungen.join(', ')}';
+    final Map<String, dynamic> zielgruppen = {};
+
+    for (final ziel in ['Damen', 'Herren', 'Kinder']) {
+      final preis = preisController[ziel]?.text;
+      final dauer = dauerController[ziel]?.text;
+      if (preis != null && preis.isNotEmpty && dauer != null && dauer.isNotEmpty) {
+        zielgruppen[ziel] = {
+          'preis': double.tryParse(preis) ?? 0,
+          'dauer': int.tryParse(dauer) ?? 0,
+        };
+      }
+    }
+
+    final angebot = {
+      'dienstleisterId': uid,
+      'titel': titel,
+      'kategorie': ausgewaehlteLeistungskategorie,
+      'leistungen': ausgewaehlteLeistungen,
+      'zielgruppen': zielgruppen,
+      'erstelltAm': Timestamp.now(),
+    };
+
+    await FirebaseFirestore.instance.collection('angebote').add(angebot);
+    if (mounted) Navigator.of(context).pop();
   }
 
   @override

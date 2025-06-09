@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'alle_dienstleister_page.dart';
+import 'dienstleister_angebote_page.dart';
 import 'dienstleister_edit_page.dart';
 import '../widgets/leistung_erstellen_dialog.dart';
 
@@ -85,7 +86,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     final pages = [
       _buildHomePage(),
       const Center(child: Text('Kalender kommt bald!')),
-      _buildLeistungenPage(),
+      const DienstleisterAngebotePage(),
       _buildProfilPage(),
     ];
 
