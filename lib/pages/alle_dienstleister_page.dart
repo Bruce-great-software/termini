@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geocoding/geocoding.dart';
 
-
 import '../services/location_service.dart';
 import '../widgets/dienstleister_tile.dart';
 import 'dienstleister_detail_page.dart';
@@ -22,6 +21,48 @@ class AlleDienstleisterPage extends StatefulWidget {
 }
 
 class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with WidgetsBindingObserver {
+  final TextEditingController _suchfeldController = TextEditingController();
+
+  void _onSuchbegriffChanged(String wert) {
+    print("Suchbegriff: $wert");
+    // Hier kannst du später Filterlogik einbauen
+  }
+
+  String? _ausgewaehlteLeistung;
+  List<String> _gefilterteDienstleisterIds = [];
+
+  Future<List<String>> _ladeLeistungsVorschlaege(String eingabe) async {
+    if (eingabe.trim().isEmpty) return [];
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('angebote')
+        .limit(50) // optional begrenzen
+        .get();
+
+    return snapshot.docs
+        .map((doc) => doc['titel'].toString())
+        .where((titel) =>
+        titel.toLowerCase().contains(eingabe.toLowerCase()))
+        .toSet()
+        .toList();
+  }
+
+
+  Future<void> _ladeDienstleisterZuLeistung(String titel) async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('angebote')
+        .where('titel', isEqualTo: titel)
+        .get();
+
+    final ids = snapshot.docs
+        .map((doc) => doc['dienstleisterId'].toString())
+        .toList();
+
+    setState(() {
+      _gefilterteDienstleisterIds = ids;
+    });
+  }
+
 
   String? currentCity;
   Position? userPosition;
@@ -49,7 +90,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initLocation();
-    //_ladeBranchen();
   }
 
   @override
@@ -85,7 +125,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
     }
   }
 
-
   Future<void> _initLocation() async {
     setState(() => isLoading = true);
     userPosition = await LocationService.initLocation(
@@ -95,23 +134,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
     );
     await _ermittleOrtAusKoordinaten();
     setState(() => isLoading = false);
-  }
-
-
-  Future<void> _ladeBranchen() async {
-    final snapshot = await FirebaseFirestore.instance
-        .collection('branchen')
-        .where('aktiv', isEqualTo: true)
-        .get();
-
-    final alleBranchen = snapshot.docs.map((doc) {
-      final data = doc.data();
-      return data.containsKey('name') ? data['name'] as String : doc.id;
-    }).toList();
-
-    setState(() {
-      verfuegbareBranchen = alleBranchen;
-    });
   }
 
   Future<void> _ladeZielgruppenUndKategorien() async {
@@ -141,92 +163,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
     });
   }
 
-  Future<void> _ladeKategorienZuZielgruppe(String zielgruppe) async {
-    final doc = await FirebaseFirestore.instance.collection('branchen').doc(ausgewaehlteBranchen.first).get();
-    final data = doc.data();
-    if (data == null || !data.containsKey('zielgruppen')) return;
-
-    final zielgruppenMap = Map<String, dynamic>.from(data['zielgruppen']);
-    final leistungskategorien = Map<String, dynamic>.from(zielgruppenMap[zielgruppe]['leistungskategorien']);
-
-    final kategorien = leistungskategorien.keys.toList();
-    final tempMap = <String, List<String>>{};
-    for (var kategorie in kategorien) {
-      final leistungen = List<String>.from(leistungskategorien[kategorie]);
-      tempMap[kategorie] = leistungen;
-    }
-
-    setState(() {
-      verfuegbareKategorien = kategorien;
-      kategorieZuLeistungen = tempMap;
-      ausgewaehlteKategorien = [];
-      ausgewaehlteLeistungen = {};
-    });
-  }
-
-  Widget _buildCheckboxLeistungen(String kategorie) {
-    final leistungen = kategorieZuLeistungen[kategorie] ?? [];
-    final ausgewaehlt = ausgewaehlteLeistungen[kategorie] ?? [];
-
-    return Column(
-      children: leistungen.map((leistung) {
-        return CheckboxListTile(
-          title: Text(leistung),
-          value: ausgewaehlt.contains(leistung),
-          onChanged: (bool? checked) {
-            setState(() {
-              if (checked == true) {
-                ausgewaehlteLeistungen[kategorie] = [...ausgewaehlt, leistung];
-              } else {
-                ausgewaehlteLeistungen[kategorie]?.remove(leistung);
-                if (ausgewaehlteLeistungen[kategorie]!.isEmpty) {
-                  ausgewaehlteLeistungen.remove(kategorie);
-                }
-              }
-            });
-          },
-
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildKategorieChips() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: verfuegbareKategorien.map((kategorie) {
-              final selected = ausgewaehlteKategorien.contains(kategorie);
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: ChoiceChip(
-                  label: Text(kategorie),
-                  selected: selected,
-                  onSelected: (_) {
-                    setState(() {
-                      if (offeneKategorie == kategorie) {
-                        offeneKategorie = null;
-                      } else {
-                        offeneKategorie = kategorie;
-                        if (!ausgewaehlteKategorien.contains(kategorie)) {
-                          ausgewaehlteKategorien.add(kategorie);
-                        }
-                      }
-                    });
-                  },
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-        if (offeneKategorie != null) _buildCheckboxLeistungen(offeneKategorie!),
-      ],
-    );
-  }
-
   Widget _buildBodyByIndex(int index) {
     switch (index) {
       case 0:
@@ -243,39 +179,34 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      StreamBuilder<QuerySnapshot>(
-                        stream: FirebaseFirestore.instance
-                            .collection('branchen')
-                            .where('aktiv', isEqualTo: true)
-                            .snapshots(),
-                        builder: (context, snapshot) {
-                          if (!snapshot.hasData) {
-                            return const Center(child: CircularProgressIndicator());
-                          }
+                  _buildSuchfeld(),
 
-                          final branchen = snapshot.data!.docs.map((doc) {
-                            final data = doc.data() as Map<String, dynamic>;
-                            return data.containsKey('name') ? data['name'] as String : doc.id;
-                          }).toList();
+                  const SizedBox(height: 16),
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('branchen')
+                        .where('aktiv', isEqualTo: true)
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
 
-                          branchen.sort();
+                      final branchen = snapshot.data!.docs.map((doc) {
+                        final data = doc.data() as Map<String, dynamic>;
+                        return data.containsKey('name') ? data['name'] as String : doc.id;
+                      }).toList();
 
-                          return _buildChipReihe(branchen, ausgewaehlteBranchen, (branche) {
-                            setState(() {
-                              ausgewaehlteBranchen = [branche];
-                              _ladeZielgruppenUndKategorien();
-                            });
-                          });
-                        },
-                      ),
+                      branchen.sort();
 
-                    ],
+                      return _buildChipReihe(branchen, ausgewaehlteBranchen, (branche) {
+                        setState(() {
+                          ausgewaehlteBranchen = [branche];
+                          _ladeZielgruppenUndKategorien();
+                        });
+                      });
+                    },
                   ),
-
-
                 ],
               ),
             ),
@@ -293,6 +224,63 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
         return const SizedBox.shrink();
     }
   }
+
+  Widget _buildSuchfeld() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Autocomplete<String>(
+        optionsBuilder: (TextEditingValue textEditingValue) async {
+          if (textEditingValue.text == '') {
+            return const Iterable<String>.empty();
+          }
+          final vorschlaege = await _ladeLeistungsVorschlaege(textEditingValue.text);
+          return vorschlaege;
+        },
+        onSelected: (String auswahl) async {
+          setState(() {
+            _ausgewaehlteLeistung = auswahl;
+          });
+          await _ladeDienstleisterZuLeistung(auswahl);
+        },
+        fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
+          return TextField(
+            controller: controller,
+            focusNode: focusNode,
+            onEditingComplete: onEditingComplete,
+            onChanged: (text) {
+              if (text.trim().isEmpty) {
+                setState(() {
+                  _ausgewaehlteLeistung = null;
+                  _gefilterteDienstleisterIds = [];
+                });
+              }
+            },
+            decoration: InputDecoration(
+              hintText: 'Leistung oder Dienstleister suchen',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: controller.text.isNotEmpty
+                  ? IconButton(
+                icon: const Icon(Icons.clear),
+                onPressed: () {
+                  controller.clear();
+                  setState(() {
+                    _ausgewaehlteLeistung = null;
+                    _gefilterteDienstleisterIds = [];
+                  });
+                },
+              )
+                  : null,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(30)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+            ),
+
+          );
+        },
+
+      ),
+    );
+  }
+
 
   Widget _buildChipReihe(List<String> items, List<String> selectedItems, Function(String) onTap) {
     return Padding(
@@ -314,7 +302,18 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
                   ),
                 ),
                 selected: selected,
-                onSelected: (_) => onTap(item),
+                onSelected: (_) {
+                  setState(() {
+                    if (selectedItems.contains(item)) {
+                      selectedItems.remove(item); // abwählen
+                    } else {
+                      selectedItems.clear(); // nur ein aktiver gleichzeitig
+                      selectedItems.add(item); // auswählen
+                    }
+                    _ladeZielgruppenUndKategorien();
+                  });
+                },
+
                 selectedColor: Color(0xFFF7931E),
                 backgroundColor: Colors.white,
                 checkmarkColor: Colors.white,
@@ -368,6 +367,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
             final data = doc.data() as Map<String, dynamic>;
             data['id'] = doc.id;
 
+            if (_gefilterteDienstleisterIds.isNotEmpty &&
+                !_gefilterteDienstleisterIds.contains(data['id'])) {
+              return;
+            }
+
             if (data['geo'] != null) {
               final geo = data['geo'] as GeoPoint;
               final distanceInMeters = Geolocator.distanceBetween(
@@ -412,10 +416,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
               });
             }
 
-
-
-
-
             if (branchePasst && zielgruppePasst && kategoriePasst && leistungPasst) {
               dienstleisterMitLeistungen.add(data);
             }
@@ -425,7 +425,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
               return const Center(child: CircularProgressIndicator());
             }
 
-            dienstleisterMitLeistungen.sort((a, b) => (a['distance'] as double).compareTo(b['distance'] as double));
+            dienstleisterMitLeistungen.sort((a, b) =>
+                (a['distance'] as double).compareTo(b['distance'] as double));
 
             return ListView.builder(
               itemCount: dienstleisterMitLeistungen.length,
@@ -446,6 +447,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage> with Widg
       },
     );
   }
+
 
   @override
   Widget build(BuildContext context) {
