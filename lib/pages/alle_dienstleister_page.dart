@@ -12,6 +12,7 @@ import '../widgets/dienstleister_tile.dart';
 import 'dienstleister_detail_page.dart';
 import 'login_register_page.dart';
 import 'kunden_profil_page.dart';
+import 'dart:math' as math; // für Chunking bei arrayContainsAny (<=10)
 
 class AlleDienstleisterPage extends StatefulWidget {
   const AlleDienstleisterPage({super.key});
@@ -30,6 +31,268 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   String? _ausgewaehlteLeistung;
   List<String> _gefilterteDienstleisterIds = [];
+
+  // ===================== Angebote-basierte Filter-Helfer =====================
+
+  /// Alle Dienstleister-IDs einer Branche holen (oder null = keine Einschränkung)
+  Future<Set<String>?> _dienstleisterIdsFuerBranche(String? branche) async {
+    if (branche == null) return null;
+    final snap = await FirebaseFirestore.instance
+        .collection('users')
+        .where('rolle', isEqualTo: 'dienstleister')
+        .where('branche', isEqualTo: branche)
+        .get();
+    return snap.docs.map((d) => d.id).toSet();
+  }
+
+  /// Wendet die aktuell ausgewählten Leistungen (ausgewaehlteLeistungen) auf `angebote` an
+  /// und schreibt die passenden Dienstleister-IDs in `_gefilterteDienstleisterIds`.
+  Future<void> _applyOfferFiltersFromSelections({String? branche}) async {
+    if (ausgewaehlteLeistungen.isEmpty) {
+      setState(() => _gefilterteDienstleisterIds = []);
+      return;
+    }
+
+    final branchIds = await _dienstleisterIdsFuerBranche(branche);
+    final resultIds = <String>{};
+
+    for (final entry in ausgewaehlteLeistungen.entries) {
+      final kategorie = entry.key;
+      final leistungen = entry.value;
+      if (leistungen.isEmpty) continue;
+
+      // arrayContainsAny <= 10
+      for (var i = 0; i < leistungen.length; i += 10) {
+        final end = math.min(i + 10, leistungen.length);
+        final chunk = leistungen.sublist(i, end);
+
+        final qSnap = await FirebaseFirestore.instance
+            .collection('angebote')
+            .where('kategorie', isEqualTo: kategorie)
+            .where('leistungen', arrayContainsAny: chunk)
+            .get();
+
+        for (final d in qSnap.docs) {
+          final id = (d.data()['dienstleisterId'] as String?)?.trim();
+          if (id == null || id.isEmpty) continue;
+          if (branchIds != null && !branchIds.contains(id)) continue;
+          resultIds.add(id);
+        }
+      }
+    }
+
+    setState(() {
+      _gefilterteDienstleisterIds = resultIds.toList();
+    });
+  }
+
+  // ========= Kategorien aus 'angebote' laden (optional nach Branche) =========
+  Future<List<String>> _ladeLeistungskategorienAusAngeboten(String? branche) async {
+    if (branche == null) {
+      final snap = await FirebaseFirestore.instance.collection('angebote').get();
+      final cats = snap.docs
+          .map((d) => (d.data()['kategorie'] as String?)?.trim())
+          .where((s) => s != null && s!.isNotEmpty)
+          .map((s) => s!)
+          .toSet()
+          .toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      return cats;
+    }
+
+    // Mit Branchenfilter -> Dienstleister dieser Branche suchen
+    final userSnap = await FirebaseFirestore.instance
+        .collection('users')
+        .where('rolle', isEqualTo: 'dienstleister')
+        .where('branche', isEqualTo: branche)
+        .get();
+
+    final ids = userSnap.docs.map((d) => d.id).toList();
+    if (ids.isEmpty) return [];
+
+    final allDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    for (var i = 0; i < ids.length; i += 10) {
+      final end = (i + 10 < ids.length) ? i + 10 : ids.length;
+      final chunk = ids.sublist(i, end);
+      final aSnap = await FirebaseFirestore.instance
+          .collection('angebote')
+          .where('dienstleisterId', whereIn: chunk)
+          .get();
+      allDocs.addAll(aSnap.docs);
+    }
+
+    final cats = allDocs
+        .map((d) => (d.data()['kategorie'] as String?)?.trim())
+        .where((s) => s != null && s!.isNotEmpty)
+        .map((s) => s!)
+        .toSet()
+        .toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    return cats;
+  }
+
+  // ========= Leistungen einer Kategorie aus 'angebote' (optional Branche) =========
+  Future<List<String>> _ladeLeistungenFuerKategorieAusAngeboten(
+      String kategorie, String? branche) async {
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
+
+    if (branche == null) {
+      final q = await FirebaseFirestore.instance
+          .collection('angebote')
+          .where('kategorie', isEqualTo: kategorie)
+          .get();
+      docs = q.docs;
+    } else {
+      final userSnap = await FirebaseFirestore.instance
+          .collection('users')
+          .where('rolle', isEqualTo: 'dienstleister')
+          .where('branche', isEqualTo: branche)
+          .get();
+      final ids = userSnap.docs.map((d) => d.id).toList();
+      if (ids.isEmpty) return [];
+
+      final tmp = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      for (var i = 0; i < ids.length; i += 10) {
+        final end = (i + 10 < ids.length) ? i + 10 : ids.length;
+        final chunk = ids.sublist(i, end);
+        final aSnap = await FirebaseFirestore.instance
+            .collection('angebote')
+            .where('kategorie', isEqualTo: kategorie)
+            .where('dienstleisterId', whereIn: chunk)
+            .get();
+        tmp.addAll(aSnap.docs);
+      }
+      docs = tmp;
+    }
+
+    final set = <String>{};
+    for (final d in docs) {
+      final data = d.data();
+      final arr = data['leistungen'];
+      if (arr is List) {
+        for (final e in arr) {
+          final s = (e as String?)?.trim();
+          if (s != null && s.isNotEmpty) set.add(s);
+        }
+      } else {
+        final titel = (data['titel'] as String?)?.trim();
+        if (titel != null && titel.contains('–')) {
+          final part = titel.split('–').last.trim();
+          if (part.isNotEmpty) set.add(part);
+        }
+      }
+    }
+
+    final list = set.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return list;
+  }
+
+  // ==== Dialog (basiert auf `angebote`) ====
+  Future<void> _openLeistungskategorieDialog(String kategorie, {String? branche}) async {
+    final leistungen = await _ladeLeistungenFuerKategorieAusAngeboten(kategorie, branche);
+
+    final initial = Set<String>.from(ausgewaehlteLeistungen[kategorie] ?? []);
+    final tempSelected = Set<String>.from(initial);
+
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: StatefulBuilder(
+            builder: (context, setLocal) {
+              return ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 520),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16, left: 20, right: 20),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          kategorie,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: ListView.separated(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        itemCount: leistungen.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (_, i) {
+                          final name = leistungen[i];
+                          final checked = tempSelected.contains(name);
+                          return CheckboxListTile(
+                            value: checked,
+                            onChanged: (v) {
+                              setLocal(() {
+                                if (v == true) {
+                                  tempSelected.add(name);
+                                } else {
+                                  tempSelected.remove(name);
+                                }
+                              });
+                            },
+                            controlAffinity: ListTileControlAffinity.trailing,
+                            title: Text(name),
+                          );
+                        },
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('Abbrechen'),
+                            ),
+                          ),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () async {
+                                setState(() {
+                                  if (tempSelected.isEmpty) {
+                                    ausgewaehlteLeistungen.remove(kategorie);
+                                    ausgewaehlteKategorien.removeWhere((e) => e == kategorie);
+                                  } else {
+                                    ausgewaehlteLeistungen[kategorie] = tempSelected.toList();
+                                    ausgewaehlteKategorien = [kategorie];
+                                  }
+                                });
+                                // WICHTIG: direkt die Anbieter anhand `angebote` filtern
+                                await _applyOfferFiltersFromSelections(branche: branche);
+                                Navigator.of(context).pop();
+                              },
+                              child: const Text('OK'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    setState(() {}); // Oberfläche aktualisieren
+  }
 
   Future<List<String>> _ladeLeistungsVorschlaege(String eingabe) async {
     if (eingabe.trim().isEmpty) return [];
@@ -166,9 +429,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     });
   }
 
-  // ---------- NEW: Bottom Sheet für Branchen-Filter ----------
+  // ---------- Bottom Sheet für Branchen-Filter ----------
   Future<void> _showBranchenFilterSheet() async {
-    // lokale Auswahl (Single-Select wie auf der Startseite)
     String? tempSelected =
     ausgewaehlteBranchen.isNotEmpty ? ausgewaehlteBranchen.first : null;
 
@@ -181,14 +443,15 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       ),
       builder: (context) {
         return Padding(
-          padding: const EdgeInsets.only(left: 16, right: 16, top: 12, bottom: 12),
+          padding:
+          const EdgeInsets.only(left: 16, right: 16, top: 12, bottom: 12),
           child: StatefulBuilder(
             builder: (context, setModalState) {
               return SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // ---------- Überschrift: Branchen ----------
+                    // ---------- Branchen ----------
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
@@ -200,8 +463,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       ),
                     ),
                     const SizedBox(height: 12),
-
-                    // ---------- Branchen-Chips ----------
                     StreamBuilder<QuerySnapshot>(
                       stream: FirebaseFirestore.instance
                           .collection('branchen')
@@ -217,10 +478,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
                         final branchen = snapshot.data!.docs.map((doc) {
                           final data = doc.data() as Map<String, dynamic>;
-                          // In 'branchen' heißt das Anzeigefeld 'name'
                           return (data['name'] as String?) ?? doc.id;
                         }).toList()
-                          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+                          ..sort((a, b) =>
+                              a.toLowerCase().compareTo(b.toLowerCase()));
 
                         return Align(
                           alignment: Alignment.centerLeft,
@@ -256,7 +517,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       },
                     ),
 
-                    // ---------- Überschrift: Leistungen ----------
+                    // ---------- Leistungen ----------
                     const SizedBox(height: 20),
                     Align(
                       alignment: Alignment.centerLeft,
@@ -270,16 +531,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                     ),
                     const SizedBox(height: 8),
 
-                    // ---------- Auflistung der Leistungskategorien (nur Anzeige) ----------
-                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: (tempSelected == null)
-                          ? FirebaseFirestore.instance
-                          .collection('leistungskategorien')
-                          .snapshots()
-                          : FirebaseFirestore.instance
-                          .collection('leistungskategorien')
-                          .where('branchen', arrayContains: tempSelected)
-                          .snapshots(),
+                    FutureBuilder<List<String>>(
+                      future: _ladeLeistungskategorienAusAngeboten(tempSelected),
                       builder: (context, snapshot) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
                           return const Padding(
@@ -290,21 +543,12 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         if (snapshot.hasError) {
                           return const Padding(
                             padding: EdgeInsets.symmetric(vertical: 16),
-                            child: Text('Fehler beim Laden der Leistungskategorien'),
+                            child:
+                            Text('Fehler beim Laden der Kategorien aus Angeboten'),
                           );
                         }
 
-                        final docs = snapshot.data?.docs ?? [];
-                        final items = docs
-                            .map((d) {
-                          final data = d.data();
-                          // In 'leistungskategorien' heißt das Feld 'titel'
-                          final t = (data['titel'] as String?)?.trim();
-                          return (t != null && t.isNotEmpty) ? t : d.id;
-                        })
-                            .toList()
-                          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase())); // lokal sortieren
-
+                        final items = snapshot.data ?? [];
                         if (items.isEmpty) {
                           return const Padding(
                             padding: EdgeInsets.symmetric(vertical: 16),
@@ -319,11 +563,40 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                           separatorBuilder: (_, __) => const Divider(height: 1),
                           itemBuilder: (context, i) {
                             final name = items[i];
+                            final countSelected =
+                                (ausgewaehlteLeistungen[name] ?? []).length;
+
                             return ListTile(
                               dense: true,
                               title: Text(name),
-                              trailing: const Icon(Icons.chevron_right),
-                              enabled: false, // aktuell nur Anzeige, keine Aktion
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (countSelected > 0)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(12),
+                                        color: Colors.orange.shade100,
+                                      ),
+                                      child: Text(
+                                        '$countSelected',
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w600),
+                                      ),
+                                    ),
+                                  const SizedBox(width: 6),
+                                  const Icon(Icons.chevron_right),
+                                ],
+                              ),
+                              onTap: () async {
+                                await _openLeistungskategorieDialog(
+                                  name,
+                                  branche: tempSelected,
+                                );
+                                setModalState(() {}); // Badge aktualisieren
+                              },
                             );
                           },
                         );
@@ -332,17 +605,20 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
                     const SizedBox(height: 20),
 
-                    // ---------- Buttons unten ----------
+                    // ---------- Buttons ----------
                     Row(
                       children: [
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: () {
-                              // zurücksetzen: keine Branche ausgewählt
+                            onPressed: () async {
                               setState(() {
                                 ausgewaehlteBranchen.clear();
-                                _ladeZielgruppenUndKategorien();
+                                ausgewaehlteKategorien.clear();
+                                ausgewaehlteLeistungen.clear();
                               });
+                              // Filter zurücksetzen -> alle Dienstleister zeigen
+                              await _applyOfferFiltersFromSelections();
+                              _ladeZielgruppenUndKategorien();
                               Navigator.of(context).pop();
                             },
                             style: OutlinedButton.styleFrom(
@@ -355,14 +631,16 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         const SizedBox(width: 12),
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: () {
+                            onPressed: () async {
                               setState(() {
-                                ausgewaehlteBranchen.clear();
-                                if (tempSelected != null) {
-                                  ausgewaehlteBranchen.add(tempSelected!);
-                                }
-                                _ladeZielgruppenUndKategorien();
+                                ausgewaehlteBranchen
+                                  ..clear()
+                                  ..addAll(tempSelected != null ? [tempSelected!] : []);
                               });
+                              // Ausgewählte Leistungen jetzt gegen `angebote` anwenden
+                              await _applyOfferFiltersFromSelections(
+                                  branche: tempSelected);
+                              _ladeZielgruppenUndKategorien();
                               Navigator.of(context).pop();
                             },
                             style: ElevatedButton.styleFrom(
@@ -385,7 +663,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     );
   }
 
-
   // ----------------------------------------------------------
 
   Widget _buildBodyByIndex(int index) {
@@ -400,14 +677,13 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             : Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(
-                  vertical: 10, horizontal: 16),
+              padding:
+              const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildSuchfeldMitFilterButton(),
                   const SizedBox(height: 16),
-                  // vorhandene horizontale Branchenchips bleiben erhalten
                   StreamBuilder<QuerySnapshot>(
                     stream: FirebaseFirestore.instance
                         .collection('branchen')
@@ -419,8 +695,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             child: CircularProgressIndicator());
                       }
 
-                      final branchen =
-                      snapshot.data!.docs.map((doc) {
+                      final branchen = snapshot.data!.docs.map((doc) {
                         final data =
                         doc.data() as Map<String, dynamic>;
                         return data.containsKey('name')
@@ -461,7 +736,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     }
   }
 
-  // ---------- UPDATED: Suchfeld + Filterbutton in einer Zeile ----------
+  // ---------- Suchfeld + Filterbutton ----------
   Widget _buildSuchfeldMitFilterButton() {
     return Row(
       children: [
@@ -520,7 +795,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           ),
         ),
         const SizedBox(width: 8),
-        // Der Filterbutton
         OutlinedButton.icon(
           onPressed: _showBranchenFilterSheet,
           icon: const Icon(Icons.filter_list),
@@ -534,6 +808,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       ],
     );
   }
+
   // ----------------------------------------------------------
 
   Widget _buildChipReihe(
@@ -559,10 +834,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 onSelected: (_) {
                   setState(() {
                     if (selectedItems.contains(item)) {
-                      selectedItems.remove(item); // abwählen
+                      selectedItems.remove(item);
                     } else {
                       selectedItems.clear(); // nur ein aktiver gleichzeitig
-                      selectedItems.add(item); // auswählen
+                      selectedItems.add(item);
                     }
                     _ladeZielgruppenUndKategorien();
                   });
@@ -581,7 +856,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     );
   }
 
-  // (alter _buildFilterChip bleibt ungenutzt – optional löschen)
   Widget _buildFilterChip() {
     return GestureDetector(
       onTap: () => setState(() => filterChipOffen = !filterChipOffen),
@@ -621,11 +895,28 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             final data = doc.data() as Map<String, dynamic>;
             data['id'] = doc.id;
 
-            if (_gefilterteDienstleisterIds.isNotEmpty &&
-                !_gefilterteDienstleisterIds.contains(data['id'])) {
+            // Wenn per `angebote` gefiltert wurde: nur diese IDs zulassen,
+            // Subcollection users/{id}/leistungen NICHT laden.
+            if (_gefilterteDienstleisterIds.isNotEmpty) {
+              if (_gefilterteDienstleisterIds.contains(data['id'])) {
+                if (data['geo'] != null) {
+                  final geo = data['geo'] as GeoPoint;
+                  final distanceInMeters = Geolocator.distanceBetween(
+                    userPosition!.latitude,
+                    userPosition!.longitude,
+                    geo.latitude,
+                    geo.longitude,
+                  );
+                  data['distance'] = distanceInMeters / 1000;
+                } else {
+                  data['distance'] = double.infinity;
+                }
+                dienstleisterMitLeistungen.add(data);
+              }
               return;
             }
 
+            // --- Kein angebote-Filter aktiv: altes Verhalten ---
             if (data['geo'] != null) {
               final geo = data['geo'] as GeoPoint;
               final distanceInMeters = Geolocator.distanceBetween(
@@ -677,7 +968,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               });
             }
 
-            if (branchePasst && zielgruppePasst && kategoriePasst && leistungPasst) {
+            if (branchePasst &&
+                zielgruppePasst &&
+                kategoriePasst &&
+                leistungPasst) {
               dienstleisterMitLeistungen.add(data);
             }
           })),
@@ -719,7 +1013,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.orange,
+        backgroundColor: Colors.blueAccent,
         centerTitle: true,
         title: Text(
           currentCity != null ? currentCity! : 'Ort wird geladen...',
@@ -750,7 +1044,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             _selectedIndex = index;
           });
         },
-        selectedItemColor: Colors.deepOrange,
+        selectedItemColor: Colors.blueAccent,
         unselectedItemColor: Colors.grey,
         selectedFontSize: 12,
         unselectedFontSize: 12,
