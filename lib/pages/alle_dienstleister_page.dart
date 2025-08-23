@@ -1,3 +1,4 @@
+import 'dart:math' as math; // für Chunking bei arrayContainsAny (<=10)
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -12,7 +13,6 @@ import '../widgets/dienstleister_tile.dart';
 import 'dienstleister_detail_page.dart';
 import 'login_register_page.dart';
 import 'kunden_profil_page.dart';
-import 'dart:math' as math; // für Chunking bei arrayContainsAny (<=10)
 
 class AlleDienstleisterPage extends StatefulWidget {
   const AlleDienstleisterPage({super.key});
@@ -45,12 +45,23 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     return snap.docs.map((d) => d.id).toSet();
   }
 
-  /// Wendet die aktuell ausgewählten Leistungen (ausgewaehlteLeistungen) auf `angebote` an
-  /// und schreibt die passenden Dienstleister-IDs in `_gefilterteDienstleisterIds`.
-  Future<void> _applyOfferFiltersFromSelections({String? branche}) async {
+  Future<Set<String>> _alleDienstleisterIds({String? branche}) async {
+    if (branche != null) {
+      return await _dienstleisterIdsFuerBranche(branche) ?? <String>{};
+    }
+    final snap = await FirebaseFirestore.instance
+        .collection('users')
+        .where('rolle', isEqualTo: 'dienstleister')
+        .get();
+    return snap.docs.map((d) => d.id).toSet();
+  }
+
+  /// Kernlogik: passend zu ausgewaehlteLeistungen Dienstleister-IDs ermitteln (aus 'angebote').
+  /// Wenn keine Leistungen gewählt: alle Dienstleister (ggf. nach Branche) zurückgeben.
+  Future<Set<String>> _matchingOfferDienstleisterIds({String? branche}) async {
+    // Keine Leistungsfilter -> alle Dienstleister (optional nach Branche)
     if (ausgewaehlteLeistungen.isEmpty) {
-      setState(() => _gefilterteDienstleisterIds = []);
-      return;
+      return _alleDienstleisterIds(branche: branche);
     }
 
     final branchIds = await _dienstleisterIdsFuerBranche(branche);
@@ -81,8 +92,14 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       }
     }
 
+    return resultIds;
+  }
+
+  /// Anwenden: IDs setzen, damit Liste gefiltert wird
+  Future<void> _applyOfferFiltersFromSelections({String? branche}) async {
+    final ids = await _matchingOfferDienstleisterIds(branche: branche);
     setState(() {
-      _gefilterteDienstleisterIds = resultIds.toList();
+      _gefilterteDienstleisterIds = ids.toList();
     });
   }
 
@@ -100,7 +117,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       return cats;
     }
 
-    // Mit Branchenfilter -> Dienstleister dieser Branche suchen
     final userSnap = await FirebaseFirestore.instance
         .collection('users')
         .where('rolle', isEqualTo: 'dienstleister')
@@ -184,8 +200,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       }
     }
 
-    final list = set.toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final list = set.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return list;
   }
 
@@ -215,10 +230,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         alignment: Alignment.centerLeft,
                         child: Text(
                           kategorie,
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleLarge
-                              ?.copyWith(fontWeight: FontWeight.w700),
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
                         ),
                       ),
                     ),
@@ -272,7 +284,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                     ausgewaehlteKategorien = [kategorie];
                                   }
                                 });
-                                // WICHTIG: direkt die Anbieter anhand `angebote` filtern
+                                // direkt die Anbieter anhand `angebote` filtern
                                 await _applyOfferFiltersFromSelections(branche: branche);
                                 Navigator.of(context).pop();
                               },
@@ -296,12 +308,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   Future<List<String>> _ladeLeistungsVorschlaege(String eingabe) async {
     if (eingabe.trim().isEmpty) return [];
-
-    final snapshot = await FirebaseFirestore.instance
-        .collection('angebote')
-        .limit(50)
-        .get();
-
+    final snapshot = await FirebaseFirestore.instance.collection('angebote').limit(50).get();
     return snapshot.docs
         .map((doc) => doc['titel'].toString())
         .where((titel) => titel.toLowerCase().contains(eingabe.toLowerCase()))
@@ -310,14 +317,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   }
 
   Future<void> _ladeDienstleisterZuLeistung(String titel) async {
-    final snapshot = await FirebaseFirestore.instance
-        .collection('angebote')
-        .where('titel', isEqualTo: titel)
-        .get();
-
-    final ids =
-    snapshot.docs.map((doc) => doc['dienstleisterId'].toString()).toList();
-
+    final snapshot =
+    await FirebaseFirestore.instance.collection('angebote').where('titel', isEqualTo: titel).get();
+    final ids = snapshot.docs.map((doc) => doc['dienstleisterId'].toString()).toList();
     setState(() {
       _gefilterteDienstleisterIds = ids;
     });
@@ -344,33 +346,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   bool filterChipOffen = false;
   Map<String, dynamic>? geoeffneterDienstleister;
 
-  // ======== NEU: Subtitle/Chips für ausgewählte Leistungen je Kategorie ========
-  Widget? _subtitleForKategorie(String kategorie) {
-    final selected = ausgewaehlteLeistungen[kategorie] ?? const <String>[];
-    if (selected.isEmpty) return null;
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 6),
-      child: Wrap(
-        spacing: 6,
-        runSpacing: 6,
-        children: selected.map((s) {
-          return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade200,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Text(
-              s,
-              style: const TextStyle(fontSize: 12, color: Colors.black87),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
   @override
   void initState() {
     super.initState();
@@ -393,20 +368,16 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   Future<void> _ermittleOrtAusKoordinaten() async {
     if (userPosition == null) return;
-
     try {
       List<Placemark> placemarks = await placemarkFromCoordinates(
         userPosition!.latitude,
         userPosition!.longitude,
       );
-
       if (placemarks.isNotEmpty) {
         Placemark ort = placemarks.first;
         setState(() {
-          currentCity = ort.locality ??
-              ort.subAdministrativeArea ??
-              ort.administrativeArea ??
-              'Unbekannt';
+          currentCity =
+              ort.locality ?? ort.subAdministrativeArea ?? ort.administrativeArea ?? 'Unbekannt';
         });
       }
     } catch (e) {
@@ -418,8 +389,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     setState(() => isLoading = true);
     userPosition = await LocationService.initLocation(
       context: context,
-      onExitApp: () =>
-          SystemChannels.platform.invokeMethod('SystemNavigator.pop'),
+      onExitApp: () => SystemChannels.platform.invokeMethod('SystemNavigator.pop'),
       onOpenAppSettings: () => AppSettings.openAppSettings(),
     );
     await _ermittleOrtAusKoordinaten();
@@ -436,10 +406,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       return;
     }
 
-    final doc = await FirebaseFirestore.instance
-        .collection('branchen')
-        .doc(ausgewaehlteBranchen.first)
-        .get();
+    final doc =
+    await FirebaseFirestore.instance.collection('branchen').doc(ausgewaehlteBranchen.first).get();
     final data = doc.data();
     if (data == null || !data.containsKey('zielgruppen')) return;
 
@@ -461,6 +429,19 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     String? tempSelected =
     ausgewaehlteBranchen.isNotEmpty ? ausgewaehlteBranchen.first : null;
 
+    int? previewCount;
+    bool isCounting = false;
+    bool didInit = false;
+
+    Future<void> refreshPreview(StateSetter setModalState) async {
+      setModalState(() => isCounting = true);
+      final ids = await _matchingOfferDienstleisterIds(branche: tempSelected);
+      setModalState(() {
+        previewCount = ids.length;
+        isCounting = false;
+      });
+    }
+
     await showModalBottomSheet(
       context: context,
       isScrollControlled: false,
@@ -470,10 +451,15 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       ),
       builder: (context) {
         return Padding(
-          padding:
-          const EdgeInsets.only(left: 16, right: 16, top: 12, bottom: 12),
+          padding: const EdgeInsets.only(left: 16, right: 16, top: 12, bottom: 12),
           child: StatefulBuilder(
             builder: (context, setModalState) {
+              if (!didInit) {
+                didInit = true;
+                // initiale Vorschau berechnen
+                Future.microtask(() => refreshPreview(setModalState));
+              }
+
               return SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -483,10 +469,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       alignment: Alignment.centerLeft,
                       child: Text(
                         'Branchen',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleLarge
-                            ?.copyWith(fontWeight: FontWeight.w600),
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -507,8 +490,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                           final data = doc.data() as Map<String, dynamic>;
                           return (data['name'] as String?) ?? doc.id;
                         }).toList()
-                          ..sort((a, b) =>
-                              a.toLowerCase().compareTo(b.toLowerCase()));
+                          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
                         return Align(
                           alignment: Alignment.centerLeft,
@@ -530,6 +512,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                   setModalState(() {
                                     tempSelected = selected ? null : b;
                                   });
+                                  refreshPreview(setModalState);
                                 },
                                 selectedColor: const Color(0xFFF7931E),
                                 backgroundColor: Colors.white,
@@ -550,10 +533,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       alignment: Alignment.centerLeft,
                       child: Text(
                         'Leistungen',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleLarge
-                            ?.copyWith(fontWeight: FontWeight.w600),
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -570,8 +550,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         if (snapshot.hasError) {
                           return const Padding(
                             padding: EdgeInsets.symmetric(vertical: 16),
-                            child:
-                            Text('Fehler beim Laden der Kategorien aus Angeboten'),
+                            child: Text('Fehler beim Laden der Kategorien aus Angeboten'),
                           );
                         }
 
@@ -590,28 +569,24 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                           separatorBuilder: (_, __) => const Divider(height: 1),
                           itemBuilder: (context, i) {
                             final name = items[i];
-                            final countSelected =
-                                (ausgewaehlteLeistungen[name] ?? []).length;
+                            final countSelected = (ausgewaehlteLeistungen[name] ?? []).length;
 
                             return ListTile(
                               dense: true,
                               title: Text(name),
-                              subtitle: _subtitleForKategorie(name), // <-- NEU: zeigt Auswahl
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   if (countSelected > 0)
                                     Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                       decoration: BoxDecoration(
                                         borderRadius: BorderRadius.circular(12),
                                         color: Colors.orange.shade100,
                                       ),
                                       child: Text(
                                         '$countSelected',
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.w600),
+                                        style: const TextStyle(fontWeight: FontWeight.w600),
                                       ),
                                     ),
                                   const SizedBox(width: 6),
@@ -619,11 +594,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                 ],
                               ),
                               onTap: () async {
-                                await _openLeistungskategorieDialog(
-                                  name,
-                                  branche: tempSelected,
-                                );
-                                setModalState(() {}); // Badge + Subtitle aktualisieren
+                                await _openLeistungskategorieDialog(name, branche: tempSelected);
+                                setModalState(() {}); // Badge aktualisieren
+                                await refreshPreview(setModalState); // -> Anzahl aktualisieren
                               },
                             );
                           },
@@ -644,8 +617,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                 ausgewaehlteKategorien.clear();
                                 ausgewaehlteLeistungen.clear();
                               });
-                              // Filter zurücksetzen -> alle Dienstleister zeigen
-                              await _applyOfferFiltersFromSelections();
+                              await _applyOfferFiltersFromSelections(); // Filter zurücksetzen
                               _ladeZielgruppenUndKategorien();
                               Navigator.of(context).pop();
                             },
@@ -665,9 +637,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                   ..clear()
                                   ..addAll(tempSelected != null ? [tempSelected!] : []);
                               });
-                              // Ausgewählte Leistungen jetzt gegen `angebote` anwenden
-                              await _applyOfferFiltersFromSelections(
-                                  branche: tempSelected);
+                              await _applyOfferFiltersFromSelections(branche: tempSelected);
                               _ladeZielgruppenUndKategorien();
                               Navigator.of(context).pop();
                             },
@@ -675,7 +645,13 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                               shape: const StadiumBorder(),
                               padding: const EdgeInsets.symmetric(vertical: 14),
                             ),
-                            child: const Text('Anwenden'),
+                            child: Text(
+                              isCounting
+                                  ? 'Anwenden …'
+                                  : (previewCount == null
+                                  ? 'Anwenden'
+                                  : '$previewCount ${previewCount == 1 ? 'Ergebnis' : 'Ergebnisse'}'),
+                            ),
                           ),
                         ),
                       ],
@@ -705,8 +681,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             : Column(
           children: [
             Padding(
-              padding:
-              const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -719,17 +694,12 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         .snapshots(),
                     builder: (context, snapshot) {
                       if (!snapshot.hasData) {
-                        return const Center(
-                            child: CircularProgressIndicator());
+                        return const Center(child: CircularProgressIndicator());
                       }
 
-                      final branchen =
-                      snapshot.data!.docs.map((doc) {
-                        final data =
-                        doc.data() as Map<String, dynamic>;
-                        return data.containsKey('name')
-                            ? data['name'] as String
-                            : doc.id;
+                      final branchen = snapshot.data!.docs.map((doc) {
+                        final data = doc.data() as Map<String, dynamic>;
+                        return data.containsKey('name') ? data['name'] as String : doc.id;
                       }).toList()
                         ..sort();
 
@@ -757,9 +727,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         return const Center(child: Text('Buchungen kommen bald!'));
       case 3:
         final user = FirebaseAuth.instance.currentUser;
-        return user == null
-            ? const LoginRegisterPage()
-            : const KundenProfilPage();
+        return user == null ? const LoginRegisterPage() : const KundenProfilPage();
       default:
         return const SizedBox.shrink();
     }
@@ -775,8 +743,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               if (textEditingValue.text == '') {
                 return const Iterable<String>.empty();
               }
-              final vorschlaege =
-              await _ladeLeistungsVorschlaege(textEditingValue.text);
+              final vorschlaege = await _ladeLeistungsVorschlaege(textEditingValue.text);
               return vorschlaege;
             },
             onSelected: (String auswahl) async {
@@ -785,8 +752,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               });
               await _ladeDienstleisterZuLeistung(auswahl);
             },
-            fieldViewBuilder:
-                (context, controller, focusNode, onEditingComplete) {
+            fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
               return TextField(
                 controller: controller,
                 focusNode: focusNode,
@@ -814,10 +780,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                     },
                   )
                       : null,
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(30)),
-                  contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 20),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 20),
                 ),
               );
             },
@@ -830,8 +794,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           label: const Text('Filter'),
           style: OutlinedButton.styleFrom(
             shape: const StadiumBorder(),
-            padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           ),
         ),
       ],
@@ -924,8 +887,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             final data = doc.data() as Map<String, dynamic>;
             data['id'] = doc.id;
 
-            // Wenn per `angebote` gefiltert wurde: nur diese IDs zulassen,
-            // Subcollection users/{id}/leistungen NICHT laden.
+            // Wenn per `angebote` gefiltert wurde: nur diese IDs zulassen
             if (_gefilterteDienstleisterIds.isNotEmpty) {
               if (_gefilterteDienstleisterIds.contains(data['id'])) {
                 if (data['geo'] != null) {
@@ -965,22 +927,19 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 .collection('leistungen')
                 .get();
 
-            final leistungen =
-            leistungenSnap.docs.map((l) => l.data()).toList();
+            final leistungen = leistungenSnap.docs.map((l) => l.data()).toList();
             data['leistungen'] = leistungen;
 
             final branche = data['branche']?.toString();
-            final zielgruppen =
-            leistungen.map((l) => l['zielgruppe']?.toString()).toSet();
-            final kategorien =
-            leistungen.map((l) => l['kategorie']?.toString()).toSet();
+            final zielgruppen = leistungen.map((l) => l['zielgruppe']?.toString()).toSet();
+            final kategorien = leistungen.map((l) => l['kategorie']?.toString()).toSet();
 
-            final branchePasst = ausgewaehlteBranchen.isEmpty ||
-                ausgewaehlteBranchen.contains(branche);
-            final zielgruppePasst = ausgewaehlteZielgruppen.isEmpty ||
-                zielgruppen.any(ausgewaehlteZielgruppen.contains);
-            final kategoriePasst = ausgewaehlteKategorien.isEmpty ||
-                kategorien.any(ausgewaehlteKategorien.contains);
+            final branchePasst =
+                ausgewaehlteBranchen.isEmpty || ausgewaehlteBranchen.contains(branche);
+            final zielgruppePasst =
+                ausgewaehlteZielgruppen.isEmpty || zielgruppen.any(ausgewaehlteZielgruppen.contains);
+            final kategoriePasst =
+                ausgewaehlteKategorien.isEmpty || kategorien.any(ausgewaehlteKategorien.contains);
 
             bool leistungPasst = true;
             if (ausgewaehlteLeistungen.isNotEmpty) {
@@ -989,18 +948,14 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               final ausgewaehlteSet = ausgewaehlteKombination.toSet();
 
               leistungPasst = leistungen.any((leistungDoc) {
-                final leistungsliste =
-                    (leistungDoc['leistung'] as List?)?.cast<String>() ?? [];
+                final leistungsliste = (leistungDoc['leistung'] as List?)?.cast<String>() ?? [];
                 final leistungSet = leistungsliste.toSet();
                 return leistungSet.containsAll(ausgewaehlteSet) &&
                     leistungSet.length == ausgewaehlteSet.length;
               });
             }
 
-            if (branchePasst &&
-                zielgruppePasst &&
-                kategoriePasst &&
-                leistungPasst) {
+            if (branchePasst && zielgruppePasst && kategoriePasst && leistungPasst) {
               dienstleisterMitLeistungen.add(data);
             }
           })),
@@ -1009,8 +964,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               return const Center(child: CircularProgressIndicator());
             }
 
-            dienstleisterMitLeistungen.sort((a, b) =>
-                (a['distance'] as double).compareTo(b['distance'] as double));
+            dienstleisterMitLeistungen
+                .sort((a, b) => (a['distance'] as double).compareTo(b['distance'] as double));
 
             return ListView.builder(
               itemCount: dienstleisterMitLeistungen.length,
@@ -1082,12 +1037,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         showUnselectedLabels: true,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Suchen'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.favorite_border), label: 'Favoriten'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.calendar_today), label: 'Termine'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline), label: 'Profil'),
+          BottomNavigationBarItem(icon: Icon(Icons.favorite_border), label: 'Favoriten'),
+          BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Termine'),
+          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profil'),
         ],
       ),
     );
