@@ -344,6 +344,33 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   bool filterChipOffen = false;
   Map<String, dynamic>? geoeffneterDienstleister;
 
+  // ======== NEU: Subtitle/Chips für ausgewählte Leistungen je Kategorie ========
+  Widget? _subtitleForKategorie(String kategorie) {
+    final selected = ausgewaehlteLeistungen[kategorie] ?? const <String>[];
+    if (selected.isEmpty) return null;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: selected.map((s) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Text(
+              s,
+              style: const TextStyle(fontSize: 12, color: Colors.black87),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -569,6 +596,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             return ListTile(
                               dense: true,
                               title: Text(name),
+                              subtitle: _subtitleForKategorie(name), // <-- NEU: zeigt Auswahl
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -595,7 +623,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                   name,
                                   branche: tempSelected,
                                 );
-                                setModalState(() {}); // Badge aktualisieren
+                                setModalState(() {}); // Badge + Subtitle aktualisieren
                               },
                             );
                           },
@@ -695,7 +723,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             child: CircularProgressIndicator());
                       }
 
-                      final branchen = snapshot.data!.docs.map((doc) {
+                      final branchen =
+                      snapshot.data!.docs.map((doc) {
                         final data =
                         doc.data() as Map<String, dynamic>;
                         return data.containsKey('name')
