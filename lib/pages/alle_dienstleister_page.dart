@@ -168,7 +168,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   // ---------- NEW: Bottom Sheet für Branchen-Filter ----------
   Future<void> _showBranchenFilterSheet() async {
-    // lokale Auswahl (einfacher: Single-Select wie oben auf der Startseite)
+    // lokale Auswahl (Single-Select wie auf der Startseite)
     String? tempSelected =
     ausgewaehlteBranchen.isNotEmpty ? ausgewaehlteBranchen.first : null;
 
@@ -181,124 +181,202 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       ),
       builder: (context) {
         return Padding(
-          padding:
-          const EdgeInsets.only(left: 16, right: 16, top: 12, bottom: 12),
+          padding: const EdgeInsets.only(left: 16, right: 16, top: 12, bottom: 12),
           child: StatefulBuilder(
             builder: (context, setModalState) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Header
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Branchen',
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleLarge
-                          ?.copyWith(fontWeight: FontWeight.w600),
+              return SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ---------- Überschrift: Branchen ----------
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Branchen',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Chips aus Firestore (aktive Branchen)
-                  StreamBuilder<QuerySnapshot>(
-                    stream: FirebaseFirestore.instance
-                        .collection('branchen')
-                        .where('aktiv', isEqualTo: true)
-                        .snapshots(),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) {
-                        return const Padding(
-                          padding: EdgeInsets.all(24),
-                          child: CircularProgressIndicator(),
-                        );
-                      }
+                    const SizedBox(height: 12),
 
-                      final branchen = snapshot.data!.docs.map((doc) {
-                        final data = doc.data() as Map<String, dynamic>;
-                        return (data['name'] as String?) ?? doc.id;
-                      }).toList()
-                        ..sort();
+                    // ---------- Branchen-Chips ----------
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('branchen')
+                          .where('aktiv', isEqualTo: true)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
 
-                      return Align(
-                        alignment: Alignment.centerLeft,
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: branchen.map((b) {
-                            final selected = tempSelected == b;
-                            return FilterChip(
-                              label: Text(
-                                b[0].toUpperCase() + b.substring(1),
-                                style: TextStyle(
-                                  color:
-                                  selected ? Colors.white : Colors.black,
-                                  fontWeight: FontWeight.w500,
+                        final branchen = snapshot.data!.docs.map((doc) {
+                          final data = doc.data() as Map<String, dynamic>;
+                          // In 'branchen' heißt das Anzeigefeld 'name'
+                          return (data['name'] as String?) ?? doc.id;
+                        }).toList()
+                          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+                        return Align(
+                          alignment: Alignment.centerLeft,
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: branchen.map((b) {
+                              final selected = tempSelected == b;
+                              return FilterChip(
+                                label: Text(
+                                  b[0].toUpperCase() + b.substring(1),
+                                  style: TextStyle(
+                                    color: selected ? Colors.white : Colors.black,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
-                              ),
-                              selected: selected,
-                              onSelected: (_) {
-                                setModalState(() {
-                                  tempSelected = selected ? null : b;
-                                });
-                              },
-                              selectedColor: const Color(0xFFF7931E),
-                              backgroundColor: Colors.white,
-                              checkmarkColor: Colors.white,
-                              shape: const StadiumBorder(
-                                side: BorderSide(color: Colors.black),
-                              ),
+                                selected: selected,
+                                onSelected: (_) {
+                                  setModalState(() {
+                                    tempSelected = selected ? null : b;
+                                  });
+                                },
+                                selectedColor: const Color(0xFFF7931E),
+                                backgroundColor: Colors.white,
+                                checkmarkColor: Colors.white,
+                                shape: const StadiumBorder(
+                                  side: BorderSide(color: Colors.black),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        );
+                      },
+                    ),
+
+                    // ---------- Überschrift: Leistungen ----------
+                    const SizedBox(height: 20),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Leistungen',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    // ---------- Auflistung der Leistungskategorien (nur Anzeige) ----------
+                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: (tempSelected == null)
+                          ? FirebaseFirestore.instance
+                          .collection('leistungskategorien')
+                          .snapshots()
+                          : FirebaseFirestore.instance
+                          .collection('leistungskategorien')
+                          .where('branchen', arrayContains: tempSelected)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 16),
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+                        if (snapshot.hasError) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 16),
+                            child: Text('Fehler beim Laden der Leistungskategorien'),
+                          );
+                        }
+
+                        final docs = snapshot.data?.docs ?? [];
+                        final items = docs
+                            .map((d) {
+                          final data = d.data();
+                          // In 'leistungskategorien' heißt das Feld 'titel'
+                          final t = (data['titel'] as String?)?.trim();
+                          return (t != null && t.isNotEmpty) ? t : d.id;
+                        })
+                            .toList()
+                          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase())); // lokal sortieren
+
+                        if (items.isEmpty) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 16),
+                            child: Text('Keine Leistungskategorien vorhanden.'),
+                          );
+                        }
+
+                        return ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: items.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, i) {
+                            final name = items[i];
+                            return ListTile(
+                              dense: true,
+                              title: Text(name),
+                              trailing: const Icon(Icons.chevron_right),
+                              enabled: false, // aktuell nur Anzeige, keine Aktion
                             );
-                          }).toList(),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 20),
-                  // Buttons unten
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () {
-                            // zurücksetzen: keine Branche ausgewählt
-                            setState(() {
-                              ausgewaehlteBranchen.clear();
-                              _ladeZielgruppenUndKategorien();
-                            });
-                            Navigator.of(context).pop();
                           },
-                          style: OutlinedButton.styleFrom(
-                            shape: const StadiumBorder(),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
+                        );
+                      },
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // ---------- Buttons unten ----------
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () {
+                              // zurücksetzen: keine Branche ausgewählt
+                              setState(() {
+                                ausgewaehlteBranchen.clear();
+                                _ladeZielgruppenUndKategorien();
+                              });
+                              Navigator.of(context).pop();
+                            },
+                            style: OutlinedButton.styleFrom(
+                              shape: const StadiumBorder(),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            child: const Text('Zurücksetzen'),
                           ),
-                          child: const Text('Zurücksetzen'),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () {
-                            setState(() {
-                              ausgewaehlteBranchen.clear();
-                              if (tempSelected != null) {
-                                ausgewaehlteBranchen.add(tempSelected!);
-                              }
-                              _ladeZielgruppenUndKategorien();
-                            });
-                            Navigator.of(context).pop();
-                          },
-                          style: ElevatedButton.styleFrom(
-                            shape: const StadiumBorder(),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              setState(() {
+                                ausgewaehlteBranchen.clear();
+                                if (tempSelected != null) {
+                                  ausgewaehlteBranchen.add(tempSelected!);
+                                }
+                                _ladeZielgruppenUndKategorien();
+                              });
+                              Navigator.of(context).pop();
+                            },
+                            style: ElevatedButton.styleFrom(
+                              shape: const StadiumBorder(),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            child: const Text('Anwenden'),
                           ),
-                          child: const Text('Anwenden'),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                ],
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ),
               );
             },
           ),
@@ -306,6 +384,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       },
     );
   }
+
+
   // ----------------------------------------------------------
 
   Widget _buildBodyByIndex(int index) {
