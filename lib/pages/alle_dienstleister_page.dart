@@ -86,6 +86,63 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     });
   }
 
+  /// Nur zählen, wie viele Dienstleister aktuell zu den Selektionen passen
+  Future<int> _countMatchesBasedOnSelections({String? branche}) async {
+    // KEINE Leistungs-Selektion → zeig die aktuell gelisteten Anbieter
+    if (ausgewaehlteLeistungen.isEmpty) {
+      // Falls bereits per `angebote` gefiltert wurde
+      if (_gefilterteDienstleisterIds.isNotEmpty) {
+        return _gefilterteDienstleisterIds.length;
+      }
+
+      // Sonst alle Dienstleister (ggf. mit aktueller/preview-Branche)
+      Query q = FirebaseFirestore.instance
+          .collection('users')
+          .where('rolle', isEqualTo: 'dienstleister');
+
+      if (branche != null && branche.isNotEmpty) {
+        q = q.where('branche', isEqualTo: branche);
+      } else if (ausgewaehlteBranchen.isNotEmpty) {
+        // bereits aktive Branchen-Chips auf der Liste berücksichtigen
+        q = q.where('branche', isEqualTo: ausgewaehlteBranchen.first);
+      }
+
+      final snap = await q.get();
+      return snap.size;
+    }
+
+    // MIT Leistungs-Selektion → wie bisher über `angebote` zählen
+    final branchIds = await _dienstleisterIdsFuerBranche(branche);
+    final ids = <String>{};
+
+    for (final entry in ausgewaehlteLeistungen.entries) {
+      final kategorie = entry.key;
+      final leistungen = entry.value;
+      if (leistungen.isEmpty) continue;
+
+      for (var i = 0; i < leistungen.length; i += 10) {
+        final end = math.min(i + 10, leistungen.length);
+        final chunk = leistungen.sublist(i, end);
+
+        final q = await FirebaseFirestore.instance
+            .collection('angebote')
+            .where('kategorie', isEqualTo: kategorie)
+            .where('leistungen', arrayContainsAny: chunk)
+            .get();
+
+        for (final d in q.docs) {
+          final id = (d.data()['dienstleisterId'] as String?)?.trim();
+          if (id == null || id.isEmpty) continue;
+          if (branchIds != null && !branchIds.contains(id)) continue;
+          ids.add(id);
+        }
+      }
+    }
+
+    return ids.length;
+  }
+
+
   // ========= Kategorien aus 'angebote' laden (optional nach Branche) =========
   Future<List<String>> _ladeLeistungskategorienAusAngeboten(String? branche) async {
     if (branche == null) {
@@ -272,8 +329,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                     ausgewaehlteKategorien = [kategorie];
                                   }
                                 });
-                                // WICHTIG: direkt die Anbieter anhand `angebote` filtern
-                                await _applyOfferFiltersFromSelections(branche: branche);
+                                // Wichtig: Anwendung/Filter erst im großen "Anwenden"-Button
                                 Navigator.of(context).pop();
                               },
                               child: const Text('OK'),
@@ -324,9 +380,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   }
 
   /// =============== NEU: Passende Angebote pro Dienstleister ===============
-  /// Lädt – auf Basis der aktuell ausgewählten Leistungen – die passenden
-  /// `angebote`-Dokumente für einen Dienstleister und gibt eine Liste kleiner
-  /// Maps zurück, die vom Tile direkt gerendert werden können.
   Future<List<Map<String, dynamic>>> _ladePassendeAngeboteFuerDienstleister(
       String dienstleisterId) async {
     if (ausgewaehlteLeistungen.isEmpty) return [];
@@ -355,7 +408,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           seen.add(d.id);
 
           final data = d.data();
-          // Robust: Preis/Dauer ggf. aus evtl. Zielgruppen-Objekt ziehen
           dynamic preis = data['preis'];
           dynamic dauer = data['dauer'];
           final zielgruppen = data['zielgruppen'];
@@ -489,63 +541,105 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     });
   }
 
-  // ---------- Bottom Sheet für Branchen-Filter ----------
+  // Z.B. oberhalb von _showBranchenFilterSheet()
+  int get _filterBadgeCount {
+    int n = 0;
+    if (ausgewaehlteBranchen.isNotEmpty) n += 1; // 1 Punkt für Branchenwahl
+    n += ausgewaehlteLeistungen.values.fold<int>(
+      0,
+          (sum, list) => sum + list.length,
+    ); // Summe aller ausgewählten Leistungen
+    return n;
+  }
+
+
+  // ---------- Bottom Sheet für Branchen-Filter (FULLSCREEN + Floating Apply) ----------
   Future<void> _showBranchenFilterSheet() async {
     String? tempSelected =
     ausgewaehlteBranchen.isNotEmpty ? ausgewaehlteBranchen.first : null;
 
+    int previewCount = await _countMatchesBasedOnSelections(branche: tempSelected);
+
     await showModalBottomSheet(
       context: context,
-      isScrollControlled: false,
+      isScrollControlled: true, // FULLSCREEN
+      useSafeArea: true,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(0)),
       ),
       builder: (context) {
-        return Padding(
-          padding:
-          const EdgeInsets.only(left: 16, right: 16, top: 12, bottom: 12),
-          child: StatefulBuilder(
-            builder: (context, setModalState) {
-              return SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // ---------- Branchen ----------
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            Future<void> _recalc() async {
+              final c = await _countMatchesBasedOnSelections(branche: tempSelected);
+              setModalState(() => previewCount = c);
+            }
+
+            return SizedBox(
+              height: MediaQuery.of(context).size.height,
+              child: Stack(
+                children: [
+                  // Scrollbarer Inhalt
+                  ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 120), // Platz für Floating-Button
+                    children: [
+                      // Header
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Filter',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          TextButton(
+                            onPressed: () async {
+                              setState(() {
+                                ausgewaehlteBranchen.clear();
+                                ausgewaehlteKategorien.clear();
+                                ausgewaehlteLeistungen.clear();
+                              });
+                              await _recalc();
+                            },
+                            child: const Text('Zurücksetzen'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Branchen
+                      Text(
                         'Branchen',
                         style: Theme.of(context)
                             .textTheme
-                            .titleLarge
+                            .titleMedium
                             ?.copyWith(fontWeight: FontWeight.w600),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    StreamBuilder<QuerySnapshot>(
-                      stream: FirebaseFirestore.instance
-                          .collection('branchen')
-                          .where('aktiv', isEqualTo: true)
-                          .snapshots(),
-                      builder: (context, snapshot) {
-                        if (!snapshot.hasData) {
-                          return const Padding(
-                            padding: EdgeInsets.all(24),
-                            child: Center(child: CircularProgressIndicator()),
-                          );
-                        }
+                      const SizedBox(height: 12),
+                      StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('branchen')
+                            .where('aktiv', isEqualTo: true)
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const Padding(
+                              padding: EdgeInsets.all(24),
+                              child: Center(child: CircularProgressIndicator()),
+                            );
+                          }
 
-                        final branchen = snapshot.data!.docs.map((doc) {
-                          final data = doc.data() as Map<String, dynamic>;
-                          return (data['name'] as String?) ?? doc.id;
-                        }).toList()
-                          ..sort((a, b) =>
-                              a.toLowerCase().compareTo(b.toLowerCase()));
+                          final branchen = snapshot.data!.docs.map((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            return (data['name'] as String?) ?? doc.id;
+                          }).toList()
+                            ..sort((a, b) =>
+                                a.toLowerCase().compareTo(b.toLowerCase()));
 
-                        return Align(
-                          alignment: Alignment.centerLeft,
-                          child: Wrap(
+                          return Wrap(
                             spacing: 8,
                             runSpacing: 8,
                             children: branchen.map((b) {
@@ -559,12 +653,13 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                   ),
                                 ),
                                 selected: selected,
-                                onSelected: (_) {
+                                onSelected: (_) async {
                                   setModalState(() {
                                     tempSelected = selected ? null : b;
                                   });
+                                  await _recalc();
                                 },
-                                selectedColor: const Color(0xFFF7931E),
+                                selectedColor: Colors.blueAccent,
                                 backgroundColor: Colors.white,
                                 checkmarkColor: Colors.white,
                                 shape: const StadiumBorder(
@@ -572,152 +667,167 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                 ),
                               );
                             }).toList(),
-                          ),
-                        );
-                      },
-                    ),
+                          );
+                        },
+                      ),
 
-                    // ---------- Leistungen ----------
-                    const SizedBox(height: 20),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
+                      const SizedBox(height: 20),
+
+                      // Leistungen
+                      Text(
                         'Leistungen',
                         style: Theme.of(context)
                             .textTheme
-                            .titleLarge
+                            .titleMedium
                             ?.copyWith(fontWeight: FontWeight.w600),
                       ),
-                    ),
-                    const SizedBox(height: 8),
+                      const SizedBox(height: 8),
 
-                    FutureBuilder<List<String>>(
-                      future: _ladeLeistungskategorienAusAngeboten(tempSelected),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 16),
-                            child: Center(child: CircularProgressIndicator()),
-                          );
-                        }
-                        if (snapshot.hasError) {
-                          return const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 16),
-                            child:
-                            Text('Fehler beim Laden der Kategorien aus Angeboten'),
-                          );
-                        }
-
-                        final items = snapshot.data ?? [];
-                        if (items.isEmpty) {
-                          return const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 16),
-                            child: Text('Keine Leistungskategorien vorhanden.'),
-                          );
-                        }
-
-                        return ListView.separated(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: items.length,
-                          separatorBuilder: (_, __) => const Divider(height: 1),
-                          itemBuilder: (context, i) {
-                            final name = items[i];
-                            final countSelected =
-                                (ausgewaehlteLeistungen[name] ?? []).length;
-
-                            return ListTile(
-                              dense: true,
-                              title: Text(name),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (countSelected > 0)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(12),
-                                        color: Colors.orange.shade100,
-                                      ),
-                                      child: Text(
-                                        '$countSelected',
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.w600),
-                                      ),
-                                    ),
-                                  const SizedBox(width: 6),
-                                  const Icon(Icons.chevron_right),
-                                ],
-                              ),
-                              onTap: () async {
-                                await _openLeistungskategorieDialog(
-                                  name,
-                                  branche: tempSelected,
-                                );
-                                setModalState(() {}); // Badge aktualisieren
-                              },
+                      FutureBuilder<List<String>>(
+                        future: _ladeLeistungskategorienAusAngeboten(tempSelected),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Center(child: CircularProgressIndicator()),
                             );
-                          },
-                        );
-                      },
-                    ),
+                          }
+                          if (snapshot.hasError) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Text('Fehler beim Laden der Kategorien aus Angeboten'),
+                            );
+                          }
 
-                    const SizedBox(height: 20),
+                          final items = snapshot.data ?? [];
+                          if (items.isEmpty) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Text('Keine Leistungskategorien vorhanden.'),
+                            );
+                          }
 
-                    // ---------- Buttons ----------
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () async {
-                              setState(() {
-                                ausgewaehlteBranchen.clear();
-                                ausgewaehlteKategorien.clear();
-                                ausgewaehlteLeistungen.clear();
-                              });
-                              // Filter zurücksetzen -> alle Dienstleister zeigen
-                              await _applyOfferFiltersFromSelections();
-                              _ladeZielgruppenUndKategorien();
-                              Navigator.of(context).pop();
+                          return ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: items.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            itemBuilder: (context, i) {
+                              final name = items[i];
+                              final selectedList =
+                              (ausgewaehlteLeistungen[name] ?? const <String>[]);
+
+                              return ListTile(
+                                dense: true,
+                                title: Text(name),
+                                // AUSGEWÄHLTE LEISTUNGEN UNTER DER KATEGORIE
+                                subtitle: (selectedList.isNotEmpty)
+                                    ? Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: selectedList.map((s) {
+                                      return InputChip(
+                                        label: Text(s),
+                                        selected: true,
+                                        selectedColor: Colors.blueAccent.withOpacity(.12),
+                                        labelStyle: const TextStyle(color: Colors.blueAccent),
+                                        shape: const StadiumBorder(
+                                          side: BorderSide(color: Colors.blueAccent),
+                                        ),
+                                        deleteIcon: const Icon(Icons.close, size: 18, color: Colors.blueAccent),
+                                        onDeleted: () async {
+                                          // Leistung aus der Kategorie entfernen
+                                          setState(() {
+                                            ausgewaehlteLeistungen[name]!.remove(s);
+                                            if (ausgewaehlteLeistungen[name]!.isEmpty) {
+                                              ausgewaehlteLeistungen.remove(name);
+                                              ausgewaehlteKategorien.removeWhere((e) => e == name);
+                                            }
+                                          });
+                                          // Trefferzahl im Anwenden-Button neu berechnen
+                                          await _countMatchesBasedOnSelections(branche: tempSelected)
+                                              .then((c) => setModalState(() => previewCount = c));
+                                        },
+                                      );
+                                    }).toList(),
+                                  ),
+                                )
+                                    : null,
+
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (selectedList.isNotEmpty)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(12),
+                                          color: Colors.orange.shade100,
+                                        ),
+                                        child: Text(
+                                          '${selectedList.length}',
+                                          style: const TextStyle(fontWeight: FontWeight.w600),
+                                        ),
+                                      ),
+                                    const SizedBox(width: 6),
+                                    const Icon(Icons.chevron_right),
+                                  ],
+                                ),
+                                onTap: () async {
+                                  await _openLeistungskategorieDialog(
+                                      name, branche: tempSelected);
+                                  await _recalc(); // nach Rückkehr Treffer neu zählen
+                                  setModalState(() {}); // UI aktualisieren (Chips)
+                                },
+                              );
                             },
-                            style: OutlinedButton.styleFrom(
-                              shape: const StadiumBorder(),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                            ),
-                            child: const Text('Zurücksetzen'),
-                          ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+
+                  // Schwebender "Anwenden – n Treffer"-Button
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: 16,
+                    child: SafeArea(
+                      top: false,
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          // Filter jetzt anwenden
+                          await _applyOfferFiltersFromSelections(
+                              branche: tempSelected);
+                          setState(() {
+                            ausgewaehlteBranchen
+                              ..clear()
+                              ..addAll(tempSelected != null ? [tempSelected!] : []);
+                          });
+                          _ladeZielgruppenUndKategorien();
+                          if (mounted) Navigator.of(context).pop();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blueAccent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: const StadiumBorder(),
+                          elevation: 4,
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () async {
-                              setState(() {
-                                ausgewaehlteBranchen
-                                  ..clear()
-                                  ..addAll(tempSelected != null ? [tempSelected!] : []);
-                              });
-                              // Ausgewählte Leistungen jetzt gegen `angebote` anwenden
-                              await _applyOfferFiltersFromSelections(
-                                  branche: tempSelected);
-                              _ladeZielgruppenUndKategorien();
-                              Navigator.of(context).pop();
-                            },
-                            style: ElevatedButton.styleFrom(
-                              shape: const StadiumBorder(),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                            ),
-                            child: const Text('Anwenden'),
-                          ),
+                        child: Text(
+                          '$previewCount Treffer',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
-                      ],
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                  ],
-                ),
-              );
-            },
-          ),
+                  ),
+                ],
+              ),
+            );
+          },
         );
       },
     );
@@ -755,10 +865,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             child: CircularProgressIndicator());
                       }
 
-                      final branchen =
-                      snapshot.data!.docs.map((doc) {
-                        final data =
-                        doc.data() as Map<String, dynamic>;
+                      final branchen = snapshot.data!.docs.map((doc) {
+                        final data = doc.data() as Map<String, dynamic>;
                         return data.containsKey('name')
                             ? data['name'] as String
                             : doc.id;
@@ -847,7 +955,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                   )
                       : null,
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(30)),
+                    borderRadius: BorderRadius.circular(30),
+                  ),
                   contentPadding:
                   const EdgeInsets.symmetric(horizontal: 20),
                 ),
@@ -856,19 +965,62 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           ),
         ),
         const SizedBox(width: 8),
-        OutlinedButton.icon(
-          onPressed: _showBranchenFilterSheet,
-          icon: const Icon(Icons.filter_list),
-          label: const Text('Filter'),
-          style: OutlinedButton.styleFrom(
-            shape: const StadiumBorder(),
-            padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          ),
+
+        // >>> Filterbutton mit Badge
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _showBranchenFilterSheet,
+              icon: const Icon(Icons.filter_list),
+              label: const Text('Filter'),
+              style: OutlinedButton.styleFrom(
+                shape: const StadiumBorder(),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                backgroundColor: _filterBadgeCount > 0
+                    ? Colors.blueAccent.withOpacity(0.08)
+                    : null,
+                side: BorderSide(
+                  color: _filterBadgeCount > 0
+                      ? Colors.blueAccent
+                      : Colors.black,
+                ),
+                foregroundColor:
+                _filterBadgeCount > 0 ? Colors.blueAccent : null,
+              ),
+            ),
+
+            if (_filterBadgeCount > 0)
+              Positioned(
+                right: -4,
+                top: -4,
+                child: Container(
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.blueAccent,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  constraints:
+                  const BoxConstraints(minWidth: 18, minHeight: 18),
+                  child: Text(
+                    _filterBadgeCount > 99 ? '99+' : '$_filterBadgeCount',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ],
     );
   }
+
 
   // ----------------------------------------------------------
 
@@ -970,17 +1122,18 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               data['distance'] = double.infinity;
             }
 
-            // ======= NEU: Wenn per `angebote` gefiltert wurde, passende Angebote laden =======
+            // Wenn per `angebote` gefiltert wurde, passende Angebote laden
             if (_gefilterteDienstleisterIds.isNotEmpty) {
               if (_gefilterteDienstleisterIds.contains(data['id'])) {
-                final matched = await _ladePassendeAngeboteFuerDienstleister(data['id']);
+                final matched =
+                await _ladePassendeAngeboteFuerDienstleister(data['id']);
                 data['matchedOffers'] = matched; // wird vom Tile gerendert
                 dienstleisterMitLeistungen.add(data);
               }
               return;
             }
 
-            // --- Kein angebote-Filter aktiv: altes Verhalten mit Subcollection (optional) ---
+            // Kein angebote-Filter aktiv: altes Verhalten mit Subcollection (optional)
             final leistungenSnap = await FirebaseFirestore.instance
                 .collection('users')
                 .doc(doc.id)
@@ -1040,7 +1193,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 final data = dienstleisterMitLeistungen[index];
                 return DienstleisterTile(
                   data: data,
-                  // NEU: Liste der passenden Angebote (kann null/leer sein)
                   matchedOffers:
                   (data['matchedOffers'] as List<Map<String, dynamic>>?),
                   onTap: () {

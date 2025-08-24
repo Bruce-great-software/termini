@@ -42,6 +42,10 @@ class DienstleisterTile extends StatelessWidget {
     final plz = (data['plz'] ?? '').toString();
     final ort = (data['ort'] ?? '').toString();
 
+    // Farbton der AppBar übernehmen
+    const Color appBarColor = Colors.blueAccent;
+
+
     // Quelle: Prop > data['matchedOffers'] > []
     final List<Map<String, dynamic>> offers =
         matchedOffers ??
@@ -111,7 +115,9 @@ class DienstleisterTile extends StatelessWidget {
                           [
                             if (adresse.isNotEmpty) adresse,
                             [plz, ort].where((s) => s.isNotEmpty).join(' ')
-                          ].where((s) => s.toString().trim().isNotEmpty).join(', '),
+                          ]
+                              .where((s) => s.toString().trim().isNotEmpty)
+                              .join(', '),
                           style: const TextStyle(color: Colors.black54),
                         ),
                         if (distance is num)
@@ -129,52 +135,58 @@ class DienstleisterTile extends StatelessWidget {
                 ],
               ),
 
-              // Liste der passenden Angebote unter dem Anbieter
+              // Liste der passenden Angebote unter dem Anbieter (als "Chips" in AppBar-Blau)
               if (offers.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 const Divider(height: 1),
-                const SizedBox(height: 6),
-                ...offers.map((o) {
-                  final titel = (o['titel'] ?? o['name'] ?? '').toString();
-                  final dauer = _fmtDauer(o['dauer']);
-                  final preis = _fmtPreis(o['preis']);
-
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6.0),
-                    child: Row(
-                      children: [
-                        // Titel + Dauer links
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                titel,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              if (dauer.isNotEmpty)
-                                Text(
-                                  dauer,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(color: Colors.grey[700]),
-                                ),
-                            ],
-                          ),
-                        ),
-                        // Preis rechts
-                        if (preis.isNotEmpty)
-                          Text(
-                            preis,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                      ],
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.local_offer, size: 18, color: appBarColor),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Passende Angebote',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: appBarColor,
+                      ),
                     ),
-                  );
-                }).toList(),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: offers.map((o) {
+                    final titel = (o['titel'] ?? o['name'] ?? '').toString();
+                    final dauer = _fmtDauer(o['dauer']);
+                    final preis = _fmtPreis(o['preis']);
+
+                    final parts = <String>[];
+                    if (titel.isNotEmpty) parts.add(titel);
+                    if (dauer.isNotEmpty) parts.add(dauer);
+                    if (preis.isNotEmpty) parts.add(preis);
+                    final label = parts.join(' · ');
+
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: appBarColor.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: appBarColor),
+                      ),
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: appBarColor,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
               ],
             ],
           ),
