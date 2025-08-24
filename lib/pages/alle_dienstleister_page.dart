@@ -45,8 +45,47 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     return snap.docs.map((d) => d.id).toSet();
   }
 
+  // ---------- Exact-Match Helfer ----------
+  String _norm(String s) => s.toLowerCase().trim();
+
+  Set<String> _extractLeistungsSet(Map<String, dynamic> angebot) {
+    // 1) bevorzugt aus Feld 'leistungen'
+    final arr = angebot['leistungen'];
+    if (arr is List) {
+      return arr
+          .whereType<String>()
+          .map(_norm)
+          .where((s) => s.isNotEmpty)
+          .toSet();
+    }
+    // 2) Fallback: aus 'titel' wie "Haare – Schneiden, Stylen, Waschen"
+    final raw = (angebot['titel'] as String?) ?? '';
+    final rightSide = raw.contains('–') ? raw.split('–').last : raw;
+    return rightSide
+        .split(RegExp(r'[,\|/\+]+')) // Komma, |, /, +
+        .map(_norm)
+        .where((s) => s.isNotEmpty)
+        .toSet();
+  }
+
+  bool _angebotMatchtExakt({
+    required Map<String, dynamic> angebot,
+    required String kategorie,
+    required List<String> selectedLeistungen,
+  }) {
+    final cat = (angebot['kategorie'] as String?)?.trim();
+    if (cat == null || cat != kategorie) return false;
+
+    final sel = selectedLeistungen.map(_norm).toSet();
+    final off = _extractLeistungsSet(angebot);
+
+    // exakt gleiche Menge & gleiche Inhalte
+    return off.length == sel.length && off.containsAll(sel);
+  }
+
   /// Wendet die aktuell ausgewählten Leistungen (ausgewaehlteLeistungen) auf `angebote` an
   /// und schreibt die passenden Dienstleister-IDs in `_gefilterteDienstleisterIds`.
+  /// NEU: Nur exakte Kombis; mehrere Kategorien werden per Schnittmenge (AND) verknüpft.
   Future<void> _applyOfferFiltersFromSelections({String? branche}) async {
     if (ausgewaehlteLeistungen.isEmpty) {
       setState(() => _gefilterteDienstleisterIds = []);
@@ -54,17 +93,19 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     }
 
     final branchIds = await _dienstleisterIdsFuerBranche(branche);
-    final resultIds = <String>{};
+    final idsProKategorie = <Set<String>>[];
 
     for (final entry in ausgewaehlteLeistungen.entries) {
       final kategorie = entry.key;
-      final leistungen = entry.value;
-      if (leistungen.isEmpty) continue;
+      final sel = entry.value;
+      if (sel.isEmpty) continue;
+
+      final idsDieserKategorie = <String>{};
 
       // arrayContainsAny <= 10
-      for (var i = 0; i < leistungen.length; i += 10) {
-        final end = math.min(i + 10, leistungen.length);
-        final chunk = leistungen.sublist(i, end);
+      for (var i = 0; i < sel.length; i += 10) {
+        final end = math.min(i + 10, sel.length);
+        final chunk = sel.sublist(i, end);
 
         final qSnap = await FirebaseFirestore.instance
             .collection('angebote')
@@ -73,20 +114,40 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             .get();
 
         for (final d in qSnap.docs) {
-          final id = (d.data()['dienstleisterId'] as String?)?.trim();
+          final data = d.data();
+          final id = (data['dienstleisterId'] as String?)?.trim();
           if (id == null || id.isEmpty) continue;
           if (branchIds != null && !branchIds.contains(id)) continue;
-          resultIds.add(id);
+
+          // EXAKT vergleichen
+          if (_angebotMatchtExakt(
+            angebot: data,
+            kategorie: kategorie,
+            selectedLeistungen: sel,
+          )) {
+            idsDieserKategorie.add(id);
+          }
         }
       }
+
+      idsProKategorie.add(idsDieserKategorie);
+    }
+
+    // Schnittmenge aller Kategorien
+    Set<String> finalIds;
+    if (idsProKategorie.isEmpty) {
+      finalIds = <String>{};
+    } else {
+      finalIds = idsProKategorie.reduce((a, b) => a.intersection(b));
     }
 
     setState(() {
-      _gefilterteDienstleisterIds = resultIds.toList();
+      _gefilterteDienstleisterIds = finalIds.toList();
     });
   }
 
   /// Nur zählen, wie viele Dienstleister aktuell zu den Selektionen passen
+  /// NEU: identische Exact-Match-Logik wie bei `_applyOfferFiltersFromSelections`
   Future<int> _countMatchesBasedOnSelections({String? branche}) async {
     // KEINE Leistungs-Selektion → zeig die aktuell gelisteten Anbieter
     if (ausgewaehlteLeistungen.isEmpty) {
@@ -111,18 +172,20 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       return snap.size;
     }
 
-    // MIT Leistungs-Selektion → wie bisher über `angebote` zählen
+    // MIT Leistungs-Selektion → wie bisher über `angebote` zählen (aber mit Exact-Match)
     final branchIds = await _dienstleisterIdsFuerBranche(branche);
-    final ids = <String>{};
+    final idsProKategorie = <Set<String>>[];
 
     for (final entry in ausgewaehlteLeistungen.entries) {
       final kategorie = entry.key;
-      final leistungen = entry.value;
-      if (leistungen.isEmpty) continue;
+      final sel = entry.value;
+      if (sel.isEmpty) continue;
 
-      for (var i = 0; i < leistungen.length; i += 10) {
-        final end = math.min(i + 10, leistungen.length);
-        final chunk = leistungen.sublist(i, end);
+      final idsDieserKategorie = <String>{};
+
+      for (var i = 0; i < sel.length; i += 10) {
+        final end = math.min(i + 10, sel.length);
+        final chunk = sel.sublist(i, end);
 
         final q = await FirebaseFirestore.instance
             .collection('angebote')
@@ -131,17 +194,28 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             .get();
 
         for (final d in q.docs) {
-          final id = (d.data()['dienstleisterId'] as String?)?.trim();
+          final data = d.data();
+          final id = (data['dienstleisterId'] as String?)?.trim();
           if (id == null || id.isEmpty) continue;
           if (branchIds != null && !branchIds.contains(id)) continue;
-          ids.add(id);
+
+          if (_angebotMatchtExakt(
+            angebot: data,
+            kategorie: kategorie,
+            selectedLeistungen: sel,
+          )) {
+            idsDieserKategorie.add(id);
+          }
         }
       }
+
+      idsProKategorie.add(idsDieserKategorie);
     }
 
-    return ids.length;
+    if (idsProKategorie.isEmpty) return 0;
+    final finalIds = idsProKategorie.reduce((a, b) => a.intersection(b));
+    return finalIds.length;
   }
-
 
   // ========= Kategorien aus 'angebote' laden (optional nach Branche) =========
   Future<List<String>> _ladeLeistungskategorienAusAngeboten(String? branche) async {
@@ -380,6 +454,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   }
 
   /// =============== NEU: Passende Angebote pro Dienstleister ===============
+  /// NEU: Nur exakte Kombis werden an das Tile geliefert.
   Future<List<Map<String, dynamic>>> _ladePassendeAngeboteFuerDienstleister(
       String dienstleisterId) async {
     if (ausgewaehlteLeistungen.isEmpty) return [];
@@ -389,12 +464,12 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
     for (final entry in ausgewaehlteLeistungen.entries) {
       final kategorie = entry.key;
-      final leistungen = entry.value;
-      if (leistungen.isEmpty) continue;
+      final sel = entry.value;
+      if (sel.isEmpty) continue;
 
-      for (var i = 0; i < leistungen.length; i += 10) {
-        final end = math.min(i + 10, leistungen.length);
-        final chunk = leistungen.sublist(i, end);
+      for (var i = 0; i < sel.length; i += 10) {
+        final end = math.min(i + 10, sel.length);
+        final chunk = sel.sublist(i, end);
 
         final q = await FirebaseFirestore.instance
             .collection('angebote')
@@ -405,9 +480,19 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
         for (final d in q.docs) {
           if (seen.contains(d.id)) continue;
+          final data = d.data();
+
+          // EXAKT prüfen
+          if (!_angebotMatchtExakt(
+            angebot: data,
+            kategorie: kategorie,
+            selectedLeistungen: sel,
+          )) {
+            continue;
+          }
+
           seen.add(d.id);
 
-          final data = d.data();
           dynamic preis = data['preis'];
           dynamic dauer = data['dauer'];
           final zielgruppen = data['zielgruppen'];
@@ -552,13 +637,13 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     return n;
   }
 
-
   // ---------- Bottom Sheet für Branchen-Filter (FULLSCREEN + Floating Apply) ----------
   Future<void> _showBranchenFilterSheet() async {
     String? tempSelected =
     ausgewaehlteBranchen.isNotEmpty ? ausgewaehlteBranchen.first : null;
 
-    int previewCount = await _countMatchesBasedOnSelections(branche: tempSelected);
+    int previewCount =
+    await _countMatchesBasedOnSelections(branche: tempSelected);
 
     await showModalBottomSheet(
       context: context,
@@ -572,7 +657,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         return StatefulBuilder(
           builder: (context, setModalState) {
             Future<void> _recalc() async {
-              final c = await _countMatchesBasedOnSelections(branche: tempSelected);
+              final c = await _countMatchesBasedOnSelections(
+                  branche: tempSelected);
               setModalState(() => previewCount = c);
             }
 
@@ -582,7 +668,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 children: [
                   // Scrollbarer Inhalt
                   ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 120), // Platz für Floating-Button
+                    padding: const EdgeInsets.fromLTRB(
+                        16, 16, 16, 120), // Platz für Floating-Button
                     children: [
                       // Header
                       Row(
@@ -684,9 +771,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       const SizedBox(height: 8),
 
                       FutureBuilder<List<String>>(
-                        future: _ladeLeistungskategorienAusAngeboten(tempSelected),
+                        future:
+                        _ladeLeistungskategorienAusAngeboten(tempSelected),
                         builder: (context, snapshot) {
-                          if (snapshot.connectionState == ConnectionState.waiting) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
                             return const Padding(
                               padding: EdgeInsets.symmetric(vertical: 16),
                               child: Center(child: CircularProgressIndicator()),
@@ -695,7 +784,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                           if (snapshot.hasError) {
                             return const Padding(
                               padding: EdgeInsets.symmetric(vertical: 16),
-                              child: Text('Fehler beim Laden der Kategorien aus Angeboten'),
+                              child: Text(
+                                  'Fehler beim Laden der Kategorien aus Angeboten'),
                             );
                           }
 
@@ -715,7 +805,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             itemBuilder: (context, i) {
                               final name = items[i];
                               final selectedList =
-                              (ausgewaehlteLeistungen[name] ?? const <String>[]);
+                              (ausgewaehlteLeistungen[name] ??
+                                  const <String>[]);
 
                               return ListTile(
                                 dense: true,
@@ -731,31 +822,43 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                       return InputChip(
                                         label: Text(s),
                                         selected: true,
-                                        selectedColor: Colors.blueAccent.withOpacity(.12),
-                                        labelStyle: const TextStyle(color: Colors.blueAccent),
+                                        selectedColor: Colors.blueAccent
+                                            .withOpacity(.12),
+                                        labelStyle: const TextStyle(
+                                            color: Colors.blueAccent),
                                         shape: const StadiumBorder(
-                                          side: BorderSide(color: Colors.blueAccent),
+                                          side: BorderSide(
+                                              color: Colors.blueAccent),
                                         ),
-                                        deleteIcon: const Icon(Icons.close, size: 18, color: Colors.blueAccent),
+                                        deleteIcon: const Icon(Icons.close,
+                                            size: 18,
+                                            color: Colors.blueAccent),
                                         onDeleted: () async {
                                           // Leistung aus der Kategorie entfernen
                                           setState(() {
-                                            ausgewaehlteLeistungen[name]!.remove(s);
-                                            if (ausgewaehlteLeistungen[name]!.isEmpty) {
-                                              ausgewaehlteLeistungen.remove(name);
-                                              ausgewaehlteKategorien.removeWhere((e) => e == name);
+                                            ausgewaehlteLeistungen[name]!
+                                                .remove(s);
+                                            if (ausgewaehlteLeistungen[name]!
+                                                .isEmpty) {
+                                              ausgewaehlteLeistungen
+                                                  .remove(name);
+                                              ausgewaehlteKategorien
+                                                  .removeWhere(
+                                                      (e) => e == name);
                                             }
                                           });
                                           // Trefferzahl im Anwenden-Button neu berechnen
-                                          await _countMatchesBasedOnSelections(branche: tempSelected)
-                                              .then((c) => setModalState(() => previewCount = c));
+                                          await _countMatchesBasedOnSelections(
+                                              branche: tempSelected)
+                                              .then((c) =>
+                                              setModalState(() =>
+                                              previewCount = c));
                                         },
                                       );
                                     }).toList(),
                                   ),
                                 )
                                     : null,
-
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -764,12 +867,14 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                         padding: const EdgeInsets.symmetric(
                                             horizontal: 8, vertical: 4),
                                         decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(12),
+                                          borderRadius:
+                                          BorderRadius.circular(12),
                                           color: Colors.orange.shade100,
                                         ),
                                         child: Text(
                                           '${selectedList.length}',
-                                          style: const TextStyle(fontWeight: FontWeight.w600),
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w600),
                                         ),
                                       ),
                                     const SizedBox(width: 6),
@@ -777,8 +882,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                   ],
                                 ),
                                 onTap: () async {
-                                  await _openLeistungskategorieDialog(
-                                      name, branche: tempSelected);
+                                  await _openLeistungskategorieDialog(name,
+                                      branche: tempSelected);
                                   await _recalc(); // nach Rückkehr Treffer neu zählen
                                   setModalState(() {}); // UI aktualisieren (Chips)
                                 },
@@ -819,7 +924,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         ),
                         child: Text(
                           '$previewCount Treffer',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                          style:
+                          const TextStyle(fontWeight: FontWeight.w600),
                         ),
                       ),
                     ),
@@ -865,8 +971,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             child: CircularProgressIndicator());
                       }
 
-                      final branchen = snapshot.data!.docs.map((doc) {
-                        final data = doc.data() as Map<String, dynamic>;
+                      final branchen =
+                      snapshot.data!.docs.map((doc) {
+                        final data =
+                        doc.data() as Map<String, dynamic>;
                         return data.containsKey('name')
                             ? data['name'] as String
                             : doc.id;
@@ -976,15 +1084,14 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               label: const Text('Filter'),
               style: OutlinedButton.styleFrom(
                 shape: const StadiumBorder(),
-                padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 14),
                 backgroundColor: _filterBadgeCount > 0
                     ? Colors.blueAccent.withOpacity(0.08)
                     : null,
                 side: BorderSide(
-                  color: _filterBadgeCount > 0
-                      ? Colors.blueAccent
-                      : Colors.black,
+                  color:
+                  _filterBadgeCount > 0 ? Colors.blueAccent : Colors.black,
                 ),
                 foregroundColor:
                 _filterBadgeCount > 0 ? Colors.blueAccent : null,
@@ -996,8 +1103,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 right: -4,
                 top: -4,
                 child: Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
                     color: Colors.blueAccent,
                     borderRadius: BorderRadius.circular(999),
@@ -1020,7 +1127,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       ],
     );
   }
-
 
   // ----------------------------------------------------------
 
