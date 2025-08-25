@@ -6,7 +6,7 @@ class DienstleisterTile extends StatelessWidget {
 
   /// Optional: bereits gefilterte/ passende Angebote aus der Sammlung `angebote`.
   /// Erwartetes Schema je Eintrag:
-  /// { 'titel': String, 'dauer': num?, 'preis': num? }
+  /// { 'titel': String, 'dauer': num?, 'preis': num?, 'zielgruppe': String?, 'chipColor': Color|int? }
   final List<Map<String, dynamic>>? matchedOffers;
 
   const DienstleisterTile({
@@ -16,6 +16,7 @@ class DienstleisterTile extends StatelessWidget {
     this.matchedOffers,
   });
 
+  // ---------------- Helper: Format ----------------
   String _fmtPreis(dynamic v) {
     if (v == null) return '';
     if (v is int) return '$v €';
@@ -33,18 +34,43 @@ class DienstleisterTile extends StatelessWidget {
     return '$v Min.';
   }
 
+  // ---------------- Helper: Farben ----------------
+  static const String _zgDamen  = 'Damen';
+  static const String _zgHerren = 'Herren';
+  static const String _zgKinder = 'Kinder';
+
+  Color _colorForZielgruppe(String? z) {
+    switch (z) {
+      case _zgDamen:
+        return const Color(0xFFE91E63); // Pink
+      case _zgKinder:
+        return const Color(0xFFFFC107); // Gelb (Amber)
+      case _zgHerren:
+      default:
+        return Colors.blueAccent;       // Blau
+    }
+  }
+
+  /// Versucht zuerst offer['chipColor'] (Color oder int), sonst Zielgruppe, sonst Blau.
+  Color _resolveChipColor(Map<String, dynamic> offer) {
+    final dynamic c = offer['chipColor'];
+    if (c is Color) return c;
+    if (c is int) return Color(c);
+    final zg = offer['zielgruppe'] as String?;
+    return _colorForZielgruppe(zg);
+  }
+
   @override
   Widget build(BuildContext context) {
     final distance = data['distance'];
-    final logoUrl = data['logoUrl'];
-    final name = (data['name'] ?? 'Kein Name').toString();
-    final adresse = (data['adresse'] ?? '').toString();
-    final plz = (data['plz'] ?? '').toString();
-    final ort = (data['ort'] ?? '').toString();
+    final logoUrl  = data['logoUrl'];
+    final name     = (data['name'] ?? 'Kein Name').toString();
+    final adresse  = (data['adresse'] ?? '').toString();
+    final plz      = (data['plz'] ?? '').toString();
+    final ort      = (data['ort'] ?? '').toString();
 
-    // Farbton der AppBar übernehmen
+    // AppBar-Farbton bleibt für Überschrift/Label
     const Color appBarColor = Colors.blueAccent;
-
 
     // Quelle: Prop > data['matchedOffers'] > []
     final List<Map<String, dynamic>> offers =
@@ -79,21 +105,18 @@ class DienstleisterTile extends StatelessWidget {
                       width: 60,
                       height: 60,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
-                          Container(
-                            width: 60,
-                            height: 60,
-                            color: Colors.grey.shade300,
-                            child: const Icon(Icons.store,
-                                size: 30, color: Colors.grey),
-                          ),
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        width: 60,
+                        height: 60,
+                        color: Colors.grey.shade300,
+                        child: const Icon(Icons.store, size: 30, color: Colors.grey),
+                      ),
                     )
                         : Container(
                       width: 60,
                       height: 60,
                       color: Colors.grey.shade300,
-                      child: const Icon(Icons.store,
-                          size: 30, color: Colors.grey),
+                      child: const Icon(Icons.store, size: 30, color: Colors.grey),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -125,8 +148,7 @@ class DienstleisterTile extends StatelessWidget {
                             padding: const EdgeInsets.only(top: 4),
                             child: Text(
                               '${distance.toStringAsFixed(1)} km entfernt',
-                              style: const TextStyle(
-                                  fontSize: 12, color: Colors.grey),
+                              style: const TextStyle(fontSize: 12, color: Colors.grey),
                             ),
                           ),
                       ],
@@ -135,7 +157,7 @@ class DienstleisterTile extends StatelessWidget {
                 ],
               ),
 
-              // Liste der passenden Angebote unter dem Anbieter (als "Chips" in AppBar-Blau)
+              // Angebote
               if (offers.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 const Divider(height: 1),
@@ -158,6 +180,7 @@ class DienstleisterTile extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 8,
                   children: offers.map((o) {
+                    final color = _resolveChipColor(o);
                     final titel = (o['titel'] ?? o['name'] ?? '').toString();
                     final dauer = _fmtDauer(o['dauer']);
                     final preis = _fmtPreis(o['preis']);
@@ -169,19 +192,18 @@ class DienstleisterTile extends StatelessWidget {
                     final label = parts.join(' · ');
 
                     return Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
-                        color: appBarColor.withOpacity(0.12),
+                        color: color.withOpacity(0.12),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: appBarColor),
+                        border: Border.all(color: color),
                       ),
                       child: Text(
                         label,
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: appBarColor,
+                          color: color,
                         ),
                       ),
                     );

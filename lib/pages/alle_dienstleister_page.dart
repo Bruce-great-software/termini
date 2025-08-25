@@ -14,6 +14,9 @@ import 'dienstleister_detail_page.dart';
 import 'login_register_page.dart';
 import 'kunden_profil_page.dart';
 
+/// Sortierreihenfolge für Preise
+enum SortOrder { none, priceAsc, priceDesc }
+
 class AlleDienstleisterPage extends StatefulWidget {
   const AlleDienstleisterPage({super.key});
 
@@ -29,8 +32,39 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     if (kDebugMode) print("Suchbegriff: $wert");
   }
 
+  void _resetAllFiltersAndSearch([TextEditingController? c]) {
+    // Suchfeld leeren (falls Controller übergeben)
+    c?.clear();
+
+    // Fokus/Tastatur schließen
+    FocusScope.of(context).unfocus();
+    SystemChannels.textInput.invokeMethod('TextInput.hide');
+
+    // Alle Filter + Suche zurücksetzen
+    setState(() {
+      _ausgewaehlteLeistung = null;
+      _gefilterteDienstleisterIds = [];
+      _sortOrder = SortOrder.none;
+
+      ausgewaehlteBranchen.clear();
+      ausgewaehlteZielgruppen.clear();
+      ausgewaehlteKategorien.clear();
+      ausgewaehlteLeistungen.clear();
+    });
+
+    // Verfügbare Zielgruppen/Kategorien leeren wie im Zurücksetzen-Flow
+    _ladeZielgruppenUndKategorien();
+  }
+
+
   String? _ausgewaehlteLeistung;
   List<String> _gefilterteDienstleisterIds = [];
+
+  /// NEU: Sortierreihenfolge (im Filter-Sheet auswählbar)
+  SortOrder _sortOrder = SortOrder.none;
+
+  /// NEU: fixe Zielgruppen-Liste für den „Für wen?“-Block
+  final List<String> _zielgruppenFix = const ['Damen', 'Herren', 'Kinder'];
 
   // ===================== Angebote-basierte Filter-Helfer =====================
 
@@ -45,47 +79,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     return snap.docs.map((d) => d.id).toSet();
   }
 
-  // ---------- Exact-Match Helfer ----------
-  String _norm(String s) => s.toLowerCase().trim();
-
-  Set<String> _extractLeistungsSet(Map<String, dynamic> angebot) {
-    // 1) bevorzugt aus Feld 'leistungen'
-    final arr = angebot['leistungen'];
-    if (arr is List) {
-      return arr
-          .whereType<String>()
-          .map(_norm)
-          .where((s) => s.isNotEmpty)
-          .toSet();
-    }
-    // 2) Fallback: aus 'titel' wie "Haare – Schneiden, Stylen, Waschen"
-    final raw = (angebot['titel'] as String?) ?? '';
-    final rightSide = raw.contains('–') ? raw.split('–').last : raw;
-    return rightSide
-        .split(RegExp(r'[,\|/\+]+')) // Komma, |, /, +
-        .map(_norm)
-        .where((s) => s.isNotEmpty)
-        .toSet();
-  }
-
-  bool _angebotMatchtExakt({
-    required Map<String, dynamic> angebot,
-    required String kategorie,
-    required List<String> selectedLeistungen,
-  }) {
-    final cat = (angebot['kategorie'] as String?)?.trim();
-    if (cat == null || cat != kategorie) return false;
-
-    final sel = selectedLeistungen.map(_norm).toSet();
-    final off = _extractLeistungsSet(angebot);
-
-    // exakt gleiche Menge & gleiche Inhalte
-    return off.length == sel.length && off.containsAll(sel);
-  }
-
   /// Wendet die aktuell ausgewählten Leistungen (ausgewaehlteLeistungen) auf `angebote` an
   /// und schreibt die passenden Dienstleister-IDs in `_gefilterteDienstleisterIds`.
-  /// NEU: Nur exakte Kombis; mehrere Kategorien werden per Schnittmenge (AND) verknüpft.
   Future<void> _applyOfferFiltersFromSelections({String? branche}) async {
     if (ausgewaehlteLeistungen.isEmpty) {
       setState(() => _gefilterteDienstleisterIds = []);
@@ -93,19 +88,17 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     }
 
     final branchIds = await _dienstleisterIdsFuerBranche(branche);
-    final idsProKategorie = <Set<String>>[];
+    final resultIds = <String>{};
 
     for (final entry in ausgewaehlteLeistungen.entries) {
       final kategorie = entry.key;
-      final sel = entry.value;
-      if (sel.isEmpty) continue;
-
-      final idsDieserKategorie = <String>{};
+      final leistungen = entry.value;
+      if (leistungen.isEmpty) continue;
 
       // arrayContainsAny <= 10
-      for (var i = 0; i < sel.length; i += 10) {
-        final end = math.min(i + 10, sel.length);
-        final chunk = sel.sublist(i, end);
+      for (var i = 0; i < leistungen.length; i += 10) {
+        final end = math.min(i + 10, leistungen.length);
+        final chunk = leistungen.sublist(i, end);
 
         final qSnap = await FirebaseFirestore.instance
             .collection('angebote')
@@ -114,40 +107,20 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             .get();
 
         for (final d in qSnap.docs) {
-          final data = d.data();
-          final id = (data['dienstleisterId'] as String?)?.trim();
+          final id = (d.data()['dienstleisterId'] as String?)?.trim();
           if (id == null || id.isEmpty) continue;
           if (branchIds != null && !branchIds.contains(id)) continue;
-
-          // EXAKT vergleichen
-          if (_angebotMatchtExakt(
-            angebot: data,
-            kategorie: kategorie,
-            selectedLeistungen: sel,
-          )) {
-            idsDieserKategorie.add(id);
-          }
+          resultIds.add(id);
         }
       }
-
-      idsProKategorie.add(idsDieserKategorie);
-    }
-
-    // Schnittmenge aller Kategorien
-    Set<String> finalIds;
-    if (idsProKategorie.isEmpty) {
-      finalIds = <String>{};
-    } else {
-      finalIds = idsProKategorie.reduce((a, b) => a.intersection(b));
     }
 
     setState(() {
-      _gefilterteDienstleisterIds = finalIds.toList();
+      _gefilterteDienstleisterIds = resultIds.toList();
     });
   }
 
   /// Nur zählen, wie viele Dienstleister aktuell zu den Selektionen passen
-  /// NEU: identische Exact-Match-Logik wie bei `_applyOfferFiltersFromSelections`
   Future<int> _countMatchesBasedOnSelections({String? branche}) async {
     // KEINE Leistungs-Selektion → zeig die aktuell gelisteten Anbieter
     if (ausgewaehlteLeistungen.isEmpty) {
@@ -172,20 +145,18 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       return snap.size;
     }
 
-    // MIT Leistungs-Selektion → wie bisher über `angebote` zählen (aber mit Exact-Match)
+    // MIT Leistungs-Selektion → wie bisher über `angebote` zählen
     final branchIds = await _dienstleisterIdsFuerBranche(branche);
-    final idsProKategorie = <Set<String>>[];
+    final ids = <String>{};
 
     for (final entry in ausgewaehlteLeistungen.entries) {
       final kategorie = entry.key;
-      final sel = entry.value;
-      if (sel.isEmpty) continue;
+      final leistungen = entry.value;
+      if (leistungen.isEmpty) continue;
 
-      final idsDieserKategorie = <String>{};
-
-      for (var i = 0; i < sel.length; i += 10) {
-        final end = math.min(i + 10, sel.length);
-        final chunk = sel.sublist(i, end);
+      for (var i = 0; i < leistungen.length; i += 10) {
+        final end = math.min(i + 10, leistungen.length);
+        final chunk = leistungen.sublist(i, end);
 
         final q = await FirebaseFirestore.instance
             .collection('angebote')
@@ -194,27 +165,15 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             .get();
 
         for (final d in q.docs) {
-          final data = d.data();
-          final id = (data['dienstleisterId'] as String?)?.trim();
+          final id = (d.data()['dienstleisterId'] as String?)?.trim();
           if (id == null || id.isEmpty) continue;
           if (branchIds != null && !branchIds.contains(id)) continue;
-
-          if (_angebotMatchtExakt(
-            angebot: data,
-            kategorie: kategorie,
-            selectedLeistungen: sel,
-          )) {
-            idsDieserKategorie.add(id);
-          }
+          ids.add(id);
         }
       }
-
-      idsProKategorie.add(idsDieserKategorie);
     }
 
-    if (idsProKategorie.isEmpty) return 0;
-    final finalIds = idsProKategorie.reduce((a, b) => a.intersection(b));
-    return finalIds.length;
+    return ids.length;
   }
 
   // ========= Kategorien aus 'angebote' laden (optional nach Branche) =========
@@ -403,7 +362,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                     ausgewaehlteKategorien = [kategorie];
                                   }
                                 });
-                                // Wichtig: Anwendung/Filter erst im großen "Anwenden"-Button
                                 Navigator.of(context).pop();
                               },
                               child: const Text('OK'),
@@ -439,6 +397,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         .toList();
   }
 
+  // --- ALT: direkte Titel→IDs-Suche (lassen wir als Fallback bestehen)
   Future<void> _ladeDienstleisterZuLeistung(String titel) async {
     final snapshot = await FirebaseFirestore.instance
         .collection('angebote')
@@ -453,23 +412,104 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     });
   }
 
-  /// =============== NEU: Passende Angebote pro Dienstleister ===============
-  /// NEU: Nur exakte Kombis werden an das Tile geliefert.
+  // ---- NEU: Auswahl aus dem Suchfeld wie Filter anwenden --------------------
+
+  Future<void> _applySelectionFromTitle(String titel) async {
+    // robustes Splitten: Bindestrich, Gedankenstrich etc.
+    final parts = titel.split(RegExp(r'\s*[–—-]\s*'));
+    String? kategorie;
+    String? leistung;
+
+    if (parts.length >= 2) {
+      kategorie = parts.first.trim();
+      // Falls weitere Trennzeichen im Titel: Rest wieder zusammenführen
+      leistung = parts.sublist(1).join(' – ').trim();
+    }
+
+    // Wenn Parsing schief geht → Fallback auf alte Titel-Suche
+    if (kategorie == null || kategorie.isEmpty || leistung == null || leistung.isEmpty) {
+      await _ladeDienstleisterZuLeistung(titel);
+      return;
+    }
+
+    // Filter-States setzen, damit es im Filter-Sheet sichtbar ist
+    setState(() {
+      ausgewaehlteLeistungen.clear();
+      ausgewaehlteKategorien.clear();
+      ausgewaehlteLeistungen[kategorie!] = [leistung!];
+      ausgewaehlteKategorien = [kategorie!];
+    });
+
+    // Anschließend dieselbe angebote-Query wie im Filter ausführen
+    final String? aktuelleBranche =
+    ausgewaehlteBranchen.isNotEmpty ? ausgewaehlteBranchen.first : null;
+    await _applyOfferFiltersFromSelections(branche: aktuelleBranche);
+  }
+
+  // ---- Preis-Helper ---------------------------------------------------------
+
+  double? _preisToDouble(dynamic p) {
+    if (p == null) return null;
+    if (p is num) return p.toDouble();
+    if (p is String) {
+      // "70 €", "60.00", "45,5" etc.
+      final cleaned = p.replaceAll(RegExp(r'[^0-9,.\-]'), '').replaceAll(',', '.');
+      if (cleaned.isEmpty) return null;
+      try {
+        return double.parse(cleaned);
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  double? _lowestPriceInOffers(List<Map<String, dynamic>>? offers) {
+    if (offers == null || offers.isEmpty) return null;
+    double? minP;
+    for (final o in offers) {
+      final p = _preisToDouble(o['preis']);
+      if (p == null) continue;
+      if (minP == null || p < minP) minP = p;
+    }
+    return minP;
+  }
+
+  // ---------- Farben für Zielgruppen ----------
+  static const String _zgDamen  = 'Damen';
+  static const String _zgHerren = 'Herren';
+  static const String _zgKinder = 'Kinder';
+
+  Color _colorForZielgruppe(String? zg) {
+    switch (zg) {
+      case _zgDamen:
+        return const Color(0xFFE91E63); // Pink
+      case _zgKinder:
+        return const Color(0xFFFFC107); // Gelb (Amber)
+      case _zgHerren:
+      default:
+        return Colors.blueAccent;       // Blau
+    }
+  }
+
+  /// Ersetzt deine bisherige Version vollständig
   Future<List<Map<String, dynamic>>> _ladePassendeAngeboteFuerDienstleister(
-      String dienstleisterId) async {
+      String dienstleisterId,
+      ) async {
     if (ausgewaehlteLeistungen.isEmpty) return [];
 
+    final selectedGroups = List<String>.from(ausgewaehlteZielgruppen);
     final results = <Map<String, dynamic>>[];
-    final seen = <String>{}; // docIds zum Deduplizieren
+    final seenPair = <String>{}; // (docId|zielgruppe) -> dedupe
 
     for (final entry in ausgewaehlteLeistungen.entries) {
       final kategorie = entry.key;
-      final sel = entry.value;
-      if (sel.isEmpty) continue;
+      final leistungen = entry.value;
+      if (leistungen.isEmpty) continue;
 
-      for (var i = 0; i < sel.length; i += 10) {
-        final end = math.min(i + 10, sel.length);
-        final chunk = sel.sublist(i, end);
+      for (var i = 0; i < leistungen.length; i += 10) {
+        final end = math.min(i + 10, leistungen.length);
+        final chunk = leistungen.sublist(i, end);
 
         final q = await FirebaseFirestore.instance
             .collection('angebote')
@@ -479,42 +519,94 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             .get();
 
         for (final d in q.docs) {
-          if (seen.contains(d.id)) continue;
           final data = d.data();
+          final titel = (data['titel'] as String?) ?? '${data['kategorie']}';
+          final zgMap = (data['zielgruppen'] is Map)
+              ? Map<String, dynamic>.from(data['zielgruppen'])
+              : null;
 
-          // EXAKT prüfen
-          if (!_angebotMatchtExakt(
-            angebot: data,
-            kategorie: kategorie,
-            selectedLeistungen: sel,
-          )) {
+          // Wenn Zielgruppen gewählt → für JEDE gewählte, die im Doc existiert, einen Eintrag
+          if (selectedGroups.isNotEmpty) {
+            for (final g in selectedGroups) {
+              final grp = zgMap?[g];
+              if (grp is Map) {
+                final key = '${d.id}|$g';
+                if (seenPair.add(key)) {
+                  results.add({
+                    'docId': d.id,
+                    'titel': titel,
+                    'kategorie': data['kategorie'],
+                    'preis': grp['preis'],
+                    'dauer': grp['dauer'],
+                    'zielgruppe': g,
+                    'chipColor': _colorForZielgruppe(g),
+                  });
+                }
+              }
+            }
+            // Wenn für keine der gewählten Zielgruppen ein Eintrag existiert → nichts hinzufügen
             continue;
           }
 
-          seen.add(d.id);
-
-          dynamic preis = data['preis'];
-          dynamic dauer = data['dauer'];
-          final zielgruppen = data['zielgruppen'];
-          if ((preis == null || dauer == null) && zielgruppen is Map) {
-            if (zielgruppen.isNotEmpty) {
-              final first = zielgruppen.values.first;
-              if (first is Map) {
-                preis ??= first['preis'];
-                dauer ??= first['dauer'];
+          // Keine Zielgruppe gewählt → ALLE Zielgruppen-Varianten anzeigen
+          if (zgMap != null && zgMap.isNotEmpty) {
+            for (final entry in zgMap.entries) {
+              final g = entry.key.toString();
+              final grp = entry.value;
+              if (grp is! Map) continue;
+              final key = '${d.id}|$g';
+              if (seenPair.add(key)) {
+                results.add({
+                  'docId': d.id,
+                  'titel': titel,
+                  'kategorie': data['kategorie'],
+                  'preis': grp['preis'],
+                  'dauer': grp['dauer'],
+                  'zielgruppe': g,
+                  'chipColor': _colorForZielgruppe(g),
+                });
               }
             }
+          } else {
+            // Fallback: kein zielgruppen-spezifischer Block im Doc → globalen Preis/Dauer verwenden
+            final key = '${d.id}|_global';
+            if (seenPair.add(key)) {
+              results.add({
+                'docId': d.id,
+                'titel': titel,
+                'kategorie': data['kategorie'],
+                'preis': data['preis'],
+                'dauer': data['dauer'],
+                'zielgruppe': null,
+                'chipColor': _colorForZielgruppe('Herren'), // Standard blau
+              });
+            }
           }
-
-          results.add({
-            'docId': d.id,
-            'titel': (data['titel'] as String?) ?? '${data['kategorie']}',
-            'kategorie': data['kategorie'],
-            'preis': preis,
-            'dauer': dauer,
-          });
         }
       }
+    }
+
+    // Optional: Sortierung nach Preis
+    if (_sortOrder == SortOrder.priceAsc || _sortOrder == SortOrder.priceDesc) {
+      double? _toDouble(dynamic p) {
+        if (p == null) return null;
+        if (p is num) return p.toDouble();
+        if (p is String) {
+          final cleaned = p.replaceAll(RegExp(r'[^0-9,.\-]'), '').replaceAll(',', '.');
+          if (cleaned.isEmpty) return null;
+          return double.tryParse(cleaned);
+        }
+        return null;
+      }
+
+      results.sort((a, b) {
+        final ap = _toDouble(a['preis']);
+        final bp = _toDouble(b['preis']);
+        if (ap == null && bp == null) return 0;
+        if (ap == null) return 1;
+        if (bp == null) return -1;
+        return _sortOrder == SortOrder.priceAsc ? ap.compareTo(bp) : bp.compareTo(ap);
+      });
     }
 
     return results;
@@ -626,24 +718,30 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     });
   }
 
-  // Z.B. oberhalb von _showBranchenFilterSheet()
+  // Badge zählt: Branche + Zielgruppen + Anzahl Leistungen + Sortierung
   int get _filterBadgeCount {
     int n = 0;
     if (ausgewaehlteBranchen.isNotEmpty) n += 1; // 1 Punkt für Branchenwahl
+    n += ausgewaehlteZielgruppen.length; // Zielgruppen
     n += ausgewaehlteLeistungen.values.fold<int>(
       0,
           (sum, list) => sum + list.length,
     ); // Summe aller ausgewählten Leistungen
+    if (_sortOrder != SortOrder.none) n += 1;
     return n;
   }
 
-  // ---------- Bottom Sheet für Branchen-Filter (FULLSCREEN + Floating Apply) ----------
+  // ---------- Bottom Sheet für Filter (FULLSCREEN + Floating Apply) ----------
   Future<void> _showBranchenFilterSheet() async {
     String? tempSelected =
     ausgewaehlteBranchen.isNotEmpty ? ausgewaehlteBranchen.first : null;
 
-    int previewCount =
-    await _countMatchesBasedOnSelections(branche: tempSelected);
+    // NEU: temporäre Sortierung + Zielgruppen
+    SortOrder tempSortOrder = _sortOrder;
+    final List<String> tempZielgruppen =
+    List<String>.from(ausgewaehlteZielgruppen);
+
+    int previewCount = await _countMatchesBasedOnSelections(branche: tempSelected);
 
     await showModalBottomSheet(
       context: context,
@@ -657,8 +755,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         return StatefulBuilder(
           builder: (context, setModalState) {
             Future<void> _recalc() async {
-              final c = await _countMatchesBasedOnSelections(
-                  branche: tempSelected);
+              final c =
+              await _countMatchesBasedOnSelections(branche: tempSelected);
               setModalState(() => previewCount = c);
             }
 
@@ -688,6 +786,13 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                 ausgewaehlteBranchen.clear();
                                 ausgewaehlteKategorien.clear();
                                 ausgewaehlteLeistungen.clear();
+                                ausgewaehlteZielgruppen.clear(); // <<< NEU
+                                _sortOrder = SortOrder.none;
+                              });
+                              setModalState(() {
+                                tempSelected = null;
+                                tempZielgruppen.clear(); // <<< NEU
+                                tempSortOrder = SortOrder.none;
                               });
                               await _recalc();
                             },
@@ -696,6 +801,50 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         ],
                       ),
                       const SizedBox(height: 8),
+
+                      // ================ NEU: Für wen?  (Zielgruppen) ================
+                      Text(
+                        'Für wen?',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _zielgruppenFix.map((zg) {
+                          final selected = tempZielgruppen.contains(zg);
+                          return FilterChip(
+                            label: Text(
+                              zg,
+                              style: TextStyle(
+                                color: selected ? Colors.white : Colors.black,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            selected: selected,
+                            onSelected: (_) {
+                              setModalState(() {
+                                if (selected) {
+                                  tempZielgruppen.remove(zg);
+                                } else {
+                                  tempZielgruppen.add(zg);
+                                }
+                              });
+                            },
+                            selectedColor: Colors.blueAccent,
+                            backgroundColor: Colors.white,
+                            checkmarkColor: Colors.white,
+                            shape: const StadiumBorder(
+                              side: BorderSide(color: Colors.black),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+
+                      const SizedBox(height: 20),
 
                       // Branchen
                       Text(
@@ -735,7 +884,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                 label: Text(
                                   b[0].toUpperCase() + b.substring(1),
                                   style: TextStyle(
-                                    color: selected ? Colors.white : Colors.black,
+                                    color:
+                                    selected ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
@@ -793,7 +943,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                           if (items.isEmpty) {
                             return const Padding(
                               padding: EdgeInsets.symmetric(vertical: 16),
-                              child: Text('Keine Leistungskategorien vorhanden.'),
+                              child:
+                              Text('Keine Leistungskategorien vorhanden.'),
                             );
                           }
 
@@ -814,7 +965,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                 // AUSGEWÄHLTE LEISTUNGEN UNTER DER KATEGORIE
                                 subtitle: (selectedList.isNotEmpty)
                                     ? Padding(
-                                  padding: const EdgeInsets.only(top: 6),
+                                  padding:
+                                  const EdgeInsets.only(top: 6),
                                   child: Wrap(
                                     spacing: 6,
                                     runSpacing: 6,
@@ -834,7 +986,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                             size: 18,
                                             color: Colors.blueAccent),
                                         onDeleted: () async {
-                                          // Leistung aus der Kategorie entfernen
                                           setState(() {
                                             ausgewaehlteLeistungen[name]!
                                                 .remove(s);
@@ -847,12 +998,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                                       (e) => e == name);
                                             }
                                           });
-                                          // Trefferzahl im Anwenden-Button neu berechnen
                                           await _countMatchesBasedOnSelections(
                                               branche: tempSelected)
-                                              .then((c) =>
-                                              setModalState(() =>
-                                              previewCount = c));
+                                              .then((c) => setModalState(
+                                                  () => previewCount = c));
                                         },
                                       );
                                     }).toList(),
@@ -885,12 +1034,43 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                   await _openLeistungskategorieDialog(name,
                                       branche: tempSelected);
                                   await _recalc(); // nach Rückkehr Treffer neu zählen
-                                  setModalState(() {}); // UI aktualisieren (Chips)
+                                  setModalState(() {}); // UI aktualisieren
                                 },
                               );
                             },
                           );
                         },
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // ===================== NEU: Sortieren =====================
+                      Text(
+                        'Sortieren',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+
+                      RadioListTile<SortOrder>(
+                        value: SortOrder.priceDesc,
+                        groupValue: tempSortOrder,
+                        onChanged: (v) => setModalState(() => tempSortOrder = v!),
+                        title: const Text('Preis absteigend'),
+                        dense: true,
+                        controlAffinity: ListTileControlAffinity
+                            .trailing, // Radio rechts
+                      ),
+
+                      RadioListTile<SortOrder>(
+                        value: SortOrder.priceAsc,
+                        groupValue: tempSortOrder,
+                        onChanged: (v) => setModalState(() => tempSortOrder = v!),
+                        title: const Text('Preis aufsteigend'),
+                        dense: true,
+                        controlAffinity: ListTileControlAffinity
+                            .trailing, // Radio rechts
                       ),
                     ],
                   ),
@@ -904,13 +1084,22 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       top: false,
                       child: ElevatedButton(
                         onPressed: () async {
+                          // Sortierung + Zielgruppen übernehmen
+                          setState(() {
+                            _sortOrder = tempSortOrder;
+                            ausgewaehlteZielgruppen =
+                            List<String>.from(tempZielgruppen);
+                          });
+
                           // Filter jetzt anwenden
                           await _applyOfferFiltersFromSelections(
                               branche: tempSelected);
                           setState(() {
                             ausgewaehlteBranchen
                               ..clear()
-                              ..addAll(tempSelected != null ? [tempSelected!] : []);
+                              ..addAll(tempSelected != null
+                                  ? [tempSelected!]
+                                  : []);
                           });
                           _ladeZielgruppenUndKategorien();
                           if (mounted) Navigator.of(context).pop();
@@ -953,46 +1142,12 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             : Column(
           children: [
             Padding(
-              padding:
-              const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+              padding: const EdgeInsets.symmetric(
+                  vertical: 10, horizontal: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildSuchfeldMitFilterButton(),
-                  const SizedBox(height: 16),
-                  StreamBuilder<QuerySnapshot>(
-                    stream: FirebaseFirestore.instance
-                        .collection('branchen')
-                        .where('aktiv', isEqualTo: true)
-                        .snapshots(),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) {
-                        return const Center(
-                            child: CircularProgressIndicator());
-                      }
-
-                      final branchen =
-                      snapshot.data!.docs.map((doc) {
-                        final data =
-                        doc.data() as Map<String, dynamic>;
-                        return data.containsKey('name')
-                            ? data['name'] as String
-                            : doc.id;
-                      }).toList()
-                        ..sort();
-
-                      return _buildChipReihe(
-                        branchen,
-                        ausgewaehlteBranchen,
-                            (branche) {
-                          setState(() {
-                            ausgewaehlteBranchen = [branche];
-                            _ladeZielgruppenUndKategorien();
-                          });
-                        },
-                      );
-                    },
-                  ),
                 ],
               ),
             ),
@@ -1031,7 +1186,13 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               setState(() {
                 _ausgewaehlteLeistung = auswahl;
               });
-              await _ladeDienstleisterZuLeistung(auswahl);
+
+              // >>> NEU: wie Filter anwenden (setzt ausgewaehlteLeistungen/Kategorien)
+              await _applySelectionFromTitle(auswahl);
+
+              // Fokus entfernen + Tastatur schließen
+              FocusScope.of(context).unfocus();                     // Cursor weg
+              SystemChannels.textInput.invokeMethod('TextInput.hide'); // Tastatur zu
             },
             fieldViewBuilder:
                 (context, controller, focusNode, onEditingComplete) {
@@ -1041,10 +1202,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 onEditingComplete: onEditingComplete,
                 onChanged: (text) {
                   if (text.trim().isEmpty) {
-                    setState(() {
-                      _ausgewaehlteLeistung = null;
-                      _gefilterteDienstleisterIds = [];
-                    });
+                    _resetAllFiltersAndSearch(controller);
                   }
                 },
                 decoration: InputDecoration(
@@ -1053,21 +1211,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                   suffixIcon: controller.text.isNotEmpty
                       ? IconButton(
                     icon: const Icon(Icons.clear),
-                    onPressed: () {
-                      controller.clear();
-                      setState(() {
-                        _ausgewaehlteLeistung = null;
-                        _gefilterteDienstleisterIds = [];
-                      });
-                    },
+                    onPressed: () => _resetAllFiltersAndSearch(controller),
                   )
                       : null,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(30),
-                  ),
-                  contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 20),
                 ),
+
               );
             },
           ),
@@ -1084,8 +1232,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               label: const Text('Filter'),
               style: OutlinedButton.styleFrom(
                 shape: const StadiumBorder(),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 14),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                 backgroundColor: _filterBadgeCount > 0
                     ? Colors.blueAccent.withOpacity(0.08)
                     : null,
@@ -1103,8 +1251,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 right: -4,
                 top: -4,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 2),
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
                     color: Colors.blueAccent,
                     borderRadius: BorderRadius.circular(999),
@@ -1233,8 +1381,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               if (_gefilterteDienstleisterIds.contains(data['id'])) {
                 final matched =
                 await _ladePassendeAngeboteFuerDienstleister(data['id']);
-                data['matchedOffers'] = matched; // wird vom Tile gerendert
-                dienstleisterMitLeistungen.add(data);
+                if (matched.isNotEmpty) {                // nur wenn etwas passt
+                  data['matchedOffers'] = matched;       // wird vom Tile gerendert
+                  dienstleisterMitLeistungen.add(data);
+                }
               }
               return;
             }
@@ -1290,8 +1440,40 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               return const Center(child: CircularProgressIndicator());
             }
 
-            dienstleisterMitLeistungen.sort((a, b) =>
-                (a['distance'] as double).compareTo(b['distance'] as double));
+            // NEU: Sortierung anwenden
+            if (_gefilterteDienstleisterIds.isNotEmpty &&
+                (_sortOrder == SortOrder.priceAsc ||
+                    _sortOrder == SortOrder.priceDesc)) {
+              // Nach günstigstem passenden Angebot sortieren
+              dienstleisterMitLeistungen.sort((a, b) {
+                final ap = _lowestPriceInOffers(
+                    (a['matchedOffers'] as List<Map<String, dynamic>>?));
+                final bp = _lowestPriceInOffers(
+                    (b['matchedOffers'] as List<Map<String, dynamic>>?));
+                int cmp;
+                if (ap == null && bp == null) {
+                  cmp = 0;
+                } else if (ap == null) {
+                  cmp = 1;
+                } else if (bp == null) {
+                  cmp = -1;
+                } else {
+                  cmp = _sortOrder == SortOrder.priceAsc
+                      ? ap.compareTo(bp)
+                      : bp.compareTo(ap);
+                }
+                // Tiebreaker: Distanz
+                if (cmp == 0) {
+                  cmp = (a['distance'] as double)
+                      .compareTo(b['distance'] as double);
+                }
+                return cmp;
+              });
+            } else {
+              // Fallback: nach Distanz sortieren
+              dienstleisterMitLeistungen.sort((a, b) =>
+                  (a['distance'] as double).compareTo(b['distance'] as double));
+            }
 
             return ListView.builder(
               itemCount: dienstleisterMitLeistungen.length,
