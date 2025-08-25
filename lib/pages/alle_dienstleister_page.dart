@@ -32,13 +32,18 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     if (kDebugMode) print("Suchbegriff: $wert");
   }
 
+  // NEU: Helper, um Tastatur/Fokus sicher zu schließen
+  void _dismissKeyboard() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    SystemChannels.textInput.invokeMethod('TextInput.hide');
+  }
+
   void _resetAllFiltersAndSearch([TextEditingController? c]) {
     // Suchfeld leeren (falls Controller übergeben)
     c?.clear();
 
     // Fokus/Tastatur schließen
-    FocusScope.of(context).unfocus();
-    SystemChannels.textInput.invokeMethod('TextInput.hide');
+    _dismissKeyboard();
 
     // Alle Filter + Suche zurücksetzen
     setState(() {
@@ -55,7 +60,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     // Verfügbare Zielgruppen/Kategorien leeren wie im Zurücksetzen-Flow
     _ladeZielgruppenUndKategorien();
   }
-
 
   String? _ausgewaehlteLeistung;
   List<String> _gefilterteDienstleisterIds = [];
@@ -413,7 +417,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   }
 
   // ---- NEU: Auswahl aus dem Suchfeld wie Filter anwenden --------------------
-
   Future<void> _applySelectionFromTitle(String titel) async {
     // robustes Splitten: Bindestrich, Gedankenstrich etc.
     final parts = titel.split(RegExp(r'\s*[–—-]\s*'));
@@ -447,7 +450,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   }
 
   // ---- Preis-Helper ---------------------------------------------------------
-
   double? _preisToDouble(dynamic p) {
     if (p == null) return null;
     if (p is num) return p.toDouble();
@@ -476,7 +478,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   }
 
   // ---------- Farben für Zielgruppen ----------
-  static const String _zgDamen  = 'Damen';
+  static const String _zgDamen = 'Damen';
   static const String _zgHerren = 'Herren';
   static const String _zgKinder = 'Kinder';
 
@@ -488,7 +490,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         return const Color(0xFFFFC107); // Gelb (Amber)
       case _zgHerren:
       default:
-        return Colors.blueAccent;       // Blau
+        return Colors.blueAccent; // Blau
     }
   }
 
@@ -592,7 +594,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         if (p == null) return null;
         if (p is num) return p.toDouble();
         if (p is String) {
-          final cleaned = p.replaceAll(RegExp(r'[^0-9,.\-]'), '').replaceAll(',', '.');
+          final cleaned =
+          p.replaceAll(RegExp(r'[^0-9,.\-]'), '').replaceAll(',', '.');
           if (cleaned.isEmpty) return null;
           return double.tryParse(cleaned);
         }
@@ -680,8 +683,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     setState(() => isLoading = true);
     userPosition = await LocationService.initLocation(
       context: context,
-      onExitApp: () =>
-          SystemChannels.platform.invokeMethod('SystemNavigator.pop'),
+      onExitApp: () => SystemChannels.platform.invokeMethod('SystemNavigator.pop'),
       onOpenAppSettings: () => AppSettings.openAppSettings(),
     );
     await _ermittleOrtAusKoordinaten();
@@ -741,7 +743,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     final List<String> tempZielgruppen =
     List<String>.from(ausgewaehlteZielgruppen);
 
-    int previewCount = await _countMatchesBasedOnSelections(branche: tempSelected);
+    int previewCount =
+    await _countMatchesBasedOnSelections(branche: tempSelected);
 
     await showModalBottomSheet(
       context: context,
@@ -794,6 +797,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                 tempZielgruppen.clear(); // <<< NEU
                                 tempSortOrder = SortOrder.none;
                               });
+                              _dismissKeyboard(); // optional auch hier
                               await _recalc();
                             },
                             child: const Text('Zurücksetzen'),
@@ -943,8 +947,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                           if (items.isEmpty) {
                             return const Padding(
                               padding: EdgeInsets.symmetric(vertical: 16),
-                              child:
-                              Text('Keine Leistungskategorien vorhanden.'),
+                              child: Text('Keine Leistungskategorien vorhanden.'),
                             );
                           }
 
@@ -952,7 +955,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
                             itemCount: items.length,
-                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            separatorBuilder: (_, __) =>
+                            const Divider(height: 1),
                             itemBuilder: (context, i) {
                               final name = items[i];
                               final selectedList =
@@ -965,8 +969,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                 // AUSGEWÄHLTE LEISTUNGEN UNTER DER KATEGORIE
                                 subtitle: (selectedList.isNotEmpty)
                                     ? Padding(
-                                  padding:
-                                  const EdgeInsets.only(top: 6),
+                                  padding: const EdgeInsets.only(top: 6),
                                   child: Wrap(
                                     spacing: 6,
                                     runSpacing: 6,
@@ -989,7 +992,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                           setState(() {
                                             ausgewaehlteLeistungen[name]!
                                                 .remove(s);
-                                            if (ausgewaehlteLeistungen[name]!
+                                            if (ausgewaehlteLeistungen[
+                                            name]!
                                                 .isEmpty) {
                                               ausgewaehlteLeistungen
                                                   .remove(name);
@@ -1059,8 +1063,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         onChanged: (v) => setModalState(() => tempSortOrder = v!),
                         title: const Text('Preis absteigend'),
                         dense: true,
-                        controlAffinity: ListTileControlAffinity
-                            .trailing, // Radio rechts
+                        controlAffinity:
+                        ListTileControlAffinity.trailing, // Radio rechts
                       ),
 
                       RadioListTile<SortOrder>(
@@ -1069,8 +1073,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         onChanged: (v) => setModalState(() => tempSortOrder = v!),
                         title: const Text('Preis aufsteigend'),
                         dense: true,
-                        controlAffinity: ListTileControlAffinity
-                            .trailing, // Radio rechts
+                        controlAffinity:
+                        ListTileControlAffinity.trailing, // Radio rechts
                       ),
                     ],
                   ),
@@ -1097,11 +1101,12 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                           setState(() {
                             ausgewaehlteBranchen
                               ..clear()
-                              ..addAll(tempSelected != null
-                                  ? [tempSelected!]
-                                  : []);
+                              ..addAll(
+                                  tempSelected != null ? [tempSelected!] : []);
                           });
                           _ladeZielgruppenUndKategorien();
+
+                          _dismissKeyboard(); // NEU: Fokus/Tastatur weg
                           if (mounted) Navigator.of(context).pop();
                         },
                         style: ElevatedButton.styleFrom(
@@ -1113,8 +1118,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         ),
                         child: Text(
                           '$previewCount Treffer',
-                          style:
-                          const TextStyle(fontWeight: FontWeight.w600),
+                          style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                       ),
                     ),
@@ -1142,8 +1146,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             : Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(
-                  vertical: 10, horizontal: 16),
+              padding:
+              const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1187,12 +1191,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 _ausgewaehlteLeistung = auswahl;
               });
 
-              // >>> NEU: wie Filter anwenden (setzt ausgewaehlteLeistungen/Kategorien)
+              // wie Filter anwenden
               await _applySelectionFromTitle(auswahl);
 
               // Fokus entfernen + Tastatur schließen
-              FocusScope.of(context).unfocus();                     // Cursor weg
-              SystemChannels.textInput.invokeMethod('TextInput.hide'); // Tastatur zu
+              _dismissKeyboard();
             },
             fieldViewBuilder:
                 (context, controller, focusNode, onEditingComplete) {
@@ -1215,7 +1218,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                   )
                       : null,
                 ),
-
               );
             },
           ),
@@ -1227,22 +1229,22 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           clipBehavior: Clip.none,
           children: [
             OutlinedButton.icon(
-              onPressed: _showBranchenFilterSheet,
+              onPressed: () async {
+                _dismissKeyboard(); // NEU: vor Öffnen des Sheets schließen
+                await _showBranchenFilterSheet();
+              },
               icon: const Icon(Icons.filter_list),
               label: const Text('Filter'),
               style: OutlinedButton.styleFrom(
                 shape: const StadiumBorder(),
                 padding:
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                backgroundColor: _filterBadgeCount > 0
-                    ? Colors.blueAccent.withOpacity(0.08)
-                    : null,
+                backgroundColor:
+                _filterBadgeCount > 0 ? Colors.blueAccent.withOpacity(0.08) : null,
                 side: BorderSide(
-                  color:
-                  _filterBadgeCount > 0 ? Colors.blueAccent : Colors.black,
+                  color: _filterBadgeCount > 0 ? Colors.blueAccent : Colors.black,
                 ),
-                foregroundColor:
-                _filterBadgeCount > 0 ? Colors.blueAccent : null,
+                foregroundColor: _filterBadgeCount > 0 ? Colors.blueAccent : null,
               ),
             ),
 
@@ -1381,8 +1383,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               if (_gefilterteDienstleisterIds.contains(data['id'])) {
                 final matched =
                 await _ladePassendeAngeboteFuerDienstleister(data['id']);
-                if (matched.isNotEmpty) {                // nur wenn etwas passt
-                  data['matchedOffers'] = matched;       // wird vom Tile gerendert
+                if (matched.isNotEmpty) {
+                  // nur wenn etwas passt
+                  data['matchedOffers'] = matched; // wird vom Tile gerendert
                   dienstleisterMitLeistungen.add(data);
                 }
               }
