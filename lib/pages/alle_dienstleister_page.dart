@@ -14,6 +14,9 @@ import 'dienstleister_detail_page.dart';
 import 'login_register_page.dart';
 import 'kunden_profil_page.dart';
 
+import 'package:flutter/cupertino.dart';
+
+
 /// Sortierreihenfolge für Preise
 enum SortOrder { none, priceAsc, priceDesc }
 
@@ -1224,28 +1227,19 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         ),
         const SizedBox(width: 8),
 
-        // >>> Filterbutton mit Badge
+// >>> Filterbutton mit Badge (nur Icon)
         Stack(
           clipBehavior: Clip.none,
           children: [
-            OutlinedButton.icon(
+            IconButton(
+              tooltip: 'Filter',
+              iconSize: 26,
+              color: _filterBadgeCount > 0 ? Colors.blueAccent : null,
+              icon: const Icon(CupertinoIcons.slider_horizontal_3),
               onPressed: () async {
-                _dismissKeyboard(); // NEU: vor Öffnen des Sheets schließen
-                await _showBranchenFilterSheet();
+                _dismissKeyboard();                // Tastatur/Cursor schließen
+                await _showBranchenFilterSheet();  // Filter öffnen
               },
-              icon: const Icon(Icons.filter_list),
-              label: const Text('Filter'),
-              style: OutlinedButton.styleFrom(
-                shape: const StadiumBorder(),
-                padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                backgroundColor:
-                _filterBadgeCount > 0 ? Colors.blueAccent.withOpacity(0.08) : null,
-                side: BorderSide(
-                  color: _filterBadgeCount > 0 ? Colors.blueAccent : Colors.black,
-                ),
-                foregroundColor: _filterBadgeCount > 0 ? Colors.blueAccent : null,
-              ),
             ),
 
             if (_filterBadgeCount > 0)
@@ -1253,14 +1247,12 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 right: -4,
                 top: -4,
                 child: Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
                     color: Colors.blueAccent,
                     borderRadius: BorderRadius.circular(999),
                   ),
-                  constraints:
-                  const BoxConstraints(minWidth: 18, minHeight: 18),
+                  constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
                   child: Text(
                     _filterBadgeCount > 99 ? '99+' : '$_filterBadgeCount',
                     textAlign: TextAlign.center,
@@ -1273,10 +1265,13 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 ),
               ),
           ],
-        ),
+        )
+
+
       ],
     );
   }
+
 
   // ----------------------------------------------------------
 
