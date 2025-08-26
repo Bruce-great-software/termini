@@ -157,7 +157,7 @@ class DienstleisterTile extends StatelessWidget {
                 ],
               ),
 
-              // Angebote
+              // -------------------- NEU: Angebote gruppiert pro Titel --------------------
               if (offers.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 const Divider(height: 1),
@@ -176,39 +176,104 @@ class DienstleisterTile extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: offers.map((o) {
-                    final color = _resolveChipColor(o);
-                    final titel = (o['titel'] ?? o['name'] ?? '').toString();
-                    final dauer = _fmtDauer(o['dauer']);
-                    final preis = _fmtPreis(o['preis']);
 
-                    final parts = <String>[];
-                    if (titel.isNotEmpty) parts.add(titel);
-                    if (dauer.isNotEmpty) parts.add(dauer);
-                    if (preis.isNotEmpty) parts.add(preis);
-                    final label = parts.join(' · ');
+                // Gruppieren: title -> zielgruppe -> offer
+                Builder(builder: (_) {
+                  final Map<String, Map<String, Map<String, dynamic>>> grouped = {};
+                  for (final o in offers) {
+                    final title = (o['titel'] ?? o['name'] ?? '').toString().trim();
+                    final zg = (o['zielgruppe'] ?? '').toString().trim();
+                    if (title.isEmpty) continue;
+                    if (!grouped.containsKey(title)) grouped[title] = {};
+                    if (zg.isNotEmpty) grouped[title]![zg] = o;
+                  }
 
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: color.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: color),
-                      ),
-                      child: Text(
-                        label,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: color,
+                  const zielgruppenOrder = <String>[_zgDamen, _zgHerren, _zgKinder];
+
+                  return Column(
+                    children: grouped.entries.map((entry) {
+                      final title = entry.key;
+                      final byGroup = entry.value;
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            // Links: "Kategorie – Leistung"
+                            Expanded(
+                              child: Text(
+                                title,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+
+                            // Rechts: Zielgruppen-Segmente in einer Reihe (nur vorhandene Gruppen)
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: zielgruppenOrder
+                                  .where(byGroup.containsKey)
+                                  .map((zg) {
+                                final o = byGroup[zg]!;
+                                final color = _resolveChipColor(o);
+                                final preis = _fmtPreis(o['preis']);
+                                final dauer = _fmtDauer(o['dauer']);
+
+                                const textColor = Colors.black;
+
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: color.withOpacity(0.15), // Farbiges Badge
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: color), // Farbig umrissen
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        zg,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          color: textColor, // <-- jetzt schwarz
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        preis,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          color: textColor, // <-- jetzt schwarz
+                                        ),
+                                      ),
+                                      if (dauer.isNotEmpty) ...[
+                                        const SizedBox(height: 1),
+                                        Text(
+                                          dauer,
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: textColor.withOpacity(0.7), // leicht abgetöntes Schwarz
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
                         ),
-                      ),
-                    );
-                  }).toList(),
-                ),
+                      );
+                    }).toList(),
+                  );
+                }),
               ],
             ],
           ),
