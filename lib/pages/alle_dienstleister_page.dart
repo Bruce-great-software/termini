@@ -16,9 +16,8 @@ import 'kunden_profil_page.dart';
 
 import 'package:flutter/cupertino.dart';
 
-
-/// Sortierreihenfolge für Preise
-enum SortOrder { none, priceAsc, priceDesc }
+/// Sortierreihenfolge für Preise / Distanz
+enum SortOrder { none, priceAsc, priceDesc, distanceAsc }
 
 class AlleDienstleisterPage extends StatefulWidget {
   const AlleDienstleisterPage({super.key});
@@ -35,20 +34,16 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     if (kDebugMode) print("Suchbegriff: $wert");
   }
 
-  // NEU: Helper, um Tastatur/Fokus sicher zu schließen
+  // Helper, um Tastatur/Fokus sicher zu schließen
   void _dismissKeyboard() {
     FocusManager.instance.primaryFocus?.unfocus();
     SystemChannels.textInput.invokeMethod('TextInput.hide');
   }
 
   void _resetAllFiltersAndSearch([TextEditingController? c]) {
-    // Suchfeld leeren (falls Controller übergeben)
     c?.clear();
-
-    // Fokus/Tastatur schließen
     _dismissKeyboard();
 
-    // Alle Filter + Suche zurücksetzen
     setState(() {
       _ausgewaehlteLeistung = null;
       _gefilterteDienstleisterIds = [];
@@ -60,41 +55,46 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       ausgewaehlteLeistungen.clear();
     });
 
-    // Verfügbare Zielgruppen/Kategorien leeren wie im Zurücksetzen-Flow
     _ladeZielgruppenUndKategorien();
   }
 
   String? _ausgewaehlteLeistung;
   List<String> _gefilterteDienstleisterIds = [];
 
-  /// NEU: Sortierreihenfolge (im Filter-Sheet auswählbar)
+  /// Sortierreihenfolge (im Filter-Sheet & Sortier-Chip auswählbar)
   SortOrder _sortOrder = SortOrder.none;
 
-  /// NEU: fixe Zielgruppen-Liste für den „Für wen?“-Block
+  /// fixe Zielgruppen-Liste für den „Für wen?“-Block
   final List<String> _zielgruppenFix = const ['Damen', 'Herren', 'Kinder'];
 
   // ===================== Angebote-basierte Filter-Helfer =====================
 
-  /// Alle Dienstleister-IDs einer Branche holen (oder null = keine Einschränkung)
-  Future<Set<String>?> _dienstleisterIdsFuerBranche(String? branche) async {
-    if (branche == null) return null;
-    final snap = await FirebaseFirestore.instance
-        .collection('users')
-        .where('rolle', isEqualTo: 'dienstleister')
-        .where('branche', isEqualTo: branche)
-        .get();
-    return snap.docs.map((d) => d.id).toSet();
+  /// Mehrere Branchen → Menge an Dienstleister-IDs (ODER-Verknüpfung)
+  Future<Set<String>?> _dienstleisterIdsFuerBranchen(List<String>? branchen) async {
+    if (branchen == null || branchen.isEmpty) return null;
+    final ids = <String>{};
+
+    // Firestore whereIn max 10
+    for (var i = 0; i < branchen.length; i += 10) {
+      final end = math.min(i + 10, branchen.length);
+      final chunk = branchen.sublist(i, end);
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .where('rolle', isEqualTo: 'dienstleister')
+          .where('branche', whereIn: chunk)
+          .get();
+      ids.addAll(snap.docs.map((d) => d.id));
+    }
+    return ids;
   }
 
-  /// Wendet die aktuell ausgewählten Leistungen (ausgewaehlteLeistungen) auf `angebote` an
-  /// und schreibt die passenden Dienstleister-IDs in `_gefilterteDienstleisterIds`.
-  Future<void> _applyOfferFiltersFromSelections({String? branche}) async {
+  Future<void> _applyOfferFiltersFromSelections({List<String>? branchen}) async {
     if (ausgewaehlteLeistungen.isEmpty) {
       setState(() => _gefilterteDienstleisterIds = []);
       return;
     }
 
-    final branchIds = await _dienstleisterIdsFuerBranche(branche);
+    final branchIds = await _dienstleisterIdsFuerBranchen(branchen);
     final resultIds = <String>{};
 
     for (final entry in ausgewaehlteLeistungen.entries) {
@@ -102,7 +102,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       final leistungen = entry.value;
       if (leistungen.isEmpty) continue;
 
-      // arrayContainsAny <= 10
       for (var i = 0; i < leistungen.length; i += 10) {
         final end = math.min(i + 10, leistungen.length);
         final chunk = leistungen.sublist(i, end);
@@ -127,33 +126,27 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     });
   }
 
-  /// Nur zählen, wie viele Dienstleister aktuell zu den Selektionen passen
-  Future<int> _countMatchesBasedOnSelections({String? branche}) async {
-    // KEINE Leistungs-Selektion → zeig die aktuell gelisteten Anbieter
+  Future<int> _countMatchesBasedOnSelections({List<String>? branchen}) async {
     if (ausgewaehlteLeistungen.isEmpty) {
-      // Falls bereits per `angebote` gefiltert wurde
       if (_gefilterteDienstleisterIds.isNotEmpty) {
         return _gefilterteDienstleisterIds.length;
       }
 
-      // Sonst alle Dienstleister (ggf. mit aktueller/preview-Branche)
-      Query q = FirebaseFirestore.instance
-          .collection('users')
-          .where('rolle', isEqualTo: 'dienstleister');
-
-      if (branche != null && branche.isNotEmpty) {
-        q = q.where('branche', isEqualTo: branche);
-      } else if (ausgewaehlteBranchen.isNotEmpty) {
-        // bereits aktive Branchen-Chips auf der Liste berücksichtigen
-        q = q.where('branche', isEqualTo: ausgewaehlteBranchen.first);
+      // Wenn Branchen vorgegeben → Anzahl der DL in diesen Branchen
+      final sel = branchen ?? (ausgewaehlteBranchen.isNotEmpty ? ausgewaehlteBranchen : null);
+      if (sel != null && sel.isNotEmpty) {
+        final ids = await _dienstleisterIdsFuerBranchen(sel);
+        return ids?.length ?? 0;
       }
 
-      final snap = await q.get();
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .where('rolle', isEqualTo: 'dienstleister')
+          .get();
       return snap.size;
     }
 
-    // MIT Leistungs-Selektion → wie bisher über `angebote` zählen
-    final branchIds = await _dienstleisterIdsFuerBranche(branche);
+    final branchIds = await _dienstleisterIdsFuerBranchen(branchen ?? ausgewaehlteBranchen);
     final ids = <String>{};
 
     for (final entry in ausgewaehlteLeistungen.entries) {
@@ -183,9 +176,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     return ids.length;
   }
 
-  // ========= Kategorien aus 'angebote' laden (optional nach Branche) =========
-  Future<List<String>> _ladeLeistungskategorienAusAngeboten(String? branche) async {
-    if (branche == null) {
+  Future<List<String>> _ladeLeistungskategorienAusAngeboten(List<String>? branchen) async {
+    // Ohne Branchen: alle Kategorien
+    if (branchen == null || branchen.isEmpty) {
       final snap = await FirebaseFirestore.instance.collection('angebote').get();
       final cats = snap.docs
           .map((d) => (d.data()['kategorie'] as String?)?.trim())
@@ -197,20 +190,15 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       return cats;
     }
 
-    // Mit Branchenfilter -> Dienstleister dieser Branche suchen
-    final userSnap = await FirebaseFirestore.instance
-        .collection('users')
-        .where('rolle', isEqualTo: 'dienstleister')
-        .where('branche', isEqualTo: branche)
-        .get();
-
-    final ids = userSnap.docs.map((d) => d.id).toList();
+    final ids = await _dienstleisterIdsFuerBranchen(branchen) ?? <String>{};
     if (ids.isEmpty) return [];
 
     final allDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-    for (var i = 0; i < ids.length; i += 10) {
-      final end = (i + 10 < ids.length) ? i + 10 : ids.length;
-      final chunk = ids.sublist(i, end);
+    final idList = ids.toList();
+
+    for (var i = 0; i < idList.length; i += 10) {
+      final end = math.min(i + 10, idList.length);
+      final chunk = idList.sublist(i, end);
       final aSnap = await FirebaseFirestore.instance
           .collection('angebote')
           .where('dienstleisterId', whereIn: chunk)
@@ -229,30 +217,25 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     return cats;
   }
 
-  // ========= Leistungen einer Kategorie aus 'angebote' (optional Branche) =========
   Future<List<String>> _ladeLeistungenFuerKategorieAusAngeboten(
-      String kategorie, String? branche) async {
+      String kategorie, List<String>? branchen) async {
     Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
 
-    if (branche == null) {
+    if (branchen == null || branchen.isEmpty) {
       final q = await FirebaseFirestore.instance
           .collection('angebote')
           .where('kategorie', isEqualTo: kategorie)
           .get();
       docs = q.docs;
     } else {
-      final userSnap = await FirebaseFirestore.instance
-          .collection('users')
-          .where('rolle', isEqualTo: 'dienstleister')
-          .where('branche', isEqualTo: branche)
-          .get();
-      final ids = userSnap.docs.map((d) => d.id).toList();
+      final ids = await _dienstleisterIdsFuerBranchen(branchen) ?? <String>{};
       if (ids.isEmpty) return [];
-
       final tmp = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-      for (var i = 0; i < ids.length; i += 10) {
-        final end = (i + 10 < ids.length) ? i + 10 : ids.length;
-        final chunk = ids.sublist(i, end);
+      final idList = ids.toList();
+
+      for (var i = 0; i < idList.length; i += 10) {
+        final end = math.min(i + 10, idList.length);
+        final chunk = idList.sublist(i, end);
         final aSnap = await FirebaseFirestore.instance
             .collection('angebote')
             .where('kategorie', isEqualTo: kategorie)
@@ -286,9 +269,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     return list;
   }
 
-  // ==== Dialog (basiert auf `angebote`) ====
-  Future<void> _openLeistungskategorieDialog(String kategorie, {String? branche}) async {
-    final leistungen = await _ladeLeistungenFuerKategorieAusAngeboten(kategorie, branche);
+  Future<void> _openLeistungskategorieDialog(String kategorie, {List<String>? branchen}) async {
+    final leistungen = await _ladeLeistungenFuerKategorieAusAngeboten(kategorie, branchen);
 
     final initial = Set<String>.from(ausgewaehlteLeistungen[kategorie] ?? []);
     final tempSelected = Set<String>.from(initial);
@@ -366,7 +348,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                     ausgewaehlteKategorien.removeWhere((e) => e == kategorie);
                                   } else {
                                     ausgewaehlteLeistungen[kategorie] = tempSelected.toList();
-                                    ausgewaehlteKategorien = [kategorie];
+                                    if (!ausgewaehlteKategorien.contains(kategorie)) {
+                                      ausgewaehlteKategorien.add(kategorie);
+                                    }
                                   }
                                 });
                                 Navigator.of(context).pop();
@@ -404,7 +388,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         .toList();
   }
 
-  // --- ALT: direkte Titel→IDs-Suche (lassen wir als Fallback bestehen)
   Future<void> _ladeDienstleisterZuLeistung(String titel) async {
     final snapshot = await FirebaseFirestore.instance
         .collection('angebote')
@@ -419,26 +402,21 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     });
   }
 
-  // ---- NEU: Auswahl aus dem Suchfeld wie Filter anwenden --------------------
   Future<void> _applySelectionFromTitle(String titel) async {
-    // robustes Splitten: Bindestrich, Gedankenstrich etc.
     final parts = titel.split(RegExp(r'\s*[–—-]\s*'));
     String? kategorie;
     String? leistung;
 
     if (parts.length >= 2) {
       kategorie = parts.first.trim();
-      // Falls weitere Trennzeichen im Titel: Rest wieder zusammenführen
       leistung = parts.sublist(1).join(' – ').trim();
     }
 
-    // Wenn Parsing schief geht → Fallback auf alte Titel-Suche
     if (kategorie == null || kategorie.isEmpty || leistung == null || leistung.isEmpty) {
       await _ladeDienstleisterZuLeistung(titel);
       return;
     }
 
-    // Filter-States setzen, damit es im Filter-Sheet sichtbar ist
     setState(() {
       ausgewaehlteLeistungen.clear();
       ausgewaehlteKategorien.clear();
@@ -446,10 +424,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       ausgewaehlteKategorien = [kategorie!];
     });
 
-    // Anschließend dieselbe angebote-Query wie im Filter ausführen
-    final String? aktuelleBranche =
-    ausgewaehlteBranchen.isNotEmpty ? ausgewaehlteBranchen.first : null;
-    await _applyOfferFiltersFromSelections(branche: aktuelleBranche);
+    final List<String>? aktuelleBranchen =
+    ausgewaehlteBranchen.isNotEmpty ? List<String>.from(ausgewaehlteBranchen) : null;
+    await _applyOfferFiltersFromSelections(branchen: aktuelleBranchen);
   }
 
   // ---- Preis-Helper ---------------------------------------------------------
@@ -457,7 +434,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     if (p == null) return null;
     if (p is num) return p.toDouble();
     if (p is String) {
-      // "70 €", "60.00", "45,5" etc.
       final cleaned = p.replaceAll(RegExp(r'[^0-9,.\-]'), '').replaceAll(',', '.');
       if (cleaned.isEmpty) return null;
       try {
@@ -497,7 +473,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     }
   }
 
-  /// Ersetzt deine bisherige Version vollständig
   Future<List<Map<String, dynamic>>> _ladePassendeAngeboteFuerDienstleister(
       String dienstleisterId,
       ) async {
@@ -505,7 +480,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
     final selectedGroups = List<String>.from(ausgewaehlteZielgruppen);
     final results = <Map<String, dynamic>>[];
-    final seenPair = <String>{}; // (docId|zielgruppe) -> dedupe
+    final seenPair = <String>{};
 
     for (final entry in ausgewaehlteLeistungen.entries) {
       final kategorie = entry.key;
@@ -530,7 +505,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               ? Map<String, dynamic>.from(data['zielgruppen'])
               : null;
 
-          // Wenn Zielgruppen gewählt → für JEDE gewählte, die im Doc existiert, einen Eintrag
           if (selectedGroups.isNotEmpty) {
             for (final g in selectedGroups) {
               final grp = zgMap?[g];
@@ -549,11 +523,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 }
               }
             }
-            // Wenn für keine der gewählten Zielgruppen ein Eintrag existiert → nichts hinzufügen
             continue;
           }
 
-          // Keine Zielgruppe gewählt → ALLE Zielgruppen-Varianten anzeigen
           if (zgMap != null && zgMap.isNotEmpty) {
             for (final entry in zgMap.entries) {
               final g = entry.key.toString();
@@ -573,7 +545,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               }
             }
           } else {
-            // Fallback: kein zielgruppen-spezifischer Block im Doc → globalen Preis/Dauer verwenden
             final key = '${d.id}|_global';
             if (seenPair.add(key)) {
               results.add({
@@ -583,7 +554,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 'preis': data['preis'],
                 'dauer': data['dauer'],
                 'zielgruppe': null,
-                'chipColor': _colorForZielgruppe('Herren'), // Standard blau
+                'chipColor': _colorForZielgruppe('Herren'),
               });
             }
           }
@@ -591,7 +562,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       }
     }
 
-    // Optional: Sortierung nach Preis
     if (_sortOrder == SortOrder.priceAsc || _sortOrder == SortOrder.priceDesc) {
       double? _toDouble(dynamic p) {
         if (p == null) return null;
@@ -703,6 +673,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       return;
     }
 
+    // Beibehaltung des bisherigen Verhaltens (erste Branche),
+    // um möglichst wenig in die übrige Logik einzugreifen.
     final doc = await FirebaseFirestore.instance
         .collection('branchen')
         .doc(ausgewaehlteBranchen.first)
@@ -726,28 +698,245 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   // Badge zählt: Branche + Zielgruppen + Anzahl Leistungen + Sortierung
   int get _filterBadgeCount {
     int n = 0;
-    if (ausgewaehlteBranchen.isNotEmpty) n += 1; // 1 Punkt für Branchenwahl
-    n += ausgewaehlteZielgruppen.length; // Zielgruppen
+    if (ausgewaehlteBranchen.isNotEmpty) n += 1;
+    n += ausgewaehlteZielgruppen.length;
     n += ausgewaehlteLeistungen.values.fold<int>(
       0,
           (sum, list) => sum + list.length,
-    ); // Summe aller ausgewählten Leistungen
+    );
     if (_sortOrder != SortOrder.none) n += 1;
     return n;
   }
 
-  // ---------- Bottom Sheet für Filter (FULLSCREEN + Floating Apply) ----------
-  Future<void> _showBranchenFilterSheet() async {
-    String? tempSelected =
-    ausgewaehlteBranchen.isNotEmpty ? ausgewaehlteBranchen.first : null;
+  // ---------- Quick-Sheet für Branchen (Multi-Select) ----------
+  Future<void> _showBranchenQuickSheet() async {
+    _dismissKeyboard();
 
-    // NEU: temporäre Sortierung + Zielgruppen
-    SortOrder tempSortOrder = _sortOrder;
-    final List<String> tempZielgruppen =
-    List<String>.from(ausgewaehlteZielgruppen);
+    final tempSelected = <String>{}..addAll(ausgewaehlteBranchen);
 
     int previewCount =
-    await _countMatchesBasedOnSelections(branche: tempSelected);
+    await _countMatchesBasedOnSelections(branchen: tempSelected.toList());
+
+    final snap = await FirebaseFirestore.instance
+        .collection('branchen')
+        .where('aktiv', isEqualTo: true)
+        .get();
+
+    final branchen = snap.docs
+        .map((d) => ((d.data()['name'] as String?) ?? d.id).trim())
+        .toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            Future<void> _recalc() async {
+              final c =
+              await _countMatchesBasedOnSelections(branchen: tempSelected.toList());
+              setLocal(() => previewCount = c);
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 5,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.black26,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Branche wählen',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: branchen.length,
+                        itemBuilder: (_, i) {
+                          final b = branchen[i];
+                          final checked = tempSelected.contains(b);
+                          return CheckboxListTile(
+                            value: checked,
+                            onChanged: (v) async {
+                              setLocal(() {
+                                if (v == true) {
+                                  tempSelected.add(b);
+                                } else {
+                                  tempSelected.remove(b);
+                                }
+                              });
+                              await _recalc();
+                            },
+                            controlAffinity: ListTileControlAffinity.trailing,
+                            title: Text(b[0].toUpperCase() + b.substring(1)),
+                            dense: true,
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          setState(() {
+                            ausgewaehlteBranchen
+                              ..clear()
+                              ..addAll(tempSelected);
+                          });
+
+                          await _applyOfferFiltersFromSelections(
+                              branchen: tempSelected.toList());
+                          _ladeZielgruppenUndKategorien();
+
+                          if (mounted) Navigator.of(ctx).pop();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: const StadiumBorder(),
+                          backgroundColor: Colors.blueAccent,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: Text(
+                          'Anwenden – $previewCount Treffer',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ---------- Sortier-Sheet (für Sortieren-Chip) ----------
+  Future<void> _showSortSheet() async {
+    SortOrder temp = _sortOrder;
+
+    await showModalBottomSheet(
+      context: context,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 5,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.black26,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Sortieren',
+                            style: TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.w700)),
+                        TextButton(
+                          onPressed: () => setLocal(() => temp = SortOrder.none),
+                          child: const Text('Zurücksetzen'),
+                        ),
+                      ],
+                    ),
+                    RadioListTile<SortOrder>(
+                      value: SortOrder.priceAsc,
+                      groupValue: temp,
+                      onChanged: (v) => setLocal(() => temp = v!),
+                      title: const Text('Niedrigster Preis'),
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.trailing,
+                    ),
+                    RadioListTile<SortOrder>(
+                      value: SortOrder.priceDesc,
+                      groupValue: temp,
+                      onChanged: (v) => setLocal(() => temp = v!),
+                      title: const Text('Höchster Preis'),
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.trailing,
+                    ),
+                    RadioListTile<SortOrder>(
+                      value: SortOrder.distanceAsc,
+                      groupValue: temp,
+                      onChanged: (v) => setLocal(() => temp = v!),
+                      title: const Text('In meiner Nähe'),
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.trailing,
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          setState(() => _sortOrder = temp);
+                          Navigator.of(ctx).pop();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: const StadiumBorder(),
+                          backgroundColor: Colors.blueAccent,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Anwenden'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ---------- Vollständiges Filter-Sheet ----------
+  Future<void> _showBranchenFilterSheet() async {
+    // Multi-Select als temporäre Menge
+    final Set<String> tempBranchen = {...ausgewaehlteBranchen};
+
+    SortOrder tempSortOrder = _sortOrder;
+    final List<String> tempZielgruppen = List<String>.from(ausgewaehlteZielgruppen);
+
+    int previewCount =
+    await _countMatchesBasedOnSelections(branchen: tempBranchen.toList());
 
     await showModalBottomSheet(
       context: context,
@@ -762,7 +951,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           builder: (context, setModalState) {
             Future<void> _recalc() async {
               final c =
-              await _countMatchesBasedOnSelections(branche: tempSelected);
+              await _countMatchesBasedOnSelections(branchen: tempBranchen.toList());
               setModalState(() => previewCount = c);
             }
 
@@ -770,12 +959,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               height: MediaQuery.of(context).size.height,
               child: Stack(
                 children: [
-                  // Scrollbarer Inhalt
                   ListView(
-                    padding: const EdgeInsets.fromLTRB(
-                        16, 16, 16, 120), // Platz für Floating-Button
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
                     children: [
-                      // Header
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -792,15 +978,15 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                 ausgewaehlteBranchen.clear();
                                 ausgewaehlteKategorien.clear();
                                 ausgewaehlteLeistungen.clear();
-                                ausgewaehlteZielgruppen.clear(); // <<< NEU
+                                ausgewaehlteZielgruppen.clear();
                                 _sortOrder = SortOrder.none;
                               });
                               setModalState(() {
-                                tempSelected = null;
-                                tempZielgruppen.clear(); // <<< NEU
+                                tempBranchen.clear();
+                                tempZielgruppen.clear();
                                 tempSortOrder = SortOrder.none;
                               });
-                              _dismissKeyboard(); // optional auch hier
+                              _dismissKeyboard();
                               await _recalc();
                             },
                             child: const Text('Zurücksetzen'),
@@ -809,7 +995,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       ),
                       const SizedBox(height: 8),
 
-                      // ================ NEU: Für wen?  (Zielgruppen) ================
+                      // Für wen?
                       Text(
                         'Für wen?',
                         style: Theme.of(context)
@@ -853,7 +1039,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
                       const SizedBox(height: 20),
 
-                      // Branchen
+                      // Branchen (Multi-Select)
                       Text(
                         'Branchen',
                         style: Theme.of(context)
@@ -879,27 +1065,29 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             final data = doc.data() as Map<String, dynamic>;
                             return (data['name'] as String?) ?? doc.id;
                           }).toList()
-                            ..sort((a, b) =>
-                                a.toLowerCase().compareTo(b.toLowerCase()));
+                            ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
                           return Wrap(
                             spacing: 8,
                             runSpacing: 8,
                             children: branchen.map((b) {
-                              final selected = tempSelected == b;
+                              final selected = tempBranchen.contains(b);
                               return FilterChip(
                                 label: Text(
                                   b[0].toUpperCase() + b.substring(1),
                                   style: TextStyle(
-                                    color:
-                                    selected ? Colors.white : Colors.black,
+                                    color: selected ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
                                 selected: selected,
                                 onSelected: (_) async {
                                   setModalState(() {
-                                    tempSelected = selected ? null : b;
+                                    if (selected) {
+                                      tempBranchen.remove(b);
+                                    } else {
+                                      tempBranchen.add(b);
+                                    }
                                   });
                                   await _recalc();
                                 },
@@ -928,11 +1116,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       const SizedBox(height: 8),
 
                       FutureBuilder<List<String>>(
-                        future:
-                        _ladeLeistungskategorienAusAngeboten(tempSelected),
+                        future: _ladeLeistungskategorienAusAngeboten(tempBranchen.toList()),
                         builder: (context, snapshot) {
-                          if (snapshot.connectionState ==
-                              ConnectionState.waiting) {
+                          if (snapshot.connectionState == ConnectionState.waiting) {
                             return const Padding(
                               padding: EdgeInsets.symmetric(vertical: 16),
                               child: Center(child: CircularProgressIndicator()),
@@ -941,8 +1127,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                           if (snapshot.hasError) {
                             return const Padding(
                               padding: EdgeInsets.symmetric(vertical: 16),
-                              child: Text(
-                                  'Fehler beim Laden der Kategorien aus Angeboten'),
+                              child: Text('Fehler beim Laden der Kategorien aus Angeboten'),
                             );
                           }
 
@@ -958,60 +1143,57 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
                             itemCount: items.length,
-                            separatorBuilder: (_, __) =>
-                            const Divider(height: 1),
+                            separatorBuilder: (_, __) => const Divider(height: 1),
                             itemBuilder: (context, i) {
                               final name = items[i];
                               final selectedList =
-                              (ausgewaehlteLeistungen[name] ??
-                                  const <String>[]);
+                              (ausgewaehlteLeistungen[name] ?? const <String>[]);
 
                               return ListTile(
                                 dense: true,
                                 title: Text(name),
-                                // AUSGEWÄHLTE LEISTUNGEN UNTER DER KATEGORIE
                                 subtitle: (selectedList.isNotEmpty)
                                     ? Padding(
                                   padding: const EdgeInsets.only(top: 6),
-                                  child: Wrap(
-                                    spacing: 6,
-                                    runSpacing: 6,
-                                    children: selectedList.map((s) {
-                                      return InputChip(
-                                        label: Text(s),
-                                        selected: true,
-                                        selectedColor: Colors.blueAccent
-                                            .withOpacity(.12),
-                                        labelStyle: const TextStyle(
-                                            color: Colors.blueAccent),
-                                        shape: const StadiumBorder(
-                                          side: BorderSide(
-                                              color: Colors.blueAccent),
-                                        ),
-                                        deleteIcon: const Icon(Icons.close,
-                                            size: 18,
-                                            color: Colors.blueAccent),
-                                        onDeleted: () async {
-                                          setState(() {
-                                            ausgewaehlteLeistungen[name]!
-                                                .remove(s);
-                                            if (ausgewaehlteLeistungen[
-                                            name]!
-                                                .isEmpty) {
-                                              ausgewaehlteLeistungen
-                                                  .remove(name);
-                                              ausgewaehlteKategorien
-                                                  .removeWhere(
-                                                      (e) => e == name);
-                                            }
-                                          });
-                                          await _countMatchesBasedOnSelections(
-                                              branche: tempSelected)
-                                              .then((c) => setModalState(
-                                                  () => previewCount = c));
-                                        },
-                                      );
-                                    }).toList(),
+                                  child: SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(
+                                      children: selectedList.map((s) {
+                                        return Padding(
+                                          padding: const EdgeInsets.only(right: 6),
+                                          child: InputChip(
+                                            label: Text(s),
+                                            selected: true,
+                                            showCheckmark: false,
+                                            selectedColor:
+                                            Colors.blueAccent.withOpacity(.12),
+                                            labelStyle: const TextStyle(
+                                                color: Colors.blueAccent),
+                                            shape: const StadiumBorder(
+                                              side: BorderSide(
+                                                  color: Colors.blueAccent),
+                                            ),
+                                            deleteIcon: const Icon(Icons.close,
+                                                size: 18,
+                                                color: Colors.blueAccent),
+                                            onDeleted: () async {
+                                              setState(() {
+                                                ausgewaehlteLeistungen[name]!.remove(s);
+                                                if (ausgewaehlteLeistungen[name]!.isEmpty) {
+                                                  ausgewaehlteLeistungen.remove(name);
+                                                  ausgewaehlteKategorien
+                                                      .removeWhere((e) => e == name);
+                                                }
+                                              });
+                                              await _countMatchesBasedOnSelections(
+                                                  branchen: tempBranchen.toList())
+                                                  .then((c) => setModalState(
+                                                      () => previewCount = c));
+                                            },
+                                          ),
+                                        );
+                                      }).toList(),
+                                    ),
                                   ),
                                 )
                                     : null,
@@ -1023,8 +1205,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                         padding: const EdgeInsets.symmetric(
                                             horizontal: 8, vertical: 4),
                                         decoration: BoxDecoration(
-                                          borderRadius:
-                                          BorderRadius.circular(12),
+                                          borderRadius: BorderRadius.circular(12),
                                           color: Colors.orange.shade100,
                                         ),
                                         child: Text(
@@ -1039,9 +1220,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                 ),
                                 onTap: () async {
                                   await _openLeistungskategorieDialog(name,
-                                      branche: tempSelected);
-                                  await _recalc(); // nach Rückkehr Treffer neu zählen
-                                  setModalState(() {}); // UI aktualisieren
+                                      branchen: tempBranchen.toList());
+                                  await _recalc();
+                                  setModalState(() {});
                                 },
                               );
                             },
@@ -1051,7 +1232,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
                       const SizedBox(height: 20),
 
-                      // ===================== NEU: Sortieren =====================
+                      // Sortieren (neue Bezeichnungen + Distanz)
                       Text(
                         'Sortieren',
                         style: Theme.of(context)
@@ -1059,30 +1240,34 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             .titleMedium
                             ?.copyWith(fontWeight: FontWeight.w600),
                       ),
-
-                      RadioListTile<SortOrder>(
-                        value: SortOrder.priceDesc,
-                        groupValue: tempSortOrder,
-                        onChanged: (v) => setModalState(() => tempSortOrder = v!),
-                        title: const Text('Preis absteigend'),
-                        dense: true,
-                        controlAffinity:
-                        ListTileControlAffinity.trailing, // Radio rechts
-                      ),
-
                       RadioListTile<SortOrder>(
                         value: SortOrder.priceAsc,
                         groupValue: tempSortOrder,
                         onChanged: (v) => setModalState(() => tempSortOrder = v!),
-                        title: const Text('Preis aufsteigend'),
+                        title: const Text('Niedrigster Preis'),
                         dense: true,
-                        controlAffinity:
-                        ListTileControlAffinity.trailing, // Radio rechts
+                        controlAffinity: ListTileControlAffinity.trailing,
+                      ),
+                      RadioListTile<SortOrder>(
+                        value: SortOrder.priceDesc,
+                        groupValue: tempSortOrder,
+                        onChanged: (v) => setModalState(() => tempSortOrder = v!),
+                        title: const Text('Höchster Preis'),
+                        dense: true,
+                        controlAffinity: ListTileControlAffinity.trailing,
+                      ),
+                      RadioListTile<SortOrder>(
+                        value: SortOrder.distanceAsc,
+                        groupValue: tempSortOrder,
+                        onChanged: (v) => setModalState(() => tempSortOrder = v!),
+                        title: const Text('In meiner Nähe'),
+                        dense: true,
+                        controlAffinity: ListTileControlAffinity.trailing,
                       ),
                     ],
                   ),
 
-                  // Schwebender "Anwenden – n Treffer"-Button
+                  // Schwebender Button
                   Positioned(
                     left: 16,
                     right: 16,
@@ -1091,25 +1276,21 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       top: false,
                       child: ElevatedButton(
                         onPressed: () async {
-                          // Sortierung + Zielgruppen übernehmen
                           setState(() {
                             _sortOrder = tempSortOrder;
-                            ausgewaehlteZielgruppen =
-                            List<String>.from(tempZielgruppen);
+                            ausgewaehlteZielgruppen = List<String>.from(tempZielgruppen);
                           });
 
-                          // Filter jetzt anwenden
                           await _applyOfferFiltersFromSelections(
-                              branche: tempSelected);
+                              branchen: tempBranchen.toList());
                           setState(() {
                             ausgewaehlteBranchen
                               ..clear()
-                              ..addAll(
-                                  tempSelected != null ? [tempSelected!] : []);
+                              ..addAll(tempBranchen);
                           });
                           _ladeZielgruppenUndKategorien();
 
-                          _dismissKeyboard(); // NEU: Fokus/Tastatur weg
+                          _dismissKeyboard();
                           if (mounted) Navigator.of(context).pop();
                         },
                         style: ElevatedButton.styleFrom(
@@ -1149,8 +1330,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             : Column(
           children: [
             Padding(
-              padding:
-              const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1167,111 +1347,259 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         return const Center(child: Text('Buchungen kommen bald!'));
       case 3:
         final user = FirebaseAuth.instance.currentUser;
-        return user == null
-            ? const LoginRegisterPage()
-            : const KundenProfilPage();
+        return user == null ? const LoginRegisterPage() : const KundenProfilPage();
       default:
         return const SizedBox.shrink();
     }
   }
 
-  // ---------- Suchfeld + Filterbutton ----------
-  Widget _buildSuchfeldMitFilterButton() {
-    return Row(
-      children: [
-        Expanded(
-          child: Autocomplete<String>(
-            optionsBuilder: (TextEditingValue textEditingValue) async {
-              if (textEditingValue.text == '') {
-                return const Iterable<String>.empty();
-              }
-              final vorschlaege =
-              await _ladeLeistungsVorschlaege(textEditingValue.text);
-              return vorschlaege;
-            },
-            onSelected: (String auswahl) async {
-              setState(() {
-                _ausgewaehlteLeistung = auswahl;
-              });
+  // ---------- Inline-Chips unter dem Suchfeld ----------
+  Widget _buildInlineFilterChips() {
+    final bool branchenAktiv = ausgewaehlteBranchen.isNotEmpty;
+    final String branchenText =
+        'Branchen${branchenAktiv ? '(${ausgewaehlteBranchen.length})' : ''}';
 
-              // wie Filter anwenden
-              await _applySelectionFromTitle(auswahl);
+    final bool sortAktiv = _sortOrder != SortOrder.none;
 
-              // Fokus entfernen + Tastatur schließen
-              _dismissKeyboard();
-            },
-            fieldViewBuilder:
-                (context, controller, focusNode, onEditingComplete) {
-              return TextField(
-                controller: controller,
-                focusNode: focusNode,
-                onEditingComplete: onEditingComplete,
-                onChanged: (text) {
-                  if (text.trim().isEmpty) {
-                    _resetAllFiltersAndSearch(controller);
-                  }
-                },
-                decoration: InputDecoration(
-                  hintText: 'Leistung oder Dienstleister suchen',
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: controller.text.isNotEmpty
-                      ? IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: () => _resetAllFiltersAndSearch(controller),
-                  )
-                      : null,
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(width: 8),
+    final List<Widget> chips = [];
 
-// >>> Filterbutton mit Badge (nur Icon)
-        Stack(
-          clipBehavior: Clip.none,
+    // Branchen
+    chips.add(
+      InputChip(
+        label: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton(
-              tooltip: 'Filter',
-              iconSize: 26,
-              color: _filterBadgeCount > 0 ? Colors.blueAccent : null,
-              icon: const Icon(CupertinoIcons.slider_horizontal_3),
-              onPressed: () async {
-                _dismissKeyboard();                // Tastatur/Cursor schließen
-                await _showBranchenFilterSheet();  // Filter öffnen
-              },
+            Flexible(
+              child: Text(
+                branchenText,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: branchenAktiv ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
+            if (!branchenAktiv) ...[
+              const SizedBox(width: 6),
+              const Icon(Icons.keyboard_arrow_down_rounded,
+                  size: 18, color: Colors.black54),
+            ],
+          ],
+        ),
+        selected: branchenAktiv,
+        onSelected: (_) => _showBranchenQuickSheet(),
+        onDeleted: branchenAktiv
+            ? () async {
+          setState(() {
+            ausgewaehlteBranchen.clear();
+          });
+          await _applyOfferFiltersFromSelections(branchen: null);
+          _ladeZielgruppenUndKategorien();
+        }
+            : null,
+        deleteIcon: Icon(Icons.close,
+            size: 18, color: branchenAktiv ? Colors.white : Colors.black54),
+        selectedColor: Colors.blueAccent,
+        backgroundColor: Colors.white,
+        shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
+      ),
+    );
 
-            if (_filterBadgeCount > 0)
-              Positioned(
-                right: -4,
-                top: -4,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.blueAccent,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-                  child: Text(
-                    _filterBadgeCount > 99 ? '99+' : '$_filterBadgeCount',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
+    // Sortieren
+    chips.add(
+      InputChip(
+        label: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Sortieren', style: TextStyle(fontWeight: FontWeight.w600)),
+            if (!sortAktiv) ...[
+              const SizedBox(width: 6),
+              const Icon(Icons.keyboard_arrow_down_rounded,
+                  size: 18, color: Colors.black54),
+            ],
+          ],
+        ),
+        selected: sortAktiv,
+        onSelected: (_) => _showSortSheet(),
+        onDeleted:
+        sortAktiv ? () => setState(() => _sortOrder = SortOrder.none) : null,
+        deleteIcon: Icon(Icons.close,
+            size: 18, color: sortAktiv ? Colors.white : Colors.black54),
+        selectedColor: Colors.blueAccent,
+        backgroundColor: Colors.white,
+        labelStyle: TextStyle(color: sortAktiv ? Colors.white : Colors.black),
+        shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
+      ),
+    );
+
+    // Kategorie-Chip(s) (z. B. „Augenbrauen“)
+    for (final kategorie in ausgewaehlteKategorien) {
+      final bool aktiv =
+      (ausgewaehlteLeistungen[kategorie]?.isNotEmpty ?? false);
+
+      chips.add(
+        InputChip(
+          label: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  kategorie,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: aktiv ? Colors.white : Colors.black,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
+              if (!aktiv) ...[
+                const SizedBox(width: 6),
+                const Icon(Icons.keyboard_arrow_down_rounded,
+                    size: 18, color: Colors.black54),
+              ],
+            ],
+          ),
+          selected: aktiv,
+          onSelected: (_) async {
+            await _openLeistungskategorieDialog(kategorie,
+                branchen: ausgewaehlteBranchen);
+            await _applyOfferFiltersFromSelections(branchen: ausgewaehlteBranchen);
+            setState(() {});
+          },
+          onDeleted: aktiv
+              ? () async {
+            setState(() {
+              ausgewaehlteLeistungen.remove(kategorie);
+              ausgewaehlteKategorien.removeWhere((e) => e == kategorie);
+            });
+            await _applyOfferFiltersFromSelections(
+                branchen: ausgewaehlteBranchen);
+          }
+              : null,
+          deleteIcon: Icon(Icons.close,
+              size: 18, color: aktiv ? Colors.white : Colors.black54),
+          selectedColor: Colors.blueAccent,
+          backgroundColor: Colors.white,
+          shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
+        ),
+      );
+    }
+
+    // HORIZONTALE, SCROLLBARE EIN-ZEILIGE REIHE
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (int i = 0; i < chips.length; i++) ...[
+            chips[i],
+            if (i != chips.length - 1) const SizedBox(width: 8),
           ],
-        )
-
-
-      ],
+        ],
+      ),
     );
   }
 
+  // ---------- Suchfeld + Filterbutton ----------
+  Widget _buildSuchfeldMitFilterButton() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Autocomplete<String>(
+                optionsBuilder: (TextEditingValue textEditingValue) async {
+                  if (textEditingValue.text == '') {
+                    return const Iterable<String>.empty();
+                  }
+                  final vorschlaege =
+                  await _ladeLeistungsVorschlaege(textEditingValue.text);
+                  return vorschlaege;
+                },
+                onSelected: (String auswahl) async {
+                  setState(() {
+                    _ausgewaehlteLeistung = auswahl;
+                  });
+                  await _applySelectionFromTitle(auswahl);
+                  _dismissKeyboard();
+                },
+                fieldViewBuilder:
+                    (context, controller, focusNode, onEditingComplete) {
+                  return TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    onEditingComplete: onEditingComplete,
+                    onChanged: (text) {
+                      if (text.trim().isEmpty) {
+                        _resetAllFiltersAndSearch(controller);
+                      }
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'Leistung oder Dienstleister suchen',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: controller.text.isNotEmpty
+                          ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => _resetAllFiltersAndSearch(controller),
+                      )
+                          : null,
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+
+            // Filterbutton mit Badge (nur Icon)
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                IconButton(
+                  tooltip: 'Filter',
+                  iconSize: 26,
+                  color: _filterBadgeCount > 0 ? Colors.blueAccent : null,
+                  icon: const Icon(CupertinoIcons.slider_horizontal_3),
+                  onPressed: () async {
+                    _dismissKeyboard();
+                    await _showBranchenFilterSheet();
+                  },
+                ),
+                if (_filterBadgeCount > 0)
+                  Positioned(
+                    right: -4,
+                    top: -4,
+                    child: Container(
+                      padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.blueAccent,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      constraints:
+                      const BoxConstraints(minWidth: 18, minHeight: 18),
+                      child: Text(
+                        _filterBadgeCount > 99 ? '99+' : '$_filterBadgeCount',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 10),
+
+        // Inline-Filterchip-Reihe
+        _buildInlineFilterChips(),
+      ],
+    );
+  }
 
   // ----------------------------------------------------------
 
@@ -1359,7 +1687,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             final data = doc.data() as Map<String, dynamic>;
             data['id'] = doc.id;
 
-            // Distanz berechnen
             if (data['geo'] != null) {
               final geo = data['geo'] as GeoPoint;
               final distanceInMeters = Geolocator.distanceBetween(
@@ -1373,21 +1700,18 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               data['distance'] = double.infinity;
             }
 
-            // Wenn per `angebote` gefiltert wurde, passende Angebote laden
             if (_gefilterteDienstleisterIds.isNotEmpty) {
               if (_gefilterteDienstleisterIds.contains(data['id'])) {
                 final matched =
                 await _ladePassendeAngeboteFuerDienstleister(data['id']);
                 if (matched.isNotEmpty) {
-                  // nur wenn etwas passt
-                  data['matchedOffers'] = matched; // wird vom Tile gerendert
+                  data['matchedOffers'] = matched;
                   dienstleisterMitLeistungen.add(data);
                 }
               }
               return;
             }
 
-            // Kein angebote-Filter aktiv: altes Verhalten mit Subcollection (optional)
             final leistungenSnap = await FirebaseFirestore.instance
                 .collection('users')
                 .doc(doc.id)
@@ -1438,37 +1762,43 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               return const Center(child: CircularProgressIndicator());
             }
 
-            // NEU: Sortierung anwenden
-            if (_gefilterteDienstleisterIds.isNotEmpty &&
-                (_sortOrder == SortOrder.priceAsc ||
-                    _sortOrder == SortOrder.priceDesc)) {
-              // Nach günstigstem passenden Angebot sortieren
-              dienstleisterMitLeistungen.sort((a, b) {
-                final ap = _lowestPriceInOffers(
-                    (a['matchedOffers'] as List<Map<String, dynamic>>?));
-                final bp = _lowestPriceInOffers(
-                    (b['matchedOffers'] as List<Map<String, dynamic>>?));
-                int cmp;
-                if (ap == null && bp == null) {
-                  cmp = 0;
-                } else if (ap == null) {
-                  cmp = 1;
-                } else if (bp == null) {
-                  cmp = -1;
-                } else {
-                  cmp = _sortOrder == SortOrder.priceAsc
-                      ? ap.compareTo(bp)
-                      : bp.compareTo(ap);
-                }
-                // Tiebreaker: Distanz
-                if (cmp == 0) {
-                  cmp = (a['distance'] as double)
-                      .compareTo(b['distance'] as double);
-                }
-                return cmp;
-              });
+            // Sortierung anwenden
+            if (_sortOrder == SortOrder.priceAsc ||
+                _sortOrder == SortOrder.priceDesc) {
+              if (_gefilterteDienstleisterIds.isNotEmpty) {
+                dienstleisterMitLeistungen.sort((a, b) {
+                  final ap = _lowestPriceInOffers(
+                      (a['matchedOffers'] as List<Map<String, dynamic>>?));
+                  final bp = _lowestPriceInOffers(
+                      (b['matchedOffers'] as List<Map<String, dynamic>>?));
+                  int cmp;
+                  if (ap == null && bp == null) {
+                    cmp = 0;
+                  } else if (ap == null) {
+                    cmp = 1;
+                  } else if (bp == null) {
+                    cmp = -1;
+                  } else {
+                    cmp = _sortOrder == SortOrder.priceAsc
+                        ? ap.compareTo(bp)
+                        : bp.compareTo(ap);
+                  }
+                  if (cmp == 0) {
+                    cmp =
+                        (a['distance'] as double).compareTo(b['distance'] as double);
+                  }
+                  return cmp;
+                });
+              } else {
+                // keine Preisinfos → Distanz
+                dienstleisterMitLeistungen.sort((a, b) =>
+                    (a['distance'] as double).compareTo(b['distance'] as double));
+              }
+            } else if (_sortOrder == SortOrder.distanceAsc) {
+              dienstleisterMitLeistungen.sort((a, b) =>
+                  (a['distance'] as double).compareTo(b['distance'] as double));
             } else {
-              // Fallback: nach Distanz sortieren
+              // Default: Distanz
               dienstleisterMitLeistungen.sort((a, b) =>
                   (a['distance'] as double).compareTo(b['distance'] as double));
             }
