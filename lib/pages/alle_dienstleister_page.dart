@@ -739,8 +739,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         return StatefulBuilder(
           builder: (ctx, setLocal) {
             Future<void> _recalc() async {
-              final c =
-              await _countMatchesBasedOnSelections(branchen: tempSelected.toList());
+              final c = await _countMatchesBasedOnSelections(
+                  branchen: tempSelected.toList());
               setLocal(() => previewCount = c);
             }
 
@@ -827,6 +827,220 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                     ),
                   ],
                 ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ---------- LEISTUNGEN-SHEET (für den „Leistungen“-Chip) ----------
+  Future<void> _showLeistungenSheet() async {
+    _dismissKeyboard();
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModal) {
+            return SizedBox(
+              height: MediaQuery.of(context).size.height * 0.75,
+              child: Stack(
+                children: [
+                  ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Leistungen',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              setState(() {
+                                ausgewaehlteKategorien.clear();
+                                ausgewaehlteLeistungen.clear();
+                              });
+                              setModal(() {});
+                            },
+                            child: const Text('Zurücksetzen'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+
+                      FutureBuilder<List<String>>(
+                        future: _ladeLeistungskategorienAusAngeboten(
+                            ausgewaehlteBranchen),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Center(child: CircularProgressIndicator()),
+                            );
+                          }
+                          if (snapshot.hasError) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Text(
+                                  'Fehler beim Laden der Kategorien aus Angeboten'),
+                            );
+                          }
+
+                          final items = snapshot.data ?? [];
+                          if (items.isEmpty) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child:
+                              Text('Keine Leistungskategorien vorhanden.'),
+                            );
+                          }
+
+                          return ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: items.length,
+                            separatorBuilder: (_, __) =>
+                            const Divider(height: 1),
+                            itemBuilder: (context, i) {
+                              final name = items[i];
+                              final selectedList =
+                              (ausgewaehlteLeistungen[name] ??
+                                  const <String>[]);
+
+                              return ListTile(
+                                dense: true,
+                                title: Text(name),
+                                subtitle: (selectedList.isNotEmpty)
+                                    ? Padding(
+                                  padding:
+                                  const EdgeInsets.only(top: 6),
+                                  child: SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(
+                                      children: selectedList.map((s) {
+                                        return Padding(
+                                          padding:
+                                          const EdgeInsets.only(
+                                              right: 6),
+                                          child: InputChip(
+                                            label: Text(s),
+                                            selected: true,
+                                            showCheckmark: false,
+                                            selectedColor: Colors
+                                                .blueAccent
+                                                .withOpacity(.12),
+                                            labelStyle:
+                                            const TextStyle(
+                                                color: Colors
+                                                    .blueAccent),
+                                            shape: const StadiumBorder(
+                                              side: BorderSide(
+                                                  color: Colors
+                                                      .blueAccent),
+                                            ),
+                                            deleteIcon: const Icon(
+                                                Icons.close,
+                                                size: 18,
+                                                color: Colors
+                                                    .blueAccent),
+                                            onDeleted: () {
+                                              setState(() {
+                                                ausgewaehlteLeistungen[
+                                                name]!
+                                                    .remove(s);
+                                                if (ausgewaehlteLeistungen[
+                                                name]!
+                                                    .isEmpty) {
+                                                  ausgewaehlteLeistungen
+                                                      .remove(name);
+                                                  ausgewaehlteKategorien
+                                                      .removeWhere(
+                                                          (e) =>
+                                                      e == name);
+                                                }
+                                              });
+                                              setModal(() {});
+                                            },
+                                          ),
+                                        );
+                                      }).toList(),
+                                    ),
+                                  ),
+                                )
+                                    : null,
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (selectedList.isNotEmpty)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          borderRadius:
+                                          BorderRadius.circular(12),
+                                          color: Colors.orange.shade100,
+                                        ),
+                                        child: Text(
+                                          '${selectedList.length}',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w600),
+                                        ),
+                                      ),
+                                    const SizedBox(width: 6),
+                                    const Icon(Icons.chevron_right),
+                                  ],
+                                ),
+                                onTap: () async {
+                                  await _openLeistungskategorieDialog(name,
+                                      branchen: ausgewaehlteBranchen);
+                                  setModal(() {});
+                                },
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+
+                  // Anwenden
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: 16,
+                    child: SafeArea(
+                      top: false,
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          await _applyOfferFiltersFromSelections(
+                              branchen: ausgewaehlteBranchen);
+                          if (mounted) Navigator.of(ctx).pop();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blueAccent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: const StadiumBorder(),
+                        ),
+                        child: const Text('Anwenden'),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             );
           },
@@ -950,8 +1164,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         return StatefulBuilder(
           builder: (context, setModalState) {
             Future<void> _recalc() async {
-              final c =
-              await _countMatchesBasedOnSelections(branchen: tempBranchen.toList());
+              final c = await _countMatchesBasedOnSelections(
+                  branchen: tempBranchen.toList());
               setModalState(() => previewCount = c);
             }
 
@@ -1065,7 +1279,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             final data = doc.data() as Map<String, dynamic>;
                             return (data['name'] as String?) ?? doc.id;
                           }).toList()
-                            ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+                            ..sort((a, b) =>
+                                a.toLowerCase().compareTo(b.toLowerCase()));
 
                           return Wrap(
                             spacing: 8,
@@ -1116,7 +1331,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       const SizedBox(height: 8),
 
                       FutureBuilder<List<String>>(
-                        future: _ladeLeistungskategorienAusAngeboten(tempBranchen.toList()),
+                        future: _ladeLeistungskategorienAusAngeboten(
+                            tempBranchen.toList()),
                         builder: (context, snapshot) {
                           if (snapshot.connectionState == ConnectionState.waiting) {
                             return const Padding(
@@ -1160,13 +1376,14 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                     child: Row(
                                       children: selectedList.map((s) {
                                         return Padding(
-                                          padding: const EdgeInsets.only(right: 6),
+                                          padding:
+                                          const EdgeInsets.only(right: 6),
                                           child: InputChip(
                                             label: Text(s),
                                             selected: true,
                                             showCheckmark: false,
-                                            selectedColor:
-                                            Colors.blueAccent.withOpacity(.12),
+                                            selectedColor: Colors.blueAccent
+                                                .withOpacity(.12),
                                             labelStyle: const TextStyle(
                                                 color: Colors.blueAccent),
                                             shape: const StadiumBorder(
@@ -1178,15 +1395,20 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                                 color: Colors.blueAccent),
                                             onDeleted: () async {
                                               setState(() {
-                                                ausgewaehlteLeistungen[name]!.remove(s);
-                                                if (ausgewaehlteLeistungen[name]!.isEmpty) {
-                                                  ausgewaehlteLeistungen.remove(name);
+                                                ausgewaehlteLeistungen[name]!
+                                                    .remove(s);
+                                                if (ausgewaehlteLeistungen[name]!
+                                                    .isEmpty) {
+                                                  ausgewaehlteLeistungen
+                                                      .remove(name);
                                                   ausgewaehlteKategorien
-                                                      .removeWhere((e) => e == name);
+                                                      .removeWhere(
+                                                          (e) => e == name);
                                                 }
                                               });
                                               await _countMatchesBasedOnSelections(
-                                                  branchen: tempBranchen.toList())
+                                                  branchen:
+                                                  tempBranchen.toList())
                                                   .then((c) => setModalState(
                                                       () => previewCount = c));
                                             },
@@ -1278,7 +1500,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         onPressed: () async {
                           setState(() {
                             _sortOrder = tempSortOrder;
-                            ausgewaehlteZielgruppen = List<String>.from(tempZielgruppen);
+                            ausgewaehlteZielgruppen =
+                            List<String>.from(tempZielgruppen);
                           });
 
                           await _applyOfferFiltersFromSelections(
@@ -1330,7 +1553,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             : Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+              padding:
+              const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1353,90 +1577,24 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     }
   }
 
-  // ---------- Inline-Chips unter dem Suchfeld ----------
-  Widget _buildInlineFilterChips() {
-    final bool branchenAktiv = ausgewaehlteBranchen.isNotEmpty;
-    final String branchenText =
-        'Branchen${branchenAktiv ? '(${ausgewaehlteBranchen.length})' : ''}';
 
-    final bool sortAktiv = _sortOrder != SortOrder.none;
+// ---------- Inline-Chips unter dem Suchfeld ----------
+    Widget _buildInlineFilterChips() {
+      final bool branchenAktiv = ausgewaehlteBranchen.isNotEmpty;
+      final String branchenText =
+          'Branchen${branchenAktiv ? '(${ausgewaehlteBranchen.length})' : ''}';
 
-    final List<Widget> chips = [];
+      final int leistungenCount =
+      ausgewaehlteLeistungen.values.fold<int>(0, (s, l) => s + l.length);
+      final bool leistungenAktiv = leistungenCount > 0;
+      final String leistungenText =
+          'Leistungen${leistungenAktiv ? '($leistungenCount)' : ''}';
 
-    // Branchen
-    chips.add(
-      InputChip(
-        label: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Flexible(
-              child: Text(
-                branchenText,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: branchenAktiv ? Colors.white : Colors.black,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            if (!branchenAktiv) ...[
-              const SizedBox(width: 6),
-              const Icon(Icons.keyboard_arrow_down_rounded,
-                  size: 18, color: Colors.black54),
-            ],
-          ],
-        ),
-        selected: branchenAktiv,
-        onSelected: (_) => _showBranchenQuickSheet(),
-        onDeleted: branchenAktiv
-            ? () async {
-          setState(() {
-            ausgewaehlteBranchen.clear();
-          });
-          await _applyOfferFiltersFromSelections(branchen: null);
-          _ladeZielgruppenUndKategorien();
-        }
-            : null,
-        deleteIcon: Icon(Icons.close,
-            size: 18, color: branchenAktiv ? Colors.white : Colors.black54),
-        selectedColor: Colors.blueAccent,
-        backgroundColor: Colors.white,
-        shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
-      ),
-    );
+      final bool sortAktiv = _sortOrder != SortOrder.none;
 
-    // Sortieren
-    chips.add(
-      InputChip(
-        label: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Sortieren', style: TextStyle(fontWeight: FontWeight.w600)),
-            if (!sortAktiv) ...[
-              const SizedBox(width: 6),
-              const Icon(Icons.keyboard_arrow_down_rounded,
-                  size: 18, color: Colors.black54),
-            ],
-          ],
-        ),
-        selected: sortAktiv,
-        onSelected: (_) => _showSortSheet(),
-        onDeleted:
-        sortAktiv ? () => setState(() => _sortOrder = SortOrder.none) : null,
-        deleteIcon: Icon(Icons.close,
-            size: 18, color: sortAktiv ? Colors.white : Colors.black54),
-        selectedColor: Colors.blueAccent,
-        backgroundColor: Colors.white,
-        labelStyle: TextStyle(color: sortAktiv ? Colors.white : Colors.black),
-        shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
-      ),
-    );
+      final List<Widget> chips = [];
 
-    // Kategorie-Chip(s) (z. B. „Augenbrauen“)
-    for (final kategorie in ausgewaehlteKategorien) {
-      final bool aktiv =
-      (ausgewaehlteLeistungen[kategorie]?.isNotEmpty ?? false);
-
+      // Branchen
       chips.add(
         InputChip(
           label: Row(
@@ -1444,60 +1602,177 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             children: [
               Flexible(
                 child: Text(
-                  kategorie,
+                  branchenText,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: aktiv ? Colors.white : Colors.black,
+                    color: branchenAktiv ? Colors.white : Colors.black,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
-              if (!aktiv) ...[
+              if (!branchenAktiv) ...[
                 const SizedBox(width: 6),
                 const Icon(Icons.keyboard_arrow_down_rounded,
                     size: 18, color: Colors.black54),
               ],
             ],
           ),
-          selected: aktiv,
-          onSelected: (_) async {
-            await _openLeistungskategorieDialog(kategorie,
-                branchen: ausgewaehlteBranchen);
-            await _applyOfferFiltersFromSelections(branchen: ausgewaehlteBranchen);
-            setState(() {});
-          },
-          onDeleted: aktiv
+          selected: branchenAktiv,
+          onSelected: (_) => _showBranchenQuickSheet(),
+          onDeleted: branchenAktiv
               ? () async {
             setState(() {
-              ausgewaehlteLeistungen.remove(kategorie);
-              ausgewaehlteKategorien.removeWhere((e) => e == kategorie);
+              ausgewaehlteBranchen.clear();
+            });
+            await _applyOfferFiltersFromSelections(branchen: null);
+            _ladeZielgruppenUndKategorien();
+          }
+              : null,
+          deleteIcon: Icon(Icons.close,
+              size: 18, color: branchenAktiv ? Colors.white : Colors.black54),
+          selectedColor: Colors.blueAccent,
+          backgroundColor: Colors.white,
+          shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
+        ),
+      );
+
+      // Leistungen (öffnet das Leistungen-Sheet)
+      chips.add(
+        InputChip(
+          label: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  leistungenText,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: leistungenAktiv ? Colors.white : Colors.black,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (!leistungenAktiv) ...[
+                const SizedBox(width: 6),
+                const Icon(Icons.keyboard_arrow_down_rounded,
+                    size: 18, color: Colors.black54),
+              ],
+            ],
+          ),
+          selected: leistungenAktiv,
+          onSelected: (_) => _showLeistungenSheet(),
+          onDeleted: leistungenAktiv
+              ? () async {
+            setState(() {
+              ausgewaehlteKategorien.clear();
+              ausgewaehlteLeistungen.clear();
             });
             await _applyOfferFiltersFromSelections(
                 branchen: ausgewaehlteBranchen);
           }
               : null,
           deleteIcon: Icon(Icons.close,
-              size: 18, color: aktiv ? Colors.white : Colors.black54),
+              size: 18, color: leistungenAktiv ? Colors.white : Colors.black54),
           selectedColor: Colors.blueAccent,
           backgroundColor: Colors.white,
           shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
         ),
       );
-    }
 
-    // HORIZONTALE, SCROLLBARE EIN-ZEILIGE REIHE
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (int i = 0; i < chips.length; i++) ...[
-            chips[i],
-            if (i != chips.length - 1) const SizedBox(width: 8),
+      // Sortieren
+      chips.add(
+        InputChip(
+          label: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Sortieren', style: TextStyle(fontWeight: FontWeight.w600)),
+              if (!sortAktiv) ...[
+                const SizedBox(width: 6),
+                const Icon(Icons.keyboard_arrow_down_rounded,
+                    size: 18, color: Colors.black54),
+              ],
+            ],
+          ),
+          selected: sortAktiv,
+          onSelected: (_) => _showSortSheet(),
+          onDeleted:
+          sortAktiv ? () => setState(() => _sortOrder = SortOrder.none) : null,
+          deleteIcon: Icon(Icons.close,
+              size: 18, color: sortAktiv ? Colors.white : Colors.black54),
+          selectedColor: Colors.blueAccent,
+          backgroundColor: Colors.white,
+          labelStyle: TextStyle(color: sortAktiv ? Colors.white : Colors.black),
+          shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
+        ),
+      );
+
+      // >>> HIER WIEDER DRIN: Kategorie-Chips (z. B. „Augenbrauen“) <<<
+      for (final kategorie in ausgewaehlteKategorien) {
+        final bool aktiv =
+        (ausgewaehlteLeistungen[kategorie]?.isNotEmpty ?? false);
+
+        chips.add(
+          InputChip(
+            label: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    kategorie,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: aktiv ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (!aktiv) ...[
+                  const SizedBox(width: 6),
+                  const Icon(Icons.keyboard_arrow_down_rounded,
+                      size: 18, color: Colors.black54),
+                ],
+              ],
+            ),
+            selected: aktiv,
+            onSelected: (_) async {
+              await _openLeistungskategorieDialog(kategorie,
+                  branchen: ausgewaehlteBranchen);
+              await _applyOfferFiltersFromSelections(
+                  branchen: ausgewaehlteBranchen);
+              setState(() {});
+            },
+            onDeleted: aktiv
+                ? () async {
+              setState(() {
+                ausgewaehlteLeistungen.remove(kategorie);
+                ausgewaehlteKategorien.removeWhere((e) => e == kategorie);
+              });
+              await _applyOfferFiltersFromSelections(
+                  branchen: ausgewaehlteBranchen);
+            }
+                : null,
+            deleteIcon: Icon(Icons.close,
+                size: 18, color: aktiv ? Colors.white : Colors.black54),
+            selectedColor: Colors.blueAccent,
+            backgroundColor: Colors.white,
+            shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
+          ),
+        );
+      }
+
+      // HORIZONTALE, SCROLLBARE EIN-ZEILIGE REIHE
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (int i = 0; i < chips.length; i++) ...[
+              chips[i],
+              if (i != chips.length - 1) const SizedBox(width: 8),
+            ],
           ],
-        ],
-      ),
-    );
-  }
+        ),
+      );
+    }
 
   // ---------- Suchfeld + Filterbutton ----------
   Widget _buildSuchfeldMitFilterButton() {
@@ -1540,7 +1815,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       suffixIcon: controller.text.isNotEmpty
                           ? IconButton(
                         icon: const Icon(Icons.clear),
-                        onPressed: () => _resetAllFiltersAndSearch(controller),
+                        onPressed: () =>
+                            _resetAllFiltersAndSearch(controller),
                       )
                           : null,
                     ),
@@ -1595,7 +1871,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
         const SizedBox(height: 10),
 
-        // Inline-Filterchip-Reihe
+        // Inline-Filterchip-Reihe: Branchen, Leistungen, Sortieren
         _buildInlineFilterChips(),
       ],
     );
@@ -1617,23 +1893,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               child: FilterChip(
                 label: Text(
                   item[0].toUpperCase() + item.substring(1),
-                  style: TextStyle(
-                    color: selected ? Colors.white : Colors.black,
-                    fontWeight: FontWeight.w500,
-                  ),
                 ),
                 selected: selected,
-                onSelected: (_) {
-                  setState(() {
-                    if (selectedItems.contains(item)) {
-                      selectedItems.remove(item);
-                    } else {
-                      selectedItems.clear(); // nur ein aktiver gleichzeitig
-                      selectedItems.add(item);
-                    }
-                    _ladeZielgruppenUndKategorien();
-                  });
-                },
+                onSelected: (_) => onTap(item),
                 selectedColor: const Color(0xFFF7931E),
                 backgroundColor: Colors.white,
                 checkmarkColor: Colors.white,
@@ -1784,8 +2046,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         : bp.compareTo(ap);
                   }
                   if (cmp == 0) {
-                    cmp =
-                        (a['distance'] as double).compareTo(b['distance'] as double);
+                    cmp = (a['distance'] as double)
+                        .compareTo(b['distance'] as double);
                   }
                   return cmp;
                 });
