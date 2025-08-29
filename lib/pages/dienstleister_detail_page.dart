@@ -4,6 +4,10 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'dart:math' as math;
 import 'package:flutter/cupertino.dart';
 
+/// ---- Brand / Farben (Lieferando-ähnlich) ----
+const Color kBrandOrange = Color(0xFFFF7A00); // Buttonfarbe
+const double kBottomBarHeight = 76.0;
+
 /// Datenträger für einen Abschnitt (blauer Balken + Inhalt)
 class SectionData {
   final String title;           // z. B. "Augenbrauen"
@@ -11,14 +15,34 @@ class SectionData {
   SectionData(this.title, this.children);
 }
 
+/// Interner Warenkorb-Eintrag
+class _CartItem {
+  final String kategorie;
+  final String leistung;
+  final double? preis;
+  final int? dauer;
+  final String zielgruppe;
+  const _CartItem({
+    required this.kategorie,
+    required this.leistung,
+    required this.preis,
+    required this.dauer,
+    required this.zielgruppe,
+  });
+}
+
 class LinkedChipsWithSections extends StatefulWidget {
   final List<SectionData> sections;
   final int initialIndex;
+
+  /// fixiertes Extra am Listenende, damit die Bottom-Bar nichts verdeckt
+  final double extraBottom;
 
   const LinkedChipsWithSections({
     super.key,
     required this.sections,
     this.initialIndex = 0,
+    this.extraBottom = 0.0,
   });
 
   @override
@@ -154,11 +178,8 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
             itemCount: widget.sections.length + 1,
             itemBuilder: (context, index) {
               if (index == _spacerIndex) {
-                final viewH   = MediaQuery.of(context).size.height;
-                const chipsH  = 48.0 + 8.0;
-                final safeBtm = MediaQuery.of(context).padding.bottom;
-                final extra = math.max(220.0, viewH - chipsH);
-                return SizedBox(height: extra + safeBtm);
+                // fester Platz am Ende, damit die Bottom-Bar nichts überlappt
+                return SizedBox(height: widget.extraBottom);
               }
               final section = widget.sections[index];
               return _SectionBlock(section: section);
@@ -220,6 +241,10 @@ class DienstleisterDetailPage extends StatefulWidget {
 class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String _zielgruppe = 'Damen';
 
+  /// Auswahl als ValueNotifier -> verhindert kompletten Rebuild der Liste
+  final ValueNotifier<Map<String, _CartItem>> _selectedVN =
+  ValueNotifier<Map<String, _CartItem>>({});
+
   Map<String, Widget> _zielgruppenSegments() {
     TextStyle label(String value) => TextStyle(
       fontWeight: FontWeight.w600,
@@ -231,6 +256,33 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       'Herren': Padding(padding: pad, child: Text('Herren', style: label('Herren'))),
       'Kinder': Padding(padding: pad, child: Text('Kinder', style: label('Kinder'))),
     };
+  }
+
+  void _toggleSelection(String key, _CartItem item) {
+    final map = Map<String, _CartItem>.from(_selectedVN.value);
+    if (map.containsKey(key)) {
+      map.remove(key);
+    } else {
+      map[key] = item;
+    }
+    _selectedVN.value = map; // triggert nur die Listener
+  }
+
+  double? _sumSelectedPrices(Map<String, _CartItem> map) {
+    double total = 0;
+    bool hasAny = false;
+    for (final entry in map.values) {
+      if (entry.preis != null) {
+        total += entry.preis!;
+        hasAny = true;
+      }
+    }
+    return hasAny ? total : null;
+  }
+
+  String _formatEuro(double v) {
+    final s = v.toStringAsFixed(2).replaceAll('.', ',');
+    return '$s €';
   }
 
   double? _toDouble(dynamic v) {
@@ -285,14 +337,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     final String dienstleisterId = widget.dienstleister['id'] as String;
 
     return Scaffold(
-      // Standort-Titel entfernt – SegmentedControl sitzt an seiner Stelle
+      // AppBar: Segment-Control anstelle des Standorts
       appBar: AppBar(
         backgroundColor: Colors.blueAccent,
         elevation: 0,
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.white),
-
-        // ⬇️ Segmented Control als AppBar-Titel
         title: CupertinoSegmentedControl<String>(
           children: _zielgruppenSegments(),
           groupValue: _zielgruppe,
@@ -303,8 +353,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           pressedColor: Colors.white.withOpacity(.15),
           padding: EdgeInsets.zero,
         ),
-
-        // ⬇️ Zweite Zeile: Name des Dienstleisters
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(40),
           child: Padding(
@@ -384,7 +432,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               final preis = e['preis'] as double?;
               final dauer = e['dauer'] as int?;
               final subtitle = '${_preisText(preis)}${_dauerText(dauer)}';
+              final key = '${kat.toLowerCase()}|${name.toLowerCase()}';
 
+              // Einzelnes Tile liest die Auswahl reaktiv aus dem ValueNotifier
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Container(
@@ -396,6 +446,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   ),
                   child: Row(
                     children: [
+                      // Titel + Subtitel
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -414,11 +465,33 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           ],
                         ),
                       ),
-                      IconButton(
-                        onPressed: () {
-                          // TODO: später in Warenkorb legen (Zielgruppe _zielgruppe berücksichtigen)
+
+                      // Trailing-Icon reaktiv (nur dieser Teil baut neu)
+                      ValueListenableBuilder<Map<String, _CartItem>>(
+                        valueListenable: _selectedVN,
+                        builder: (_, map, __) {
+                          final selected = map.containsKey(key);
+                          return IconButton(
+                            onPressed: () {
+                              _toggleSelection(
+                                key,
+                                _CartItem(
+                                  kategorie: kat,
+                                  leistung: name,
+                                  preis: preis,
+                                  dauer: dauer,
+                                  zielgruppe: _zielgruppe,
+                                ),
+                              );
+                            },
+                            icon: Icon(
+                              selected
+                                  ? Icons.check_circle
+                                  : Icons.add_circle_outline,
+                            ),
+                            color: selected ? Colors.blueAccent : null,
+                          );
                         },
-                        icon: const Icon(Icons.add_circle_outline),
                       ),
                     ],
                   ),
@@ -437,11 +510,170 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             initialIndex = kategorien.indexOf(selKat);
           }
 
-          return LinkedChipsWithSections(
-            sections: sections,
-            initialIndex: initialIndex,
+          // Inhalt + fixierte Bottom-Bar
+          return Stack(
+            children: [
+              // WICHTIG: fester extraBottom -> kein Layout-Shift -> kein „nach oben springen“
+              const LinkedChipsWithSections(
+                sections: [], // Placeholder, wird unten ersetzt
+              ),
+
+              // Wir müssen das echte Widget mit Daten rendern:
+              LinkedChipsWithSections(
+                sections: sections,
+                initialIndex: initialIndex,
+                // Immer Platz für die Bottom-Bar lassen, auch wenn sie (noch) unsichtbar ist
+                extraBottom: kBottomBarHeight + 12,
+              ),
+
+              // ---- Buchungsleiste im Lieferando-Stil (reaktiv) ----
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ValueListenableBuilder<Map<String, _CartItem>>(
+                  valueListenable: _selectedVN,
+                  builder: (context, map, _) {
+                    final hasSelection = map.isNotEmpty;
+                    final total = _sumSelectedPrices(map);
+                    return IgnorePointer(
+                      ignoring: !hasSelection,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        height: hasSelection ? kBottomBarHeight : 0,
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                        child: SafeArea(
+                          top: false,
+                          child: hasSelection
+                              ? _BookingBar(
+                            count: map.length,
+                            total: total,
+                            onPressed: () {
+                              // TODO: zur Buchungs-/Checkout-Seite navigieren
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Zur Buchung (${map.length})',
+                                  ),
+                                ),
+                              );
+                            },
+                          )
+                              : const SizedBox.shrink(),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// Pill-Button wie im Screenshot:
+/// Links Icon mit Count-Badge, Mitte "Zur Buchung", Rechts Preis.
+class _BookingBar extends StatelessWidget {
+  final int count;
+  final double? total;
+  final VoidCallback onPressed;
+
+  const _BookingBar({
+    required this.count,
+    required this.total,
+    required this.onPressed,
+  });
+
+  String _formatEuro(double v) {
+    final s = v.toStringAsFixed(2).replaceAll('.', ',');
+    return '$s €';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 52,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: kBrandOrange,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+          ),
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+        ),
+        onPressed: onPressed,
+        child: Row(
+          children: [
+            // Linker Kreis mit Icon + Badge
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(.18),
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.shopping_basket_outlined,
+                      size: 22, color: Colors.white),
+                ),
+                Positioned(
+                  right: -3, top: -3,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: kBrandOrange, width: 2),
+                    ),
+                    child: Text(
+                      '$count',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: kBrandOrange,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(width: 12),
+
+            // Mitte: "Zur Buchung" zentriert
+            Expanded(
+              child: Center(
+                child: Text(
+                  'Zur Buchung',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ),
+
+            // Rechts: Gesamtpreis
+            Text(
+              total == null ? '' : _formatEuro(total!),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
