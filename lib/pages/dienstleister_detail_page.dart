@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'dart:math' as math;
-
+import 'package:flutter/cupertino.dart';
 
 /// Datenträger für einen Abschnitt (blauer Balken + Inhalt)
 class SectionData {
@@ -54,7 +54,6 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
       }
     });
 
-    // Wie nah an "ganz oben" der Header sein muss, damit der Chip aktiv wird
     const double kTopTolerance = 0.02; // = 2% der Listenhöhe
 
     itemPositionsListener.itemPositions.addListener(() {
@@ -62,30 +61,24 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
       final positions = itemPositionsListener.itemPositions.value;
       if (positions.isEmpty) return;
 
-      // Spacer ignorieren – nur echte Abschnitte betrachten
-      final visible = positions
-          .where((p) => p.index < widget.sections.length)
-          .toList();
+      final visible =
+      positions.where((p) => p.index < widget.sections.length).toList();
       if (visible.isEmpty) return;
 
-      // Kandidaten, deren Kopf bereits "am/über" Top ist (<= Toleranz)
-      final atTopOrBeyond = visible
-          .where((p) => p.itemLeadingEdge <= kTopTolerance)
-          .toList();
+      final atTopOrBeyond =
+      visible.where((p) => p.itemLeadingEdge <= kTopTolerance).toList();
 
       int? idx;
       if (atTopOrBeyond.isNotEmpty) {
-        // Nimm den *letzten* Abschnitt, der die Toplinie erreicht/überschritten hat
         final best = atTopOrBeyond.reduce((a, b) => a.index > b.index ? a : b);
         idx = best.index;
       } else {
-        // Noch keiner "am Top": nichts umschalten (alter aktiver Chip bleibt)
         idx = null;
       }
 
       if (idx != null && idx != activeChip) {
         setState(() => activeChip = idx!);
-        _scrollChipTo(activeChip); // Chip ganz links einrasten
+        _scrollChipTo(activeChip);
       }
     });
   }
@@ -94,7 +87,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
     if (!chipScrollController.isAttached) return;
     await chipScrollController.scrollTo(
       index: index,
-      alignment: 0.0, // exakt an den linken Rand
+      alignment: 0.0,
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOutCubic,
     );
@@ -121,7 +114,6 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // CHIPS – kein Außen-Padding, kein "separated": spacing nur rechts im Item!
         SizedBox(
           height: 48,
           child: ScrollablePositionedList.builder(
@@ -132,7 +124,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
               final title = widget.sections[i].title;
               final sel = activeChip == i;
               return Padding(
-                padding: const EdgeInsets.only(right: 8), // nur rechts Abstand
+                padding: const EdgeInsets.only(right: 8),
                 child: ChoiceChip(
                   label: Text(title),
                   selected: sel,
@@ -155,22 +147,17 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
         ),
         const SizedBox(height: 8),
 
-        // ABSCHNITTE (+ Spacer am Ende, damit der letzte Block oben einrasten kann)
         Expanded(
           child: ScrollablePositionedList.builder(
             itemScrollController: itemScrollController,
             itemPositionsListener: itemPositionsListener,
-            itemCount: widget.sections.length + 1, // +1 = Spacer am Ende
+            itemCount: widget.sections.length + 1,
             itemBuilder: (context, index) {
               if (index == _spacerIndex) {
-                // genug Platz, damit der letzte Abschnitt bis GANZ nach oben scrollen kann
                 final viewH   = MediaQuery.of(context).size.height;
-                const chipsH  = 48.0 + 8.0; // Chip-Reihe + Abstand darunter
+                const chipsH  = 48.0 + 8.0;
                 final safeBtm = MediaQuery.of(context).padding.bottom;
-
-                // Mindestens (Viewport - Chips), aber nie kleiner als 220
                 final extra = math.max(220.0, viewH - chipsH);
-
                 return SizedBox(height: extra + safeBtm);
               }
               final section = widget.sections[index];
@@ -178,12 +165,10 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
             },
           ),
         ),
-
       ],
     );
   }
 }
-
 
 class _SectionBlock extends StatelessWidget {
   final SectionData section;
@@ -194,7 +179,6 @@ class _SectionBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Blauer Balken
         Container(
           margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -210,7 +194,6 @@ class _SectionBlock extends StatelessWidget {
             ),
           ),
         ),
-        // Inhalt
         ...section.children,
         const SizedBox(height: 8),
       ],
@@ -218,11 +201,10 @@ class _SectionBlock extends StatelessWidget {
   }
 }
 
-
 class DienstleisterDetailPage extends StatefulWidget {
   final Map<String, dynamic> dienstleister;
   final String selektierteZielgruppe;   // momentan ungenutzt
-  final String selektierteKategorie;    // wird jetzt fürs initiale Scrollen genutzt
+  final String selektierteKategorie;    // fürs initiale Scrollen
 
   const DienstleisterDetailPage({
     super.key,
@@ -236,13 +218,26 @@ class DienstleisterDetailPage extends StatefulWidget {
 }
 
 class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
-  // ---- Preis/Dauer Helfer ----------------------------------------------------
+  String _zielgruppe = 'Damen';
+
+  Map<String, Widget> _zielgruppenSegments() {
+    TextStyle label(String value) => TextStyle(
+      fontWeight: FontWeight.w600,
+      color: _zielgruppe == value ? Colors.white : Colors.blueAccent,
+    );
+    const EdgeInsets pad = EdgeInsets.symmetric(horizontal: 14, vertical: 8);
+    return {
+      'Damen':  Padding(padding: pad, child: Text('Damen',  style: label('Damen'))),
+      'Herren': Padding(padding: pad, child: Text('Herren', style: label('Herren'))),
+      'Kinder': Padding(padding: pad, child: Text('Kinder', style: label('Kinder'))),
+    };
+  }
+
   double? _toDouble(dynamic v) {
     if (v == null) return null;
     if (v is num) return v.toDouble();
     if (v is String) {
-      final cleaned =
-      v.replaceAll(RegExp(r'[^0-9,.\-]'), '').replaceAll(',', '.');
+      final cleaned = v.replaceAll(RegExp(r'[^0-9,.\-]'), '').replaceAll(',', '.');
       if (cleaned.isEmpty) return null;
       return double.tryParse(cleaned);
     }
@@ -261,31 +256,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return null;
   }
 
-  (double?, int?) _minPreisUndDauer(Map<String, dynamic> data) {
-    double? preis = _toDouble(data['preis']);
-    int? dauer = _toInt(data['dauer']);
-
-    if (data['zielgruppen'] is Map) {
-      final zg = Map<String, dynamic>.from(data['zielgruppen']);
-      final preise = <double>[];
-      final dauern = <int>[];
-      for (final entry in zg.values) {
-        if (entry is Map) {
-          final p = _toDouble(entry['preis']);
-          final d = _toInt(entry['dauer']);
-          if (p != null) preise.add(p);
-          if (d != null) dauern.add(d);
-        }
-      }
-      if (preise.isNotEmpty) {
-        final minP = preise.reduce((a, b) => a < b ? a : b);
-        preis = (preis == null) ? minP : (minP < preis ? minP : preis);
-      }
-      if (dauern.isNotEmpty) {
-        final minD = dauern.reduce((a, b) => a < b ? a : b);
-        dauer = (dauer == null) ? minD : (minD < dauer ? minD : dauer);
+  (double?, int?) _preisUndDauerFuerZielgruppe(Map<String, dynamic> data, String zielgruppe) {
+    double? preis;
+    int? dauer;
+    final zg = data['zielgruppen'];
+    if (zg is Map) {
+      final g = zg[zielgruppe];
+      if (g is Map) {
+        preis = _toDouble(g['preis']);
+        dauer = _toInt(g['dauer']);
       }
     }
+    preis ??= _toDouble(data['preis']);
+    dauer ??= _toInt(data['dauer']);
     return (preis, dauer);
   }
 
@@ -297,22 +280,46 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   String _dauerText(int? d) => d == null ? '' : ' • ${d.toString()} Min';
 
-  // ----------------------------------------------------------------------------
-
   @override
   Widget build(BuildContext context) {
     final String dienstleisterId = widget.dienstleister['id'] as String;
 
     return Scaffold(
+      // Standort-Titel entfernt – SegmentedControl sitzt an seiner Stelle
       appBar: AppBar(
         backgroundColor: Colors.blueAccent,
+        elevation: 0,
         centerTitle: true,
-        title: Text(
-          (widget.dienstleister['name'] as String?) ?? 'Profil',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
         iconTheme: const IconThemeData(color: Colors.white),
+
+        // ⬇️ Segmented Control als AppBar-Titel
+        title: CupertinoSegmentedControl<String>(
+          children: _zielgruppenSegments(),
+          groupValue: _zielgruppe,
+          onValueChanged: (v) => setState(() => _zielgruppe = v),
+          borderColor: Colors.white,
+          selectedColor: Colors.blueAccent,
+          unselectedColor: Colors.white,
+          pressedColor: Colors.white.withOpacity(.15),
+          padding: EdgeInsets.zero,
+        ),
+
+        // ⬇️ Zweite Zeile: Name des Dienstleisters
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(40),
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 8.0),
+            child: Text(
+              (widget.dienstleister['name'] as String?) ?? 'Profil',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
       ),
+
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: FirebaseFirestore.instance
             .collection('angebote')
@@ -326,14 +333,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             return const Center(child: Text('Keine Angebote vorhanden.'));
           }
 
-          // Angebote aufbereiten: gruppiert nach Kategorie, dann je Leistung ein Eintrag
           final Map<String, List<Map<String, dynamic>>> grouped = {};
           for (final doc in snap.data!.docs) {
             final data = doc.data();
             final kategorie = (data['kategorie'] as String?)?.trim();
             if (kategorie == null || kategorie.isEmpty) continue;
 
-            final (minPreis, minDauer) = _minPreisUndDauer(data);
+            final (preisZG, dauerZG) =
+            _preisUndDauerFuerZielgruppe(data, _zielgruppe);
+            if (preisZG == null && dauerZG == null) continue;
 
             final list = (data['leistungen'] is List)
                 ? List<String>.from(data['leistungen'])
@@ -355,23 +363,21 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               grouped.putIfAbsent(kategorie, () => []);
               grouped[kategorie]!.add({
                 'leistung': name,
-                'preis': minPreis,
-                'dauer': minDauer,
+                'preis': preisZG,
+                'dauer': dauerZG,
               });
             }
           }
 
-          // Kategorien sortieren (Anzeigereihenfolge = Chip-/Abschnitts-Reihenfolge)
           final kategorien = grouped.keys.toList()
             ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
-          // SectionData für jede Kategorie bauen
           final sections = <SectionData>[];
           for (final kat in kategorien) {
-            final items = grouped[kat]!..sort((a, b) =>
-                (a['leistung'] as String)
-                    .toLowerCase()
-                    .compareTo((b['leistung'] as String).toLowerCase()));
+            final items = grouped[kat]!
+              ..sort((a, b) => (a['leistung'] as String)
+                  .toLowerCase()
+                  .compareTo((b['leistung'] as String).toLowerCase()));
 
             final children = items.map((e) {
               final name = e['leistung'] as String;
@@ -394,9 +400,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(name,
-                                style: const TextStyle(
-                                    fontSize: 16, fontWeight: FontWeight.w600)),
+                            Text(
+                              name,
+                              style: const TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.w600),
+                            ),
                             const SizedBox(height: 4),
                             Text(
                               subtitle,
@@ -408,7 +416,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       ),
                       IconButton(
                         onPressed: () {
-                          // TODO: später in Warenkorb legen
+                          // TODO: später in Warenkorb legen (Zielgruppe _zielgruppe berücksichtigen)
                         },
                         icon: const Icon(Icons.add_circle_outline),
                       ),
@@ -418,10 +426,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               );
             }).toList();
 
-            sections.add(SectionData(kat, children));
+            if (children.isNotEmpty) {
+              sections.add(SectionData(kat, children));
+            }
           }
 
-          // initialen Index aus selektierterKategorie ableiten (falls übergeben)
           int initialIndex = 0;
           final selKat = widget.selektierteKategorie.trim();
           if (selKat.isNotEmpty && kategorien.contains(selKat)) {
