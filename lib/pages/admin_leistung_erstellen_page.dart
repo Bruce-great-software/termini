@@ -1,4 +1,3 @@
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -87,15 +86,22 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
       });
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Zuordnung erfolgreich gespeichert')),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Zuordnung erfolgreich gespeichert')),
+      );
+    }
   }
 
-  Widget _baueChips(List<String> items, List<String> ausgewaehlt, void Function(String) onChanged) {
+  Widget _baueChips(
+      List<String> items,
+      List<String> ausgewaehlt,
+      void Function(String) onChanged,
+      ) {
     items.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return Wrap(
       spacing: 8,
+      runSpacing: 8,
       children: items.map((item) {
         final istAusgewaehlt = ausgewaehlt.contains(item);
         return FilterChip(
@@ -109,6 +115,7 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
                 ausgewaehlt.add(item);
               }
             });
+            onChanged(item);
           },
         );
       }).toList(),
@@ -147,24 +154,18 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
         children: [
           const Text("Leistung erstellen", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
-          const Text("Leistung hinzufügen"),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _leistungsController,
-                  decoration: const InputDecoration(hintText: "z. B. Schneiden"),
-                ),
-              ),
-              IconButton(
-                onPressed: () => _leistungHinzufuegen(_leistungsController.text),
-                icon: const Icon(Icons.add),
-              ),
-            ],
+
+          // 1) GANZ OBEN: BRANCHEN
+          const Text("Branchen zuordnen"),
+          _baueChips(
+            _branchen.map((b) => b[0].toUpperCase() + b.substring(1)).toList(),
+            _ausgewaehlteBranchen,
+                (_) {},
           ),
-          _baueChips(_leistungen, _ausgewaehlteLeistungen, (_) {}),
 
           const SizedBox(height: 24),
+
+          // 2) DANACH: LEISTUNGSKATEGORIE (unverändert)
           const Text("Leistungskategorie hinzufügen"),
           Row(
             children: [
@@ -183,12 +184,24 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
           _baueChips(_leistungskategorien, _ausgewaehlteLeistungskategorien, (_) {}),
 
           const SizedBox(height: 24),
-          const Text("Branchen zuordnen"),
-          _baueChips(
-            _branchen.map((b) => b[0].toUpperCase() + b.substring(1)).toList(),
-            _ausgewaehlteBranchen,
-                (_) {},
+
+          // 3) UNTEN: LEISTUNGEN
+          const Text("Leistung hinzufügen"),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _leistungsController,
+                  decoration: const InputDecoration(hintText: "z. B. Schneiden"),
+                ),
+              ),
+              IconButton(
+                onPressed: () => _leistungHinzufuegen(_leistungsController.text),
+                icon: const Icon(Icons.add),
+              ),
+            ],
           ),
+          _baueChips(_leistungen, _ausgewaehlteLeistungen, (_) {}),
 
           const SizedBox(height: 24),
           Center(
@@ -196,12 +209,11 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
               onPressed: _zuordnungSpeichern,
               child: const Text("Zuordnung speichern"),
             ),
-          )
+          ),
         ],
       ),
     );
   }
-
 
   Widget _verwaltungTab() {
     return Padding(
@@ -278,5 +290,4 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
       ),
     );
   }
-
 }
