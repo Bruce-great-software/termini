@@ -3,7 +3,15 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class LeistungErstellenDialog extends StatefulWidget {
-  const LeistungErstellenDialog({Key? key}) : super(key: key);
+  /// Wenn [angebotId] gesetzt ist, läuft der Dialog im Edit-Modus.
+  final String? angebotId;
+  final Map<String, dynamic>? initialData;
+
+  const LeistungErstellenDialog({
+    Key? key,
+    this.angebotId,
+    this.initialData,
+  }) : super(key: key);
 
   @override
   State<LeistungErstellenDialog> createState() =>
@@ -34,6 +42,10 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
 
   static const List<String> _zielgruppen = ['Damen', 'Herren', 'Kinder'];
 
+  bool _saving = false; // Doppelklick/Mehrfachspeichern verhindern
+
+  bool get _isEdit => widget.angebotId != null;
+
   @override
   void initState() {
     super.initState();
@@ -56,24 +68,72 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
     if (data != null && data['branche'] != null) {
       setState(() => aktuelleBranche = data['branche']);
     }
+
+    if (_isEdit && widget.initialData != null) {
+      // Prefill nach Branchen-Ladung
+      await _prefillFromInitial(widget.initialData!);
+    }
+  }
+
+  Future<void> _prefillFromInitial(Map<String, dynamic> d) async {
+    final kat = (d['kategorie'] as String?)?.trim();
+    if (kat != null && kat.isNotEmpty) {
+      setState(() => ausgewaehlteLeistungskategorie = kat);
+      await _ladeLeistungenZurKategorie(kat); // lädt Chip-Liste
+    }
+
+    // Ausgewählte Leistungen aus Doc ziehen
+    List<String> ls = [];
+    if (d['leistungenSortiert'] is List) {
+      ls = List<String>.from(d['leistungenSortiert']);
+    } else if (d['leistungen'] is List) {
+      ls = List<String>.from(d['leistungen']);
+    } else {
+      final titel = (d['titel'] as String? ?? '');
+      final parts = titel.split(RegExp(r'\s*[–—-]\s*'));
+      if (parts.length >= 2) {
+        ls = [parts.sublist(1).join(' – ').trim()];
+      } else if (titel.isNotEmpty) {
+        ls = [titel.trim()];
+      }
+    }
+    setState(() => ausgewaehlteLeistungen = ls);
+
+    // Zielgruppen vorfüllen
+    if (d['zielgruppen'] is Map) {
+      final zg = Map<String, dynamic>.from(d['zielgruppen']);
+      for (final name in _zielgruppen) {
+        final g = zg[name];
+        if (g is Map) {
+          final p = g['preis'];
+          final m = g['dauer'];
+          preisController[name]?.text = (p == null) ? '' : '$p';
+          dauerController[name]?.text = (m == null) ? '' : '$m';
+        }
+      }
+    }
   }
 
   Future<void> _ladeLeistungenZurKategorie(String leistungskategorie) async {
     final snapshot =
     await FirebaseFirestore.instance.collection('leistungen').get();
 
-    final gefilterteLeistungen = snapshot.docs.where((doc) {
+    final gefilterteLeistungen = snapshot.docs
+        .where((doc) {
       final data = doc.data();
       final lsks = List<String>.from(data['leistungskategorien'] ?? []);
       return lsks.contains(leistungskategorie);
-    }).map((doc) {
+    })
+        .map((doc) {
       final titel = doc.data()['titel'] ?? doc.id;
       return titel.toString();
-    }).toList();
+    })
+        .toList();
 
     setState(() {
       leistungen = gefilterteLeistungen;
-      ausgewaehlteLeistungen.clear();
+      // NICHT die Auswahl löschen, wenn wir aus Prefill kommen
+      if (!_isEdit) ausgewaehlteLeistungen.clear();
     });
   }
 
@@ -111,14 +171,16 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                   final titel = data['titel'] ?? doc.id;
                   final selected = ausgewaehlteLeistungskategorie == titel;
                   return ChoiceChip(
-                    label:
-                    Text(titel, style: const TextStyle(color: Colors.white)),
+                    label: Text(titel,
+                        style: const TextStyle(color: Colors.white)),
                     selected: selected,
                     selectedColor: Colors.blue,
                     backgroundColor: Colors.blue.shade100,
-                    onSelected: (_) {
+                    onSelected: (_) async {
                       setState(() => ausgewaehlteLeistungskategorie = titel);
-                      _ladeLeistungenZurKategorie(titel);
+                      await _ladeLeistungenZurKategorie(titel);
+                      // Bei manueller Kategorie-Auswahl alte Auswahl leeren
+                      setState(() => ausgewaehlteLeistungen.clear());
                     },
                   );
                 }).toList(),
@@ -129,7 +191,7 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
     );
   }
 
-  // ---------- Step 2: Nur Auswahl der Leistungen (KEINE Auflistung darunter) ----------
+  // ---------- Step 2: Leistungen ----------
   Widget _buildLeistungenStep() {
     if (ausgewaehlteLeistungskategorie == null) {
       return const Text(
@@ -232,25 +294,35 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
         ),
         const SizedBox(height: 24),
         ElevatedButton.icon(
-          onPressed: _speichereAngebot,
+          onPressed: _saving ? null : _speichereAngebot,
           icon: const Icon(Icons.save),
-          label: const Text('Speichern'),
+          label: Text(_isEdit ? 'Aktualisieren' : 'Speichern'),
           style: ElevatedButton.styleFrom(
             foregroundColor: Colors.white,
             backgroundColor: Colors.green,
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-            shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
         ),
       ],
     );
   }
 
-  // ---------- Speichern ----------
+  // ---------- Speichern / Aktualisieren ----------
   Future<void> _speichereAngebot() async {
+    if (_saving) return;
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
+
+    // Validierung: mindestens eine Leistung gewählt
+    if (ausgewaehlteLeistungen.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bitte mindestens eine Leistung wählen.')),
+      );
+      return;
+    }
 
     // Zielgruppen-Preise/Dauern einsammeln (einheitlicher Block)
     final Map<String, dynamic> zielgruppenGesamt = {};
@@ -265,20 +337,52 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
       }
     }
 
+    // Validierung: wenigstens ein Preis/Dauer irgendwo angegeben
+    if (zielgruppenGesamt.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content:
+            Text('Bitte Preis und/oder Dauer für eine Zielgruppe angeben.')),
+      );
+      return;
+    }
+
+    setState(() => _saving = true);
+
+    // Leistungen sortieren + stabilen kombinierten Key erzeugen
+    final servicesSorted = [...ausgewaehlteLeistungen]
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final comboKey =
+    servicesSorted.map((s) => s.toLowerCase()).join('|'); // z.B. "schneiden|waschen"
+    final isBundle = servicesSorted.length > 1; // true = Kombination
+
     final titel =
-        '$ausgewaehlteLeistungskategorie – ${ausgewaehlteLeistungen.join(', ')}';
+        '$ausgewaehlteLeistungskategorie – ${servicesSorted.join(', ')}';
 
     final angebot = {
       'dienstleisterId': uid,
       'titel': titel,
       'kategorie': ausgewaehlteLeistungskategorie,
-      'leistungen': ausgewaehlteLeistungen,
-      'zielgruppen': zielgruppenGesamt, // nur Gesamt (kein Listing darunter)
-      'erstelltAm': Timestamp.now(),
+      'leistungen': servicesSorted,
+      'leistungenSortiert': servicesSorted,
+      'comboKey': comboKey,
+      'isBundle': isBundle,
+      'zielgruppen': zielgruppenGesamt,
+      if (_isEdit) 'aktualisiertAm': Timestamp.now(),
+      if (!_isEdit) 'erstelltAm': Timestamp.now(),
     };
 
-    await FirebaseFirestore.instance.collection('angebote').add(angebot);
-    if (mounted) Navigator.of(context).pop();
+    try {
+      final col = FirebaseFirestore.instance.collection('angebote');
+      if (_isEdit) {
+        await col.doc(widget.angebotId!).set(angebot, SetOptions(merge: true));
+      } else {
+        await col.add(angebot);
+      }
+      if (mounted) Navigator.of(context).pop();
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   // ---------- Root ----------
@@ -288,8 +392,10 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
       length: 3,
       child: AlertDialog(
         backgroundColor: Colors.white,
-        title: const Text('Leistung erstellen',
-            style: TextStyle(color: Colors.blue)),
+        title: Text(
+          _isEdit ? 'Leistung bearbeiten' : 'Leistung erstellen',
+          style: const TextStyle(color: Colors.blue),
+        ),
         content: SizedBox(
           width: double.maxFinite,
           child: Stepper(
@@ -349,14 +455,14 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
             },
             steps: [
               Step(
-                title:
-                const Text('Kategorie', style: TextStyle(color: Colors.blue)),
+                title: const Text('Kategorie',
+                    style: TextStyle(color: Colors.blue)),
                 content: _buildKategorieStep(),
                 isActive: currentStep >= 0,
               ),
               Step(
-                title:
-                const Text('Leistungen', style: TextStyle(color: Colors.blue)),
+                title: const Text('Leistungen',
+                    style: TextStyle(color: Colors.blue)),
                 content: _buildLeistungenStep(),
                 isActive: currentStep >= 1,
               ),

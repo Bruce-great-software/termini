@@ -1,12 +1,91 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
-import 'dart:math' as math;
 import 'package:flutter/cupertino.dart';
 
 /// ---- Brand / Farben (Lieferando-ähnlich) ----
 const Color kBrandOrange = Color(0xFFFF7A00); // Buttonfarbe
 const double kBottomBarHeight = 76.0;
+
+/// ---- Angebot-Modell (einfach) ----
+class Offer {
+  final String id;
+  final String kategorie;
+  final List<String> leistungen;      // sortiert, Original-Schreibweise
+  final List<String> leistungenLc;    // sortiert, lowercased (für Vergleiche)
+  final bool isBundle;
+  final String? comboKey;             // lowercased, '|'joined (nur Bundles)
+  final Map<String, dynamic> zielgruppen; // {'Damen': {'preis':..,'dauer':..}, ...}
+
+  Offer({
+    required this.id,
+    required this.kategorie,
+    required this.leistungen,
+    required this.leistungenLc,
+    required this.isBundle,
+    required this.comboKey,
+    required this.zielgruppen,
+  });
+
+  factory Offer.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data() ?? {};
+    final kat = (d['kategorie'] as String? ?? '').trim();
+
+    // Leistungen aus verschiedenen Feldern ableiten
+    List<String> ls = [];
+    if (d['leistungenSortiert'] is List) {
+      ls = List<String>.from(d['leistungenSortiert']);
+    } else if (d['leistungen'] is List) {
+      ls = List<String>.from(d['leistungen']);
+    } else {
+      // Fallback: aus Titel extrahieren
+      final titel = (d['titel'] as String? ?? '');
+      final parts = titel.split(RegExp(r'\s*[–—-]\s*'));
+      if (parts.length >= 2) {
+        ls = [parts.sublist(1).join(' – ').trim()];
+      } else if (titel.isNotEmpty) {
+        ls = [titel.trim()];
+      }
+    }
+    ls = ls.where((e) => e.trim().isNotEmpty).toList();
+
+    final lsSorted = [...ls]..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final lsLc = lsSorted.map((e) => e.toLowerCase()).toList();
+
+    final bool bundleFlag = (d['isBundle'] == true) || lsSorted.length > 1;
+    final String? ck = (d['comboKey'] as String?)?.toLowerCase() ?? (bundleFlag ? lsLc.join('|') : null);
+
+    return Offer(
+      id: doc.id,
+      kategorie: kat,
+      leistungen: lsSorted,
+      leistungenLc: lsLc,
+      isBundle: bundleFlag,
+      comboKey: ck,
+      zielgruppen: Map<String, dynamic>.from(d['zielgruppen'] ?? const {}),
+    );
+  }
+
+  /// Preis für Zielgruppe – nur wenn > 0 vorhanden, sonst null
+  double? priceFor(String zg) {
+    final v = zielgruppen[zg];
+    if (v is Map && v['preis'] != null) {
+      final p = (v['preis'] as num).toDouble();
+      return p > 0 ? p : null;
+    }
+    return null;
+  }
+
+  /// Dauer für Zielgruppe – nur wenn > 0 vorhanden, sonst null
+  int? durationFor(String zg) {
+    final v = zielgruppen[zg];
+    if (v is Map && v['dauer'] != null) {
+      final d = (v['dauer'] as num).toInt();
+      return d > 0 ? d : null;
+    }
+    return null;
+  }
+}
 
 /// Datenträger für einen Abschnitt (blauer Balken + Inhalt)
 class SectionData {
@@ -65,8 +144,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
   @override
   void initState() {
     super.initState();
-    activeChip = (widget.initialIndex >= 0 &&
-        widget.initialIndex < widget.sections.length)
+    activeChip = (widget.initialIndex >= 0 && widget.initialIndex < widget.sections.length)
         ? widget.initialIndex
         : 0;
 
@@ -85,12 +163,10 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
       final positions = itemPositionsListener.itemPositions.value;
       if (positions.isEmpty) return;
 
-      final visible =
-      positions.where((p) => p.index < widget.sections.length).toList();
+      final visible = positions.where((p) => p.index < widget.sections.length).toList();
       if (visible.isEmpty) return;
 
-      final atTopOrBeyond =
-      visible.where((p) => p.itemLeadingEdge <= kTopTolerance).toList();
+      final atTopOrBeyond = visible.where((p) => p.itemLeadingEdge <= kTopTolerance).toList();
 
       int? idx;
       if (atTopOrBeyond.isNotEmpty) {
@@ -242,8 +318,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String _zielgruppe = 'Damen';
 
   /// Auswahl als ValueNotifier -> verhindert kompletten Rebuild der Liste
-  final ValueNotifier<Map<String, _CartItem>> _selectedVN =
-  ValueNotifier<Map<String, _CartItem>>({});
+  final ValueNotifier<Map<String, _CartItem>> _selectedVN = ValueNotifier<Map<String, _CartItem>>({});
 
   Map<String, Widget> _zielgruppenSegments() {
     TextStyle label(String value) => TextStyle(
@@ -252,7 +327,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     );
     const EdgeInsets pad = EdgeInsets.symmetric(horizontal: 14, vertical: 8);
     return {
-      'Damen':  Padding(padding: pad, child: Text('Damen',  style: label('Damen'))),
+      'Damen': Padding(padding: pad, child: Text('Damen', style: label('Damen'))),
       'Herren': Padding(padding: pad, child: Text('Herren', style: label('Herren'))),
       'Kinder': Padding(padding: pad, child: Text('Kinder', style: label('Kinder'))),
     };
@@ -268,60 +343,50 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     _selectedVN.value = map; // triggert nur die Listener
   }
 
-  double? _sumSelectedPrices(Map<String, _CartItem> map) {
-    double total = 0;
-    bool hasAny = false;
-    for (final entry in map.values) {
-      if (entry.preis != null) {
-        total += entry.preis!;
-        hasAny = true;
+  /// Combo-Helper: (de)selektiert alle Einzel-Leistungen der Kombi
+  void _toggleCombo({
+    required String category,
+    required List<String> partsOriginal, // Original-Schreibweise
+    required List<String> partsLc,       // lowercased
+    required Map<String, Offer> singlesByKey, // '$cat|$partLc' -> Offer
+  }) {
+    final map = Map<String, _CartItem>.from(_selectedVN.value);
+    final keys = <String>[];
+    for (int i = 0; i < partsLc.length; i++) {
+      final k = '${category.toLowerCase()}|${partsLc[i]}';
+      keys.add(k);
+    }
+    final allSelected = keys.every(map.containsKey);
+
+    if (allSelected) {
+      for (final k in keys) {
+        map.remove(k);
+      }
+    } else {
+      for (int i = 0; i < partsLc.length; i++) {
+        final lc = partsLc[i];
+        final display = partsOriginal[i];
+        final key = '${category.toLowerCase()}|$lc';
+        if (!map.containsKey(key)) {
+          final single = singlesByKey['$category|$lc'];
+          final preis = single?.priceFor(_zielgruppe);
+          final dauer = single?.durationFor(_zielgruppe);
+          map[key] = _CartItem(
+            kategorie: category,
+            leistung: display,
+            preis: preis,
+            dauer: dauer,
+            zielgruppe: _zielgruppe,
+          );
+        }
       }
     }
-    return hasAny ? total : null;
+    _selectedVN.value = map;
   }
 
   String _formatEuro(double v) {
     final s = v.toStringAsFixed(2).replaceAll('.', ',');
     return '$s €';
-  }
-
-  double? _toDouble(dynamic v) {
-    if (v == null) return null;
-    if (v is num) return v.toDouble();
-    if (v is String) {
-      final cleaned = v.replaceAll(RegExp(r'[^0-9,.\-]'), '').replaceAll(',', '.');
-      if (cleaned.isEmpty) return null;
-      return double.tryParse(cleaned);
-    }
-    return null;
-  }
-
-  int? _toInt(dynamic v) {
-    if (v == null) return null;
-    if (v is int) return v;
-    if (v is num) return v.toInt();
-    if (v is String) {
-      final cleaned = v.replaceAll(RegExp(r'[^0-9\-]'), '');
-      if (cleaned.isEmpty) return null;
-      return int.tryParse(cleaned);
-    }
-    return null;
-  }
-
-  (double?, int?) _preisUndDauerFuerZielgruppe(Map<String, dynamic> data, String zielgruppe) {
-    double? preis;
-    int? dauer;
-    final zg = data['zielgruppen'];
-    if (zg is Map) {
-      final g = zg[zielgruppe];
-      if (g is Map) {
-        preis = _toDouble(g['preis']);
-        dauer = _toInt(g['dauer']);
-      }
-    }
-    preis ??= _toDouble(data['preis']);
-    dauer ??= _toInt(data['dauer']);
-    return (preis, dauer);
   }
 
   String _preisText(double? p) {
@@ -381,123 +446,209 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             return const Center(child: Text('Keine Angebote vorhanden.'));
           }
 
-          final Map<String, List<Map<String, dynamic>>> grouped = {};
-          for (final doc in snap.data!.docs) {
-            final data = doc.data();
-            final kategorie = (data['kategorie'] as String?)?.trim();
-            if (kategorie == null || kategorie.isEmpty) continue;
+          // ---- Docs in Modelle umwandeln, Singles/Bundles trennen ----
+          final all = snap.data!.docs.map((d) => Offer.fromDoc(d)).toList();
+          final singles = all.where((o) => !o.isBundle && o.leistungen.length == 1).toList();
+          final bundles = all.where((o) => o.isBundle && o.leistungen.length >= 2).toList();
 
-            final (preisZG, dauerZG) =
-            _preisUndDauerFuerZielgruppe(data, _zielgruppe);
-            if (preisZG == null && dauerZG == null) continue;
+          // Indexe für schnelle Zugriffe
+          final Map<String, Offer> singleIndex = {
+            for (final s in singles) '${s.kategorie}|${s.leistungenLc.first}': s
+          };
 
-            final list = (data['leistungen'] is List)
-                ? List<String>.from(data['leistungen'])
-                : <String>[];
-
-            if (list.isEmpty) {
-              final titel = (data['titel'] as String?) ?? '';
-              final parts = titel.split(RegExp(r'\s*[–—-]\s*'));
-              if (parts.length >= 2) {
-                list.add(parts.sublist(1).join(' – ').trim());
-              } else if (titel.isNotEmpty) {
-                list.add(titel.trim());
-              }
-            }
-
-            for (final l in list) {
-              final name = (l as String?)?.trim();
-              if (name == null || name.isEmpty) continue;
-              grouped.putIfAbsent(kategorie, () => []);
-              grouped[kategorie]!.add({
-                'leistung': name,
-                'preis': preisZG,
-                'dauer': dauerZG,
-              });
-            }
+          // ---- Anzeige: NUR Singles gruppiert nach Kategorie ----
+          final Map<String, List<Offer>> groupedSingles = {};
+          for (final s in singles) {
+            // Nur aufnehmen, wenn für die aktuelle Zielgruppe etwas gesetzt ist
+            final hasZg = (s.priceFor(_zielgruppe) != null) || (s.durationFor(_zielgruppe) != null);
+            if (!hasZg) continue;
+            groupedSingles.putIfAbsent(s.kategorie, () => []).add(s);
           }
 
-          final kategorien = grouped.keys.toList()
+          final kategorien = groupedSingles.keys.toList()
             ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
           final sections = <SectionData>[];
           for (final kat in kategorien) {
-            final items = grouped[kat]!
-              ..sort((a, b) => (a['leistung'] as String)
-                  .toLowerCase()
-                  .compareTo((b['leistung'] as String).toLowerCase()));
+            // ---- Singles (sichtbar) ----
+            final items = [...groupedSingles[kat]!]..sort(
+                  (a, b) => a.leistungen.first.toLowerCase().compareTo(b.leistungen.first.toLowerCase()),
+            );
 
-            final children = items.map((e) {
-              final name = e['leistung'] as String;
-              final preis = e['preis'] as double?;
-              final dauer = e['dauer'] as int?;
+            final children = <Widget>[];
+
+            for (final offer in items) {
+              final name = offer.leistungen.first;
+              final preis = offer.priceFor(_zielgruppe);
+              final dauer = offer.durationFor(_zielgruppe);
+
+              // Sicherheitsfilter: falls doch nichts hinterlegt, nicht anzeigen
+              if (preis == null && dauer == null) continue;
+
               final subtitle = '${_preisText(preis)}${_dauerText(dauer)}';
               final key = '${kat.toLowerCase()}|${name.toLowerCase()}';
 
-              // Einzelnes Tile liest die Auswahl reaktiv aus dem ValueNotifier
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: const BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(color: Color(0xFFE5E5E5)),
+              children.add(
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: Color(0xFFE5E5E5)),
+                      ),
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      // Titel + Subtitel
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              name,
-                              style: const TextStyle(
-                                  fontSize: 16, fontWeight: FontWeight.w600),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              subtitle,
-                              style: const TextStyle(
-                                  color: Colors.black54, fontSize: 13),
-                            ),
-                          ],
+                    child: Row(
+                      children: [
+                        // Titel + Subtitel
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                subtitle,
+                                style: const TextStyle(color: Colors.black54, fontSize: 13),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
 
-                      // Trailing-Icon reaktiv (nur dieser Teil baut neu)
-                      ValueListenableBuilder<Map<String, _CartItem>>(
-                        valueListenable: _selectedVN,
-                        builder: (_, map, __) {
-                          final selected = map.containsKey(key);
-                          return IconButton(
-                            onPressed: () {
-                              _toggleSelection(
-                                key,
-                                _CartItem(
-                                  kategorie: kat,
-                                  leistung: name,
-                                  preis: preis,
-                                  dauer: dauer,
-                                  zielgruppe: _zielgruppe,
-                                ),
-                              );
-                            },
-                            icon: Icon(
-                              selected
-                                  ? Icons.check_circle
-                                  : Icons.add_circle_outline,
-                            ),
-                            color: selected ? Colors.blueAccent : null,
-                          );
-                        },
-                      ),
-                    ],
+                        // Trailing-Icon reaktiv (nur dieser Teil baut neu)
+                        ValueListenableBuilder<Map<String, _CartItem>>(
+                          valueListenable: _selectedVN,
+                          builder: (_, map, __) {
+                            final selected = map.containsKey(key);
+                            return IconButton(
+                              onPressed: () {
+                                _toggleSelection(
+                                  key,
+                                  _CartItem(
+                                    kategorie: kat,
+                                    leistung: name,
+                                    preis: preis,
+                                    dauer: dauer,
+                                    zielgruppe: _zielgruppe,
+                                  ),
+                                );
+                              },
+                              icon: Icon(selected ? Icons.check_circle : Icons.add_circle_outline),
+                              color: selected ? Colors.blueAccent : null,
+                            );
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               );
-            }).toList();
+            }
+
+            // ---- Kombi-Angebote (nur wenn mindestens 1 Teil fehlt) ----
+            final combosForCat = bundles.where((b) => b.kategorie == kat).toList()
+              ..sort((a, b) => a.leistungen.join(' & ').toLowerCase().compareTo(b.leistungen.join(' & ').toLowerCase()));
+
+            final combosToShow = <Offer>[];
+            for (final combo in combosForCat) {
+              // Für die Zielgruppe muss es Daten geben
+              final hasZg = (combo.priceFor(_zielgruppe) != null) || (combo.durationFor(_zielgruppe) != null);
+              if (!hasZg) continue;
+
+              // Prüfen, ob ALLE Teile als Single existieren (mit Daten für ZG)
+              final allPartsHaveSingle = combo.leistungenLc.every((partLc) {
+                final s = singleIndex['$kat|$partLc'];
+                if (s == null) return false;
+                return (s.priceFor(_zielgruppe) != null) || (s.durationFor(_zielgruppe) != null);
+              });
+
+              // Nur zeigen, wenn mindestens ein Teil fehlt
+              if (!allPartsHaveSingle) combosToShow.add(combo);
+            }
+
+            if (combosToShow.isNotEmpty) {
+              // Subheader
+              children.add(
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: Text(
+                    'Kombi-Angebote',
+                    style: TextStyle(
+                      color: Colors.black.withOpacity(.55),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              );
+
+              for (final combo in combosToShow) {
+                final preis = combo.priceFor(_zielgruppe);
+                final dauer = combo.durationFor(_zielgruppe);
+                final subtitle = '${_preisText(preis)}${_dauerText(dauer)}';
+                final displayName = combo.leistungen.join(' & '); // „Schneiden & Waschen“
+
+                children.add(
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: const BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(color: Color(0xFFE5E5E5)),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          // Titel + Subtitel
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  displayName,
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  subtitle,
+                                  style: const TextStyle(color: Colors.black54, fontSize: 13),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Status = ausgewählt, wenn ALLE Teile ausgewählt sind
+                          ValueListenableBuilder<Map<String, _CartItem>>(
+                            valueListenable: _selectedVN,
+                            builder: (_, map, __) {
+                              final allSelected = combo.leistungenLc.every(
+                                    (lc) => map.containsKey('${kat.toLowerCase()}|$lc'),
+                              );
+                              return IconButton(
+                                onPressed: () {
+                                  _toggleCombo(
+                                    category: kat,
+                                    partsOriginal: combo.leistungen,
+                                    partsLc: combo.leistungenLc,
+                                    singlesByKey: singleIndex,
+                                  );
+                                },
+                                icon: Icon(allSelected ? Icons.check_circle : Icons.add_circle_outline),
+                                color: allSelected ? Colors.blueAccent : null,
+                                tooltip: 'Kombi auswählen',
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }
+            }
 
             if (children.isNotEmpty) {
               sections.add(SectionData(kat, children));
@@ -510,19 +661,76 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             initialIndex = kategorien.indexOf(selKat);
           }
 
+          // ---- Hilfsfunktion: Total mit Bundle-Override berechnen ----
+          double computeTotal(Map<String, _CartItem> map) {
+            if (map.isEmpty) return 0.0;
+
+            // Auswahl nach Kategorie bündeln
+            final byCat = <String, List<String>>{};
+            map.forEach((key, item) {
+              final cat = item.kategorie;
+              byCat.putIfAbsent(cat, () => []).add(item.leistung);
+            });
+
+            double total = 0.0;
+
+            byCat.forEach((cat, titles) {
+              final titlesLc = titles.map((e) => e.toLowerCase()).toList()..sort();
+
+              // Greedy: größte Bundles zuerst
+              final catBundles = bundles.where((b) => b.kategorie == cat).toList()
+                ..sort((a, b) => b.leistungenLc.length.compareTo(a.leistungenLc.length));
+
+              final used = List<bool>.filled(titlesLc.length, false);
+
+              // Versuche Bundles zu „legen“
+              for (final b in catBundles) {
+                final needed = b.leistungenLc;
+                final idxs = <int>[];
+
+                for (final n in needed) {
+                  int found = -1;
+                  for (int i = 0; i < titlesLc.length; i++) {
+                    if (!used[i] && titlesLc[i] == n) {
+                      found = i;
+                      break;
+                    }
+                  }
+                  if (found == -1) {
+                    idxs.clear();
+                    break;
+                  }
+                  idxs.add(found);
+                }
+
+                if (idxs.isNotEmpty && idxs.length == needed.length) {
+                  for (final i in idxs) used[i] = true;
+                  total += (b.priceFor(_zielgruppe) ?? 0.0);
+                }
+              }
+
+              // Restliche Singles
+              for (int i = 0; i < titlesLc.length; i++) {
+                if (!used[i]) {
+                  final single = singleIndex['$cat|${titlesLc[i]}'];
+                  if (single != null) total += (single.priceFor(_zielgruppe) ?? 0.0);
+                }
+              }
+            });
+
+            return total;
+          }
+
           // Inhalt + fixierte Bottom-Bar
           return Stack(
             children: [
-              // WICHTIG: fester extraBottom -> kein Layout-Shift -> kein „nach oben springen“
-              const LinkedChipsWithSections(
-                sections: [], // Placeholder, wird unten ersetzt
-              ),
+              // Platzhalter
+              const LinkedChipsWithSections(sections: []),
 
-              // Wir müssen das echte Widget mit Daten rendern:
+              // Echte Liste
               LinkedChipsWithSections(
                 sections: sections,
                 initialIndex: initialIndex,
-                // Immer Platz für die Bottom-Bar lassen, auch wenn sie (noch) unsichtbar ist
                 extraBottom: kBottomBarHeight + 12,
               ),
 
@@ -535,7 +743,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   valueListenable: _selectedVN,
                   builder: (context, map, _) {
                     final hasSelection = map.isNotEmpty;
-                    final total = _sumSelectedPrices(map);
+                    final total = hasSelection ? computeTotal(map) : 0.0;
                     return IgnorePointer(
                       ignoring: !hasSelection,
                       child: AnimatedContainer(
@@ -550,12 +758,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             count: map.length,
                             total: total,
                             onPressed: () {
-                              // TODO: zur Buchungs-/Checkout-Seite navigieren
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text(
-                                    'Zur Buchung (${map.length})',
-                                  ),
+                                  content: Text('Zur Buchung (${map.length}) – ${_formatEuro(total)}'),
                                 ),
                               );
                             },
@@ -614,17 +819,18 @@ class _BookingBar extends StatelessWidget {
               clipBehavior: Clip.none,
               children: [
                 Container(
-                  width: 36, height: 36,
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(.18),
                     shape: BoxShape.circle,
                   ),
                   alignment: Alignment.center,
-                  child: const Icon(Icons.shopping_basket_outlined,
-                      size: 22, color: Colors.white),
+                  child: const Icon(Icons.shopping_basket_outlined, size: 22, color: Colors.white),
                 ),
                 Positioned(
-                  right: -3, top: -3,
+                  right: -3,
+                  top: -3,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(

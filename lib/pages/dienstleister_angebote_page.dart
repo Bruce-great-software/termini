@@ -2,10 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+// NEU: Dialog importieren
+import '../widgets/leistung_erstellen_dialog.dart';
+
+
 class DienstleisterAngebotePage extends StatelessWidget {
   const DienstleisterAngebotePage({super.key});
 
-  // ---------- Helfer: Preis/Dauer aus Dokument ------------------------------
+  // ------------------ Helfer ------------------
   double? _toDouble(dynamic v) {
     if (v == null) return null;
     if (v is num) return v.toDouble();
@@ -27,8 +31,6 @@ class DienstleisterAngebotePage extends StatelessWidget {
     return null;
   }
 
-  /// Ermittelt den kleinsten Preis & die kleinste Dauer über alle Zielgruppen
-  /// (oder nutzt die Felder `preis`/`dauer`, falls vorhanden).
   (double?, int?) _minPreisUndDauer(Map<String, dynamic> data) {
     double? preis = _toDouble(data['preis']);
     int? dauer = _toInt(data['dauer']);
@@ -37,7 +39,6 @@ class DienstleisterAngebotePage extends StatelessWidget {
       final zg = Map<String, dynamic>.from(data['zielgruppen']);
       final preise = <double>[];
       final dauern = <int>[];
-
       for (final entry in zg.values) {
         if (entry is Map) {
           final p = _toDouble(entry['preis']);
@@ -66,34 +67,31 @@ class DienstleisterAngebotePage extends StatelessWidget {
 
   String _dauerText(int? d) => d == null ? '' : ' • ${d.toString()} Min';
 
-  /// Fallback-Titel aus Kategorie + Leistungen, wenn `titel` fehlt.
   String _fallbackTitel(Map<String, dynamic> data) {
     final kat = (data['kategorie'] as String?)?.trim() ?? 'Sonstiges';
     final ls = (data['leistungen'] is List)
-        ? List<String>.from(data['leistungen']).where((e) => e.trim().isNotEmpty).toList()
+        ? List<String>.from(data['leistungen'])
+        .where((e) => e.trim().isNotEmpty)
+        .toList()
         : <String>[];
     if (ls.isEmpty) return kat;
     return '$kat – ${ls.join(' & ')}';
   }
 
-  // --------------------------------------------------------------------------
-
+  // ------------------ UI ------------------
   @override
   Widget build(BuildContext context) {
-    final String? dienstleisterId = FirebaseAuth.instance.currentUser?.uid;
-    if (dienstleisterId == null) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
       return const Scaffold(body: Center(child: Text('Nicht eingeloggt')));
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Meine Leistungen'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('Meine Leistungen'), centerTitle: true),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: FirebaseFirestore.instance
             .collection('angebote')
-            .where('dienstleisterId', isEqualTo: dienstleisterId)
+            .where('dienstleisterId', isEqualTo: uid)
             .snapshots(),
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
@@ -103,8 +101,9 @@ class DienstleisterAngebotePage extends StatelessWidget {
             return const Center(child: Text('Noch keine Leistungen erstellt.'));
           }
 
-          // Nach Kategorie gruppieren
-          final grouped = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+          // Gruppieren nach Kategorie
+          final grouped =
+          <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
           for (final doc in snap.data!.docs) {
             final data = doc.data();
             final kat = (data['kategorie'] as String?)?.trim();
@@ -116,20 +115,24 @@ class DienstleisterAngebotePage extends StatelessWidget {
             ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
           final children = <Widget>[];
+
           for (final kat in kategorien) {
             final docs = grouped[kat]!..sort((a, b) {
-              final at = (a.data()['titel'] as String?) ?? _fallbackTitel(a.data());
-              final bt = (b.data()['titel'] as String?) ?? _fallbackTitel(b.data());
+              final at =
+                  (a.data()['titel'] as String?) ?? _fallbackTitel(a.data());
+              final bt =
+                  (b.data()['titel'] as String?) ?? _fallbackTitel(b.data());
               return at.toLowerCase().compareTo(bt.toLowerCase());
             });
 
-            // Kategorien-Header (blauer Balken)
+            // Kategorienbalken
             children.add(
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
                     color: Colors.blueAccent,
                     borderRadius: BorderRadius.circular(8),
@@ -146,12 +149,14 @@ class DienstleisterAngebotePage extends StatelessWidget {
               ),
             );
 
-            // Einträge der Kategorie
+            // Einträge
             for (final doc in docs) {
               final data = doc.data();
-              final titel = (data['titel'] as String?) ?? _fallbackTitel(data);
+              final titel =
+                  (data['titel'] as String?) ?? _fallbackTitel(data);
               final (minPreis, minDauer) = _minPreisUndDauer(data);
-              final subtitle = '${_preisText(minPreis)}${_dauerText(minDauer)}';
+              final subtitle =
+                  '${_preisText(minPreis)}${_dauerText(minDauer)}';
 
               children.add(
                 Padding(
@@ -165,6 +170,7 @@ class DienstleisterAngebotePage extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
+                        // Titel + Subtitel
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -179,39 +185,21 @@ class DienstleisterAngebotePage extends StatelessWidget {
                               const SizedBox(height: 4),
                               Text(
                                 subtitle,
-                                style: const TextStyle(color: Colors.black54, fontSize: 13),
+                                style: const TextStyle(
+                                    color: Colors.black54, fontSize: 13),
                               ),
                             ],
                           ),
                         ),
+                        // „…“ -> Bottom Sheet
                         IconButton(
-                          tooltip: 'Löschen',
-                          icon: const Icon(Icons.delete_outline),
-                          onPressed: () async {
-                            final ok = await showDialog<bool>(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: const Text('Angebot löschen?'),
-                                content: Text('„$titel“ wirklich löschen?'),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(ctx, false),
-                                    child: const Text('Abbrechen'),
-                                  ),
-                                  FilledButton(
-                                    onPressed: () => Navigator.pop(ctx, true),
-                                    child: const Text('Löschen'),
-                                  ),
-                                ],
-                              ),
-                            );
-                            if (ok == true) {
-                              await FirebaseFirestore.instance
-                                  .collection('angebote')
-                                  .doc(doc.id)
-                                  .delete();
-                            }
-                          },
+                          icon: const Icon(Icons.more_vert, color: Colors.black38),
+                          onPressed: () => _showMehrSheetForDoc(
+                            context: context,
+                            docId: doc.id,
+                            data: data,
+                            titel: titel,
+                          ),
                         ),
                       ],
                     ),
@@ -228,6 +216,64 @@ class DienstleisterAngebotePage extends StatelessWidget {
             children: children,
           );
         },
+      ),
+    );
+  }
+
+  // ----- Bottom Sheet für einen Doc -----
+  void _showMehrSheetForDoc({
+    required BuildContext context,
+    required String docId,
+    required Map<String, dynamic> data,
+    required String titel,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit),
+              title: const Text('Bearbeiten'),
+              onTap: () async {
+                Navigator.pop(ctx); // Sheet zu
+                await showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (_) => LeistungErstellenDialog(
+                    angebotId: docId,
+                    initialData: data,
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete, color: Colors.red),
+              title: const Text('Löschen',
+                  style: TextStyle(color: Colors.red)),
+              onTap: () async {
+                Navigator.pop(ctx); // Sheet zu
+                await FirebaseFirestore.instance
+                    .collection('angebote')
+                    .doc(docId)
+                    .delete();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('„$titel“ gelöscht')),
+                  );
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.close),
+              title: const Text('Abbrechen'),
+              onTap: () => Navigator.pop(ctx),
+            ),
+          ],
+        ),
       ),
     );
   }
