@@ -5,23 +5,25 @@ class AdminLeistungErstellenPage extends StatefulWidget {
   const AdminLeistungErstellenPage({super.key});
 
   @override
-  State<AdminLeistungErstellenPage> createState() => _AdminLeistungErstellenPageState();
+  State<AdminLeistungErstellenPage> createState() =>
+      _AdminLeistungErstellenPageState();
 }
 
-class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage> {
+class _AdminLeistungErstellenPageState
+    extends State<AdminLeistungErstellenPage> {
   final TextEditingController _leistungsController = TextEditingController();
   final TextEditingController _kategorieController = TextEditingController();
-  final TextEditingController _variantenController = TextEditingController(); // NEW
+  final TextEditingController _variantenController = TextEditingController();
 
   List<String> _leistungen = [];
   List<String> _leistungskategorien = [];
   List<String> _branchen = [];
-  List<String> _varianten = []; // NEW
+  List<String> _varianten = [];
 
   List<String> _ausgewaehlteLeistungen = [];
   List<String> _ausgewaehlteLeistungskategorien = [];
   List<String> _ausgewaehlteBranchen = [];
-  List<String> _ausgewaehlteVarianten = []; // NEW
+  List<String> _ausgewaehlteVarianten = [];
 
   @override
   void initState() {
@@ -30,16 +32,21 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
   }
 
   Future<void> _ladeDaten() async {
-    final leistungenSnapshot = await FirebaseFirestore.instance.collection('leistungen').get();
-    final kategorienSnapshot = await FirebaseFirestore.instance.collection('leistungskategorien').get();
-    final branchenSnapshot = await FirebaseFirestore.instance.collection('branchen').get();
-    final variantenSnapshot = await FirebaseFirestore.instance.collection('varianten').get(); // NEW
+    final leistungenSnapshot =
+    await FirebaseFirestore.instance.collection('leistungen').get();
+    final kategorienSnapshot =
+    await FirebaseFirestore.instance.collection('leistungskategorien').get();
+    final branchenSnapshot =
+    await FirebaseFirestore.instance.collection('branchen').get();
+    final variantenSnapshot =
+    await FirebaseFirestore.instance.collection('varianten').get();
 
     setState(() {
       _leistungen = leistungenSnapshot.docs.map((doc) => doc.id).toList();
-      _leistungskategorien = kategorienSnapshot.docs.map((doc) => doc.id).toList();
+      _leistungskategorien =
+          kategorienSnapshot.docs.map((doc) => doc.id).toList();
       _branchen = branchenSnapshot.docs.map((doc) => doc.id).toList();
-      _varianten = variantenSnapshot.docs.map((doc) => doc.id).toList(); // NEW
+      _varianten = variantenSnapshot.docs.map((doc) => doc.id).toList();
     });
   }
 
@@ -47,11 +54,12 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
     final name = titel.trim();
     if (name.isEmpty) return;
 
-    final docRef = FirebaseFirestore.instance.collection('leistungen').doc(name);
+    final docRef =
+    FirebaseFirestore.instance.collection('leistungen').doc(name);
     await docRef.set({
       'titel': name,
       'created_at': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
 
     setState(() => _leistungen.add(name));
     _leistungsController.clear();
@@ -62,54 +70,126 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
     if (name.isEmpty) return;
 
     final aktuelleBranchen = List<String>.from(_ausgewaehlteBranchen);
-    final docRef = FirebaseFirestore.instance.collection('leistungskategorien').doc(name);
+    final docRef =
+    FirebaseFirestore.instance.collection('leistungskategorien').doc(name);
     await docRef.set({
       'titel': name,
       'created_at': FieldValue.serverTimestamp(),
       'branchen': aktuelleBranchen,
-    });
+    }, SetOptions(merge: true));
 
     setState(() => _leistungskategorien.add(name));
     _kategorieController.clear();
   }
 
-  // NEW: Varianten anlegen (wird in Sammlung "varianten" gespeichert)
   Future<void> _varianteHinzufuegen(String titel) async {
     final name = titel.trim();
     if (name.isEmpty) return;
 
-    final docRef = FirebaseFirestore.instance.collection('varianten').doc(name);
+    final docRef =
+    FirebaseFirestore.instance.collection('varianten').doc(name);
     await docRef.set({
       'titel': name,
       'created_at': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
 
     setState(() => _varianten.add(name));
     _variantenController.clear();
   }
 
+  /// Speichert alle Relationen:
+  /// - leistungen/{L}: branchen[], leistungskategorien[], varianten[] (flach)
+  /// - leistungen/{L}: variantenByKategorie.{Kategorie}[] (kategorie-spezifisch)
+  /// - leistungskategorien/{K}: branchen[], leistungen[], varianten[]
+  /// - varianten/{V}: leistungen[], leistungskategorien[], branchen[]
   Future<void> _zuordnungSpeichern() async {
-    // (Unverändert) – hier bleibt vorerst nur die bestehende Zuordnung;
-    // Varianten-Zuordnung bauen wir in einem nächsten Schritt ein.
-    for (var leistung in _ausgewaehlteLeistungen) {
-      await FirebaseFirestore.instance.collection('leistungen').doc(leistung).update({
-        'leistungskategorien': _ausgewaehlteLeistungskategorien,
-        'branchen': _ausgewaehlteBranchen,
-      });
+    if (_ausgewaehlteLeistungen.isEmpty ||
+        _ausgewaehlteLeistungskategorien.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Bitte mindestens eine Leistung *und* eine Leistungskategorie wählen.'),
+        ),
+      );
+      return;
     }
 
-    for (var kategorie in _ausgewaehlteLeistungskategorien) {
-      await FirebaseFirestore.instance.collection('leistungskategorien').doc(kategorie).update({
-        'branchen': _ausgewaehlteBranchen,
-      });
+    final batch = FirebaseFirestore.instance.batch();
+    final hasVarianten = _ausgewaehlteVarianten.isNotEmpty;
+
+    // ---- Leistungen aktualisieren ----
+    for (final leistung in _ausgewaehlteLeistungen) {
+      final refLeistung =
+      FirebaseFirestore.instance.collection('leistungen').doc(leistung);
+
+      // Grunddaten + flache Variantenrelation
+      final baseData = <String, dynamic>{
+        'titel': leistung,
+        'leistungskategorien':
+        FieldValue.arrayUnion(_ausgewaehlteLeistungskategorien),
+        'branchen': FieldValue.arrayUnion(_ausgewaehlteBranchen),
+        if (hasVarianten) 'varianten': FieldValue.arrayUnion(_ausgewaehlteVarianten),
+      };
+      batch.set(refLeistung, baseData, SetOptions(merge: true));
+
+      // Kategorie-spezifische Varianten
+      if (hasVarianten) {
+        final Map<String, dynamic> nested = {};
+        for (final kat in _ausgewaehlteLeistungskategorien) {
+          nested['variantenByKategorie.$kat'] =
+              FieldValue.arrayUnion(_ausgewaehlteVarianten);
+        }
+        batch.set(refLeistung, nested, SetOptions(merge: true));
+      }
     }
+
+    // ---- Kategorien aktualisieren (bidirektional) ----
+    for (final kat in _ausgewaehlteLeistungskategorien) {
+      final refKat = FirebaseFirestore.instance
+          .collection('leistungskategorien')
+          .doc(kat);
+
+      batch.set(
+        refKat,
+        {
+          'branchen': FieldValue.arrayUnion(_ausgewaehlteBranchen),
+          'leistungen': FieldValue.arrayUnion(_ausgewaehlteLeistungen),
+          if (hasVarianten) 'varianten': FieldValue.arrayUnion(_ausgewaehlteVarianten),
+        },
+        SetOptions(merge: true),
+      );
+    }
+
+    // ---- Varianten ebenfalls mit Meta-Relationen versorgen ----
+    if (hasVarianten) {
+      for (final v in _ausgewaehlteVarianten) {
+        final refVar =
+        FirebaseFirestore.instance.collection('varianten').doc(v);
+        batch.set(
+          refVar,
+          {
+            'leistungen': FieldValue.arrayUnion(_ausgewaehlteLeistungen),
+            'leistungskategorien':
+            FieldValue.arrayUnion(_ausgewaehlteLeistungskategorien),
+            'branchen': FieldValue.arrayUnion(_ausgewaehlteBranchen),
+          },
+          SetOptions(merge: true),
+        );
+      }
+    }
+
+    await batch.commit();
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Zuordnung erfolgreich gespeichert')),
     );
   }
 
-  Widget _baueChips(List<String> items, List<String> ausgewaehlt, void Function(String) onChanged) {
+  Widget _baueChips(
+      List<String> items,
+      List<String> ausgewaehlt,
+      void Function(String) onChanged,
+      ) {
     items.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return Wrap(
       spacing: 8,
@@ -187,13 +267,15 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
                 ),
               ),
               IconButton(
-                onPressed: () => _kategorieHinzufuegen(_kategorieController.text),
+                onPressed: () =>
+                    _kategorieHinzufuegen(_kategorieController.text),
                 icon: const Icon(Icons.add),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          _baueChips(_leistungskategorien, _ausgewaehlteLeistungskategorien, (_) {}),
+          _baueChips(
+              _leistungskategorien, _ausgewaehlteLeistungskategorien, (_) {}),
 
           const SizedBox(height: 24),
 
@@ -205,11 +287,13 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
               Expanded(
                 child: TextField(
                   controller: _leistungsController,
-                  decoration: const InputDecoration(hintText: "z. B. Schneiden"),
+                  decoration:
+                  const InputDecoration(hintText: "z. B. Schneiden"),
                 ),
               ),
               IconButton(
-                onPressed: () => _leistungHinzufuegen(_leistungsController.text),
+                onPressed: () =>
+                    _leistungHinzufuegen(_leistungsController.text),
                 icon: const Icon(Icons.add),
               ),
             ],
@@ -219,7 +303,7 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
 
           const SizedBox(height: 24),
 
-          // 4) Varianten (NEU)
+          // 4) Varianten
           const Text("Varianten hinzufügen"),
           const SizedBox(height: 8),
           Row(
@@ -227,11 +311,13 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
               Expanded(
                 child: TextField(
                   controller: _variantenController,
-                  decoration: const InputDecoration(hintText: "z. B. Fadentechnik / Pinzette / Klassisch"),
+                  decoration: const InputDecoration(
+                      hintText: "z. B. Faden / Zupfen / Klassisch"),
                 ),
               ),
               IconButton(
-                onPressed: () => _varianteHinzufuegen(_variantenController.text),
+                onPressed: () =>
+                    _varianteHinzufuegen(_variantenController.text),
                 icon: const Icon(Icons.add),
               ),
             ],
@@ -261,15 +347,25 @@ class _AdminLeistungErstellenPageState extends State<AdminLeistungErstellenPage>
             padding: EdgeInsets.only(bottom: 12),
             child: Row(
               children: [
-                Expanded(child: Text("Leistungskategorie", style: TextStyle(fontWeight: FontWeight.bold))),
-                SizedBox(width: 100, child: Text("Zielgruppen", style: TextStyle(fontWeight: FontWeight.bold))),
-                SizedBox(width: 100, child: Text("Varianten", style: TextStyle(fontWeight: FontWeight.bold))),
+                Expanded(
+                    child: Text("Leistungskategorie",
+                        style: TextStyle(fontWeight: FontWeight.bold))),
+                SizedBox(
+                    width: 100,
+                    child: Text("Zielgruppen",
+                        style: TextStyle(fontWeight: FontWeight.bold))),
+                SizedBox(
+                    width: 100,
+                    child: Text("Varianten",
+                        style: TextStyle(fontWeight: FontWeight.bold))),
               ],
             ),
           ),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('leistungskategorien').snapshots(),
+              stream: FirebaseFirestore.instance
+                  .collection('leistungskategorien')
+                  .snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
