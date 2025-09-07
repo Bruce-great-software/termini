@@ -106,10 +106,9 @@ class _AdminLeistungErstellenPageState
     if (_ausgewaehlteLeistungen.isEmpty ||
         _ausgewaehlteLeistungskategorien.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-              'Bitte mindestens eine Leistung *und* eine Leistungskategorie wählen.'),
-        ),
+        const SnackBar(content: Text(
+          'Bitte mindestens eine Leistung *und* eine Leistungskategorie wählen.',
+        )),
       );
       return;
     }
@@ -122,7 +121,7 @@ class _AdminLeistungErstellenPageState
       final refLeistung =
       FirebaseFirestore.instance.collection('leistungen').doc(leistung);
 
-      // Grunddaten + flache Variantenrelation
+      // Grunddaten + flache Varianten-Relation
       final baseData = <String, dynamic>{
         'titel': leistung,
         'leistungskategorien':
@@ -132,15 +131,9 @@ class _AdminLeistungErstellenPageState
       };
       batch.set(refLeistung, baseData, SetOptions(merge: true));
 
-      // Kategorie-spezifische Varianten
-      if (hasVarianten) {
-        final Map<String, dynamic> nested = {};
-        for (final kat in _ausgewaehlteLeistungskategorien) {
-          nested['variantenByKategorie.$kat'] =
-              FieldValue.arrayUnion(_ausgewaehlteVarianten);
-        }
-        batch.set(refLeistung, nested, SetOptions(merge: true));
-      }
+      // ❌ verschachtelte variantenByKategorie.* NICHT mehr schreiben
+      // ✅ optional vorhandenes Feld bereinigen
+      batch.update(refLeistung, {'variantenByKategorie': FieldValue.delete()});
     }
 
     // ---- Kategorien aktualisieren (bidirektional) ----
@@ -163,8 +156,7 @@ class _AdminLeistungErstellenPageState
     // ---- Varianten ebenfalls mit Meta-Relationen versorgen ----
     if (hasVarianten) {
       for (final v in _ausgewaehlteVarianten) {
-        final refVar =
-        FirebaseFirestore.instance.collection('varianten').doc(v);
+        final refVar = FirebaseFirestore.instance.collection('varianten').doc(v);
         batch.set(
           refVar,
           {
@@ -184,6 +176,7 @@ class _AdminLeistungErstellenPageState
       const SnackBar(content: Text('Zuordnung erfolgreich gespeichert')),
     );
   }
+
 
   Widget _baueChips(
       List<String> items,

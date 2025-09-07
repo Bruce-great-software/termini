@@ -3,7 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class LeistungErstellenDialog extends StatefulWidget {
-  /// Wenn [angebotId] gesetzt ist, läuft der Dialog im Edit-Modus.
   final String? angebotId;
   final Map<String, dynamic>? initialData;
 
@@ -28,6 +27,9 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
   List<String> leistungen = [];
   List<String> ausgewaehlteLeistungen = [];
 
+  /// Ausgewählte Variante je Leistung (max. 1)
+  final Map<String, String> _varianteProLeistung = {};
+
   // Step 3 – Preis & Dauer pro Zielgruppe (einheitlich)
   final Map<String, TextEditingController> preisController = {
     'Damen': TextEditingController(),
@@ -42,7 +44,7 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
 
   static const List<String> _zielgruppen = ['Damen', 'Herren', 'Kinder'];
 
-  bool _saving = false; // Doppelklick/Mehrfachspeichern verhindern
+  bool _saving = false;
 
   bool get _isEdit => widget.angebotId != null;
 
@@ -70,7 +72,6 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
     }
 
     if (_isEdit && widget.initialData != null) {
-      // Prefill nach Branchen-Ladung
       await _prefillFromInitial(widget.initialData!);
     }
   }
@@ -79,25 +80,23 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
     final kat = (d['kategorie'] as String?)?.trim();
     if (kat != null && kat.isNotEmpty) {
       setState(() => ausgewaehlteLeistungskategorie = kat);
-      await _ladeLeistungenZurKategorie(kat); // lädt Chip-Liste
+      await _ladeLeistungenZurKategorie(kat);
     }
 
-    // Ausgewählte Leistungen aus Doc ziehen
-    List<String> ls = [];
+    // Leistungen + Varianten vorfüllen (wenn vorhanden)
     if (d['leistungenSortiert'] is List) {
-      ls = List<String>.from(d['leistungenSortiert']);
+      ausgewaehlteLeistungen =
+      List<String>.from(d['leistungenSortiert'] as List);
     } else if (d['leistungen'] is List) {
-      ls = List<String>.from(d['leistungen']);
-    } else {
-      final titel = (d['titel'] as String? ?? '');
-      final parts = titel.split(RegExp(r'\s*[–—-]\s*'));
-      if (parts.length >= 2) {
-        ls = [parts.sublist(1).join(' – ').trim()];
-      } else if (titel.isNotEmpty) {
-        ls = [titel.trim()];
-      }
+      ausgewaehlteLeistungen = List<String>.from(d['leistungen'] as List);
     }
-    setState(() => ausgewaehlteLeistungen = ls);
+
+    if (d['variantenProLeistung'] is Map) {
+      _varianteProLeistung
+        ..clear()
+        ..addAll((d['variantenProLeistung'] as Map)
+            .map((k, v) => MapEntry(k.toString(), v.toString())));
+    }
 
     // Zielgruppen vorfüllen
     if (d['zielgruppen'] is Map) {
@@ -112,6 +111,7 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
         }
       }
     }
+    setState(() {});
   }
 
   Future<void> _ladeLeistungenZurKategorie(String leistungskategorie) async {
@@ -124,16 +124,18 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
       final lsks = List<String>.from(data['leistungskategorien'] ?? []);
       return lsks.contains(leistungskategorie);
     })
-        .map((doc) {
-      final titel = doc.data()['titel'] ?? doc.id;
-      return titel.toString();
-    })
+        .map((doc) => (doc.data()['titel'] ?? doc.id).toString())
         .toList();
 
     setState(() {
       leistungen = gefilterteLeistungen;
-      // NICHT die Auswahl löschen, wenn wir aus Prefill kommen
-      if (!_isEdit) ausgewaehlteLeistungen.clear();
+      if (!_isEdit) {
+        ausgewaehlteLeistungen.clear();
+        _varianteProLeistung.clear();
+      } else {
+        // bei Prefill alte Varianten entfernen, die nicht mehr zur Liste gehören
+        _varianteProLeistung.removeWhere((k, _) => !leistungen.contains(k));
+      }
     });
   }
 
@@ -171,16 +173,14 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                   final titel = data['titel'] ?? doc.id;
                   final selected = ausgewaehlteLeistungskategorie == titel;
                   return ChoiceChip(
-                    label: Text(titel,
-                        style: const TextStyle(color: Colors.white)),
+                    label:
+                    Text(titel, style: const TextStyle(color: Colors.white)),
                     selected: selected,
                     selectedColor: Colors.blue,
                     backgroundColor: Colors.blue.shade100,
                     onSelected: (_) async {
                       setState(() => ausgewaehlteLeistungskategorie = titel);
                       await _ladeLeistungenZurKategorie(titel);
-                      // Bei manueller Kategorie-Auswahl alte Auswahl leeren
-                      setState(() => ausgewaehlteLeistungen.clear());
                     },
                   );
                 }).toList(),
@@ -189,6 +189,115 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
           ),
       ],
     );
+  }
+
+  // ---------- Varianten laden / Sheet ----------
+  Future<List<String>> _ladeVariantenFuerLeistung(String leistungstitel) async {
+    final snap = await FirebaseFirestore.instance
+        .collection('leistungen')
+        .doc(leistungstitel)
+        .get();
+
+    if (!snap.exists) return [];
+    final data = snap.data() as Map<String, dynamic>;
+    return (data['varianten'] is List)
+        ? List<String>.from(data['varianten'])
+        : <String>[];
+  }
+
+  Future<String?> _zeigeVariantenSheet(
+      BuildContext context,
+      String leistung,
+      List<String> varianten,
+      ) async {
+    String? selected = _varianteProLeistung[leistung];
+
+    return await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: false,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheet) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Variante wählen – $leistung',
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 8),
+                    ...varianten.map(
+                          (v) => RadioListTile<String>(
+                        value: v,
+                        groupValue: selected,
+                        title: Text(v),
+                        onChanged: (val) => setSheet(() => selected = val),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Abbrechen'),
+                        ),
+                        const Spacer(),
+                        ElevatedButton(
+                          onPressed: (selected == null)
+                              ? null
+                              : () => Navigator.pop(ctx, selected),
+                          child: const Text('Übernehmen'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Auswahl-Logik ausschließlich über das Plus-/Häkchen-Icon
+  Future<void> _toggleLeistung(String leistung) async {
+    final already = ausgewaehlteLeistungen.contains(leistung);
+    if (already) {
+      // abwählen
+      setState(() {
+        ausgewaehlteLeistungen.remove(leistung);
+        _varianteProLeistung.remove(leistung);
+      });
+      return;
+    }
+
+    // prüfen, ob Varianten existieren
+    final varianten = await _ladeVariantenFuerLeistung(leistung);
+
+    if (varianten.isEmpty) {
+      // direkte Auswahl ohne Varianten
+      setState(() => ausgewaehlteLeistungen.add(leistung));
+    } else {
+      final chosen = await _zeigeVariantenSheet(context, leistung, varianten);
+      if (chosen != null) {
+        setState(() {
+          _varianteProLeistung[leistung] = chosen;
+          ausgewaehlteLeistungen.add(leistung);
+        });
+      }
+    }
+  }
+
+  String _anzeigeName(String leistung) {
+    final v = _varianteProLeistung[leistung];
+    return v == null ? leistung : '$leistung ($v)';
   }
 
   // ---------- Step 2: Leistungen ----------
@@ -211,34 +320,58 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
       children: [
         ...leistungen.map((leistung) {
           final selected = ausgewaehlteLeistungen.contains(leistung);
-          return CheckboxListTile(
+          final variante = _varianteProLeistung[leistung];
+
+          return ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
             title: Text(leistung, style: const TextStyle(color: Colors.blue)),
-            value: selected,
-            activeColor: Colors.blue,
-            checkColor: Colors.white,
-            onChanged: (value) {
-              setState(() {
-                if (value == true) {
-                  ausgewaehlteLeistungen.add(leistung);
-                } else {
-                  ausgewaehlteLeistungen.remove(leistung);
-                }
-              });
-            },
+            // ▼▼▼ Hier: Chip mit "x" zum Entfernen ▼▼▼
+            subtitle: (variante == null)
+                ? null
+                : Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  Chip(
+                    label: Text(variante),
+                    onDeleted: () {
+                      setState(() {
+                        // Variante entfernen und Leistung abwählen
+                        _varianteProLeistung.remove(leistung);
+                        ausgewaehlteLeistungen.remove(leistung);
+                      });
+                    },
+                    deleteIcon: const Icon(Icons.close),
+                    deleteIconColor: Colors.grey,
+                  ),
+                ],
+              ),
+            ),
+            // Auswahl nur über das Icon (kein onTap)
+            trailing: IconButton(
+              tooltip: selected ? 'Entfernen' : 'Hinzufügen',
+              onPressed: () => _toggleLeistung(leistung),
+              icon: Icon(
+                selected ? Icons.check_circle : Icons.add_circle_outline,
+                color: selected ? Colors.green : Colors.blue,
+              ),
+            ),
           );
         }),
         const SizedBox(height: 8),
         Text(
           ausgewaehlteLeistungen.isEmpty
               ? 'Keine Leistung ausgewählt'
-              : 'Ausgewählt: ${ausgewaehlteLeistungen.join(', ')}',
+              : 'Ausgewählt: ${ausgewaehlteLeistungen.map(_anzeigeName).join(', ')}',
           style: const TextStyle(color: Colors.blueGrey),
         ),
       ],
     );
   }
 
-  // ---------- Step 3: Preis & Dauer je Zielgruppe ----------
+  // ---------- Step 3 ----------
   Widget _buildPreisDauerForm(String zielgruppe) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
@@ -300,7 +433,8 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
           style: ElevatedButton.styleFrom(
             foregroundColor: Colors.white,
             backgroundColor: Colors.green,
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+            padding:
+            const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
@@ -310,13 +444,12 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
     );
   }
 
-  // ---------- Speichern / Aktualisieren ----------
+  // ---------- Speichern ----------
   Future<void> _speichereAngebot() async {
     if (_saving) return;
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
-    // Validierung: mindestens eine Leistung gewählt
     if (ausgewaehlteLeistungen.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Bitte mindestens eine Leistung wählen.')),
@@ -324,40 +457,44 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
       return;
     }
 
-    // Zielgruppen-Preise/Dauern einsammeln (einheitlicher Block)
     final Map<String, dynamic> zielgruppenGesamt = {};
     for (final zg in _zielgruppen) {
       final preis = preisController[zg]?.text.trim();
       final dauer = dauerController[zg]?.text.trim();
       if ((preis ?? '').isNotEmpty || (dauer ?? '').isNotEmpty) {
         zielgruppenGesamt[zg] = {
-          if ((preis ?? '').isNotEmpty) 'preis': double.tryParse(preis!) ?? 0,
-          if ((dauer ?? '').isNotEmpty) 'dauer': int.tryParse(dauer!) ?? 0,
+          if ((preis ?? '').isNotEmpty)
+            'preis': double.tryParse(preis!) ?? 0,
+          if ((dauer ?? '').isNotEmpty)
+            'dauer': int.tryParse(dauer!) ?? 0,
         };
       }
     }
 
-    // Validierung: wenigstens ein Preis/Dauer irgendwo angegeben
     if (zielgruppenGesamt.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content:
-            Text('Bitte Preis und/oder Dauer für eine Zielgruppe angeben.')),
+          content:
+          Text('Bitte Preis und/oder Dauer für eine Zielgruppe angeben.'),
+        ),
       );
       return;
     }
 
     setState(() => _saving = true);
 
-    // Leistungen sortieren + stabilen kombinierten Key erzeugen
+    // Sortierung
     final servicesSorted = [...ausgewaehlteLeistungen]
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final servicesWithVariant =
+    servicesSorted.map(_anzeigeName).toList(growable: false);
+
     final comboKey =
-    servicesSorted.map((s) => s.toLowerCase()).join('|'); // z.B. "schneiden|waschen"
-    final isBundle = servicesSorted.length > 1; // true = Kombination
+    servicesSorted.map((s) => s.toLowerCase()).join('|');
+    final isBundle = servicesSorted.length > 1;
 
     final titel =
-        '$ausgewaehlteLeistungskategorie – ${servicesSorted.join(', ')}';
+        '$ausgewaehlteLeistungskategorie – ${servicesWithVariant.join(', ')}';
 
     final angebot = {
       'dienstleisterId': uid,
@@ -365,6 +502,8 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
       'kategorie': ausgewaehlteLeistungskategorie,
       'leistungen': servicesSorted,
       'leistungenSortiert': servicesSorted,
+      'leistungenMitVarianten': servicesWithVariant,
+      'variantenProLeistung': _varianteProLeistung,
       'comboKey': comboKey,
       'isBundle': isBundle,
       'zielgruppen': zielgruppenGesamt,
@@ -410,11 +549,10 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                     children: [
                       ElevatedButton.icon(
                         onPressed: currentStep > 0
-                            ? () {
-                          setState(() {
-                            currentStep = (currentStep - 1).clamp(0, 2);
-                          });
-                        }
+                            ? () => setState(() {
+                          currentStep =
+                              (currentStep - 1).clamp(0, 2);
+                        })
                             : null,
                         icon: const Icon(Icons.arrow_back),
                         label: const Text('Zurück'),
