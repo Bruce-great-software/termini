@@ -15,7 +15,11 @@ class LeistungErstellenDialog extends StatefulWidget {
   @override
   State<LeistungErstellenDialog> createState() =>
       _LeistungErstellenDialogState();
+
 }
+
+// Spezielles Token aus dem Sheet, wenn bewusst "ohne Variante" gewählt wird
+const String _noVariantToken = '__OHNE_VARIANTE__';
 
 class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
     with SingleTickerProviderStateMixin {
@@ -211,6 +215,8 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
       List<String> varianten,
       ) async {
     String? selected = _varianteProLeistung[leistung];
+    // Wenn noch keine Variante gesetzt ist, default auf "ohne Variante"
+    selected ??= _noVariantToken;
 
     return await showModalBottomSheet<String>(
       context: context,
@@ -229,17 +235,23 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Variante wählen – $leistung',
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.w600)),
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 8),
-                    ...varianten.map(
-                          (v) => RadioListTile<String>(
-                        value: v,
-                        groupValue: selected,
-                        title: Text(v),
-                        onChanged: (val) => setSheet(() => selected = val),
-                      ),
+                    // Neu: "Ohne Variante"
+                    RadioListTile<String>(
+                      value: _noVariantToken,
+                      groupValue: selected,
+                      title: const Text('Ohne Variante'),
+                      subtitle: const Text('Standard ohne Zusatz'),
+                      onChanged: (val) => setSheet(() => selected = val),
                     ),
+                    // vorhandene Varianten
+                    ...varianten.map((v) => RadioListTile<String>(
+                      value: v,
+                      groupValue: selected,
+                      title: Text(v),
+                      onChanged: (val) => setSheet(() => selected = val),
+                    )),
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -249,9 +261,8 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                         ),
                         const Spacer(),
                         ElevatedButton(
-                          onPressed: (selected == null)
-                              ? null
-                              : () => Navigator.pop(ctx, selected),
+                          // durch das Default oben ist 'selected' nie null
+                          onPressed: () => Navigator.pop(ctx, selected),
                           child: const Text('Übernehmen'),
                         ),
                       ],
@@ -266,11 +277,12 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
     );
   }
 
+
   // Auswahl-Logik ausschließlich über das Plus-/Häkchen-Icon
   Future<void> _toggleLeistung(String leistung) async {
     final already = ausgewaehlteLeistungen.contains(leistung);
     if (already) {
-      // abwählen
+      // Abwählen: Leistung und ggf. Variante entfernen
       setState(() {
         ausgewaehlteLeistungen.remove(leistung);
         _varianteProLeistung.remove(leistung);
@@ -278,22 +290,28 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
       return;
     }
 
-    // prüfen, ob Varianten existieren
+    // Prüfen, ob Varianten existieren
     final varianten = await _ladeVariantenFuerLeistung(leistung);
 
     if (varianten.isEmpty) {
-      // direkte Auswahl ohne Varianten
+      // Direkte Auswahl ohne Varianten
       setState(() => ausgewaehlteLeistungen.add(leistung));
     } else {
-      final chosen = await _zeigeVariantenSheet(context, leistung, varianten);
-      if (chosen != null) {
-        setState(() {
-          _varianteProLeistung[leistung] = chosen;
-          ausgewaehlteLeistungen.add(leistung);
-        });
-      }
+      final result = await _zeigeVariantenSheet(context, leistung, varianten);
+      if (result == null) return; // Abgebrochen
+
+      setState(() {
+        if (result == _noVariantToken) {
+          // explizit ohne Variante
+          _varianteProLeistung.remove(leistung);
+        } else {
+          _varianteProLeistung[leistung] = result;
+        }
+        ausgewaehlteLeistungen.add(leistung);
+      });
     }
   }
+
 
   String _anzeigeName(String leistung) {
     final v = _varianteProLeistung[leistung];
@@ -331,24 +349,23 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                 : Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Wrap(
-                spacing: 6,
-                runSpacing: 6,
                 children: [
                   Chip(
                     label: Text(variante),
                     onDeleted: () {
                       setState(() {
-                        // Variante entfernen und Leistung abwählen
+                        // Variante entfernen …
                         _varianteProLeistung.remove(leistung);
+                        // … und Leistung wieder auf Standard zurücksetzen
+                        // (= nicht ausgewählt -> Plus-Icon)
                         ausgewaehlteLeistungen.remove(leistung);
                       });
                     },
-                    deleteIcon: const Icon(Icons.close),
-                    deleteIconColor: Colors.grey,
                   ),
                 ],
               ),
             ),
+
             // Auswahl nur über das Icon (kein onTap)
             trailing: IconButton(
               tooltip: selected ? 'Entfernen' : 'Hinzufügen',
@@ -463,10 +480,8 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
       final dauer = dauerController[zg]?.text.trim();
       if ((preis ?? '').isNotEmpty || (dauer ?? '').isNotEmpty) {
         zielgruppenGesamt[zg] = {
-          if ((preis ?? '').isNotEmpty)
-            'preis': double.tryParse(preis!) ?? 0,
-          if ((dauer ?? '').isNotEmpty)
-            'dauer': int.tryParse(dauer!) ?? 0,
+          if ((preis ?? '').isNotEmpty) 'preis': double.tryParse(preis!) ?? 0,
+          if ((dauer ?? '').isNotEmpty) 'dauer': int.tryParse(dauer!) ?? 0,
         };
       }
     }
@@ -474,8 +489,7 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
     if (zielgruppenGesamt.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content:
-          Text('Bitte Preis und/oder Dauer für eine Zielgruppe angeben.'),
+          content: Text('Bitte Preis und/oder Dauer für eine Zielgruppe angeben.'),
         ),
       );
       return;
@@ -483,18 +497,34 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
 
     setState(() => _saving = true);
 
-    // Sortierung
+    // Leistungen sortieren
     final servicesSorted = [...ausgewaehlteLeistungen]
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     final servicesWithVariant =
     servicesSorted.map(_anzeigeName).toList(growable: false);
 
-    final comboKey =
-    servicesSorted.map((s) => s.toLowerCase()).join('|');
+    final comboKey = servicesSorted.map((s) => s.toLowerCase()).join('|');
     final isBundle = servicesSorted.length > 1;
 
     final titel =
         '$ausgewaehlteLeistungskategorie – ${servicesWithVariant.join(', ')}';
+
+    // NEU: flache Varianten-Liste (nur Werte), Reihenfolge gemäß servicesSorted,
+    // ohne Duplikate und ohne leere Einträge
+    final List<String> selectedVariants = <String>[];
+    for (final l in servicesSorted) {
+      final v = _varianteProLeistung[l]?.trim();
+      if (v != null && v.isNotEmpty && !selectedVariants.contains(v)) {
+        selectedVariants.add(v);
+      }
+    }
+
+    // (optional, sauber): nur die Varianten der tatsächlich ausgewählten Leistungen speichern
+    final Map<String, String> variantenProLeistungGefiltert = {
+      for (final l in servicesSorted)
+        if ((_varianteProLeistung[l]?.trim().isNotEmpty ?? false))
+          l: _varianteProLeistung[l]!.trim(),
+    };
 
     final angebot = {
       'dienstleisterId': uid,
@@ -503,10 +533,11 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
       'leistungen': servicesSorted,
       'leistungenSortiert': servicesSorted,
       'leistungenMitVarianten': servicesWithVariant,
-      'variantenProLeistung': _varianteProLeistung,
+      'variantenProLeistung': variantenProLeistungGefiltert,
       'comboKey': comboKey,
       'isBundle': isBundle,
       'zielgruppen': zielgruppenGesamt,
+      if (selectedVariants.isNotEmpty) 'varianten': selectedVariants, // <-- NEU
       if (_isEdit) 'aktualisiertAm': Timestamp.now(),
       if (!_isEdit) 'erstelltAm': Timestamp.now(),
     };
@@ -547,25 +578,49 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
+                      // Links: Zurück
                       ElevatedButton.icon(
                         onPressed: currentStep > 0
-                            ? () => setState(() {
-                          currentStep =
-                              (currentStep - 1).clamp(0, 2);
-                        })
+                            ? () {
+                          setState(() {
+                            currentStep = (currentStep - 1).clamp(0, 2);
+                          });
+                        }
                             : null,
                         icon: const Icon(Icons.arrow_back),
                         label: const Text('Zurück'),
                         style: ElevatedButton.styleFrom(
                           foregroundColor: Colors.white,
                           backgroundColor: Colors.blue,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
                       ),
+
                       const SizedBox(width: 20),
+
+                      // MITTE: Abbrechen
+                      OutlinedButton.icon(
+                        onPressed: _saving ? null : () {
+                          Navigator.of(context).pop();
+                        },
+                        icon: const Icon(Icons.close),
+                        label: const Text('Abbrechen'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.redAccent,
+                          side: const BorderSide(color: Colors.redAccent),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(width: 20),
+
+                      // Rechts: Weiter
                       ElevatedButton.icon(
                         onPressed: () {
                           if (currentStep < 2) {
@@ -579,10 +634,10 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                         style: ElevatedButton.styleFrom(
                           foregroundColor: Colors.white,
                           backgroundColor: Colors.blue,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
                       ),
                     ],
@@ -591,6 +646,10 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                 ],
               );
             },
+
+
+
+
             steps: [
               Step(
                 title: const Text('Kategorie',
