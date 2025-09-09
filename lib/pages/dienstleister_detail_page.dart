@@ -12,15 +12,15 @@ class Offer {
   final String id;
   final String kategorie;
   final List<String> leistungen;      // sortiert, Original-Schreibweise
-  final List<String> leistungenLc;    // sortiert, lowercased (für Logik)
+  final List<String> leistungenLc;    // sortiert, lowercased (für Vergleiche)
   final bool isBundle;
   final String? comboKey;
   final Map<String, dynamic> zielgruppen;
 
-  /// Angezeigter Titel aus Firestore (Feld "titel")
+  // Titel, so wie in Firestore gespeichert (mit Variante etc.)
   final String titleDisplay;
 
-  /// Optional: Varianten je Leistung (falls vorhanden)
+  // optional: Varianten je Leistung
   final Map<String, String> variantenByLeistung;
 
   Offer({
@@ -39,14 +39,13 @@ class Offer {
     final d = doc.data() ?? {};
     final kat = (d['kategorie'] as String? ?? '').trim();
 
-    // Leistungen bestimmen
+    // Leistungen (unverändert)
     List<String> ls = [];
     if (d['leistungenSortiert'] is List) {
       ls = List<String>.from(d['leistungenSortiert']);
     } else if (d['leistungen'] is List) {
       ls = List<String>.from(d['leistungen']);
     } else {
-      // Fallback aus Titel ableiten
       final t = (d['titel'] as String? ?? '');
       final parts = t.split(RegExp(r'\s*[–—-]\s*'));
       if (parts.length >= 2) {
@@ -63,21 +62,21 @@ class Offer {
     final String? ck =
         (d['comboKey'] as String?)?.toLowerCase() ?? (bundleFlag ? lsLc.join('|') : null);
 
-    // Varianten kompatibel einlesen (optional)
+    // Varianten (optional)
     final Map<String, String> vbl = {};
     if (d['variantenProLeistung'] is Map) {
       final raw = Map<String, dynamic>.from(d['variantenProLeistung']);
       raw.forEach((k, v) {
-        final key = (k ?? '').toString().trim();
-        final val = (v ?? '').toString().trim();
-        if (key.isNotEmpty && val.isNotEmpty) vbl[key] = val;
+        final k1 = (k ?? '').toString().trim();
+        final v1 = (v ?? '').toString().trim();
+        if (k1.isNotEmpty && v1.isNotEmpty) vbl[k1] = v1;
       });
     } else if (d['variantenByLeistung'] is Map) {
       final raw = Map<String, dynamic>.from(d['variantenByLeistung']);
       raw.forEach((k, v) {
-        final key = (k ?? '').toString().trim();
-        final val = (v ?? '').toString().trim();
-        if (key.isNotEmpty && val.isNotEmpty) vbl[key] = val;
+        final k1 = (k ?? '').toString().trim();
+        final v1 = (v ?? '').toString().trim();
+        if (k1.isNotEmpty && v1.isNotEmpty) vbl[k1] = v1;
       });
     }
 
@@ -102,7 +101,6 @@ class Offer {
     );
   }
 
-  /// Preis für Zielgruppe – nur wenn > 0 vorhanden, sonst null
   double? priceFor(String zg) {
     final v = zielgruppen[zg];
     if (v is Map && v['preis'] != null) {
@@ -112,7 +110,6 @@ class Offer {
     return null;
   }
 
-  /// Dauer für Zielgruppe – nur wenn > 0 vorhanden, sonst null
   int? durationFor(String zg) {
     final v = zielgruppen[zg];
     if (v is Map && v['dauer'] != null) {
@@ -125,7 +122,7 @@ class Offer {
 
 /// Datenträger für einen Abschnitt (blauer Balken + Inhalt)
 class SectionData {
-  final String title;           // z. B. "Augenbrauen"
+  final String title;           // z. B. "Haare"
   final List<Widget> children;  // Angebots-Widgets unter dem Balken
   SectionData(this.title, this.children);
 }
@@ -133,10 +130,11 @@ class SectionData {
 /// Interner Warenkorb-Eintrag
 class _CartItem {
   final String kategorie;
-  final String leistung; // Basis-Leistung (ohne Variante) – wichtig für Bundle-Logik!
+  final String leistung;   // Normalisierter Teil (z. B. "Schneiden")
   final double? preis;
   final int? dauer;
   final String zielgruppe;
+
   const _CartItem({
     required this.kategorie,
     required this.leistung,
@@ -146,10 +144,17 @@ class _CartItem {
   });
 }
 
+/// Key-Helfer: unterscheidet Zielgruppe!
+String _keyFor({
+  required String zielgruppe,
+  required String category,
+  required String partLc,
+}) =>
+    '${zielgruppe.toLowerCase()}|${category.toLowerCase()}|$partLc';
+
 class LinkedChipsWithSections extends StatefulWidget {
   final List<SectionData> sections;
   final int initialIndex;
-  /// fixiertes Extra am Listenende, damit die Bottom-Bar nichts verdeckt
   final double extraBottom;
 
   const LinkedChipsWithSections({
@@ -164,10 +169,8 @@ class LinkedChipsWithSections extends StatefulWidget {
 }
 
 class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
-  // Controller für die Abschnitte (VERTIKAL)
   final itemScrollController = ItemScrollController();
   final itemPositionsListener = ItemPositionsListener.create();
-  // Controller für die Chips (HORIZONTAL)
   final chipScrollController = ItemScrollController();
 
   late int activeChip;
@@ -190,7 +193,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
       }
     });
 
-    const double kTopTolerance = 0.02; // = 2% der Listenhöhe
+    const double kTopTolerance = 0.02;
     itemPositionsListener.itemPositions.addListener(() {
       if (_programmaticScroll) return;
       final positions = itemPositionsListener.itemPositions.value;
@@ -279,6 +282,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
           ),
         ),
         const SizedBox(height: 8),
+
         Expanded(
           child: ScrollablePositionedList.builder(
             itemScrollController: itemScrollController,
@@ -331,8 +335,8 @@ class _SectionBlock extends StatelessWidget {
 
 class DienstleisterDetailPage extends StatefulWidget {
   final Map<String, dynamic> dienstleister;
-  final String selektierteZielgruppe;   // momentan ungenutzt
-  final String selektierteKategorie;    // fürs initiale Scrollen
+  final String selektierteZielgruppe;
+  final String selektierteKategorie;
 
   const DienstleisterDetailPage({
     super.key,
@@ -365,28 +369,63 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     };
   }
 
+  // === NEU: Zielgruppen-Mix verhindern ======================================
+  bool _hasItemsFromOtherZielgruppe(String zg) {
+    final map = _selectedVN.value;
+    if (map.isEmpty) return false;
+    return map.values.any((it) => it.zielgruppe != zg);
+  }
+
+  void _showWrongGroupSnack(String other) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Du hast bereits Angebote für $other ausgewählt. '
+              'Entferne diese zuerst, um Angebote für $_zielgruppe zu wählen.',
+        ),
+      ),
+    );
+  }
+  // =========================================================================
+
   void _toggleSelection(String key, _CartItem item) {
     final map = Map<String, _CartItem>.from(_selectedVN.value);
-    if (map.containsKey(key)) {
-      map.remove(key);
-    } else {
+
+    if (!map.containsKey(key)) {
+      // Beim Hinzufügen prüfen, ob schon Items anderer Zielgruppe liegen
+      if (_hasItemsFromOtherZielgruppe(item.zielgruppe)) {
+        final other = map.values.first.zielgruppe;
+        _showWrongGroupSnack(other);
+        return;
+      }
       map[key] = item;
+    } else {
+      map.remove(key);
     }
-    _selectedVN.value = map; // triggert nur die Listener
+
+    _selectedVN.value = map;
   }
 
   /// Combo-Helper: (de)selektiert alle Einzel-Leistungen der Kombi
   void _toggleCombo({
     required String category,
     required List<String> partsOriginal, // Original-Schreibweise
-    required List<String> partsLc,       // lowercased
+    required List<String> partsLc, // lowercased
     required Map<String, Offer> singlesByKey, // '$cat|$partLc' -> Offer
   }) {
+    final zg = _zielgruppe;
+
+    // Zielgruppen-Mix blockieren
+    if (_hasItemsFromOtherZielgruppe(zg)) {
+      final other = _selectedVN.value.values.first.zielgruppe;
+      _showWrongGroupSnack(other);
+      return;
+    }
+
     final map = Map<String, _CartItem>.from(_selectedVN.value);
     final keys = <String>[];
     for (int i = 0; i < partsLc.length; i++) {
-      final k = '${category.toLowerCase()}|${partsLc[i]}';
-      keys.add(k);
+      keys.add(_keyFor(zielgruppe: zg, category: category, partLc: partsLc[i]));
     }
     final allSelected = keys.every(map.containsKey);
 
@@ -398,17 +437,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       for (int i = 0; i < partsLc.length; i++) {
         final lc = partsLc[i];
         final display = partsOriginal[i];
-        final key = '${category.toLowerCase()}|$lc';
+        final key = _keyFor(zielgruppe: zg, category: category, partLc: lc);
         if (!map.containsKey(key)) {
           final single = singlesByKey['$category|$lc'];
-          final preis = single?.priceFor(_zielgruppe);
-          final dauer = single?.durationFor(_zielgruppe);
+          final preis = single?.priceFor(zg);
+          final dauer = single?.durationFor(zg);
           map[key] = _CartItem(
             kategorie: category,
             leistung: display,
             preis: preis,
             dauer: dauer,
-            zielgruppe: _zielgruppe,
+            zielgruppe: zg,
           );
         }
       }
@@ -479,10 +518,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
           // ---- Docs in Modelle umwandeln, Singles/Bundles trennen ----
           final all = snap.data!.docs.map((d) => Offer.fromDoc(d)).toList();
-          final singles = all.where((o) => !o.isBundle && o.leistungen.length == 1).toList();
-          final bundles = all.where((o) => o.isBundle && o.leistungen.length >= 2).toList();
+          final singles =
+          all.where((o) => !o.isBundle && o.leistungen.length == 1).toList();
+          final bundles =
+          all.where((o) => o.isBundle && o.leistungen.length >= 2).toList();
 
-          // Indexe für schnelle Zugriffe
+          // Indexe für schnelle Zugriffe (ohne Zielgruppe)
           final Map<String, Offer> singleIndex = {
             for (final s in singles) '${s.kategorie}|${s.leistungenLc.first}': s
           };
@@ -490,7 +531,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           // ---- Anzeige: NUR Singles gruppiert nach Kategorie ----
           final Map<String, List<Offer>> groupedSingles = {};
           for (final s in singles) {
-            // Nur aufnehmen, wenn für die aktuelle Zielgruppe etwas gesetzt ist
             final hasZg =
                 (s.priceFor(_zielgruppe) != null) || (s.durationFor(_zielgruppe) != null);
             if (!hasZg) continue;
@@ -502,7 +542,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
           final sections = <SectionData>[];
           for (final kat in kategorien) {
-            // ---- Singles (sichtbar) – sortiert nach gespeicherten Titeln ----
             final items = [...groupedSingles[kat]!]..sort(
                   (a, b) => a.titleDisplay.toLowerCase().compareTo(b.titleDisplay.toLowerCase()),
             );
@@ -510,16 +549,20 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             final children = <Widget>[];
 
             for (final offer in items) {
-              final baseName = offer.leistungen.first;          // Basis für Key/Preis-Logik
-              final baseLc = offer.leistungenLc.first;
+              final partDisplay = offer.leistungen.first;     // normalisierte Leistung (z. B. "Schneiden")
+              final partLc = offer.leistungenLc.first;
+              final uiTitle = offer.titleDisplay;             // Anzeige: Firestore-Titel
               final preis = offer.priceFor(_zielgruppe);
               final dauer = offer.durationFor(_zielgruppe);
 
-              // Sicherheitsfilter: falls doch nichts hinterlegt, nicht anzeigen
               if (preis == null && dauer == null) continue;
 
               final subtitle = '${_preisText(preis)}${_dauerText(dauer)}';
-              final key = '${kat.toLowerCase()}|$baseLc';
+              final key = _keyFor(
+                zielgruppe: _zielgruppe,
+                category: kat,
+                partLc: partLc,
+              );
 
               children.add(
                 Padding(
@@ -538,27 +581,20 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // *** HIER: gespeicherten Titel zeigen ***
                               Text(
-                                offer.titleDisplay,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                                uiTitle,
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 subtitle,
-                                style: const TextStyle(
-                                  color: Colors.black54,
-                                  fontSize: 13,
-                                ),
+                                style: const TextStyle(color: Colors.black54, fontSize: 13),
                               ),
                             ],
                           ),
                         ),
 
-                        // Trailing-Icon reaktiv (nur dieser Teil baut neu)
+                        // Trailing-Icon reaktiv
                         ValueListenableBuilder<Map<String, _CartItem>>(
                           valueListenable: _selectedVN,
                           builder: (_, map, __) {
@@ -569,16 +605,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   key,
                                   _CartItem(
                                     kategorie: kat,
-                                    leistung: baseName, // Basis-Leistung (ohne Variante!)
+                                    leistung: partDisplay,
                                     preis: preis,
                                     dauer: dauer,
                                     zielgruppe: _zielgruppe,
                                   ),
                                 );
                               },
-                              icon: Icon(
-                                selected ? Icons.check_circle : Icons.add_circle_outline,
-                              ),
+                              icon: Icon(selected ? Icons.check_circle : Icons.add_circle_outline),
                               color: selected ? Colors.blueAccent : null,
                             );
                           },
@@ -592,29 +626,24 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
             // ---- Kombi-Angebote (nur wenn mindestens 1 Teil fehlt) ----
             final combosForCat = bundles.where((b) => b.kategorie == kat).toList()
-              ..sort((a, b) =>
-                  a.titleDisplay.toLowerCase().compareTo(b.titleDisplay.toLowerCase()));
+              ..sort((a, b) => a.titleDisplay.toLowerCase().compareTo(b.titleDisplay.toLowerCase()));
 
             final combosToShow = <Offer>[];
             for (final combo in combosForCat) {
-              // Für die Zielgruppe muss es Daten geben
               final hasZg =
                   (combo.priceFor(_zielgruppe) != null) || (combo.durationFor(_zielgruppe) != null);
               if (!hasZg) continue;
 
-              // Prüfen, ob ALLE Teile als Single existieren (mit Daten für ZG)
               final allPartsHaveSingle = combo.leistungenLc.every((partLc) {
                 final s = singleIndex['$kat|$partLc'];
                 if (s == null) return false;
                 return (s.priceFor(_zielgruppe) != null) || (s.durationFor(_zielgruppe) != null);
               });
 
-              // Nur zeigen, wenn mindestens ein Teil fehlt
               if (!allPartsHaveSingle) combosToShow.add(combo);
             }
 
             if (combosToShow.isNotEmpty) {
-              // Subheader
               children.add(
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -632,6 +661,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 final preis = combo.priceFor(_zielgruppe);
                 final dauer = combo.durationFor(_zielgruppe);
                 final subtitle = '${_preisText(preis)}${_dauerText(dauer)}';
+                final displayName = combo.titleDisplay;
 
                 children.add(
                   Padding(
@@ -645,37 +675,30 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       ),
                       child: Row(
                         children: [
-                          // Titel + Subtitel
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                // *** HIER: gespeicherten Titel zeigen ***
                                 Text(
-                                  combo.titleDisplay,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                  displayName,
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
                                   subtitle,
-                                  style: const TextStyle(
-                                    color: Colors.black54,
-                                    fontSize: 13,
-                                  ),
+                                  style: const TextStyle(color: Colors.black54, fontSize: 13),
                                 ),
                               ],
                             ),
                           ),
-
-                          // Status = ausgewählt, wenn ALLE Teile ausgewählt sind
                           ValueListenableBuilder<Map<String, _CartItem>>(
                             valueListenable: _selectedVN,
                             builder: (_, map, __) {
+                              final zg = _zielgruppe;
                               final allSelected = combo.leistungenLc.every(
-                                    (lc) => map.containsKey('${kat.toLowerCase()}|$lc'),
+                                    (lc) => map.containsKey(
+                                  _keyFor(zielgruppe: zg, category: kat, partLc: lc),
+                                ),
                               );
                               return IconButton(
                                 onPressed: () {
@@ -686,11 +709,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     singlesByKey: singleIndex,
                                   );
                                 },
-                                icon: Icon(
-                                  allSelected
-                                      ? Icons.check_circle
-                                      : Icons.add_circle_outline,
-                                ),
+                                icon: Icon(allSelected ? Icons.check_circle : Icons.add_circle_outline),
                                 color: allSelected ? Colors.blueAccent : null,
                                 tooltip: 'Kombi auswählen',
                               );
@@ -715,27 +734,32 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             initialIndex = kategorien.indexOf(selKat);
           }
 
-          // ---- Hilfsfunktion: Total mit Bundle-Override berechnen ----
+          // ---- Total mit Zielgruppen-Bezug je Item berechnen ----
           double computeTotal(Map<String, _CartItem> map) {
             if (map.isEmpty) return 0.0;
 
-            // Auswahl nach Kategorie bündeln
-            final byCat = <String, List<String>>{};
-            map.forEach((key, item) {
-              final cat = item.kategorie;
-              byCat.putIfAbsent(cat, () => []).add(item.leistung);
+            // Nach (Kategorie, Zielgruppe) gruppieren
+            final byGroup = <String, List<_CartItem>>{};
+            map.forEach((_, item) {
+              final gKey = '${item.kategorie}|${item.zielgruppe}';
+              byGroup.putIfAbsent(gKey, () => []).add(item);
             });
 
             double total = 0.0;
 
-            byCat.forEach((cat, titles) {
-              final titlesLc = titles.map((e) => e.toLowerCase()).toList()..sort();
+            byGroup.forEach((groupKey, groupItems) {
+              final split = groupKey.split('|');
+              final cat = split[0];
+              final zg  = split.length > 1 ? split[1] : 'Damen';
+
+              // normalisierte Teile dieser Gruppe
+              final partsLc = groupItems.map((e) => e.leistung.toLowerCase()).toList();
 
               // Greedy: größte Bundles zuerst
               final catBundles = bundles.where((b) => b.kategorie == cat).toList()
                 ..sort((a, b) => b.leistungenLc.length.compareTo(a.leistungenLc.length));
 
-              final used = List<bool>.filled(titlesLc.length, false);
+              final used = List<bool>.filled(partsLc.length, false);
 
               // Versuche Bundles zu „legen“
               for (final b in catBundles) {
@@ -744,8 +768,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                 for (final n in needed) {
                   int found = -1;
-                  for (int i = 0; i < titlesLc.length; i++) {
-                    if (!used[i] && titlesLc[i] == n) {
+                  for (int i = 0; i < partsLc.length; i++) {
+                    if (!used[i] && partsLc[i] == n) {
                       found = i;
                       break;
                     }
@@ -758,16 +782,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 }
 
                 if (idxs.isNotEmpty && idxs.length == needed.length) {
-                  for (final i in idxs) used[i] = true;
-                  total += (b.priceFor(_zielgruppe) ?? 0.0);
+                  final bundlePrice = b.priceFor(zg);
+                  if (bundlePrice != null) {
+                    for (final i in idxs) used[i] = true;
+                    total += bundlePrice;
+                  }
                 }
               }
 
-              // Restliche Singles
-              for (int i = 0; i < titlesLc.length; i++) {
+              // Restliche Singles (Fallback: nutze Preis aus CartItem, falls Index/Preis fehlt)
+              for (int i = 0; i < partsLc.length; i++) {
                 if (!used[i]) {
-                  final single = singleIndex['$cat|${titlesLc[i]}'];
-                  if (single != null) total += (single.priceFor(_zielgruppe) ?? 0.0);
+                  final lc = partsLc[i];
+                  final single = singleIndex['$cat|$lc'];
+                  double? p = single?.priceFor(zg);
+                  p ??= groupItems[i].preis; // <-- wichtiger Fallback
+                  if (p != null) total += p;
                 }
               }
             });
@@ -778,17 +808,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           // Inhalt + fixierte Bottom-Bar
           return Stack(
             children: [
-              // Platzhalter
               const LinkedChipsWithSections(sections: []),
 
-              // Echte Liste
               LinkedChipsWithSections(
                 sections: sections,
                 initialIndex: initialIndex,
                 extraBottom: kBottomBarHeight + 12,
               ),
 
-              // ---- Buchungsleiste im Lieferando-Stil (reaktiv) ----
               Positioned(
                 left: 0,
                 right: 0,
@@ -870,7 +897,6 @@ class _BookingBar extends StatelessWidget {
         onPressed: onPressed,
         child: Row(
           children: [
-            // Linker Kreis mit Icon + Badge
             Stack(
               clipBehavior: Clip.none,
               children: [
@@ -906,10 +932,7 @@ class _BookingBar extends StatelessWidget {
                 ),
               ],
             ),
-
             const SizedBox(width: 12),
-
-            // Mitte: "Zur Buchung" zentriert
             Expanded(
               child: Center(
                 child: Text(
@@ -924,8 +947,6 @@ class _BookingBar extends StatelessWidget {
                 ),
               ),
             ),
-
-            // Rechts: Gesamtpreis
             Text(
               total == null ? '' : _formatEuro(total!),
               style: const TextStyle(
