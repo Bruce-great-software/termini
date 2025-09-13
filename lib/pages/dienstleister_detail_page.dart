@@ -820,33 +820,46 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             }
           }
 
-          // ---- Anzeige: NUR Singles (Basis) gruppiert nach Kategorie ----
-          final Map<String, List<Offer>> groupedSinglesBase = {};
+// ---- Anzeige: Singles & Kombis – Kategorien-Union aufbauen ----
+
+// 1) Singles (Basis) nach Kategorie gruppieren – nur wenn für Zielgruppe bepreist/bedauert
+          final Map<String, List<Offer>> singlesByCategory = {};
           for (final s in singlesBase) {
-            final hasZg =
-                (s.priceFor(_zielgruppe) != null) || (s.durationFor(_zielgruppe) != null);
+            final hasZg = (s.priceFor(_zielgruppe) != null) || (s.durationFor(_zielgruppe) != null);
             if (!hasZg) continue;
-            groupedSinglesBase.putIfAbsent(s.kategorie, () => []).add(s);
+            singlesByCategory.putIfAbsent(s.kategorie, () => []).add(s);
           }
 
-          final kategorien = groupedSinglesBase.keys.toList()
+// 2) Kombi-Angebote nach Kategorie gruppieren – **unabhängig** davon, ob Singles existieren
+          final Map<String, List<Offer>> combosByCategory = {};
+          for (final b in bundles) {
+            final hasZg = (b.priceFor(_zielgruppe) != null) || (b.durationFor(_zielgruppe) != null);
+            if (!hasZg) continue;
+            combosByCategory.putIfAbsent(b.kategorie, () => []).add(b);
+          }
+
+// 3) Kategorien = Union aus Singles- und Kombi-Kategorien
+          final kategorien = <String>{
+            ...singlesByCategory.keys,
+            ...combosByCategory.keys,
+          }.toList()
             ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
           final sections = <SectionData>[];
           for (final kat in kategorien) {
-            final items = [...groupedSinglesBase[kat]!]..sort(
-                  (a, b) => a.titleDisplay.toLowerCase().compareTo(b.titleDisplay.toLowerCase()),
-            );
+            // Sortierte Singles (falls vorhanden)
+            final singleItems = [...(singlesByCategory[kat] ?? const <Offer>[])]
+              ..sort((a, b) => a.titleDisplay.toLowerCase().compareTo(b.titleDisplay.toLowerCase()));
 
             final children = <Widget>[];
 
-            for (final offer in items) {
-              final partDisplay = offer.leistungen.first; // z. B. "Schneiden"
+            // ---------- Singles rendern ----------
+            for (final offer in singleItems) {
+              final partDisplay = offer.leistungen.first;     // z. B. "Schneiden"
               final partLc = offer.leistungenLc.first;
-              final uiTitle = offer.titleDisplay; // "Haare – Schneiden"
+              final uiTitle = offer.titleDisplay;             // z. B. "Haare – Schneiden"
               final preis = offer.priceFor(_zielgruppe);
               final dauer = offer.durationFor(_zielgruppe);
-
               if (preis == null && dauer == null) continue;
 
               final key = _keyFor(
@@ -864,9 +877,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     decoration: const BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(color: Color(0xFFE5E5E5)),
-                      ),
+                      border: Border(bottom: BorderSide(color: Color(0xFFE5E5E5))),
                     ),
                     child: Row(
                       children: [
@@ -881,22 +892,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 partLc: partLc,
                               );
                               final selectedItem = map[selKey];
-
-                              // dynamische Werte: wenn Variante gewählt, nimm deren Preis/Dauer
                               final effectivePrice = selectedItem?.preis ?? preis;
                               final effectiveDuration = selectedItem?.dauer ?? dauer;
 
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // Titel
-                                  Text(
-                                    uiTitle,
-                                    style: const TextStyle(
-                                        fontSize: 16, fontWeight: FontWeight.w600),
-                                  ),
-
-                                  // Gewählte Variante als Chip (nur anzeigen, wenn vorhanden)
+                                  Text(uiTitle,
+                                      style: const TextStyle(
+                                          fontSize: 16, fontWeight: FontWeight.w600)),
                                   if ((selectedItem?.varianteLabel?.trim().isNotEmpty ?? false)) ...[
                                     const SizedBox(height: 6),
                                     GestureDetector(
@@ -935,14 +939,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       ),
                                     ),
                                   ],
-
                                   const SizedBox(height: 6),
-
-                                  // Preis & Dauer – dynamisch nach Auswahl
                                   Text(
                                     '${_preisText(effectivePrice)}${_dauerText(effectiveDuration)}',
-                                    style: const TextStyle(
-                                        color: Colors.black54, fontSize: 13),
+                                    style: const TextStyle(color: Colors.black54, fontSize: 13),
                                   ),
                                 ],
                               );
@@ -950,12 +950,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           ),
                         ),
 
-                        // Trailing-Icon reaktiv
+                        // Trailing-Icon
                         ValueListenableBuilder<Map<String, _CartItem>>(
                           valueListenable: _selectedVN,
                           builder: (_, map, __) {
                             final selected = map.containsKey(key);
-
                             return IconButton(
                               tooltip: selected
                                   ? 'Entfernen'
@@ -963,13 +962,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               onPressed: () {
                                 if (hasVariants) {
                                   if (selected) {
-                                    // Wenn bereits ausgewählt -> abwählen
-                                    final newMap =
-                                    Map<String, _CartItem>.from(_selectedVN.value);
+                                    final newMap = Map<String, _CartItem>.from(_selectedVN.value);
                                     newMap.remove(key);
                                     _selectedVN.value = newMap;
                                   } else {
-                                    // Noch nicht ausgewählt -> Varianten-Sheet öffnen
                                     final variantsForPart = <Offer>[];
                                     final labels = variantsAvailable[variantKey] ?? {};
                                     for (final label in labels) {
@@ -984,7 +980,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     );
                                   }
                                 } else {
-                                  // Keine Varianten: normal toggeln
                                   _toggleSelection(
                                     key,
                                     _CartItem(
@@ -997,8 +992,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   );
                                 }
                               },
-                              icon: Icon(
-                                  selected ? Icons.check_circle : Icons.add_circle_outline),
+                              icon: Icon(selected ? Icons.check_circle : Icons.add_circle_outline),
                               color: selected ? Colors.blueAccent : null,
                             );
                           },
@@ -1010,13 +1004,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               );
             }
 
-            // ---- Kombi-Angebote (immer anzeigen, wenn für Zielgruppe bepreist) ----
-            final combosForCat = bundles
-                .where((b) => b.kategorie == kat)
-                .where((b) =>
-            (b.priceFor(_zielgruppe) != null) ||
-                (b.durationFor(_zielgruppe) != null))
-                .toList()
+            // ---------- Kombi-Angebote rendern (immer, auch ohne Singles) ----------
+            final combosForCat = [...(combosByCategory[kat] ?? const <Offer>[])]
               ..sort((a, b) =>
                   a.titleDisplay.toLowerCase().compareTo(b.titleDisplay.toLowerCase()));
 
@@ -1046,9 +1035,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       decoration: const BoxDecoration(
-                        border: Border(
-                          bottom: BorderSide(color: Color(0xFFE5E5E5)),
-                        ),
+                        border: Border(bottom: BorderSide(color: Color(0xFFE5E5E5))),
                       ),
                       child: Row(
                         children: [
@@ -1056,21 +1043,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  displayName,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
+                                Text(displayName,
+                                    style: const TextStyle(
+                                        fontSize: 16, fontWeight: FontWeight.w600)),
                                 const SizedBox(height: 4),
-                                Text(
-                                  subtitle,
-                                  style: const TextStyle(
-                                    color: Colors.black54,
-                                    fontSize: 13,
-                                  ),
-                                ),
+                                Text(subtitle,
+                                    style: const TextStyle(
+                                        color: Colors.black54, fontSize: 13)),
                               ],
                             ),
                           ),
@@ -1093,9 +1072,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     singlesByKey: singleBaseIndex,
                                   );
                                 },
-                                icon: Icon(allSelected
-                                    ? Icons.check_circle
-                                    : Icons.add_circle_outline),
+                                icon: Icon(
+                                    allSelected ? Icons.check_circle : Icons.add_circle_outline),
                                 color: allSelected ? Colors.blueAccent : null,
                               );
                             },
@@ -1112,6 +1090,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               sections.add(SectionData(kat, children));
             }
           }
+
 
           int initialIndex = 0;
           final selKat = widget.selektierteKategorie.trim();
