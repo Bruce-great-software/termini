@@ -612,9 +612,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   onChanged: (val) => setSheetState(() => selectedVarLc = val),
                                 ),
                                 title: Text(
-                                  '${base.leistungen.first} (${opt.label})',
+                                  opt.label,
                                   overflow: TextOverflow.ellipsis,
+                                  // optional: leicht hervorheben
+                                  style: const TextStyle(fontWeight: FontWeight.w600),
                                 ),
+
                                 trailing: Text(
                                   '${_preisText(preis)}${_dauerText(dauer)}',
                                   style: const TextStyle(fontWeight: FontWeight.w600),
