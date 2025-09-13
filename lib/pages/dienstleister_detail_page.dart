@@ -611,7 +611,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   onChanged: (val) => setSheetState(() => selectedVarLc = val),
                                 ),
                                 title: Text(
-                                  '${base.leistungen.first} (${opt.label})',
+                                  opt.label,                    // nur der Variantenname
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 trailing: Text(
