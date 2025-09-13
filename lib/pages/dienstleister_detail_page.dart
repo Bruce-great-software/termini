@@ -292,7 +292,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
                   label: Text(title),
                   selected: sel,
                   onSelected: (_) => _scrollTo(i),
-                  selectedColor: Colors.blueAccent.withValues(alpha: .14),
+                  selectedColor: Colors.blueAccent.withAlpha(36),
                   backgroundColor: Colors.white,
                   labelStyle: TextStyle(
                     fontWeight: FontWeight.w600,
@@ -547,8 +547,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (ctx) {
-        // ---- WICHTIG: selectedVarLc außerhalb des StatefulBuilder halten,
-        // damit setSheetState die gesamte Liste + Button neu zeichnet.
+        // ---- WICHTIG: selectedVarLc außerhalb des StatefulBuilder halten
         String? selectedVarLc = preselectVarLc;
 
         final key = _keyFor(zielgruppe: zg, category: category, partLc: partLc);
@@ -666,7 +665,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                                 final item = _CartItem(
                                   kategorie: category,
-                                  leistung: partDisplay,
+                                  leistung: base.leistungen.first,
                                   preis: chosen.priceFor(zg),
                                   dauer: chosen.durationFor(zg),
                                   zielgruppe: zg,
@@ -752,7 +751,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           borderColor: Colors.white,
           selectedColor: Colors.blueAccent,
           unselectedColor: Colors.white,
-          pressedColor: Colors.white.withValues(alpha: .15),
+          pressedColor: Colors.white.withAlpha(38),
           padding: EdgeInsets.zero,
         ),
         bottom: PreferredSize(
@@ -798,10 +797,74 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           // Bundles
           final bundles = all.where((o) => o.isBundle && o.leistungen.length >= 2).toList();
 
+          // ---------- SYNTHETISCHE BASIS-EINTRÄGE AUS VARIANTEN ----------
+          // gruppiere Varianten nach (Kategorie|Teil)
+          final Map<String, List<Offer>> variantsByPart = {};
+          for (final v in singleVariants) {
+            final key = '${v.kategorie}|${v.leistungenLc.first}';
+            variantsByPart.putIfAbsent(key, () => <Offer>[]).add(v);
+          }
+
+          // Prüfe je Gruppe, ob es einen echten Basis-Eintrag gibt, sonst erstellen
+          final List<Offer> syntheticBases = [];
+          final Set<String> existingBaseKeys = {
+            for (final s in singlesBase) '${s.kategorie}|${s.leistungenLc.first}'
+          };
+
+          variantsByPart.forEach((key, list) {
+            if (!existingBaseKeys.contains(key) && list.isNotEmpty) {
+              final sample = list.first;
+              final cat = sample.kategorie;
+              final partDisplay = sample.leistungen.first; // Original-Schreibweise
+              final partLc = sample.leistungenLc.first;
+
+              // Zielgruppen-Map aus MIN(Preis/Dauer) über alle Varianten
+              final Map<String, dynamic> zgMap = {};
+              // sammle alle ZG keys, die in irgendeiner Variante vorkommen
+              final Set<String> allZgs = {};
+              for (final o in list) {
+                allZgs.addAll(o.zielgruppen.keys.map((e) => e.toString()));
+              }
+              for (final zg in allZgs) {
+                double? minPrice;
+                int? minDur;
+                for (final o in list) {
+                  final p = o.priceFor(zg);
+                  final d = o.durationFor(zg);
+                  if (p != null) minPrice = (minPrice == null) ? p : (p < minPrice! ? p : minPrice);
+                  if (d != null) minDur = (minDur == null) ? d : (d < minDur! ? d : minDur);
+                }
+                if (minPrice != null || minDur != null) {
+                  zgMap[zg] = {
+                    if (minPrice != null) 'preis': minPrice,
+                    if (minDur != null) 'dauer': minDur,
+                  };
+                }
+              }
+
+              syntheticBases.add(
+                Offer(
+                  id: 'synthetic:$key',
+                  kategorie: cat,
+                  leistungen: [partDisplay],
+                  leistungenLc: [partLc],
+                  isBundle: false,
+                  comboKey: null,
+                  zielgruppen: zgMap,
+                  varianten: const [], // echte Basis hat leere Variantenliste
+                  titleDisplay: '$cat – $partDisplay',
+                ),
+              );
+            }
+          });
+
+          // Singles-Basis final (echte + synthetische)
+          final singlesBaseFinal = [...singlesBase, ...syntheticBases];
+
           // Indizes
           // 1) Basis-Single: '$cat|$partLc' -> Offer
           final Map<String, Offer> singleBaseIndex = {
-            for (final s in singlesBase) '${s.kategorie}|${s.leistungenLc.first}': s
+            for (final s in singlesBaseFinal) '${s.kategorie}|${s.leistungenLc.first}': s
           };
 
           // 2) Varianten-Offer: '$cat|$partLc|$varLc' -> Offer
@@ -820,25 +883,27 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             }
           }
 
-// ---- Anzeige: Singles & Kombis – Kategorien-Union aufbauen ----
+          // ---- Anzeige: Singles & Kombis – Kategorien-Union aufbauen ----
 
-// 1) Singles (Basis) nach Kategorie gruppieren – nur wenn für Zielgruppe bepreist/bedauert
+          // Singles (Basis) nach Kategorie – nur wenn für Zielgruppe vorhanden
           final Map<String, List<Offer>> singlesByCategory = {};
-          for (final s in singlesBase) {
-            final hasZg = (s.priceFor(_zielgruppe) != null) || (s.durationFor(_zielgruppe) != null);
+          for (final s in singlesBaseFinal) {
+            final hasZg =
+                (s.priceFor(_zielgruppe) != null) || (s.durationFor(_zielgruppe) != null);
             if (!hasZg) continue;
             singlesByCategory.putIfAbsent(s.kategorie, () => []).add(s);
           }
 
-// 2) Kombi-Angebote nach Kategorie gruppieren – **unabhängig** davon, ob Singles existieren
+          // Kombi-Angebote nach Kategorie – **unabhängig** davon, ob Singles existieren
           final Map<String, List<Offer>> combosByCategory = {};
           for (final b in bundles) {
-            final hasZg = (b.priceFor(_zielgruppe) != null) || (b.durationFor(_zielgruppe) != null);
+            final hasZg =
+                (b.priceFor(_zielgruppe) != null) || (b.durationFor(_zielgruppe) != null);
             if (!hasZg) continue;
             combosByCategory.putIfAbsent(b.kategorie, () => []).add(b);
           }
 
-// 3) Kategorien = Union aus Singles- und Kombi-Kategorien
+          // Kategorien = Union
           final kategorien = <String>{
             ...singlesByCategory.keys,
             ...combosByCategory.keys,
@@ -847,19 +912,21 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
           final sections = <SectionData>[];
           for (final kat in kategorien) {
-            // Sortierte Singles (falls vorhanden)
-            final singleItems = [...(singlesByCategory[kat] ?? const <Offer>[])]
-              ..sort((a, b) => a.titleDisplay.toLowerCase().compareTo(b.titleDisplay.toLowerCase()));
+            final items = [...(singlesByCategory[kat] ?? const <Offer>[])]
+              ..sort(
+                    (a, b) => a.titleDisplay.toLowerCase().compareTo(b.titleDisplay.toLowerCase()),
+              );
 
             final children = <Widget>[];
 
             // ---------- Singles rendern ----------
-            for (final offer in singleItems) {
-              final partDisplay = offer.leistungen.first;     // z. B. "Schneiden"
+            for (final offer in items) {
+              final partDisplay = offer.leistungen.first; // z. B. "Schneiden"
               final partLc = offer.leistungenLc.first;
-              final uiTitle = offer.titleDisplay;             // z. B. "Haare – Schneiden"
+              final uiTitle = offer.titleDisplay; // "Haare – Schneiden"
               final preis = offer.priceFor(_zielgruppe);
               final dauer = offer.durationFor(_zielgruppe);
+
               if (preis == null && dauer == null) continue;
 
               final key = _keyFor(
@@ -877,7 +944,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     decoration: const BoxDecoration(
-                      border: Border(bottom: BorderSide(color: Color(0xFFE5E5E5))),
+                      border: Border(
+                        bottom: BorderSide(color: Color(0xFFE5E5E5)),
+                      ),
                     ),
                     child: Row(
                       children: [
@@ -892,15 +961,24 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 partLc: partLc,
                               );
                               final selectedItem = map[selKey];
+
+                              // dynamische Werte: wenn Variante gewählt, nimm deren Preis/Dauer
                               final effectivePrice = selectedItem?.preis ?? preis;
                               final effectiveDuration = selectedItem?.dauer ?? dauer;
 
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(uiTitle,
-                                      style: const TextStyle(
-                                          fontSize: 16, fontWeight: FontWeight.w600)),
+                                  // Titel
+                                  Text(
+                                    uiTitle,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+
+                                  // Gewählte Variante als Chip (nur anzeigen, wenn vorhanden)
                                   if ((selectedItem?.varianteLabel?.trim().isNotEmpty ?? false)) ...[
                                     const SizedBox(height: 6),
                                     GestureDetector(
@@ -927,7 +1005,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           borderRadius: BorderRadius.circular(20),
                                         ),
                                         padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 4),
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
                                         child: Text(
                                           selectedItem!.varianteLabel!,
                                           style: const TextStyle(
@@ -939,10 +1019,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       ),
                                     ),
                                   ],
+
                                   const SizedBox(height: 6),
+
+                                  // Preis & Dauer – dynamisch nach Auswahl
                                   Text(
                                     '${_preisText(effectivePrice)}${_dauerText(effectiveDuration)}',
-                                    style: const TextStyle(color: Colors.black54, fontSize: 13),
+                                    style: const TextStyle(
+                                      color: Colors.black54,
+                                      fontSize: 13,
+                                    ),
                                   ),
                                 ],
                               );
@@ -950,11 +1036,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           ),
                         ),
 
-                        // Trailing-Icon
+                        // Trailing-Icon reaktiv
                         ValueListenableBuilder<Map<String, _CartItem>>(
                           valueListenable: _selectedVN,
                           builder: (_, map, __) {
                             final selected = map.containsKey(key);
+
                             return IconButton(
                               tooltip: selected
                                   ? 'Entfernen'
@@ -962,10 +1049,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               onPressed: () {
                                 if (hasVariants) {
                                   if (selected) {
-                                    final newMap = Map<String, _CartItem>.from(_selectedVN.value);
+                                    // Wenn bereits ausgewählt -> abwählen
+                                    final newMap =
+                                    Map<String, _CartItem>.from(_selectedVN.value);
                                     newMap.remove(key);
                                     _selectedVN.value = newMap;
                                   } else {
+                                    // Noch nicht ausgewählt -> Varianten-Sheet öffnen
                                     final variantsForPart = <Offer>[];
                                     final labels = variantsAvailable[variantKey] ?? {};
                                     for (final label in labels) {
@@ -980,6 +1070,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     );
                                   }
                                 } else {
+                                  // Keine Varianten: normal toggeln
                                   _toggleSelection(
                                     key,
                                     _CartItem(
@@ -992,7 +1083,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   );
                                 }
                               },
-                              icon: Icon(selected ? Icons.check_circle : Icons.add_circle_outline),
+                              icon: Icon(
+                                  selected ? Icons.check_circle : Icons.add_circle_outline),
                               color: selected ? Colors.blueAccent : null,
                             );
                           },
@@ -1016,7 +1108,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   child: Text(
                     'Kombi-Angebote',
                     style: TextStyle(
-                      color: Colors.black.withValues(alpha: .55),
+                      color: Colors.black.withAlpha(140),
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -1035,7 +1127,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       decoration: const BoxDecoration(
-                        border: Border(bottom: BorderSide(color: Color(0xFFE5E5E5))),
+                        border: Border(
+                          bottom: BorderSide(color: Color(0xFFE5E5E5)),
+                        ),
                       ),
                       child: Row(
                         children: [
@@ -1043,13 +1137,21 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(displayName,
-                                    style: const TextStyle(
-                                        fontSize: 16, fontWeight: FontWeight.w600)),
+                                Text(
+                                  displayName,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                                 const SizedBox(height: 4),
-                                Text(subtitle,
-                                    style: const TextStyle(
-                                        color: Colors.black54, fontSize: 13)),
+                                Text(
+                                  subtitle,
+                                  style: const TextStyle(
+                                    color: Colors.black54,
+                                    fontSize: 13,
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -1072,8 +1174,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     singlesByKey: singleBaseIndex,
                                   );
                                 },
-                                icon: Icon(
-                                    allSelected ? Icons.check_circle : Icons.add_circle_outline),
+                                icon: Icon(allSelected
+                                    ? Icons.check_circle
+                                    : Icons.add_circle_outline),
                                 color: allSelected ? Colors.blueAccent : null,
                               );
                             },
@@ -1090,7 +1193,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               sections.add(SectionData(kat, children));
             }
           }
-
 
           int initialIndex = 0;
           final selKat = widget.selektierteKategorie.trim();
@@ -1270,7 +1372,7 @@ class _BookingBar extends StatelessWidget {
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: .18),
+                    color: Colors.white.withAlpha(46),
                     shape: BoxShape.circle,
                   ),
                   alignment: Alignment.center,
