@@ -624,26 +624,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               );
             }
 
-            // ---- Kombi-Angebote (nur wenn mindestens 1 Teil fehlt) ----
-            final combosForCat = bundles.where((b) => b.kategorie == kat).toList()
-              ..sort((a, b) => a.titleDisplay.toLowerCase().compareTo(b.titleDisplay.toLowerCase()));
+// ---- Kombi-Angebote (immer anzeigen, wenn für Zielgruppe bepreist) ----
+            final combosForCat = bundles
+                .where((b) => b.kategorie == kat)
+                .where((b) =>
+            (b.priceFor(_zielgruppe) != null) ||
+                (b.durationFor(_zielgruppe) != null))
+                .toList()
+              ..sort((a, b) =>
+                  a.titleDisplay.toLowerCase().compareTo(b.titleDisplay.toLowerCase()));
 
-            final combosToShow = <Offer>[];
-            for (final combo in combosForCat) {
-              final hasZg =
-                  (combo.priceFor(_zielgruppe) != null) || (combo.durationFor(_zielgruppe) != null);
-              if (!hasZg) continue;
-
-              final allPartsHaveSingle = combo.leistungenLc.every((partLc) {
-                final s = singleIndex['$kat|$partLc'];
-                if (s == null) return false;
-                return (s.priceFor(_zielgruppe) != null) || (s.durationFor(_zielgruppe) != null);
-              });
-
-              if (!allPartsHaveSingle) combosToShow.add(combo);
-            }
-
-            if (combosToShow.isNotEmpty) {
+            if (combosForCat.isNotEmpty) {
+              // kleine Überschrift
               children.add(
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -657,7 +649,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 ),
               );
 
-              for (final combo in combosToShow) {
+              for (final combo in combosForCat) {
                 final preis = combo.priceFor(_zielgruppe);
                 final dauer = combo.durationFor(_zielgruppe);
                 final subtitle = '${_preisText(preis)}${_dauerText(dauer)}';
@@ -681,16 +673,23 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               children: [
                                 Text(
                                   displayName,
-                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
                                   subtitle,
-                                  style: const TextStyle(color: Colors.black54, fontSize: 13),
+                                  style: const TextStyle(
+                                    color: Colors.black54,
+                                    fontSize: 13,
+                                  ),
                                 ),
                               ],
                             ),
                           ),
+                          // Button: wählt/entwählt alle Teile des Bundles
                           ValueListenableBuilder<Map<String, _CartItem>>(
                             valueListenable: _selectedVN,
                             builder: (_, map, __) {
@@ -701,6 +700,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 ),
                               );
                               return IconButton(
+                                tooltip: 'Kombi auswählen',
                                 onPressed: () {
                                   _toggleCombo(
                                     category: kat,
@@ -709,9 +709,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     singlesByKey: singleIndex,
                                   );
                                 },
-                                icon: Icon(allSelected ? Icons.check_circle : Icons.add_circle_outline),
+                                icon: Icon(
+                                  allSelected
+                                      ? Icons.check_circle
+                                      : Icons.add_circle_outline,
+                                ),
                                 color: allSelected ? Colors.blueAccent : null,
-                                tooltip: 'Kombi auswählen',
                               );
                             },
                           ),
@@ -722,6 +725,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 );
               }
             }
+
 
             if (children.isNotEmpty) {
               sections.add(SectionData(kat, children));
