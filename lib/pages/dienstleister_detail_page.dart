@@ -19,9 +19,9 @@ class Offer {
   final String? comboKey;
   final Map<String, dynamic> zielgruppen;
 
-  /// Nur noch diese Spalte für Varianten verwenden.
-  /// Für eine konkrete Variante (z. B. "Seiten auf Null") enthält das Offer
-  /// genau 1 Element – die gewählte Variante. Basiseinträge haben eine leere Liste.
+  /// Nur noch diese Spalte für Varianten verwenden (hier "Methoden").
+  /// Für eine konkrete Methode (z. B. "Seiten auf Null") enthält das Offer
+  /// genau 1 Element – die gewählte Methode. Basiseinträge haben eine leere Liste.
   final List<String> varianten;
 
   /// Gespeicherter Titel (z. B. "Haare – Schneiden (Seiten auf Null)")
@@ -136,10 +136,10 @@ class SectionData {
 class _CartItem {
   final String kategorie;
   final String leistung;   // Normalisierter Teil (z. B. "Schneiden")
-  final double? preis;     // Preis des konkret gewählten Angebots (Basis ODER Variante)
+  final double? preis;     // Preis des konkret gewählten Angebots (Basis ODER Methode)
   final int? dauer;
   final String zielgruppe;
-  final String? varianteLabel; // <<— Name der gewählten Variante (für Chip)
+  final String? varianteLabel; // Name der gewählten Methode (für Anzeige)
 
   const _CartItem({
     required this.kategorie,
@@ -152,12 +152,12 @@ class _CartItem {
 }
 
 /// ---------------------------------------------------------------
-/// Variante-Option fürs BottomSheet
+/// Methode-Option fürs BottomSheet
 /// ---------------------------------------------------------------
 class _VariantOption {
   final String label; // z. B. "Seiten auf Null"
   final String lc;
-  final Offer offer;  // konkretes Offer (Basis oder Variante)
+  final Offer offer;  // konkretes Offer (Basis oder Methode)
 
   const _VariantOption({
     required this.label,
@@ -498,14 +498,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   String _dauerText(int? d) => d == null ? '' : ' • ${d.toString()} Min';
 
-  /// Öffnet das Varianten-Sheet für eine Basisleistung.
+  /// Öffnet das Methoden-Sheet für eine Basisleistung.
   /// [base] ist das Basis-Offer (varianten.isEmpty).
-  /// [variantOffersForPart] sind alle Varianten-Offers für diese Basisleistung.
+  /// [variantOffersForPart] sind alle Methoden-Offers für diese Basisleistung.
   Future<void> _openVariantSheet({
     required Offer base,
     required String category,
     required List<Offer> variantOffersForPart,
-    String? preselectVarLc, // optional: vorher gewählte Variante
+    String? preselectVarLc, // optional: vorher gewählte Methode
   }) async {
     final zg = _zielgruppe;
     final partDisplay = base.leistungen.first;
@@ -580,7 +580,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 const Divider(height: 1),
                 const SizedBox(height: 12),
                 const Text(
-                  'Variante wählen',
+                  'Methode wählen',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 8),
@@ -591,7 +591,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                     return Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Variantenliste
+                        // Methodenliste
                         Flexible(
                           child: ListView.separated(
                             shrinkWrap: true,
@@ -611,7 +611,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   onChanged: (val) => setSheetState(() => selectedVarLc = val),
                                 ),
                                 title: Text(
-                                  opt.label,                    // nur der Variantenname
+                                  opt.label,                    // nur Methodenname
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 trailing: Text(
@@ -791,14 +791,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           // In der Liste zeigen wir NUR die Basiseinträge (varianten.isEmpty)
           final singlesBase = singles.where((o) => o.varianten.isEmpty).toList();
 
-          // Varianten-Offers = Singles mit genau 1 Variante
+          // Methoden-Offers = Singles mit genau 1 Methode
           final singleVariants = singles.where((o) => o.varianten.length == 1).toList();
 
           // Bundles
           final bundles = all.where((o) => o.isBundle && o.leistungen.length >= 2).toList();
 
-          // ---------- SYNTHETISCHE BASIS-EINTRÄGE AUS VARIANTEN ----------
-          // gruppiere Varianten nach (Kategorie|Teil)
+          // ---------- SYNTHETISCHE BASIS-EINTRÄGE AUS METHODEN ----------
+          // gruppiere Methoden nach (Kategorie|Teil)
           final Map<String, List<Offer>> variantsByPart = {};
           for (final v in singleVariants) {
             final key = '${v.kategorie}|${v.leistungenLc.first}';
@@ -818,9 +818,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               final partDisplay = sample.leistungen.first; // Original-Schreibweise
               final partLc = sample.leistungenLc.first;
 
-              // Zielgruppen-Map aus MIN(Preis/Dauer) über alle Varianten
+              // Zielgruppen-Map aus MIN(Preis/Dauer) über alle Methoden
               final Map<String, dynamic> zgMap = {};
-              // sammle alle ZG keys, die in irgendeiner Variante vorkommen
               final Set<String> allZgs = {};
               for (final o in list) {
                 allZgs.addAll(o.zielgruppen.keys.map((e) => e.toString()));
@@ -831,8 +830,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 for (final o in list) {
                   final p = o.priceFor(zg);
                   final d = o.durationFor(zg);
-                  if (p != null) minPrice = (minPrice == null) ? p : (p < minPrice! ? p : minPrice);
-                  if (d != null) minDur = (minDur == null) ? d : (d < minDur! ? d : minDur);
+                  if (p != null) {
+                    minPrice = (minPrice == null) ? p : (p < minPrice! ? p : minPrice);
+                  }
+                  if (d != null) {
+                    minDur = (minDur == null) ? d : (d < minDur! ? d : minDur);
+                  }
                 }
                 if (minPrice != null || minDur != null) {
                   zgMap[zg] = {
@@ -851,7 +854,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   isBundle: false,
                   comboKey: null,
                   zielgruppen: zgMap,
-                  varianten: const [], // echte Basis hat leere Variantenliste
+                  varianten: const [], // echte Basis hat leere Methodenliste
                   titleDisplay: '$cat – $partDisplay',
                 ),
               );
@@ -867,13 +870,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             for (final s in singlesBaseFinal) '${s.kategorie}|${s.leistungenLc.first}': s
           };
 
-          // 2) Varianten-Offer: '$cat|$partLc|$varLc' -> Offer
+          // 2) Methoden-Offer: '$cat|$partLc|$varLc' -> Offer
           final Map<String, Offer> singleVariantIndex = {
             for (final s in singleVariants)
               '${s.kategorie}|${s.leistungenLc.first}|${s.varianten.first.toLowerCase()}': s
           };
 
-          // 3) Verfügbare Varianten je Basis: '$cat|$partLc' -> Set<String>
+          // 3) Verfügbare Methoden je Basis: '$cat|$partLc' -> Set<String>
           final Map<String, Set<String>> variantsAvailable = {};
           for (final v in singleVariants) {
             final key = '${v.kategorie}|${v.leistungenLc.first}';
@@ -936,7 +939,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               );
 
               final variantKey = '$kat|$partLc';
-              final hasVariants = (variantsAvailable[variantKey]?.isNotEmpty ?? false);
+              final labelsSet = variantsAvailable[variantKey] ?? {};
+              final hasVariants = labelsSet.isNotEmpty;
+              final sortedLabels = labelsSet.toList()
+                ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
               children.add(
                 Padding(
@@ -950,7 +956,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                     ),
                     child: Row(
                       children: [
-                        // Titel + (optional) Variante + Preis/Dauer
+                        // Titel + Methoden-Zeile + Preis/Dauer
                         Expanded(
                           child: ValueListenableBuilder<Map<String, _CartItem>>(
                             valueListenable: _selectedVN,
@@ -962,9 +968,29 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               );
                               final selectedItem = map[selKey];
 
-                              // dynamische Werte: wenn Variante gewählt, nimm deren Preis/Dauer
+                              // dynamische Werte: wenn Methode gewählt, nimm deren Preis/Dauer
                               final effectivePrice = selectedItem?.preis ?? preis;
                               final effectiveDuration = selectedItem?.dauer ?? dauer;
+
+                              // ausgewählte Methode zum Hervorheben
+                              final selectedVarLower =
+                              selectedItem?.varianteLabel?.toLowerCase();
+
+                              // Helper, um das Sheet schnell zu öffnen
+                              void openSheet() {
+                                final variantsForPart = <Offer>[];
+                                for (final label in sortedLabels) {
+                                  final o = singleVariantIndex[
+                                  '$kat|$partLc|${label.toLowerCase()}'];
+                                  if (o != null) variantsForPart.add(o);
+                                }
+                                _openVariantSheet(
+                                  base: offer,
+                                  category: kat,
+                                  variantOffersForPart: variantsForPart,
+                                  preselectVarLc: selectedVarLower,
+                                );
+                              }
 
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -978,43 +1004,38 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     ),
                                   ),
 
-                                  // Gewählte Variante als Chip (nur anzeigen, wenn vorhanden)
-                                  if ((selectedItem?.varianteLabel?.trim().isNotEmpty ?? false)) ...[
-                                    const SizedBox(height: 6),
+                                  // Methoden-Zeile (nur wenn vorhanden) – mit Hervorhebung
+                                  if (hasVariants) ...[
+                                    const SizedBox(height: 4),
                                     GestureDetector(
-                                      onTap: () {
-                                        // Sheet mit vorselektierter Variante öffnen
-                                        final variantsForPart = <Offer>[];
-                                        final labels = variantsAvailable[variantKey] ?? {};
-                                        for (final label in labels) {
-                                          final o = singleVariantIndex[
-                                          '$kat|$partLc|${label.toLowerCase()}'];
-                                          if (o != null) variantsForPart.add(o);
-                                        }
-                                        _openVariantSheet(
-                                          base: offer,
-                                          category: kat,
-                                          variantOffersForPart: variantsForPart,
-                                          preselectVarLc:
-                                          selectedItem!.varianteLabel!.toLowerCase(),
-                                        );
-                                      },
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          border: Border.all(color: kBrandOrange, width: 1.5),
-                                          borderRadius: BorderRadius.circular(20),
-                                        ),
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 4,
-                                        ),
-                                        child: Text(
-                                          selectedItem!.varianteLabel!,
-                                          style: const TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w600,
-                                            color: kBrandOrange,
-                                          ),
+                                      onTap: openSheet,
+                                      child: RichText(
+                                        text: TextSpan(
+                                          children: [
+                                            for (int i = 0; i < sortedLabels.length; i++) ...[
+                                              TextSpan(
+                                                text: sortedLabels[i],
+                                                style: TextStyle(
+                                                  color: (sortedLabels[i]
+                                                      .toLowerCase() ==
+                                                      (selectedVarLower ?? ''))
+                                                      ? kBrandOrange
+                                                      : Colors.black54,
+                                                  fontWeight: (sortedLabels[i]
+                                                      .toLowerCase() ==
+                                                      (selectedVarLower ?? ''))
+                                                      ? FontWeight.w700
+                                                      : FontWeight.w400,
+                                                ),
+                                              ),
+                                              if (i != sortedLabels.length - 1)
+                                                const TextSpan(
+                                                  text: ' | ',
+                                                  style: TextStyle(color: Colors.black45),
+                                                ),
+                                            ],
+                                          ],
+                                          style: const TextStyle(fontSize: 13),
                                         ),
                                       ),
                                     ),
@@ -1045,7 +1066,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             return IconButton(
                               tooltip: selected
                                   ? 'Entfernen'
-                                  : (hasVariants ? 'Variante wählen' : 'Hinzufügen'),
+                                  : (hasVariants ? 'Methode wählen' : 'Hinzufügen'),
                               onPressed: () {
                                 if (hasVariants) {
                                   if (selected) {
@@ -1055,10 +1076,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     newMap.remove(key);
                                     _selectedVN.value = newMap;
                                   } else {
-                                    // Noch nicht ausgewählt -> Varianten-Sheet öffnen
+                                    // Noch nicht ausgewählt -> Methoden-Sheet öffnen
                                     final variantsForPart = <Offer>[];
-                                    final labels = variantsAvailable[variantKey] ?? {};
-                                    for (final label in labels) {
+                                    for (final label in sortedLabels) {
                                       final o = singleVariantIndex[
                                       '$kat|$partLc|${label.toLowerCase()}'];
                                       if (o != null) variantsForPart.add(o);
@@ -1070,7 +1090,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     );
                                   }
                                 } else {
-                                  // Keine Varianten: normal toggeln
+                                  // Keine Methoden: normal toggeln
                                   _toggleSelection(
                                     key,
                                     _CartItem(
@@ -1084,7 +1104,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 }
                               },
                               icon: Icon(
-                                  selected ? Icons.check_circle : Icons.add_circle_outline),
+                                selected ? Icons.check_circle : Icons.add_circle_outline,
+                              ),
                               color: selected ? Colors.blueAccent : null,
                             );
                           },

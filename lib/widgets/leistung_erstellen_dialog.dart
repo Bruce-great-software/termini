@@ -15,11 +15,10 @@ class LeistungErstellenDialog extends StatefulWidget {
   @override
   State<LeistungErstellenDialog> createState() =>
       _LeistungErstellenDialogState();
-
 }
 
-// Spezielles Token aus dem Sheet, wenn bewusst "ohne Variante" gewählt wird
-const String _noVariantToken = '__OHNE_VARIANTE__';
+// Spezielles Token aus dem Sheet, wenn bewusst "ohne Methode" gewählt wird
+const String _noMethodToken = '__OHNE_METHODE__';
 
 class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
     with SingleTickerProviderStateMixin {
@@ -31,8 +30,8 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
   List<String> leistungen = [];
   List<String> ausgewaehlteLeistungen = [];
 
-  /// Ausgewählte Variante je Leistung (max. 1)
-  final Map<String, String> _varianteProLeistung = {};
+  /// Ausgewählte Methode je Leistung (max. 1)
+  final Map<String, String> _methodeProLeistung = {};
 
   // Step 3 – Preis & Dauer pro Zielgruppe (einheitlich)
   final Map<String, TextEditingController> preisController = {
@@ -87,7 +86,7 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
       await _ladeLeistungenZurKategorie(kat);
     }
 
-    // Leistungen + Varianten vorfüllen (wenn vorhanden)
+    // Leistungen
     if (d['leistungenSortiert'] is List) {
       ausgewaehlteLeistungen =
       List<String>.from(d['leistungenSortiert'] as List);
@@ -95,8 +94,14 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
       ausgewaehlteLeistungen = List<String>.from(d['leistungen'] as List);
     }
 
-    if (d['variantenProLeistung'] is Map) {
-      _varianteProLeistung
+    // Methoden pro Leistung (Fallback auf altes variantenProLeistung)
+    if (d['methodenProLeistung'] is Map) {
+      _methodeProLeistung
+        ..clear()
+        ..addAll((d['methodenProLeistung'] as Map)
+            .map((k, v) => MapEntry(k.toString(), v.toString())));
+    } else if (d['variantenProLeistung'] is Map) {
+      _methodeProLeistung
         ..clear()
         ..addAll((d['variantenProLeistung'] as Map)
             .map((k, v) => MapEntry(k.toString(), v.toString())));
@@ -135,10 +140,10 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
       leistungen = gefilterteLeistungen;
       if (!_isEdit) {
         ausgewaehlteLeistungen.clear();
-        _varianteProLeistung.clear();
+        _methodeProLeistung.clear();
       } else {
-        // bei Prefill alte Varianten entfernen, die nicht mehr zur Liste gehören
-        _varianteProLeistung.removeWhere((k, _) => !leistungen.contains(k));
+        // bei Prefill alte Methoden entfernen, die nicht mehr zur Liste gehören
+        _methodeProLeistung.removeWhere((k, _) => !leistungen.contains(k));
       }
     });
   }
@@ -195,8 +200,11 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
     );
   }
 
-  // ---------- Varianten laden / Sheet ----------
-  Future<List<String>> _ladeVariantenFuerLeistung(String leistungstitel) async {
+  // ---------- Methoden laden / Sheet ----------
+
+  /// Lädt **Methoden** einer Leistung aus `leistungen/{titel}.methoden`
+  /// (fällt zurück auf altes Feld `varianten`, falls vorhanden).
+  Future<List<String>> _ladeMethodenFuerLeistung(String leistungstitel) async {
     final snap = await FirebaseFirestore.instance
         .collection('leistungen')
         .doc(leistungstitel)
@@ -204,19 +212,25 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
 
     if (!snap.exists) return [];
     final data = snap.data() as Map<String, dynamic>;
-    return (data['varianten'] is List)
-        ? List<String>.from(data['varianten'])
-        : <String>[];
+
+    if (data['methoden'] is List) {
+      return List<String>.from(data['methoden']);
+    }
+    if (data['varianten'] is List) {
+      // Rückwärtskompatibel lesen
+      return List<String>.from(data['varianten']);
+    }
+    return <String>[];
   }
 
-  Future<String?> _zeigeVariantenSheet(
+  Future<String?> _zeigeMethodenSheet(
       BuildContext context,
       String leistung,
-      List<String> varianten,
+      List<String> methoden,
       ) async {
-    String? selected = _varianteProLeistung[leistung];
-    // Wenn noch keine Variante gesetzt ist, default auf "ohne Variante"
-    selected ??= _noVariantToken;
+    String? selected = _methodeProLeistung[leistung];
+    // Wenn noch keine Methode gesetzt ist, default auf "ohne Methode"
+    selected ??= _noMethodToken;
 
     return await showModalBottomSheet<String>(
       context: context,
@@ -234,22 +248,23 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Variante wählen – $leistung',
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                    Text('Methode wählen – $leistung',
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 8),
-                    // Neu: "Ohne Variante"
+                    // Neu: "Ohne Methode"
                     RadioListTile<String>(
-                      value: _noVariantToken,
+                      value: _noMethodToken,
                       groupValue: selected,
-                      title: const Text('Ohne Variante'),
+                      title: const Text('Ohne Methode'),
                       subtitle: const Text('Standard ohne Zusatz'),
                       onChanged: (val) => setSheet(() => selected = val),
                     ),
-                    // vorhandene Varianten
-                    ...varianten.map((v) => RadioListTile<String>(
-                      value: v,
+                    // vorhandene Methoden
+                    ...methoden.map((m) => RadioListTile<String>(
+                      value: m,
                       groupValue: selected,
-                      title: Text(v),
+                      title: Text(m),
                       onChanged: (val) => setSheet(() => selected = val),
                     )),
                     const SizedBox(height: 8),
@@ -277,45 +292,43 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
     );
   }
 
-
   // Auswahl-Logik ausschließlich über das Plus-/Häkchen-Icon
   Future<void> _toggleLeistung(String leistung) async {
     final already = ausgewaehlteLeistungen.contains(leistung);
     if (already) {
-      // Abwählen: Leistung und ggf. Variante entfernen
+      // Abwählen: Leistung und ggf. Methode entfernen
       setState(() {
         ausgewaehlteLeistungen.remove(leistung);
-        _varianteProLeistung.remove(leistung);
+        _methodeProLeistung.remove(leistung);
       });
       return;
     }
 
-    // Prüfen, ob Varianten existieren
-    final varianten = await _ladeVariantenFuerLeistung(leistung);
+    // Prüfen, ob Methoden existieren
+    final methoden = await _ladeMethodenFuerLeistung(leistung);
 
-    if (varianten.isEmpty) {
-      // Direkte Auswahl ohne Varianten
+    if (methoden.isEmpty) {
+      // Direkte Auswahl ohne Methoden
       setState(() => ausgewaehlteLeistungen.add(leistung));
     } else {
-      final result = await _zeigeVariantenSheet(context, leistung, varianten);
+      final result = await _zeigeMethodenSheet(context, leistung, methoden);
       if (result == null) return; // Abgebrochen
 
       setState(() {
-        if (result == _noVariantToken) {
-          // explizit ohne Variante
-          _varianteProLeistung.remove(leistung);
+        if (result == _noMethodToken) {
+          // explizit ohne Methode
+          _methodeProLeistung.remove(leistung);
         } else {
-          _varianteProLeistung[leistung] = result;
+          _methodeProLeistung[leistung] = result;
         }
         ausgewaehlteLeistungen.add(leistung);
       });
     }
   }
 
-
   String _anzeigeName(String leistung) {
-    final v = _varianteProLeistung[leistung];
-    return v == null ? leistung : '$leistung ($v)';
+    final m = _methodeProLeistung[leistung];
+    return m == null ? leistung : '$leistung ($m)';
   }
 
   // ---------- Step 2: Leistungen ----------
@@ -338,26 +351,25 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
       children: [
         ...leistungen.map((leistung) {
           final selected = ausgewaehlteLeistungen.contains(leistung);
-          final variante = _varianteProLeistung[leistung];
+          final methode = _methodeProLeistung[leistung];
 
           return ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 8),
             title: Text(leistung, style: const TextStyle(color: Colors.blue)),
-            // ▼▼▼ Hier: Chip mit "x" zum Entfernen ▼▼▼
-            subtitle: (variante == null)
+            // ▼▼▼ Chip der gewählten Methode mit "x" ▼▼▼
+            subtitle: (methode == null)
                 ? null
                 : Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Wrap(
                 children: [
                   Chip(
-                    label: Text(variante),
+                    label: Text(methode),
                     onDeleted: () {
                       setState(() {
-                        // Variante entfernen …
-                        _varianteProLeistung.remove(leistung);
+                        // Methode entfernen …
+                        _methodeProLeistung.remove(leistung);
                         // … und Leistung wieder auf Standard zurücksetzen
-                        // (= nicht ausgewählt -> Plus-Icon)
                         ausgewaehlteLeistungen.remove(leistung);
                       });
                     },
@@ -500,30 +512,30 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
     // Leistungen sortieren
     final servicesSorted = [...ausgewaehlteLeistungen]
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    final servicesWithVariant =
+    final servicesWithMethod =
     servicesSorted.map(_anzeigeName).toList(growable: false);
 
     final comboKey = servicesSorted.map((s) => s.toLowerCase()).join('|');
     final isBundle = servicesSorted.length > 1;
 
     final titel =
-        '$ausgewaehlteLeistungskategorie – ${servicesWithVariant.join(', ')}';
+        '$ausgewaehlteLeistungskategorie – ${servicesWithMethod.join(', ')}';
 
-    // NEU: flache Varianten-Liste (nur Werte), Reihenfolge gemäß servicesSorted,
+    // flache Methoden-Liste (nur Werte), Reihenfolge gemäß servicesSorted,
     // ohne Duplikate und ohne leere Einträge
-    final List<String> selectedVariants = <String>[];
+    final List<String> selectedMethods = <String>[];
     for (final l in servicesSorted) {
-      final v = _varianteProLeistung[l]?.trim();
-      if (v != null && v.isNotEmpty && !selectedVariants.contains(v)) {
-        selectedVariants.add(v);
+      final m = _methodeProLeistung[l]?.trim();
+      if (m != null && m.isNotEmpty && !selectedMethods.contains(m)) {
+        selectedMethods.add(m);
       }
     }
 
-    // (optional, sauber): nur die Varianten der tatsächlich ausgewählten Leistungen speichern
-    final Map<String, String> variantenProLeistungGefiltert = {
+    // (optional, sauber): nur die Methoden der tatsächlich ausgewählten Leistungen speichern
+    final Map<String, String> methodenProLeistungGefiltert = {
       for (final l in servicesSorted)
-        if ((_varianteProLeistung[l]?.trim().isNotEmpty ?? false))
-          l: _varianteProLeistung[l]!.trim(),
+        if ((_methodeProLeistung[l]?.trim().isNotEmpty ?? false))
+          l: _methodeProLeistung[l]!.trim(),
     };
 
     final angebot = {
@@ -532,12 +544,17 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
       'kategorie': ausgewaehlteLeistungskategorie,
       'leistungen': servicesSorted,
       'leistungenSortiert': servicesSorted,
-      'leistungenMitVarianten': servicesWithVariant,
-      'variantenProLeistung': variantenProLeistungGefiltert,
+      'leistungenMitVarianten': servicesWithMethod, // (Legacy-Feldname ok)
+      'methodenProLeistung': methodenProLeistungGefiltert,
       'comboKey': comboKey,
       'isBundle': isBundle,
       'zielgruppen': zielgruppenGesamt,
-      if (selectedVariants.isNotEmpty) 'varianten': selectedVariants, // <-- NEU
+      if (selectedMethods.isNotEmpty) 'methoden': selectedMethods,
+      // --- Übergangsphase: Legacy-Felder mitschreiben, bis die Detailseite umgestellt ist ---
+      if (selectedMethods.isNotEmpty) 'varianten': selectedMethods,
+      if (methodenProLeistungGefiltert.isNotEmpty)
+        'variantenProLeistung': methodenProLeistungGefiltert,
+      // ---------------------------------------------------------------------------------------
       if (_isEdit) 'aktualisiertAm': Timestamp.now(),
       if (!_isEdit) 'erstelltAm': Timestamp.now(),
     };
@@ -592,7 +609,8 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                         style: ElevatedButton.styleFrom(
                           foregroundColor: Colors.white,
                           backgroundColor: Colors.blue,
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 12),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -603,7 +621,9 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
 
                       // MITTE: Abbrechen
                       OutlinedButton.icon(
-                        onPressed: _saving ? null : () {
+                        onPressed: _saving
+                            ? null
+                            : () {
                           Navigator.of(context).pop();
                         },
                         icon: const Icon(Icons.close),
@@ -611,7 +631,8 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.redAccent,
                           side: const BorderSide(color: Colors.redAccent),
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 12),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -634,7 +655,8 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                         style: ElevatedButton.styleFrom(
                           foregroundColor: Colors.white,
                           backgroundColor: Colors.blue,
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 12),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -646,14 +668,10 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                 ],
               );
             },
-
-
-
-
             steps: [
               Step(
-                title: const Text('Kategorie',
-                    style: TextStyle(color: Colors.blue)),
+                title:
+                const Text('Kategorie', style: TextStyle(color: Colors.blue)),
                 content: _buildKategorieStep(),
                 isActive: currentStep >= 0,
               ),

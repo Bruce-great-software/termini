@@ -13,17 +13,17 @@ class _AdminLeistungErstellenPageState
     extends State<AdminLeistungErstellenPage> {
   final TextEditingController _leistungsController = TextEditingController();
   final TextEditingController _kategorieController = TextEditingController();
-  final TextEditingController _variantenController = TextEditingController();
+  final TextEditingController _methodenController = TextEditingController();
 
   List<String> _leistungen = [];
   List<String> _leistungskategorien = [];
   List<String> _branchen = [];
-  List<String> _varianten = [];
+  List<String> _methoden = [];
 
   List<String> _ausgewaehlteLeistungen = [];
   List<String> _ausgewaehlteLeistungskategorien = [];
   List<String> _ausgewaehlteBranchen = [];
-  List<String> _ausgewaehlteVarianten = [];
+  List<String> _ausgewaehlteMethoden = [];
 
   @override
   void initState() {
@@ -38,15 +38,15 @@ class _AdminLeistungErstellenPageState
     await FirebaseFirestore.instance.collection('leistungskategorien').get();
     final branchenSnapshot =
     await FirebaseFirestore.instance.collection('branchen').get();
-    final variantenSnapshot =
-    await FirebaseFirestore.instance.collection('varianten').get();
+    final methodenSnapshot =
+    await FirebaseFirestore.instance.collection('methoden').get();
 
     setState(() {
       _leistungen = leistungenSnapshot.docs.map((doc) => doc.id).toList();
       _leistungskategorien =
           kategorienSnapshot.docs.map((doc) => doc.id).toList();
       _branchen = branchenSnapshot.docs.map((doc) => doc.id).toList();
-      _varianten = variantenSnapshot.docs.map((doc) => doc.id).toList();
+      _methoden = methodenSnapshot.docs.map((doc) => doc.id).toList();
     });
   }
 
@@ -70,8 +70,9 @@ class _AdminLeistungErstellenPageState
     if (name.isEmpty) return;
 
     final aktuelleBranchen = List<String>.from(_ausgewaehlteBranchen);
-    final docRef =
-    FirebaseFirestore.instance.collection('leistungskategorien').doc(name);
+    final docRef = FirebaseFirestore.instance
+        .collection('leistungskategorien')
+        .doc(name);
     await docRef.set({
       'titel': name,
       'created_at': FieldValue.serverTimestamp(),
@@ -82,58 +83,60 @@ class _AdminLeistungErstellenPageState
     _kategorieController.clear();
   }
 
-  Future<void> _varianteHinzufuegen(String titel) async {
+  Future<void> _methodeHinzufuegen(String titel) async {
     final name = titel.trim();
     if (name.isEmpty) return;
 
     final docRef =
-    FirebaseFirestore.instance.collection('varianten').doc(name);
+    FirebaseFirestore.instance.collection('methoden').doc(name);
     await docRef.set({
       'titel': name,
       'created_at': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    setState(() => _varianten.add(name));
-    _variantenController.clear();
+    setState(() => _methoden.add(name));
+    _methodenController.clear();
   }
 
   /// Speichert alle Relationen:
-  /// - leistungen/{L}: branchen[], leistungskategorien[], varianten[] (flach)
-  /// - leistungen/{L}: variantenByKategorie.{Kategorie}[] (kategorie-spezifisch)
-  /// - leistungskategorien/{K}: branchen[], leistungen[], varianten[]
-  /// - varianten/{V}: leistungen[], leistungskategorien[], branchen[]
+  /// - leistungen/{L}: branchen[], leistungskategorien[], methoden[] (flach)
+  /// - leistungskategorien/{K}: branchen[], leistungen[], methoden[]
+  /// - methoden/{M}: leistungen[], leistungskategorien[], branchen[]
+  /// (alte Felder 'varianten' / 'variantenAktiv' werden bereinigt)
   Future<void> _zuordnungSpeichern() async {
     if (_ausgewaehlteLeistungen.isEmpty ||
         _ausgewaehlteLeistungskategorien.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(
-          'Bitte mindestens eine Leistung *und* eine Leistungskategorie wählen.',
-        )),
+        const SnackBar(
+          content: Text(
+              'Bitte mindestens eine Leistung *und* eine Leistungskategorie wählen.'),
+        ),
       );
       return;
     }
 
     final batch = FirebaseFirestore.instance.batch();
-    final hasVarianten = _ausgewaehlteVarianten.isNotEmpty;
+    final hasMethoden = _ausgewaehlteMethoden.isNotEmpty;
 
     // ---- Leistungen aktualisieren ----
     for (final leistung in _ausgewaehlteLeistungen) {
       final refLeistung =
       FirebaseFirestore.instance.collection('leistungen').doc(leistung);
 
-      // Grunddaten + flache Varianten-Relation
       final baseData = <String, dynamic>{
         'titel': leistung,
         'leistungskategorien':
         FieldValue.arrayUnion(_ausgewaehlteLeistungskategorien),
         'branchen': FieldValue.arrayUnion(_ausgewaehlteBranchen),
-        if (hasVarianten) 'varianten': FieldValue.arrayUnion(_ausgewaehlteVarianten),
+        if (hasMethoden) 'methoden': FieldValue.arrayUnion(_ausgewaehlteMethoden),
       };
       batch.set(refLeistung, baseData, SetOptions(merge: true));
 
-      // ❌ verschachtelte variantenByKategorie.* NICHT mehr schreiben
-      // ✅ optional vorhandenes Feld bereinigen
-      batch.update(refLeistung, {'variantenByKategorie': FieldValue.delete()});
+      // Aufräumen alter Felder
+      batch.update(refLeistung, {
+        'varianten': FieldValue.delete(),
+        'variantenByKategorie': FieldValue.delete(),
+      });
     }
 
     // ---- Kategorien aktualisieren (bidirektional) ----
@@ -147,18 +150,25 @@ class _AdminLeistungErstellenPageState
         {
           'branchen': FieldValue.arrayUnion(_ausgewaehlteBranchen),
           'leistungen': FieldValue.arrayUnion(_ausgewaehlteLeistungen),
-          if (hasVarianten) 'varianten': FieldValue.arrayUnion(_ausgewaehlteVarianten),
+          if (hasMethoden) 'methoden': FieldValue.arrayUnion(_ausgewaehlteMethoden),
         },
         SetOptions(merge: true),
       );
+
+      // altes Flag & Feld entfernen
+      batch.update(refKat, {
+        'varianten': FieldValue.delete(),
+        'variantenAktiv': FieldValue.delete(),
+      });
     }
 
-    // ---- Varianten ebenfalls mit Meta-Relationen versorgen ----
-    if (hasVarianten) {
-      for (final v in _ausgewaehlteVarianten) {
-        final refVar = FirebaseFirestore.instance.collection('varianten').doc(v);
+    // ---- Methoden ebenfalls mit Meta-Relationen versorgen ----
+    if (hasMethoden) {
+      for (final m in _ausgewaehlteMethoden) {
+        final refMeth =
+        FirebaseFirestore.instance.collection('methoden').doc(m);
         batch.set(
-          refVar,
+          refMeth,
           {
             'leistungen': FieldValue.arrayUnion(_ausgewaehlteLeistungen),
             'leistungskategorien':
@@ -176,7 +186,6 @@ class _AdminLeistungErstellenPageState
       const SnackBar(content: Text('Zuordnung erfolgreich gespeichert')),
     );
   }
-
 
   Widget _baueChips(
       List<String> items,
@@ -296,27 +305,26 @@ class _AdminLeistungErstellenPageState
 
           const SizedBox(height: 24),
 
-          // 4) Varianten
-          const Text("Varianten hinzufügen"),
+          // 4) Methoden (früher: Varianten)
+          const Text("Methoden hinzufügen"),
           const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
                 child: TextField(
-                  controller: _variantenController,
+                  controller: _methodenController,
                   decoration: const InputDecoration(
                       hintText: "z. B. Faden / Zupfen / Klassisch"),
                 ),
               ),
               IconButton(
-                onPressed: () =>
-                    _varianteHinzufuegen(_variantenController.text),
+                onPressed: () => _methodeHinzufuegen(_methodenController.text),
                 icon: const Icon(Icons.add),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          _baueChips(_varianten, _ausgewaehlteVarianten, (_) {}),
+          _baueChips(_methoden, _ausgewaehlteMethoden, (_) {}),
 
           const SizedBox(height: 24),
           Center(
@@ -349,7 +357,7 @@ class _AdminLeistungErstellenPageState
                         style: TextStyle(fontWeight: FontWeight.bold))),
                 SizedBox(
                     width: 100,
-                    child: Text("Varianten",
+                    child: Text("Methoden",
                         style: TextStyle(fontWeight: FontWeight.bold))),
               ],
             ),
@@ -371,8 +379,12 @@ class _AdminLeistungErstellenPageState
                     final doc = docs[index];
                     final data = doc.data() as Map<String, dynamic>;
                     final name = doc.id;
-                    final zielgruppenAktiv = data['zielgruppenAktiv'] ?? false;
-                    final variantenAktiv = data['variantenAktiv'] ?? false;
+
+                    // Fallback: altes Flag variantenAktiv noch unterstützen
+                    final bool methodenAktiv =
+                        (data['methodenAktiv'] as bool?) ??
+                            (data['variantenAktiv'] as bool?) ??
+                            false;
 
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -382,7 +394,7 @@ class _AdminLeistungErstellenPageState
                           SizedBox(
                             width: 100,
                             child: Switch(
-                              value: zielgruppenAktiv,
+                              value: (data['zielgruppenAktiv'] as bool?) ?? false,
                               onChanged: (value) {
                                 FirebaseFirestore.instance
                                     .collection('leistungskategorien')
@@ -394,12 +406,20 @@ class _AdminLeistungErstellenPageState
                           SizedBox(
                             width: 100,
                             child: Switch(
-                              value: variantenAktiv,
+                              value: methodenAktiv,
                               onChanged: (value) {
                                 FirebaseFirestore.instance
                                     .collection('leistungskategorien')
                                     .doc(name)
-                                    .update({'variantenAktiv': value});
+                                    .set({
+                                  'methodenAktiv': value,
+                                }, SetOptions(merge: true)).then((_) {
+                                  // altes Flag entfernen
+                                  FirebaseFirestore.instance
+                                      .collection('leistungskategorien')
+                                      .doc(name)
+                                      .update({'variantenAktiv': FieldValue.delete()});
+                                });
                               },
                             ),
                           ),
