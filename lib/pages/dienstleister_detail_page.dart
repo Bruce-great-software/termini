@@ -166,6 +166,21 @@ class _VariantOption {
   });
 }
 
+/// Eine auswählbare Kombinations-Zeile im BottomSheet.
+/// Beispiel: Bundle "Schneiden, Stylen, Waschen" bei Basis "Schneiden"
+/// -> extrasDisplay = ["Waschen","Stylen"], extrasLc = ["waschen","stylen"]
+class _ComboRow {
+  final Offer bundle;                 // das Bundle-Offer (für ab-Preis/Dauer)
+  final List<String> extrasDisplay;   // zusätzliche Teile (Anzeige)
+  final List<String> extrasLc;        // zusätzliche Teile (lowercased)
+
+  const _ComboRow({
+    required this.bundle,
+    required this.extrasDisplay,
+    required this.extrasLc,
+  });
+}
+
 /// ---------------------------------------------------------------
 /// Key-Helfer: unterscheidet Zielgruppe!
 /// ---------------------------------------------------------------
@@ -498,14 +513,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   String _dauerText(int? d) => d == null ? '' : ' • ${d.toString()} Min';
 
-  /// Öffnet das Methoden-Sheet für eine Basisleistung.
-  /// [base] ist das Basis-Offer (varianten.isEmpty).
-  /// [variantOffersForPart] sind alle Methoden-Offers für diese Basisleistung.
+  /// Öffnet das Sheet für Methode & Kombinationen.
   Future<void> _openVariantSheet({
     required Offer base,
     required String category,
     required List<Offer> variantOffersForPart,
-    String? preselectVarLc, // optional: vorher gewählte Methode
+    List<_ComboRow> combineRows = const <_ComboRow>[], // <-- NEU
+    String? preselectVarLc,
   }) async {
     final zg = _zielgruppe;
     final partDisplay = base.leistungen.first;
@@ -516,7 +530,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     // Header
     final headerTitle = '$category – $partDisplay';
 
-    // Optionen vorbereiten
+    // Methoden-Optionen vorbereiten
     final options = <_VariantOption>[];
     final byLabel = <String, Offer>{};
     for (final v in variantOffersForPart) {
@@ -528,14 +542,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     final sortedLabels = byLabel.keys.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
-    // lc -> Offer & lc -> Original-Label
     final Map<String, Offer> variantsByLc = {
       for (final label in sortedLabels) label.toLowerCase(): byLabel[label]!,
     };
     final Map<String, String> labelsByLc = {
       for (final label in sortedLabels) label.toLowerCase(): label,
     };
-
     for (final label in sortedLabels) {
       options.add(_VariantOption(label: label, lc: label.toLowerCase(), offer: byLabel[label]!));
     }
@@ -547,8 +559,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (ctx) {
-        // ---- WICHTIG: selectedVarLc außerhalb des StatefulBuilder halten
+        // --- außerhalb des StatefulBuilder halten ---
         String? selectedVarLc = preselectVarLc;
+        final Set<int> selectedComboIdx = <int>{};
 
         final key = _keyFor(zielgruppe: zg, category: category, partLc: partLc);
         final alreadySelected = _selectedVN.value.containsKey(key);
@@ -585,7 +598,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 ),
                 const SizedBox(height: 8),
 
-                // Alles, was sich bei Auswahl ändern muss, in EINEN StatefulBuilder packen
                 StatefulBuilder(
                   builder: (ctx2, setSheetState) {
                     return Column(
@@ -611,7 +623,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   onChanged: (val) => setSheetState(() => selectedVarLc = val),
                                 ),
                                 title: Text(
-                                  opt.label,                    // nur Methodenname
+                                  opt.label,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 trailing: Text(
@@ -623,6 +635,65 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             },
                           ),
                         ),
+
+                        // --------- Kombinieren mit ---------
+                        if (combineRows.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          const Divider(height: 1),
+                          const SizedBox(height: 12),
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Kombinieren mit',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+
+                          for (int i = 0; i < combineRows.length; i++) ...[
+                            Builder(
+                              builder: (_) {
+                                final row = combineRows[i];
+                                final bundlePrice = row.bundle.priceFor(zg);
+                                final bundleDur = row.bundle.durationFor(zg);
+                                final label = row.extrasDisplay.join('  &  ');
+                                final checked = selectedComboIdx.contains(i);
+
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 6.0),
+                                  child: Row(
+                                    children: [
+                                      Checkbox(
+                                        value: checked,
+                                        onChanged: (val) => setSheetState(() {
+                                          if (val == true) {
+                                            selectedComboIdx.add(i);
+                                          } else {
+                                            selectedComboIdx.remove(i);
+                                          }
+                                        }),
+                                      ),
+                                      Expanded(
+                                        child: Text(
+                                          label,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(fontSize: 15),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Text(
+                                        '${_preisText(bundlePrice)}${_dauerText(bundleDur)}',
+                                        style: const TextStyle(fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+
+                          const SizedBox(height: 8),
+                        ],
 
                         // Optional: Auswahl entfernen
                         if (alreadySelected) ...[
@@ -643,7 +714,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         ],
 
                         const SizedBox(height: 8),
-                        // Dynamischer Button
+
+                        // CTA
                         SafeArea(
                           top: false,
                           child: SizedBox(
@@ -675,6 +747,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                                 final map = Map<String, _CartItem>.from(_selectedVN.value);
 
+                                // Zielgruppen-Mix verhindern
                                 if (_hasItemsFromOtherZielgruppe(zg)) {
                                   final other = map.values.first.zielgruppe;
                                   Navigator.pop(ctx);
@@ -682,7 +755,37 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   return;
                                 }
 
+                                // Basisleistung ins Cart
+                                final key = _keyFor(
+                                  zielgruppe: zg,
+                                  category: category,
+                                  partLc: base.leistungenLc.first,
+                                );
                                 map[key] = item;
+
+                                // Aus gewählten Kombi-Zeilen alle Extras sammeln (ohne Duplikate)
+                                final Map<String, String> extrasToAdd = {}; // lc -> display
+                                for (final idx in selectedComboIdx) {
+                                  final row = combineRows[idx];
+                                  for (int j = 0; j < row.extrasLc.length; j++) {
+                                    extrasToAdd[row.extrasLc[j]] = row.extrasDisplay[j];
+                                  }
+                                }
+
+                                // Jede Extra-Leistung als eigenes Cart-Item einfügen.
+                                // Preis/Dauer hier absichtlich null – computeTotal nutzt Fallbacks.
+                                extrasToAdd.forEach((lc, display) {
+                                  final extraKey =
+                                  _keyFor(zielgruppe: zg, category: category, partLc: lc);
+                                  map[extraKey] = _CartItem(
+                                    kategorie: category,
+                                    leistung: display,
+                                    preis: null,
+                                    dauer: null,
+                                    zielgruppe: zg,
+                                  );
+                                });
+
                                 _selectedVN.value = map;
                                 Navigator.pop(ctx);
                               },
@@ -702,7 +805,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       ),
                                     ),
                                   ),
-                                  // Preis passt sich dynamisch an selectedVarLc an
                                   Text(
                                     (() {
                                       final Offer chosen = selectedVarLc == null
@@ -798,14 +900,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           final bundles = all.where((o) => o.isBundle && o.leistungen.length >= 2).toList();
 
           // ---------- SYNTHETISCHE BASIS-EINTRÄGE AUS METHODEN ----------
-          // gruppiere Methoden nach (Kategorie|Teil)
           final Map<String, List<Offer>> variantsByPart = {};
           for (final v in singleVariants) {
             final key = '${v.kategorie}|${v.leistungenLc.first}';
             variantsByPart.putIfAbsent(key, () => <Offer>[]).add(v);
           }
 
-          // Prüfe je Gruppe, ob es einen echten Basis-Eintrag gibt, sonst erstellen
           final List<Offer> syntheticBases = [];
           final Set<String> existingBaseKeys = {
             for (final s in singlesBase) '${s.kategorie}|${s.leistungenLc.first}'
@@ -818,7 +918,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               final partDisplay = sample.leistungen.first; // Original-Schreibweise
               final partLc = sample.leistungenLc.first;
 
-              // Zielgruppen-Map aus MIN(Preis/Dauer) über alle Methoden
               final Map<String, dynamic> zgMap = {};
               final Set<String> allZgs = {};
               for (final o in list) {
@@ -865,18 +964,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           final singlesBaseFinal = [...singlesBase, ...syntheticBases];
 
           // Indizes
-          // 1) Basis-Single: '$cat|$partLc' -> Offer
           final Map<String, Offer> singleBaseIndex = {
             for (final s in singlesBaseFinal) '${s.kategorie}|${s.leistungenLc.first}': s
           };
-
-          // 2) Methoden-Offer: '$cat|$partLc|$varLc' -> Offer
           final Map<String, Offer> singleVariantIndex = {
             for (final s in singleVariants)
               '${s.kategorie}|${s.leistungenLc.first}|${s.varianten.first.toLowerCase()}': s
           };
-
-          // 3) Verfügbare Methoden je Basis: '$cat|$partLc' -> Set<String>
           final Map<String, Set<String>> variantsAvailable = {};
           for (final v in singleVariants) {
             final key = '${v.kategorie}|${v.leistungenLc.first}';
@@ -887,8 +981,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           }
 
           // ---- Anzeige: Singles & Kombis – Kategorien-Union aufbauen ----
-
-          // Singles (Basis) nach Kategorie – nur wenn für Zielgruppe vorhanden
           final Map<String, List<Offer>> singlesByCategory = {};
           for (final s in singlesBaseFinal) {
             final hasZg =
@@ -897,7 +989,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             singlesByCategory.putIfAbsent(s.kategorie, () => []).add(s);
           }
 
-          // Kombi-Angebote nach Kategorie – **unabhängig** davon, ob Singles existieren
           final Map<String, List<Offer>> combosByCategory = {};
           for (final b in bundles) {
             final hasZg =
@@ -906,7 +997,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             combosByCategory.putIfAbsent(b.kategorie, () => []).add(b);
           }
 
-          // Kategorien = Union
           final kategorien = <String>{
             ...singlesByCategory.keys,
             ...combosByCategory.keys,
@@ -924,9 +1014,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
             // ---------- Singles rendern ----------
             for (final offer in items) {
-              final partDisplay = offer.leistungen.first; // z. B. "Schneiden"
+              final partDisplay = offer.leistungen.first;
               final partLc = offer.leistungenLc.first;
-              final uiTitle = offer.titleDisplay; // "Haare – Schneiden"
+              final uiTitle = offer.titleDisplay;
               final preis = offer.priceFor(_zielgruppe);
               final dauer = offer.durationFor(_zielgruppe);
 
@@ -968,15 +1058,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               );
                               final selectedItem = map[selKey];
 
-                              // dynamische Werte: wenn Methode gewählt, nimm deren Preis/Dauer
                               final effectivePrice = selectedItem?.preis ?? preis;
                               final effectiveDuration = selectedItem?.dauer ?? dauer;
 
-                              // ausgewählte Methode zum Hervorheben
                               final selectedVarLower =
                               selectedItem?.varianteLabel?.toLowerCase();
 
-                              // Helper, um das Sheet schnell zu öffnen
                               void openSheet() {
                                 final variantsForPart = <Offer>[];
                                 for (final label in sortedLabels) {
@@ -984,11 +1071,41 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   '$kat|$partLc|${label.toLowerCase()}'];
                                   if (o != null) variantsForPart.add(o);
                                 }
+
+                                // Kombi-Zeilen für diese Basis bauen
+                                List<_ComboRow> _buildCombineRowsFor(String category, String partLc) {
+                                  final combos = combosByCategory[category] ?? const <Offer>[];
+                                  final rows = <_ComboRow>[];
+                                  for (final c in combos) {
+                                    if (c.leistungenLc.contains(partLc)) {
+                                      final extrasDisplay = <String>[];
+                                      final extrasLc = <String>[];
+                                      for (int i = 0; i < c.leistungen.length; i++) {
+                                        final lc = c.leistungenLc[i];
+                                        if (lc == partLc) continue;
+                                        extrasDisplay.add(c.leistungen[i]);
+                                        extrasLc.add(lc);
+                                      }
+                                      if (extrasLc.isNotEmpty) {
+                                        rows.add(_ComboRow(
+                                          bundle: c,
+                                          extrasDisplay: extrasDisplay,
+                                          extrasLc: extrasLc,
+                                        ));
+                                      }
+                                    }
+                                  }
+                                  return rows;
+                                }
+
+                                final combineRows = _buildCombineRowsFor(kat, partLc);
+
                                 _openVariantSheet(
                                   base: offer,
                                   category: kat,
                                   variantOffersForPart: variantsForPart,
                                   preselectVarLc: selectedVarLower,
+                                  combineRows: combineRows,
                                 );
                               }
 
@@ -1004,7 +1121,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     ),
                                   ),
 
-                                  // Methoden-Zeile (nur wenn vorhanden) – mit Hervorhebung
+                                  // Methoden-Zeile (nur wenn vorhanden)
                                   if (hasVariants) ...[
                                     const SizedBox(height: 4),
                                     GestureDetector(
@@ -1016,13 +1133,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                               TextSpan(
                                                 text: sortedLabels[i],
                                                 style: TextStyle(
-                                                  color: (sortedLabels[i]
-                                                      .toLowerCase() ==
+                                                  color: (sortedLabels[i].toLowerCase() ==
                                                       (selectedVarLower ?? ''))
                                                       ? kBrandOrange
                                                       : Colors.black54,
-                                                  fontWeight: (sortedLabels[i]
-                                                      .toLowerCase() ==
+                                                  fontWeight: (sortedLabels[i].toLowerCase() ==
                                                       (selectedVarLower ?? ''))
                                                       ? FontWeight.w700
                                                       : FontWeight.w400,
@@ -1066,27 +1181,57 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             return IconButton(
                               tooltip: selected
                                   ? 'Entfernen'
-                                  : (hasVariants ? 'Methode wählen' : 'Hinzufügen'),
+                                  : (hasVariants ? 'Methode/Kombi wählen' : 'Hinzufügen'),
                               onPressed: () {
                                 if (hasVariants) {
                                   if (selected) {
-                                    // Wenn bereits ausgewählt -> abwählen
                                     final newMap =
                                     Map<String, _CartItem>.from(_selectedVN.value);
                                     newMap.remove(key);
                                     _selectedVN.value = newMap;
                                   } else {
-                                    // Noch nicht ausgewählt -> Methoden-Sheet öffnen
                                     final variantsForPart = <Offer>[];
                                     for (final label in sortedLabels) {
                                       final o = singleVariantIndex[
                                       '$kat|$partLc|${label.toLowerCase()}'];
                                       if (o != null) variantsForPart.add(o);
                                     }
+
+                                    // Kombi-Zeilen wie oben
+                                    List<_ComboRow> _buildCombineRowsFor(
+                                        String category, String partLc) {
+                                      final combos =
+                                          combosByCategory[category] ?? const <Offer>[];
+                                      final rows = <_ComboRow>[];
+                                      for (final c in combos) {
+                                        if (c.leistungenLc.contains(partLc)) {
+                                          final extrasDisplay = <String>[];
+                                          final extrasLc = <String>[];
+                                          for (int i = 0; i < c.leistungen.length; i++) {
+                                            final lc = c.leistungenLc[i];
+                                            if (lc == partLc) continue;
+                                            extrasDisplay.add(c.leistungen[i]);
+                                            extrasLc.add(lc);
+                                          }
+                                          if (extrasLc.isNotEmpty) {
+                                            rows.add(_ComboRow(
+                                              bundle: c,
+                                              extrasDisplay: extrasDisplay,
+                                              extrasLc: extrasLc,
+                                            ));
+                                          }
+                                        }
+                                      }
+                                      return rows;
+                                    }
+
+                                    final combineRows = _buildCombineRowsFor(kat, partLc);
+
                                     _openVariantSheet(
                                       base: offer,
                                       category: kat,
                                       variantOffersForPart: variantsForPart,
+                                      combineRows: combineRows,
                                     );
                                   }
                                 } else {
@@ -1397,7 +1542,8 @@ class _BookingBar extends StatelessWidget {
                     shape: BoxShape.circle,
                   ),
                   alignment: Alignment.center,
-                  child: const Icon(Icons.shopping_basket_outlined, size: 22, color: Colors.white),
+                  child:
+                  const Icon(Icons.shopping_basket_outlined, size: 22, color: Colors.white),
                 ),
                 Positioned(
                   right: -3,
