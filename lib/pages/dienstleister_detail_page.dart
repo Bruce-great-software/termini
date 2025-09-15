@@ -1,3 +1,4 @@
+// dienstleister_detail_page.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -67,7 +68,6 @@ class Offer {
         (d['comboKey'] as String?)?.toLowerCase() ?? (bundleFlag ? lsLc.join('|') : null);
 
     // Nur noch 'varianten' verwenden (Liste von Strings).
-    // Fallback: falls 'varianten' fehlt, einmalig aus alten 'variantenProLeistung' ableiten.
     List<String> vars = [];
     if (d['varianten'] is List) {
       vars = List<String>.from(d['varianten'])
@@ -167,8 +167,6 @@ class _VariantOption {
 }
 
 /// Eine auswählbare Kombinations-Zeile im BottomSheet.
-/// Beispiel: Bundle "Schneiden, Stylen, Waschen" bei Basis "Schneiden"
-/// -> extrasDisplay = ["Waschen","Stylen"], extrasLc = ["waschen","stylen"]
 class _ComboRow {
   final Offer bundle;                 // das Bundle-Offer (für ab-Preis/Dauer)
   final List<String> extrasDisplay;   // zusätzliche Teile (Anzeige)
@@ -397,32 +395,21 @@ class DienstleisterDetailPage extends StatefulWidget {
 class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String _zielgruppe = 'Damen';
 
-  // Merkt, ob die Basis (z. B. "schneiden") im Titel-Segmented gewählt ist
-  final Map<String, bool> _baseSelected = {};
-  bool _isBaseSelected(String cat, String partLc) =>
-      _baseSelected['${cat.toLowerCase()}|$partLc'] ?? true; // default: an
+  /// Merkt die aktuell ausgewählten Basis-Teile (lowercased) je Kategorie (Multi-Select)
+  final Map<String, Set<String>> _selectedPartsByCategory = {};
 
-
-  Widget _segLabel(String s) => FittedBox(
-    fit: BoxFit.scaleDown,               // verkleinert den Text statt umzubrechen
-    alignment: Alignment.centerLeft,
-    child: Text(
-      s,
-      maxLines: 1,
-      softWrap: false,
-      overflow: TextOverflow.ellipsis,   // falls Skalieren nicht reicht -> …
-    ),
-  );
-
+  Set<String> _getSelectedParts(String kat, List<Offer> parts) {
+    final s = _selectedPartsByCategory.putIfAbsent(
+      kat,
+          () => { if (parts.isNotEmpty) parts.first.leistungenLc.first },
+    );
+    if (s.isEmpty && parts.isNotEmpty) s.add(parts.first.leistungenLc.first);
+    return s;
+  }
 
   /// Auswahl als ValueNotifier -> verhindert kompletten Rebuild der Liste
   final ValueNotifier<Map<String, _CartItem>> _selectedVN =
   ValueNotifier<Map<String, _CartItem>>({});
-
-  /// UI: pro (Kategorie|partLc) die aktuell markierten Extras (nur für Vorschau)
-  final Map<String, Set<String>> _extrasPreview = {};
-  Set<String> _extrasOf(String cat, String partLc) =>
-      _extrasPreview.putIfAbsent('${cat.toLowerCase()}|$partLc', () => <String>{});
 
   Map<String, Widget> _zielgruppenSegments() {
     TextStyle label(String value) => TextStyle(
@@ -536,7 +523,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   String _dauerText(int? d) => d == null ? '' : ' • ${d.toString()} Min';
 
-  /// Öffnet das Sheet für Methode & Kombinationen.
+  /// Öffnet das Sheet für Methode & Kombinationen (bei genau 1 aktiver Basis).
   Future<void> _openVariantSheet({
     required Offer base,
     required String category,
@@ -622,7 +609,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   Expanded(
                     child: StatefulBuilder(
                       builder: (ctx2, setSheetState) {
-                        // --- Helper: dynamischer Button-Preis ---
                         double? _previewPrice() {
                           final Offer chosen =
                           selectedVarLc == null ? base : (variantsByLc[selectedVarLc] ?? base);
@@ -650,7 +636,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // Scrollbarer Inhalt
                             Expanded(
                               child: SingleChildScrollView(
                                 child: Column(
@@ -766,7 +751,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               ),
                             ),
 
-                            // Fester Button unten (im selben StatefulBuilder, damit _previewPrice sichtbar ist)
+                            // Fester Button unten
                             SafeArea(
                               top: false,
                               child: SizedBox(
@@ -879,13 +864,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                     ),
                   ),
                 ],
-              ), // Column (im Padding)
+              ), // Column
             ),
           ),
-        ); // SafeArea
-      }, // builder
-    ); // showModalBottomSheet
-  } // Ende von _openVariantSheet
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1004,7 +989,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   isBundle: false,
                   comboKey: null,
                   zielgruppen: zgMap,
-                  varianten: const [], // echte Basis hat leere Methodenliste
+                  varianten: const [],
                   titleDisplay: '$cat – $partDisplay',
                 ),
               );
@@ -1031,7 +1016,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             }
           }
 
-          // ---- Anzeige: Singles & Kombis – Kategorien-Union aufbauen ----
+          // ---- Anzeige: Singles – Kategorien-Union aufbauen ----
           final Map<String, List<Offer>> singlesByCategory = {};
           for (final s in singlesBaseFinal) {
             final hasZg =
@@ -1040,6 +1025,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             singlesByCategory.putIfAbsent(s.kategorie, () => []).add(s);
           }
 
+          // Bundles nach Kategorie (nur zur Preis/Dauer-Vorschau & computeTotal)
           final Map<String, List<Offer>> combosByCategory = {};
           for (final b in bundles) {
             final hasZg =
@@ -1054,480 +1040,348 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           }.toList()
             ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
-          final sections = <SectionData>[];
-          for (final kat in kategorien) {
-            final items = [...(singlesByCategory[kat] ?? const <Offer>[])]
-              ..sort(
-                    (a, b) => a.titleDisplay.toLowerCase().compareTo(b.titleDisplay.toLowerCase()),
-              );
+          // ---- Helper: Vorschau-Preis/Dauer für aktuelle Multi-Selection ----
+          MapEntry<double?, int?> _previewForSelection({
+            required String category,
+            required String zielgruppe,
+            required Iterable<String> partsLc,
+          }) {
+            if (partsLc.isEmpty) return const MapEntry(null, null);
 
-            final children = <Widget>[];
+            final lcSet = partsLc.map((e) => e.toLowerCase()).toSet();
 
-            // ---------- Singles rendern ----------
-            for (final offer in items) {
-              final partDisplay = offer.leistungen.first;
-              final partLc = offer.leistungenLc.first;
-              final uiTitle = offer.titleDisplay;
-              final preis = offer.priceFor(_zielgruppe);
-              final dauer = offer.durationFor(_zielgruppe);
-
-              if (preis == null && dauer == null) continue;
-
-              final key = _keyFor(
-                zielgruppe: _zielgruppe,
-                category: kat,
-                partLc: partLc,
-              );
-
-              final variantKey = '$kat|$partLc';
-              final labelsSet = variantsAvailable[variantKey] ?? {};
-              final hasVariants = labelsSet.isNotEmpty;
-              final sortedLabels = labelsSet.toList()
-                ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-
-              children.add(
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: const BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(color: Color(0xFFE5E5E5)),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        // Titel + SegmentedButton + Preis/Dauer (dynamisch)
-                        Expanded(
-                          child: ValueListenableBuilder<Map<String, _CartItem>>(
-                            valueListenable: _selectedVN,
-                            builder: (_, map, __) {
-                              final selKey = _keyFor(
-                                zielgruppe: _zielgruppe,
-                                category: kat,
-                                partLc: partLc,
-                              );
-                              final selectedItem = map[selKey];
-
-                              // Wenn Item schon im Warenkorb ist, Preis/Dauer daraus nehmen,
-                              // sonst Basiswerte:
-                              final effectivePrice = selectedItem?.preis ?? preis;
-                              final effectiveDuration = selectedItem?.dauer ?? dauer;
-
-                              final selectedVarLower = selectedItem?.varianteLabel?.toLowerCase();
-
-                              void openSheet() {
-                                final variantsForPart = <Offer>[];
-                                for (final label in sortedLabels) {
-                                  final o = singleVariantIndex[
-                                  '$kat|$partLc|${label.toLowerCase()}'];
-                                  if (o != null) variantsForPart.add(o);
-                                }
-
-                                // Kombi-Zeilen für diese Basis bauen
-                                List<_ComboRow> _buildCombineRowsFor(
-                                    String category, String pl) {
-                                  final combos = combosByCategory[category] ?? const <Offer>[];
-                                  final rows = <_ComboRow>[];
-                                  for (final c in combos) {
-                                    if (c.leistungenLc.contains(pl)) {
-                                      final extrasDisplay = <String>[];
-                                      final extrasLc = <String>[];
-                                      for (int i = 0; i < c.leistungen.length; i++) {
-                                        final lc = c.leistungenLc[i];
-                                        if (lc == pl) continue;
-                                        extrasDisplay.add(c.leistungen[i]);
-                                        extrasLc.add(lc);
-                                      }
-                                      if (extrasLc.isNotEmpty) {
-                                        rows.add(_ComboRow(
-                                          bundle: c,
-                                          extrasDisplay: extrasDisplay,
-                                          extrasLc: extrasLc,
-                                        ));
-                                      }
-                                    }
-                                  }
-                                  return rows;
-                                }
-
-                                final combineRows = _buildCombineRowsFor(kat, partLc);
-
-                                _openVariantSheet(
-                                  base: offer,
-                                  category: kat,
-                                  variantOffersForPart: variantsForPart,
-                                  preselectVarLc: selectedVarLower,
-                                  combineRows: combineRows,
-                                );
-                              }
-
-                              // ---------- Titelzeile als SegmentedButton ----------
-                              return Builder(
-                                builder: (context) {
-                                  // 1) Mögliche Extras (aus Kombi-Angeboten) sammeln (lc -> Display)
-                                  final Map<String, String> extrasByLc = {};
-                                  for (final combo in (combosByCategory[kat] ?? const <Offer>[])) {
-                                    if (combo.leistungenLc.contains(partLc)) {
-                                      for (int i = 0; i < combo.leistungenLc.length; i++) {
-                                        final lc = combo.leistungenLc[i];
-                                        if (lc == partLc) continue;
-                                        extrasByLc.putIfAbsent(lc, () => combo.leistungen[i]);
-                                      }
-                                    }
-                                  }
-
-                                  // 2) Aktuell gemerkte Extras für diese Zeile
-                                  final selectedExtras = _extrasOf(kat, partLc);
-
-                                  // 3) Vorschau-Preis/-Dauer anhand der Menge (Basis + Extras)
-                                  double? previewPrice() {
-                                    final desired = {partLc, ...selectedExtras};
-                                    for (final c in (combosByCategory[kat] ?? const <Offer>[])) {
-                                      final setC = c.leistungenLc.toSet();
-                                      if (setC.length == desired.length && setC.containsAll(desired)) {
-                                        final p = c.priceFor(_zielgruppe);
-                                        if (p != null) return p;
-                                      }
-                                    }
-                                    return effectivePrice; // Basis/Methodenpreis (falls im Warenkorb)
-                                  }
-
-                                  int? previewDuration() {
-                                    final desired = {partLc, ...selectedExtras};
-                                    for (final c in (combosByCategory[kat] ?? const <Offer>[])) {
-                                      final setC = c.leistungenLc.toSet();
-                                      if (setC.length == desired.length && setC.containsAll(desired)) {
-                                        final d = c.durationFor(_zielgruppe);
-                                        if (d != null) return d;
-                                      }
-                                    }
-                                    return effectiveDuration;
-                                  }
-
-                                  return StatefulBuilder(
-                                    builder: (ctxSB, setSB) {
-                                      final priceNow = previewPrice();
-                                      final durNow = previewDuration();
-
-                                      return Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            crossAxisAlignment: CrossAxisAlignment.center,
-                                            children: [
-                                              Text(
-                                                '$kat – ',
-                                                style: const TextStyle(
-                                                  fontSize: 16,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                              Expanded(
-                                                child: SegmentedButton<String>(
-                                                  multiSelectionEnabled: true,
-                                                  showSelectedIcon: false,
-                                                  style: ButtonStyle(
-                                                    padding: const MaterialStatePropertyAll(
-                                                      EdgeInsets.symmetric(horizontal: 8),
-                                                    ),
-                                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                                    visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-                                                    // Selektierte Segmente in Brand-Orange mit weißer Schrift
-                                                    backgroundColor: MaterialStateProperty.resolveWith<Color?>(
-                                                          (states) => states.contains(MaterialState.selected) ? kBrandOrange : null,
-                                                    ),
-                                                    foregroundColor: MaterialStateProperty.resolveWith<Color?>(
-                                                          (states) => states.contains(MaterialState.selected) ? Colors.white : null,
-                                                    ),
-                                                  ),
-                                                  segments: <ButtonSegment<String>>[
-                                                    // Basis-Leistung jetzt ganz normal klickbar
-                                                    ButtonSegment<String>(
-                                                      value: partLc,
-                                                      label: _segLabel(partDisplay),
-                                                    ),
-                                                    ...extrasByLc.entries.map(
-                                                          (e) => ButtonSegment<String>(
-                                                        value: e.key,
-                                                        label: _segLabel(e.value),
-                                                      ),
-                                                    ),
-                                                  ],
-                                                  // Basis nur markieren, wenn aktuell ausgewählt (persistiert über _baseSelected)
-                                                  selected: {
-                                                    if (_isBaseSelected(kat, partLc)) partLc,
-                                                    ...selectedExtras,
-                                                  },
-                                                  onSelectionChanged: (newSel) {
-                                                    // Basiszustand & Extras trennen
-                                                    final isBaseSel = newSel.contains(partLc);
-                                                    final extrasOnly = {...newSel}..remove(partLc);
-
-                                                    setSB(() {
-                                                      selectedExtras
-                                                        ..clear()
-                                                        ..addAll(extrasOnly);
-
-                                                      // globalen UI-Status der EXTRAS merken (für Plus-Button)
-                                                      _extrasPreview['${kat.toLowerCase()}|$partLc'] = {...extrasOnly};
-
-                                                      // Basis-Auswahl persistent speichern
-                                                      _baseSelected['${kat.toLowerCase()}|$partLc'] = isBaseSel;
-                                                    });
-                                                  },
-                                                ),
-                                              ),
-
-
-                                            ],
-                                          ),
-
-                                          // Methoden-Auswahl-Link (öffnet Sheet)
-                                          if (hasVariants) ...[
-                                            const SizedBox(height: 4),
-                                            GestureDetector(
-                                              onTap: openSheet,
-                                              child: RichText(
-                                                text: TextSpan(
-                                                  children: [
-                                                    for (int i = 0; i < sortedLabels.length; i++) ...[
-                                                      TextSpan(
-                                                        text: sortedLabels[i],
-                                                        style: TextStyle(
-                                                          color: (sortedLabels[i].toLowerCase() ==
-                                                              (selectedVarLower ?? ''))
-                                                              ? kBrandOrange
-                                                              : Colors.black54,
-                                                          fontWeight: (sortedLabels[i].toLowerCase() ==
-                                                              (selectedVarLower ?? ''))
-                                                              ? FontWeight.w700
-                                                              : FontWeight.w400,
-                                                        ),
-                                                      ),
-                                                      if (i != sortedLabels.length - 1)
-                                                        const TextSpan(
-                                                          text: ' | ',
-                                                          style: TextStyle(color: Colors.black45),
-                                                        ),
-                                                    ],
-                                                  ],
-                                                  style: const TextStyle(fontSize: 13),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-
-                                          const SizedBox(height: 6),
-
-                                          // Dynamische Vorschau (Preis • Dauer)
-                                          Text(
-                                            '${_preisText(priceNow)}${_dauerText(durNow)}',
-                                            style: const TextStyle(
-                                              color: Colors.black54,
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                        ],
-                                      );
-                                    },
-                                  );
-                                },
-                              );
-                            },
-                          ),
-                        ),
-
-                        // Trailing-Icon reaktiv
-                        ValueListenableBuilder<Map<String, _CartItem>>(
-                          valueListenable: _selectedVN,
-                          builder: (_, map, __) {
-                            final selected = map.containsKey(key);
-
-                            return IconButton(
-                              tooltip: selected
-                                  ? 'Entfernen'
-                                  : (hasVariants ? 'Methode/Kombi wählen' : 'Hinzufügen'),
-                              onPressed: () {
-                                if (hasVariants) {
-                                  if (selected) {
-                                    final newMap =
-                                    Map<String, _CartItem>.from(_selectedVN.value);
-                                    newMap.remove(key);
-                                    _selectedVN.value = newMap;
-                                  } else {
-                                    // Standard: Sheet öffnen (Methoden wählen)
-                                    final variantsForPart = <Offer>[];
-                                    for (final label in sortedLabels) {
-                                      final o = singleVariantIndex[
-                                      '$kat|$partLc|${label.toLowerCase()}'];
-                                      if (o != null) variantsForPart.add(o);
-                                    }
-
-                                    // Kombi-Zeilen wie oben
-                                    List<_ComboRow> _buildCombineRowsFor(
-                                        String category, String pl) {
-                                      final combos =
-                                          combosByCategory[category] ?? const <Offer>[];
-                                      final rows = <_ComboRow>[];
-                                      for (final c in combos) {
-                                        if (c.leistungenLc.contains(pl)) {
-                                          final extrasDisplay = <String>[];
-                                          final extrasLc = <String>[];
-                                          for (int i = 0; i < c.leistungen.length; i++) {
-                                            final lc = c.leistungenLc[i];
-                                            if (lc == pl) continue;
-                                            extrasDisplay.add(c.leistungen[i]);
-                                            extrasLc.add(lc);
-                                          }
-                                          if (extrasLc.isNotEmpty) {
-                                            rows.add(_ComboRow(
-                                              bundle: c,
-                                              extrasDisplay: extrasDisplay,
-                                              extrasLc: extrasLc,
-                                            ));
-                                          }
-                                        }
-                                      }
-                                      return rows;
-                                    }
-
-                                    final combineRows = _buildCombineRowsFor(kat, partLc);
-
-                                    _openVariantSheet(
-                                      base: offer,
-                                      category: kat,
-                                      variantOffersForPart: variantsForPart,
-                                      combineRows: combineRows,
-                                    );
-                                  }
-                                } else {
-                                  // Keine Methoden: normal toggeln
-                                  _toggleSelection(
-                                    key,
-                                    _CartItem(
-                                      kategorie: kat,
-                                      leistung: partDisplay,
-                                      preis: preis,
-                                      dauer: dauer,
-                                      zielgruppe: _zielgruppe,
-                                    ),
-                                  );
-                                }
-                              },
-                              icon: Icon(
-                                selected ? Icons.check_circle : Icons.add_circle_outline,
-                              ),
-                              color: selected ? Colors.blueAccent : null,
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
+            // Exaktes Bundle zuerst
+            for (final b in bundles.where((b) => b.kategorie == category)) {
+              final bSet = b.leistungenLc.map((e) => e.toLowerCase()).toSet();
+              if (bSet.length == lcSet.length && bSet.containsAll(lcSet)) {
+                return MapEntry(b.priceFor(zielgruppe), b.durationFor(zielgruppe));
+              }
             }
 
-            // ---------- Kombi-Angebote rendern (immer, auch ohne Singles) ----------
-            final combosForCat = [...(combosByCategory[kat] ?? const <Offer>[])]
-              ..sort((a, b) =>
-                  a.titleDisplay.toLowerCase().compareTo(b.titleDisplay.toLowerCase()));
+            // Sonst Summe der Einzelpreise
+            double total = 0.0;
+            int? durSum;
+            bool hasAny = false;
+            for (final lc in lcSet) {
+              final o = singleBaseIndex['$category|$lc'];
+              final p = o?.priceFor(zielgruppe);
+              final d = o?.durationFor(zielgruppe);
+              if (p != null) {
+                total += p;
+                hasAny = true;
+              }
+              if (d != null) {
+                durSum = (durSum ?? 0) + d;
+              }
+            }
+            return hasAny ? MapEntry(total, durSum) : const MapEntry(null, null);
+          }
 
-            if (combosForCat.isNotEmpty) {
-              children.add(
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                  child: Text(
-                    'Kombi-Angebote',
-                    style: TextStyle(
-                      color: Colors.black.withAlpha(140),
-                      fontWeight: FontWeight.w600,
-                    ),
+          // ---- Sektionen aufbauen (eine Zeile pro Kategorie) ----
+          final sections = <SectionData>[];
+          for (final kat in kategorien) {
+            final parts = [...(singlesByCategory[kat] ?? const <Offer>[])];
+            if (parts.isEmpty) continue;
+
+            parts.sort((a, b) =>
+                a.leistungen.first.toLowerCase().compareTo(b.leistungen.first.toLowerCase()));
+
+            // lc -> Base-Offer
+            final Map<String, Offer> baseByLc = {
+              for (final o in parts) o.leistungenLc.first: o,
+            };
+
+            final children = <Widget>[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: const BoxDecoration(
+                    border: Border(bottom: BorderSide(color: Color(0xFFE5E5E5))),
                   ),
-                ),
-              );
+                  child: StatefulBuilder(
+                    builder: (ctxSB, setSB) {
+                      // Multi-Selection Zustand für diese Kategorie
+                      final selectedSet = _getSelectedParts(kat, parts);
 
-              for (final combo in combosForCat) {
-                final preis = combo.priceFor(_zielgruppe);
-                final dauer = combo.durationFor(_zielgruppe);
-                final subtitle = '${_preisText(preis)}${_dauerText(dauer)}';
-                final displayName = combo.titleDisplay;
+                      void _applySelection(Set<String> sel) {
+                        // leere Auswahl vermeiden
+                        if (sel.isEmpty && parts.isNotEmpty) {
+                          sel = {parts.first.leistungenLc.first};
+                        }
+                        _selectedPartsByCategory[kat] = {...sel};
+                        setSB(() {});
+                      }
 
-                children.add(
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      decoration: const BoxDecoration(
-                        border: Border(
-                          bottom: BorderSide(color: Color(0xFFE5E5E5)),
-                        ),
-                      ),
-                      child: Row(
+                      // Für „Methoden anzeigen“ nutzen wir dann, wenn GENAU eine Basis gewählt ist.
+                      final bool singleChoice = selectedSet.length == 1;
+                      final String activePartLc = selectedSet.first;
+                      final Offer baseOffer = baseByLc[activePartLc]!;
+                      final partDisplay = baseOffer.leistungen.first;
+                      final partLc = baseOffer.leistungenLc.first;
+
+                      // Varianten für die aktuell (einzeln) gewählte Basis
+                      final variantKey = '$kat|$partLc';
+                      final labelsSet = variantsAvailable[variantKey] ?? {};
+                      final hasVariants = singleChoice && labelsSet.isNotEmpty;
+                      final sortedLabels = hasVariants
+                          ? (labelsSet.toList()
+                        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase())))
+                          : const <String>[];
+
+                      void _openSheet() {
+                        if (!singleChoice) return;
+                        final variantsForPart = <Offer>[];
+                        for (final label in sortedLabels) {
+                          final o = singleVariantIndex['$kat|$partLc|${label.toLowerCase()}'];
+                          if (o != null) variantsForPart.add(o);
+                        }
+
+                        List<_ComboRow> _buildCombineRowsFor(String category, String pl) {
+                          final combos = combosByCategory[category] ?? const <Offer>[];
+                          final rows = <_ComboRow>[];
+                          for (final c in combos) {
+                            if (c.leistungenLc.contains(pl)) {
+                              final extrasDisplay = <String>[];
+                              final extrasLc = <String>[];
+                              for (int i = 0; i < c.leistungen.length; i++) {
+                                final lc = c.leistungenLc[i];
+                                if (lc == pl) continue;
+                                extrasDisplay.add(c.leistungen[i]);
+                                extrasLc.add(lc);
+                              }
+                              if (extrasLc.isNotEmpty) {
+                                rows.add(_ComboRow(
+                                  bundle: c,
+                                  extrasDisplay: extrasDisplay,
+                                  extrasLc: extrasLc,
+                                ));
+                              }
+                            }
+                          }
+                          return rows;
+                        }
+
+                        final combineRows = _buildCombineRowsFor(kat, partLc);
+
+                        _openVariantSheet(
+                          base: baseOffer,
+                          category: kat,
+                          variantOffersForPart: variantsForPart,
+                          preselectVarLc: null,
+                          combineRows: combineRows,
+                        );
+                      }
+
+                      // Vorschau für gesamte aktuelle Multi-Selection
+                      final selPartsLc = selectedSet.toList()..sort();
+                      final preview = _previewForSelection(
+                        category: kat,
+                        zielgruppe: _zielgruppe,
+                        partsLc: selPartsLc,
+                      );
+
+                      // Key für die (ggf. einzige) Basis (für Varianten-Anzeige)
+                      final itemKey = _keyFor(
+                        zielgruppe: _zielgruppe,
+                        category: kat,
+                        partLc: partLc,
+                      );
+
+                      return Row(
                         children: [
+                          // Titel + Segments + (Methoden) + (Preis/Dauer)
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  displayName,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                // Kopfzeile: "Kategorie – [Segments (multi)]"
+                                Row(
+                                  children: [
+                                    Text(
+                                      '$kat – ',
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: SegmentedButton<String>(
+                                        multiSelectionEnabled: true,
+                                        showSelectedIcon: false,
+                                        style: ButtonStyle(
+                                          padding: const MaterialStatePropertyAll(
+                                            EdgeInsets.symmetric(horizontal: 8),
+                                          ),
+                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          visualDensity:
+                                          const VisualDensity(horizontal: -2, vertical: -2),
+                                          backgroundColor:
+                                          MaterialStateProperty.resolveWith<Color?>(
+                                                (states) => states.contains(MaterialState.selected)
+                                                ? kBrandOrange
+                                                : null,
+                                          ),
+                                          foregroundColor:
+                                          MaterialStateProperty.resolveWith<Color?>(
+                                                (states) => states.contains(MaterialState.selected)
+                                                ? Colors.white
+                                                : null,
+                                          ),
+                                        ),
+                                        segments: parts
+                                            .map((o) => ButtonSegment<String>(
+                                          value: o.leistungenLc.first,
+                                          label: Text(
+                                            o.leistungen.first,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            softWrap: false,
+                                          ),
+                                        ))
+                                            .toList(),
+                                        selected: selectedSet,
+                                        onSelectionChanged: (sel) => _applySelection(sel),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  subtitle,
-                                  style: const TextStyle(
-                                    color: Colors.black54,
-                                    fontSize: 13,
+
+                                // Nur wenn genau eine Basis aktiv ist: Methoden-Reihe + Sheet
+                                if (hasVariants) ...[
+                                  const SizedBox(height: 4),
+                                  GestureDetector(
+                                    onTap: _openSheet,
+                                    child: ValueListenableBuilder<Map<String, _CartItem>>(
+                                      valueListenable: _selectedVN,
+                                      builder: (_, map, __) {
+                                        final selectedItem = map[itemKey];
+                                        final selectedVarLower =
+                                        selectedItem?.varianteLabel?.toLowerCase();
+
+                                        return RichText(
+                                          text: TextSpan(
+                                            children: [
+                                              for (int i = 0; i < sortedLabels.length; i++) ...[
+                                                TextSpan(
+                                                  text: sortedLabels[i],
+                                                  style: TextStyle(
+                                                    color: (sortedLabels[i].toLowerCase() ==
+                                                        (selectedVarLower ?? ''))
+                                                        ? kBrandOrange
+                                                        : Colors.black54,
+                                                    fontWeight:
+                                                    (sortedLabels[i].toLowerCase() ==
+                                                        (selectedVarLower ?? ''))
+                                                        ? FontWeight.w700
+                                                        : FontWeight.w400,
+                                                  ),
+                                                ),
+                                                if (i != sortedLabels.length - 1)
+                                                  const TextSpan(
+                                                    text: ' | ',
+                                                    style: TextStyle(color: Colors.black45),
+                                                  ),
+                                              ],
+                                            ],
+                                            style: const TextStyle(fontSize: 13),
+                                          ),
+                                        );
+                                      },
+                                    ),
                                   ),
+                                ],
+
+                                const SizedBox(height: 6),
+
+                                // Preis & Dauer der aktuellen Multi-Auswahl (Bundle oder Summe)
+                                Text(
+                                  (() {
+                                    final p = preview.key;
+                                    final d = preview.value;
+                                    final pTxt = _preisText(p);
+                                    final dTxt = _dauerText(d);
+                                    return '$pTxt$dTxt';
+                                  })(),
+                                  style: const TextStyle(color: Colors.black54, fontSize: 13),
                                 ),
                               ],
                             ),
                           ),
+
+                          // Trailing-Icon: fügt/entfernt ALLE aktuell gewählten Segmente
                           ValueListenableBuilder<Map<String, _CartItem>>(
                             valueListenable: _selectedVN,
                             builder: (_, map, __) {
                               final zg = _zielgruppe;
-                              final allSelected = combo.leistungenLc.every(
-                                    (lc) => map.containsKey(
-                                  _keyFor(zielgruppe: zg, category: kat, partLc: lc),
-                                ),
-                              );
+
+                              // sind ALLE selektierten Teile bereits im Warenkorb?
+                              final allSelectedInCart = selPartsLc.every((lc) =>
+                                  map.containsKey(_keyFor(zielgruppe: zg, category: kat, partLc: lc)));
+
                               return IconButton(
-                                tooltip: 'Kombi auswählen',
+                                tooltip: allSelectedInCart
+                                    ? 'Auswahl entfernen'
+                                    : (hasVariants && singleChoice
+                                    ? 'Methode/Kombi wählen'
+                                    : 'Auswahl hinzufügen'),
                                 onPressed: () {
-                                  _toggleCombo(
-                                    category: kat,
-                                    partsOriginal: combo.leistungen,
-                                    partsLc: combo.leistungenLc,
-                                    singlesByKey: singleBaseIndex,
-                                  );
+                                  if (hasVariants && singleChoice) {
+                                    // Bei genau 1 Basis mit Methoden -> Sheet
+                                    _openSheet();
+                                    return;
+                                  }
+
+                                  final newMap = Map<String, _CartItem>.from(_selectedVN.value);
+
+                                  // Zielgruppen-Mix verhindern
+                                  if (_hasItemsFromOtherZielgruppe(zg)) {
+                                    final other = newMap.values.first.zielgruppe;
+                                    _showWrongGroupSnack(other);
+                                    return;
+                                  }
+
+                                  if (allSelectedInCart) {
+                                    // Entfernen
+                                    for (final lc in selPartsLc) {
+                                      newMap.remove(_keyFor(zielgruppe: zg, category: kat, partLc: lc));
+                                    }
+                                  } else {
+                                    // Hinzufügen (ohne Methoden – reine Basis; Bundle-Preis greift später)
+                                    for (final lc in selPartsLc) {
+                                      final o = baseByLc[lc];
+                                      if (o == null) continue;
+                                      newMap[_keyFor(zielgruppe: zg, category: kat, partLc: lc)] =
+                                          _CartItem(
+                                            kategorie: kat,
+                                            leistung: o.leistungen.first,
+                                            preis: o.priceFor(zg),
+                                            dauer: o.durationFor(zg),
+                                            zielgruppe: zg,
+                                          );
+                                    }
+                                  }
+                                  _selectedVN.value = newMap;
                                 },
                                 icon: Icon(
-                                    allSelected
-                                        ? Icons.check_circle
-                                        : Icons.add_circle_outline),
-                                color: allSelected ? Colors.blueAccent : null,
+                                  allSelectedInCart ? Icons.check_circle : Icons.add_circle_outline,
+                                ),
+                                color: allSelectedInCart ? Colors.blueAccent : null,
                               );
                             },
                           ),
                         ],
-                      ),
-                    ),
+                      );
+                    },
                   ),
-                );
-              }
-            }
+                ),
+              ),
+            ];
 
-            if (children.isNotEmpty) {
-              sections.add(SectionData(kat, children));
-            }
+            sections.add(SectionData(kat, children));
           }
 
+          // initiale Kategorie-Position
           int initialIndex = 0;
           final selKat = widget.selektierteKategorie.trim();
           if (selKat.isNotEmpty && kategorien.contains(selKat)) {
@@ -1609,8 +1463,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           // Inhalt + fixierte Bottom-Bar
           return Stack(
             children: [
-              const LinkedChipsWithSections(sections: []),
-
               LinkedChipsWithSections(
                 sections: sections,
                 initialIndex: initialIndex,
