@@ -7,7 +7,6 @@ import 'package:flutter/cupertino.dart';
 const Color kBrandOrange = Color(0xFFFF7A00); // Buttonfarbe
 const double kBottomBarHeight = 76.0;
 
-
 /// ---------------------------------------------------------------
 /// Angebot-Modell
 /// ---------------------------------------------------------------
@@ -122,7 +121,6 @@ class Offer {
   }
 }
 
-
 /// ---------------------------------------------------------------
 /// Datenträger für einen Abschnitt (blauer Balken + Inhalt)
 /// ---------------------------------------------------------------
@@ -131,7 +129,6 @@ class SectionData {
   final List<Widget> children;  // Angebots-Widgets unter dem Balken
   SectionData(this.title, this.children);
 }
-
 
 /// ---------------------------------------------------------------
 /// Interner Warenkorb-Eintrag
@@ -154,7 +151,6 @@ class _CartItem {
   });
 }
 
-
 /// ---------------------------------------------------------------
 /// Methode-Option fürs BottomSheet
 /// ---------------------------------------------------------------
@@ -169,7 +165,6 @@ class _VariantOption {
     required this.offer,
   });
 }
-
 
 /// Eine auswählbare Kombinations-Zeile im BottomSheet.
 /// Beispiel: Bundle "Schneiden, Stylen, Waschen" bei Basis "Schneiden"
@@ -186,7 +181,6 @@ class _ComboRow {
   });
 }
 
-
 /// ---------------------------------------------------------------
 /// Key-Helfer: unterscheidet Zielgruppe!
 /// ---------------------------------------------------------------
@@ -196,7 +190,6 @@ String _keyFor({
   required String partLc,
 }) =>
     '${zielgruppe.toLowerCase()}|${category.toLowerCase()}|$partLc';
-
 
 /// ---------------------------------------------------------------
 /// Scroll-Wrapper mit Chips oben (Kategorien) + Sektionen
@@ -382,7 +375,6 @@ class _SectionBlock extends StatelessWidget {
   }
 }
 
-
 /// ---------------------------------------------------------------
 /// Detailseite
 /// ---------------------------------------------------------------
@@ -409,35 +401,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   final ValueNotifier<Map<String, _CartItem>> _selectedVN =
   ValueNotifier<Map<String, _CartItem>>({});
 
-// NEU: nur betroffene UI-Teile rebuilden, nicht die ganze Seite
-  final ValueNotifier<Map<String, Set<String>>> _extrasPreviewVN =
-  ValueNotifier<Map<String, Set<String>>>({});
-
-  Set<String> _extrasOf(String cat, String partLc) {
-    final key = '${cat.toLowerCase()}|${partLc.toLowerCase()}';
-    final map = _extrasPreviewVN.value;
-    return map.putIfAbsent(key, () => <String>{});
-  }
-
-  void _toggleExtraChip({
-    required String category,
-    required String partLc,
-    required String extraLc,
-    required bool selected,
-  }) {
-    final key = '${category.toLowerCase()}|${partLc.toLowerCase()}';
-    // Map/Set kopieren, damit ValueNotifier Änderungen merkt
-    final nextMap = Map<String, Set<String>>.from(_extrasPreviewVN.value);
-    final currentSet = Set<String>.from(nextMap[key] ?? const <String>{});
-    if (selected) {
-      currentSet.add(extraLc);
-    } else {
-      currentSet.remove(extraLc);
-    }
-    nextMap[key] = currentSet;
-    _extrasPreviewVN.value = nextMap; // nur die Chips/Vorschau bauen neu
-  }
-
+  /// UI: pro (Kategorie|partLc) die aktuell markierten Extras (nur für Vorschau)
+  final Map<String, Set<String>> _extrasPreview = {};
+  Set<String> _extrasOf(String cat, String partLc) =>
+      _extrasPreview.putIfAbsent('${cat.toLowerCase()}|$partLc', () => <String>{});
 
   Map<String, Widget> _zielgruppenSegments() {
     TextStyle label(String value) => TextStyle(
@@ -556,7 +523,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required Offer base,
     required String category,
     required List<Offer> variantOffersForPart,
-    List<_ComboRow> combineRows = const <_ComboRow>[], // <-- NEU
+    List<_ComboRow> combineRows = const <_ComboRow>[],
     String? preselectVarLc,
   }) async {
     final zg = _zielgruppe;
@@ -592,7 +559,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     await showModalBottomSheet<void>(
       context: context,
-      isScrollControlled: true, // <— wichtig
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -610,7 +577,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
               child: Column(
-                mainAxisSize: MainAxisSize.max, // <— füllt Höhe
+                mainAxisSize: MainAxisSize.max,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Header + Preis
@@ -623,9 +590,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   ),
                   const SizedBox(height: 4),
                   Center(
-                    child: Text(basePreis != null ? _formatEuro(basePreis) : '–',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                    child: Text(
+                      basePreis != null ? _formatEuro(basePreis) : '–',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   const Divider(height: 1),
@@ -645,12 +614,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                           final selectedExtras = <String>{};
                           for (final i in selectedComboIdx) {
-                            selectedExtras.addAll(combineRows[i].extrasLc.map((e) => e.toLowerCase()));
+                            selectedExtras.addAll(
+                              combineRows[i].extrasLc.map((e) => e.toLowerCase()),
+                            );
                           }
 
                           for (final row in combineRows) {
                             final rowSet = row.extrasLc.map((e) => e.toLowerCase()).toSet();
-                            if (rowSet.length == selectedExtras.length && rowSet.containsAll(selectedExtras)) {
+                            if (rowSet.length == selectedExtras.length &&
+                                rowSet.containsAll(selectedExtras)) {
                               return row.bundle.priceFor(zg) ?? basePrice;
                             }
                           }
@@ -758,7 +730,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         alignment: Alignment.centerRight,
                                         child: TextButton.icon(
                                           onPressed: () {
-                                            final map = Map<String, _CartItem>.from(_selectedVN.value);
+                                            final map =
+                                            Map<String, _CartItem>.from(_selectedVN.value);
                                             map.remove(key);
                                             _selectedVN.value = map;
                                             Navigator.pop(ctx);
@@ -800,7 +773,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       preis: chosen.priceFor(zg),
                                       dauer: chosen.durationFor(zg),
                                       zielgruppe: zg,
-                                      varianteLabel: selectedVarLc == null ? null : labelsByLc[selectedVarLc],
+                                      varianteLabel:
+                                      selectedVarLc == null ? null : labelsByLc[selectedVarLc],
                                     );
 
                                     final map = Map<String, _CartItem>.from(_selectedVN.value);
@@ -820,6 +794,31 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       partLc: base.leistungenLc.first,
                                     );
                                     map[baseKey] = item;
+
+                                    // Gewählte Extras aus "Kombinieren mit"
+                                    final Map<String, String> extrasToAdd = {};
+                                    for (final idx in selectedComboIdx) {
+                                      final row = combineRows[idx];
+                                      for (int j = 0; j < row.extrasLc.length; j++) {
+                                        extrasToAdd[row.extrasLc[j]] = row.extrasDisplay[j];
+                                      }
+                                    }
+
+                                    // Jede Extra-Leistung als eigenes Cart-Item
+                                    extrasToAdd.forEach((lc, display) {
+                                      final extraKey = _keyFor(
+                                        zielgruppe: zg,
+                                        category: category,
+                                        partLc: lc,
+                                      );
+                                      map[extraKey] = _CartItem(
+                                        kategorie: category,
+                                        leistung: display,
+                                        preis: null, // computeTotal macht den Rest
+                                        dauer: null,
+                                        zielgruppe: zg,
+                                      );
+                                    });
 
                                     _selectedVN.value = map;
                                     Navigator.pop(ctx);
@@ -842,11 +841,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       ),
                                       Text(
                                         (() {
-                                          // Button-Preis: gewählte Methode
-                                          final Offer chosen = selectedVarLc == null
-                                              ? base
-                                              : (variantsByLc[selectedVarLc] ?? base);
-                                          final p = chosen.priceFor(zg);
+                                          final p = _previewPrice();
                                           return p == null ? '' : _formatEuro(p);
                                         })(),
                                         style: const TextStyle(
@@ -873,7 +868,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       }, // builder
     ); // showModalBottomSheet
   } // Ende von _openVariantSheet
-
 
   @override
   Widget build(BuildContext context) {
@@ -1085,7 +1079,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                     ),
                     child: Row(
                       children: [
-                        // Titel + Methoden-Zeile + Preis/Dauer
+                        // Titel + SegmentedButton + Preis/Dauer (dynamisch)
                         Expanded(
                           child: ValueListenableBuilder<Map<String, _CartItem>>(
                             valueListenable: _selectedVN,
@@ -1097,11 +1091,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               );
                               final selectedItem = map[selKey];
 
+                              // Wenn Item schon im Warenkorb ist, Preis/Dauer daraus nehmen,
+                              // sonst Basiswerte:
                               final effectivePrice = selectedItem?.preis ?? preis;
                               final effectiveDuration = selectedItem?.dauer ?? dauer;
 
-                              final selectedVarLower =
-                              selectedItem?.varianteLabel?.toLowerCase();
+                              final selectedVarLower = selectedItem?.varianteLabel?.toLowerCase();
 
                               void openSheet() {
                                 final variantsForPart = <Offer>[];
@@ -1112,16 +1107,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 }
 
                                 // Kombi-Zeilen für diese Basis bauen
-                                List<_ComboRow> _buildCombineRowsFor(String category, String partLc) {
+                                List<_ComboRow> _buildCombineRowsFor(
+                                    String category, String pl) {
                                   final combos = combosByCategory[category] ?? const <Offer>[];
                                   final rows = <_ComboRow>[];
                                   for (final c in combos) {
-                                    if (c.leistungenLc.contains(partLc)) {
+                                    if (c.leistungenLc.contains(pl)) {
                                       final extrasDisplay = <String>[];
                                       final extrasLc = <String>[];
                                       for (int i = 0; i < c.leistungen.length; i++) {
                                         final lc = c.leistungenLc[i];
-                                        if (lc == partLc) continue;
+                                        if (lc == pl) continue;
                                         extrasDisplay.add(c.leistungen[i]);
                                         extrasLc.add(lc);
                                       }
@@ -1148,223 +1144,154 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 );
                               }
 
-                              // ---------- NEU: Titelzeile "Kategorie – [Chips]" ----------
-                              Widget titleRow() {
-                                // Kombi-Extras einsammeln (nur UI)
-                                List<_ComboRow> _combineRowsFor(String category, String pl) {
-                                  final combos = combosByCategory[category] ?? const <Offer>[];
-                                  final rows = <_ComboRow>[];
-                                  for (final c in combos) {
-                                    if (c.leistungenLc.contains(pl)) {
-                                      final extrasDisplay = <String>[];
-                                      final extrasLc = <String>[];
-                                      for (int i = 0; i < c.leistungen.length; i++) {
-                                        final lc = c.leistungenLc[i];
-                                        if (lc == pl) continue;
-                                        extrasDisplay.add(c.leistungen[i]);
-                                        extrasLc.add(lc);
-                                      }
-                                      if (extrasLc.isNotEmpty) {
-                                        rows.add(_ComboRow(
-                                          bundle: c,
-                                          extrasDisplay: extrasDisplay,
-                                          extrasLc: extrasLc,
-                                        ));
+                              // ---------- Titelzeile als SegmentedButton ----------
+                              return Builder(
+                                builder: (context) {
+                                  // 1) Mögliche Extras (aus Kombi-Angeboten) sammeln (lc -> Display)
+                                  final Map<String, String> extrasByLc = {};
+                                  for (final combo in (combosByCategory[kat] ?? const <Offer>[])) {
+                                    if (combo.leistungenLc.contains(partLc)) {
+                                      for (int i = 0; i < combo.leistungenLc.length; i++) {
+                                        final lc = combo.leistungenLc[i];
+                                        if (lc == partLc) continue;
+                                        extrasByLc.putIfAbsent(lc, () => combo.leistungen[i]);
                                       }
                                     }
                                   }
-                                  return rows;
-                                }
 
-                                final combineRows = _combineRowsFor(kat, partLc);
+                                  // 2) Aktuell gemerkte Extras für diese Zeile
+                                  final selectedExtras = _extrasOf(kat, partLc);
 
-                                final Map<String, String> extrasMap = {};
-                                for (final r in combineRows) {
-                                  for (int i = 0; i < r.extrasLc.length; i++) {
-                                    extrasMap[r.extrasLc[i]] = r.extrasDisplay[i];
-                                  }
-                                }
-                                final extrasOrder = extrasMap.keys.toList()..sort();
-
-                                final selectedExtrasLc = _extrasOf(kat, partLc);
-
-                                // Variante für Vorschau-Preis berücksichtigen
-                                Offer pricedOffer = offer;
-                                if (selectedItem?.varianteLabel != null) {
-                                  final varLc = selectedItem!.varianteLabel!.toLowerCase();
-                                  pricedOffer =
-                                      singleVariantIndex['$kat|$partLc|$varLc'] ?? offer;
-                                }
-
-                                double? previewPrice(Set<String> extras) {
-                                  final basePrice = pricedOffer.priceFor(_zielgruppe);
-                                  if (extras.isEmpty) return basePrice;
-                                  for (final row in combineRows) {
-                                    final rowSet = row.extrasLc.toSet();
-                                    if (rowSet.length == extras.length &&
-                                        rowSet.containsAll(extras)) {
-                                      return row.bundle.priceFor(_zielgruppe) ?? basePrice;
+                                  // 3) Vorschau-Preis/-Dauer anhand der Menge (Basis + Extras)
+                                  double? previewPrice() {
+                                    final desired = {partLc, ...selectedExtras};
+                                    for (final c in (combosByCategory[kat] ?? const <Offer>[])) {
+                                      final setC = c.leistungenLc.toSet();
+                                      if (setC.length == desired.length && setC.containsAll(desired)) {
+                                        final p = c.priceFor(_zielgruppe);
+                                        if (p != null) return p;
+                                      }
                                     }
+                                    return effectivePrice; // Basis/Methodenpreis (falls im Warenkorb)
                                   }
-                                  return basePrice;
-                                }
 
-                                return Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      crossAxisAlignment: CrossAxisAlignment.center,
-                                      children: [
-                                        Text(
-                                          '$kat – ',
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
+                                  int? previewDuration() {
+                                    final desired = {partLc, ...selectedExtras};
+                                    for (final c in (combosByCategory[kat] ?? const <Offer>[])) {
+                                      final setC = c.leistungenLc.toSet();
+                                      if (setC.length == desired.length && setC.containsAll(desired)) {
+                                        final d = c.durationFor(_zielgruppe);
+                                        if (d != null) return d;
+                                      }
+                                    }
+                                    return effectiveDuration;
+                                  }
 
-                                        // *** Nur die Chipzeile reaktiv updaten ***
-                                        Expanded(
-                                          child: ValueListenableBuilder<Map<String, Set<String>>>(
-                                            valueListenable: _extrasPreviewVN,
-                                            builder: (_, extrasState, __) {
-                                              final selectedExtrasLc = extrasState['${kat.toLowerCase()}|${partLc.toLowerCase()}'] ??
-                                                  _extrasOf(kat, partLc);
+                                  return StatefulBuilder(
+                                    builder: (ctxSB, setSB) {
+                                      final priceNow = previewPrice();
+                                      final durNow = previewDuration();
 
-                                              return SingleChildScrollView(
-                                                scrollDirection: Axis.horizontal,
-                                                child: Row(
-                                                  children: [
-                                                    // Basisleistung (öffnet Varianten-Sheet)
-                                                    Padding(
-                                                      padding: const EdgeInsets.only(right: 8),
-                                                      child: ActionChip(
-                                                        label: Text(partDisplay),
-                                                        onPressed: openSheet,
-                                                        backgroundColor: Colors.black12,
-                                                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                                      ),
-                                                    ),
-
-                                                    // Extras-Chips (rein UI-Vorschau)
-                                                    for (final lc in extrasOrder)
-                                                      Padding(
-                                                        padding: const EdgeInsets.only(right: 8),
-                                                        child: FilterChip(
-                                                          label: Text(extrasMap[lc]!),
-                                                          selected: selectedExtrasLc.contains(lc),
-                                                          onSelected: (val) => _toggleExtraChip(
-                                                            category: kat,
-                                                            partLc: partLc,
-                                                            extraLc: lc,
-                                                            selected: val,
-                                                          ),
-                                                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                                        ),
-                                                      ),
-                                                  ],
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-
-                                    // *** Vorschau (Preis/Dauer) ebenso an Extras-VN binden ***
-                                    if (extrasMap.isNotEmpty) ...[
-                                      const SizedBox(height: 6),
-                                      ValueListenableBuilder<Map<String, Set<String>>>(
-                                        valueListenable: _extrasPreviewVN,
-                                        builder: (_, extrasState, __) {
-                                          final selectedExtrasLc =
-                                              extrasState['${kat.toLowerCase()}|${partLc.toLowerCase()}'] ??
-                                                  _extrasOf(kat, partLc);
-
-                                          // Variante für Vorschau-Preis berücksichtigen
-                                          Offer pricedOffer = offer;
-                                          if (selectedItem?.varianteLabel != null) {
-                                            final varLc = selectedItem!.varianteLabel!.toLowerCase();
-                                            pricedOffer = singleVariantIndex['$kat|$partLc|$varLc'] ?? offer;
-                                          }
-
-                                          double? previewPrice(Set<String> extras) {
-                                            final basePrice = pricedOffer.priceFor(_zielgruppe);
-                                            if (extras.isEmpty) return basePrice;
-                                            final combineRows = _combineRowsFor(kat, partLc);
-                                            for (final row in combineRows) {
-                                              final rowSet = row.extrasLc.toSet();
-                                              if (rowSet.length == extras.length && rowSet.containsAll(extras)) {
-                                                return row.bundle.priceFor(_zielgruppe) ?? basePrice;
-                                              }
-                                            }
-                                            return basePrice;
-                                          }
-
-                                          return Text(
-                                            '${_preisText(previewPrice(selectedExtrasLc))}'
-                                                '${_dauerText(pricedOffer.durationFor(_zielgruppe))}',
-                                            style: const TextStyle(color: Colors.black54, fontSize: 13),
-                                          );
-                                        },
-                                      ),
-                                    ],
-                                  ],
-                                );
-                              }
-
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // NEU: Titelzeile mit Chips
-                                  titleRow(),
-
-                                  // Methoden-Zeile (nur wenn vorhanden) – unverändert
-                                  if (hasVariants) ...[
-                                    const SizedBox(height: 4),
-                                    GestureDetector(
-                                      onTap: openSheet,
-                                      child: RichText(
-                                        text: TextSpan(
-                                          children: [
-                                            for (int i = 0; i < sortedLabels.length; i++) ...[
-                                              TextSpan(
-                                                text: sortedLabels[i],
-                                                style: TextStyle(
-                                                  color: (sortedLabels[i].toLowerCase() ==
-                                                      (selectedVarLower ?? ''))
-                                                      ? kBrandOrange
-                                                      : Colors.black54,
-                                                  fontWeight: (sortedLabels[i].toLowerCase() ==
-                                                      (selectedVarLower ?? ''))
-                                                      ? FontWeight.w700
-                                                      : FontWeight.w400,
+                                      return Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            crossAxisAlignment: CrossAxisAlignment.center,
+                                            children: [
+                                              Text(
+                                                '$kat – ',
+                                                style: const TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.w600,
                                                 ),
                                               ),
-                                              if (i != sortedLabels.length - 1)
-                                                const TextSpan(
-                                                  text: ' | ',
-                                                  style: TextStyle(color: Colors.black45),
+                                              Expanded(
+                                                child: SegmentedButton<String>(
+                                                  multiSelectionEnabled: true,
+                                                  showSelectedIcon: false,
+                                                  segments: <ButtonSegment<String>>[
+                                                    // Basis-Leistung: immer enthalten, nicht abwählbar
+                                                    ButtonSegment<String>(
+                                                      value: partLc,
+                                                      label: Text(partDisplay),
+                                                      enabled: false,
+                                                    ),
+                                                    ...extrasByLc.entries.map(
+                                                          (e) => ButtonSegment<String>(
+                                                        value: e.key,
+                                                        label: Text(e.value),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                  selected: {partLc, ...selectedExtras},
+                                                  onSelectionChanged: (newSel) {
+                                                    // Nur Extras speichern (Basis entfernen)
+                                                    newSel.remove(partLc);
+                                                    setSB(() {
+                                                      selectedExtras
+                                                        ..clear()
+                                                        ..addAll(newSel);
+                                                      // globalen UI-Status merken, damit Plus-Button
+                                                      // später darauf zugreifen kann
+                                                      _extrasPreview['${kat.toLowerCase()}|$partLc'] =
+                                                      {...selectedExtras};
+                                                    });
+                                                  },
                                                 ),
+                                              ),
                                             ],
+                                          ),
+
+                                          // Methoden-Auswahl-Link (öffnet Sheet)
+                                          if (hasVariants) ...[
+                                            const SizedBox(height: 4),
+                                            GestureDetector(
+                                              onTap: openSheet,
+                                              child: RichText(
+                                                text: TextSpan(
+                                                  children: [
+                                                    for (int i = 0; i < sortedLabels.length; i++) ...[
+                                                      TextSpan(
+                                                        text: sortedLabels[i],
+                                                        style: TextStyle(
+                                                          color: (sortedLabels[i].toLowerCase() ==
+                                                              (selectedVarLower ?? ''))
+                                                              ? kBrandOrange
+                                                              : Colors.black54,
+                                                          fontWeight: (sortedLabels[i].toLowerCase() ==
+                                                              (selectedVarLower ?? ''))
+                                                              ? FontWeight.w700
+                                                              : FontWeight.w400,
+                                                        ),
+                                                      ),
+                                                      if (i != sortedLabels.length - 1)
+                                                        const TextSpan(
+                                                          text: ' | ',
+                                                          style: TextStyle(color: Colors.black45),
+                                                        ),
+                                                    ],
+                                                  ],
+                                                  style: const TextStyle(fontSize: 13),
+                                                ),
+                                              ),
+                                            ),
                                           ],
-                                          style: const TextStyle(fontSize: 13),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
 
-                                  const SizedBox(height: 6),
+                                          const SizedBox(height: 6),
 
-                                  // Preis & Dauer – unverändert (offizielle Anzeige)
-                                  Text(
-                                    '${_preisText(effectivePrice)}${_dauerText(effectiveDuration)}',
-                                    style: const TextStyle(
-                                      color: Colors.black54,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                ],
+                                          // Dynamische Vorschau (Preis • Dauer)
+                                          Text(
+                                            '${_preisText(priceNow)}${_dauerText(durNow)}',
+                                            style: const TextStyle(
+                                              color: Colors.black54,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  );
+                                },
                               );
                             },
                           ),
@@ -1388,6 +1315,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     newMap.remove(key);
                                     _selectedVN.value = newMap;
                                   } else {
+                                    // Standard: Sheet öffnen (Methoden wählen)
                                     final variantsForPart = <Offer>[];
                                     for (final label in sortedLabels) {
                                       final o = singleVariantIndex[
@@ -1397,17 +1325,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                                     // Kombi-Zeilen wie oben
                                     List<_ComboRow> _buildCombineRowsFor(
-                                        String category, String partLc) {
+                                        String category, String pl) {
                                       final combos =
                                           combosByCategory[category] ?? const <Offer>[];
                                       final rows = <_ComboRow>[];
                                       for (final c in combos) {
-                                        if (c.leistungenLc.contains(partLc)) {
+                                        if (c.leistungenLc.contains(pl)) {
                                           final extrasDisplay = <String>[];
                                           final extrasLc = <String>[];
                                           for (int i = 0; i < c.leistungen.length; i++) {
                                             final lc = c.leistungenLc[i];
-                                            if (lc == partLc) continue;
+                                            if (lc == pl) continue;
                                             extrasDisplay.add(c.leistungen[i]);
                                             extrasLc.add(lc);
                                           }
@@ -1538,9 +1466,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     singlesByKey: singleBaseIndex,
                                   );
                                 },
-                                icon: Icon(allSelected
-                                    ? Icons.check_circle
-                                    : Icons.add_circle_outline),
+                                icon: Icon(
+                                    allSelected
+                                        ? Icons.check_circle
+                                        : Icons.add_circle_outline),
                                 color: allSelected ? Colors.blueAccent : null,
                               );
                             },
@@ -1740,8 +1669,8 @@ class _BookingBar extends StatelessWidget {
                     shape: BoxShape.circle,
                   ),
                   alignment: Alignment.center,
-                  child:
-                  const Icon(Icons.shopping_basket_outlined, size: 22, color: Colors.white),
+                  child: const Icon(Icons.shopping_basket_outlined,
+                      size: 22, color: Colors.white),
                 ),
                 Positioned(
                   right: -3,
