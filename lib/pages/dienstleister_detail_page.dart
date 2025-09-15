@@ -397,6 +397,24 @@ class DienstleisterDetailPage extends StatefulWidget {
 class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String _zielgruppe = 'Damen';
 
+  // Merkt, ob die Basis (z. B. "schneiden") im Titel-Segmented gewählt ist
+  final Map<String, bool> _baseSelected = {};
+  bool _isBaseSelected(String cat, String partLc) =>
+      _baseSelected['${cat.toLowerCase()}|$partLc'] ?? true; // default: an
+
+
+  Widget _segLabel(String s) => FittedBox(
+    fit: BoxFit.scaleDown,               // verkleinert den Text statt umzubrechen
+    alignment: Alignment.centerLeft,
+    child: Text(
+      s,
+      maxLines: 1,
+      softWrap: false,
+      overflow: TextOverflow.ellipsis,   // falls Skalieren nicht reicht -> …
+    ),
+  );
+
+
   /// Auswahl als ValueNotifier -> verhindert kompletten Rebuild der Liste
   final ValueNotifier<Map<String, _CartItem>> _selectedVN =
   ValueNotifier<Map<String, _CartItem>>({});
@@ -1209,36 +1227,59 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                 child: SegmentedButton<String>(
                                                   multiSelectionEnabled: true,
                                                   showSelectedIcon: false,
+                                                  style: ButtonStyle(
+                                                    padding: const MaterialStatePropertyAll(
+                                                      EdgeInsets.symmetric(horizontal: 8),
+                                                    ),
+                                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                    visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+                                                    // Selektierte Segmente in Brand-Orange mit weißer Schrift
+                                                    backgroundColor: MaterialStateProperty.resolveWith<Color?>(
+                                                          (states) => states.contains(MaterialState.selected) ? kBrandOrange : null,
+                                                    ),
+                                                    foregroundColor: MaterialStateProperty.resolveWith<Color?>(
+                                                          (states) => states.contains(MaterialState.selected) ? Colors.white : null,
+                                                    ),
+                                                  ),
                                                   segments: <ButtonSegment<String>>[
-                                                    // Basis-Leistung: immer enthalten, nicht abwählbar
+                                                    // Basis-Leistung jetzt ganz normal klickbar
                                                     ButtonSegment<String>(
                                                       value: partLc,
-                                                      label: Text(partDisplay),
-                                                      enabled: false,
+                                                      label: _segLabel(partDisplay),
                                                     ),
                                                     ...extrasByLc.entries.map(
                                                           (e) => ButtonSegment<String>(
                                                         value: e.key,
-                                                        label: Text(e.value),
+                                                        label: _segLabel(e.value),
                                                       ),
                                                     ),
                                                   ],
-                                                  selected: {partLc, ...selectedExtras},
+                                                  // Basis nur markieren, wenn aktuell ausgewählt (persistiert über _baseSelected)
+                                                  selected: {
+                                                    if (_isBaseSelected(kat, partLc)) partLc,
+                                                    ...selectedExtras,
+                                                  },
                                                   onSelectionChanged: (newSel) {
-                                                    // Nur Extras speichern (Basis entfernen)
-                                                    newSel.remove(partLc);
+                                                    // Basiszustand & Extras trennen
+                                                    final isBaseSel = newSel.contains(partLc);
+                                                    final extrasOnly = {...newSel}..remove(partLc);
+
                                                     setSB(() {
                                                       selectedExtras
                                                         ..clear()
-                                                        ..addAll(newSel);
-                                                      // globalen UI-Status merken, damit Plus-Button
-                                                      // später darauf zugreifen kann
-                                                      _extrasPreview['${kat.toLowerCase()}|$partLc'] =
-                                                      {...selectedExtras};
+                                                        ..addAll(extrasOnly);
+
+                                                      // globalen UI-Status der EXTRAS merken (für Plus-Button)
+                                                      _extrasPreview['${kat.toLowerCase()}|$partLc'] = {...extrasOnly};
+
+                                                      // Basis-Auswahl persistent speichern
+                                                      _baseSelected['${kat.toLowerCase()}|$partLc'] = isBaseSel;
                                                     });
                                                   },
                                                 ),
                                               ),
+
+
                                             ],
                                           ),
 
