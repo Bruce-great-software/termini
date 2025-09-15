@@ -1081,10 +1081,39 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           final sections = <SectionData>[];
           for (final kat in kategorien) {
             final parts = [...(singlesByCategory[kat] ?? const <Offer>[])];
+
+            // --- NEU: fehlende Teile aus Kombi-Angeboten synthetisch ergänzen,
+            // damit Segmente (z. B. "Waschen") auch erscheinen, wenn es sie nur als Bundle gibt.
+            final presentLc = parts.map((o) => o.leistungenLc.first).toSet();
+            for (final combo in bundles.where((b) => b.kategorie == kat)) {
+              for (int i = 0; i < combo.leistungen.length; i++) {
+                final lc = combo.leistungenLc[i];
+                if (presentLc.contains(lc)) continue; // existiert schon als Single
+                final display = combo.leistungen[i];
+
+                parts.add(
+                  Offer(
+                    id: 'syntheticFromCombo:$kat|$lc',
+                    kategorie: kat,
+                    leistungen: [display],
+                    leistungenLc: [lc],
+                    isBundle: false,
+                    comboKey: null,
+                    zielgruppen: const {}, // kein Einzelpreis – dient nur zur Segment-Anzeige
+                    varianten: const [],
+                    titleDisplay: '$kat – $display',
+                  ),
+                );
+                presentLc.add(lc);
+              }
+            }
+
             if (parts.isEmpty) continue;
 
             parts.sort((a, b) =>
                 a.leistungen.first.toLowerCase().compareTo(b.leistungen.first.toLowerCase()));
+            // ...
+
 
             // lc -> Base-Offer
             final Map<String, Offer> baseByLc = {
