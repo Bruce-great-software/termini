@@ -1006,9 +1006,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           final sections = <SectionData>[];
           for (final kat in kategorien) {
             final items = [...(singlesByCategory[kat] ?? const <Offer>[])]
-              ..sort(
-                    (a, b) => a.titleDisplay.toLowerCase().compareTo(b.titleDisplay.toLowerCase()),
-              );
+              ..sort((a, b) => a.leistungen.first.toLowerCase()
+                  .compareTo(b.leistungen.first.toLowerCase()));
 
             final children = <Widget>[];
 
@@ -1016,7 +1015,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             for (final offer in items) {
               final partDisplay = offer.leistungen.first;
               final partLc = offer.leistungenLc.first;
-              final uiTitle = offer.titleDisplay;
+
+              final uiTitle = partDisplay; // <-- Nur die Leistung anzeigen
+
               final preis = offer.priceFor(_zielgruppe);
               final dauer = offer.durationFor(_zielgruppe);
 
@@ -1264,8 +1265,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
             // ---------- Kombi-Angebote rendern (immer, auch ohne Singles) ----------
             final combosForCat = [...(combosByCategory[kat] ?? const <Offer>[])]
-              ..sort((a, b) =>
-                  a.titleDisplay.toLowerCase().compareTo(b.titleDisplay.toLowerCase()));
+              ..sort((a, b) => a.leistungen.join(', ').toLowerCase()
+                  .compareTo(b.leistungen.join(', ').toLowerCase()));
 
             if (combosForCat.isNotEmpty) {
               children.add(
@@ -1285,7 +1286,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 final preis = combo.priceFor(_zielgruppe);
                 final dauer = combo.durationFor(_zielgruppe);
                 final subtitle = '${_preisText(preis)}${_dauerText(dauer)}';
-                final displayName = combo.titleDisplay;
+                final displayName = combo.leistungen.join(', '); // <-- ohne "Kategorie – "
 
                 children.add(
                   Padding(
