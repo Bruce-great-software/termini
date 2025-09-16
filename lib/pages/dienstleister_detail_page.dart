@@ -1,3 +1,4 @@
+// dienstleister_detail_page.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -5,14 +6,13 @@ import 'package:flutter/cupertino.dart';
 
 import 'dart:ui' show FontFeature;
 
-
 /// ---- Brand / Farben ----
 const Color kBrandOrange = Color(0xFFFF7A00); // Buttonfarbe
 const double kBottomBarHeight = 76.0;
 
 /// ---- Layout-Konstanten ----
-const double kDurColWidth   = 72.0;   // Mitte (Badge) – ggf. 68–80 testen
-const double kRightColWidth = 144.0;  // Rechts (Preis + Icon) – 136–152 testen
+const double kDurColWidth   = 72.0;   // Mitte (Badge)
+const double kRightColWidth = 144.0;  // Rechts (Preis + Icon)
 
 /// ---------------------------------------------------------------
 /// Angebot-Modell
@@ -27,8 +27,7 @@ class Offer {
   final Map<String, dynamic> zielgruppen;
 
   /// Nur noch diese Spalte für Varianten verwenden (hier "Methoden").
-  /// Für eine konkrete Methode (z. B. "Seiten auf Null") enthält das Offer
-  /// genau 1 Element – die gewählte Methode. Basiseinträge haben eine leere Liste.
+  /// Für eine konkrete Methode enthält das Offer genau 1 Element.
   final List<String> varianten;
 
   /// Gespeicherter Titel (z. B. "Haare – Schneiden (Seiten auf Null)")
@@ -73,8 +72,7 @@ class Offer {
     final String? ck =
         (d['comboKey'] as String?)?.toLowerCase() ?? (bundleFlag ? lsLc.join('|') : null);
 
-    // Nur noch 'varianten' verwenden (Liste von Strings).
-    // Fallback: falls 'varianten' fehlt, einmalig aus alten 'variantenProLeistung' ableiten.
+    // Varianten
     List<String> vars = [];
     if (d['varianten'] is List) {
       vars = List<String>.from(d['varianten'])
@@ -174,8 +172,6 @@ class _VariantOption {
 }
 
 /// Eine auswählbare Kombinations-Zeile im BottomSheet.
-/// Beispiel: Bundle "Schneiden, Stylen, Waschen" bei Basis "Schneiden"
-/// -> extrasDisplay = ["Waschen","Stylen"], extrasLc = ["waschen","stylen"]
 class _ComboRow {
   final Offer bundle;                 // das Bundle-Offer (für ab-Preis/Dauer)
   final List<String> extrasDisplay;   // zusätzliche Teile (Anzeige)
@@ -188,9 +184,7 @@ class _ComboRow {
   });
 }
 
-/// ---------------------------------------------------------------
-/// Key-Helfer: unterscheidet Zielgruppe!
-/// ---------------------------------------------------------------
+// Key-Helfer: unterscheidet Zielgruppe!
 String _keyFor({
   required String zielgruppe,
   required String category,
@@ -444,7 +438,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     final map = Map<String, _CartItem>.from(_selectedVN.value);
 
     if (!map.containsKey(key)) {
-      // Beim Hinzufügen prüfen, ob schon Items anderer Zielgruppe liegen
       if (_hasItemsFromOtherZielgruppe(item.zielgruppe)) {
         final other = map.values.first.zielgruppe;
         _showWrongGroupSnack(other);
@@ -461,13 +454,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   /// Combo-Helper: (de)selektiert alle Einzel-Leistungen der Kombi
   void _toggleCombo({
     required String category,
-    required List<String> partsOriginal, // Original-Schreibweise
-    required List<String> partsLc, // lowercased
-    required Map<String, Offer> singlesByKey, // '$cat|$partLc' -> Offer (Basis)
+    required List<String> partsOriginal,
+    required List<String> partsLc,
+    required Map<String, Offer> singlesByKey,
   }) {
     final zg = _zielgruppe;
 
-    // Zielgruppen-Mix blockieren
     if (_hasItemsFromOtherZielgruppe(zg)) {
       final other = _selectedVN.value.values.first.zielgruppe;
       _showWrongGroupSnack(other);
@@ -492,7 +484,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         final key = _keyFor(zielgruppe: zg, category: category, partLc: lc);
         if (!map.containsKey(key)) {
           final single = singlesByKey['$category|$lc'];
-          final preis = single?.priceFor(zg); // Basispreis, wenn vorhanden
+          final preis = single?.priceFor(zg);
           final dauer = single?.durationFor(zg);
           map[key] = _CartItem(
             kategorie: category,
@@ -525,7 +517,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required Offer base,
     required String category,
     required List<Offer> variantOffersForPart,
-    List<_ComboRow> combineRows = const <_ComboRow>[], // <-- NEU
+    List<_ComboRow> combineRows = const <_ComboRow>[],
     String? preselectVarLc,
   }) async {
     final zg = _zielgruppe;
@@ -534,10 +526,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     final basePreis = base.priceFor(zg);
 
-    // Header
     final headerTitle = '$category – $partDisplay';
 
-    // Methoden-Optionen vorbereiten
     final options = <_VariantOption>[];
     final byLabel = <String, Offer>{};
     for (final v in variantOffersForPart) {
@@ -566,7 +556,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (ctx) {
-        // --- außerhalb des StatefulBuilder halten ---
         String? selectedVarLc = preselectVarLc;
         final Set<int> selectedComboIdx = <int>{};
 
@@ -610,7 +599,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                     return Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Methodenliste
                         Flexible(
                           child: ListView.separated(
                             shrinkWrap: true,
@@ -629,10 +617,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   groupValue: selectedVarLc,
                                   onChanged: (val) => setSheetState(() => selectedVarLc = val),
                                 ),
-                                title: Text(
-                                  opt.label,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                                title: Text(opt.label, overflow: TextOverflow.ellipsis),
                                 trailing: Text(
                                   '${_preisText(preis)}${_dauerText(dauer)}',
                                   style: const TextStyle(fontWeight: FontWeight.w600),
@@ -643,7 +628,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           ),
                         ),
 
-                        // --------- Kombinieren mit ---------
                         if (combineRows.isNotEmpty) ...[
                           const SizedBox(height: 12),
                           const Divider(height: 1),
@@ -681,8 +665,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         }),
                                       ),
                                       Expanded(
-                                        child: Text(
-                                          label,
+                                        child: Text(label,
                                           overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(fontSize: 15),
                                         ),
@@ -702,7 +685,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           const SizedBox(height: 8),
                         ],
 
-                        // Optional: Auswahl entfernen
                         if (alreadySelected) ...[
                           const SizedBox(height: 8),
                           Align(
@@ -722,7 +704,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                         const SizedBox(height: 8),
 
-                        // CTA
                         SafeArea(
                           top: false,
                           child: SizedBox(
@@ -754,7 +735,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                                 final map = Map<String, _CartItem>.from(_selectedVN.value);
 
-                                // Zielgruppen-Mix verhindern
                                 if (_hasItemsFromOtherZielgruppe(zg)) {
                                   final other = map.values.first.zielgruppe;
                                   Navigator.pop(ctx);
@@ -762,7 +742,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   return;
                                 }
 
-                                // Basisleistung ins Cart
                                 final key = _keyFor(
                                   zielgruppe: zg,
                                   category: category,
@@ -770,8 +749,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 );
                                 map[key] = item;
 
-                                // Aus gewählten Kombi-Zeilen alle Extras sammeln (ohne Duplikate)
-                                final Map<String, String> extrasToAdd = {}; // lc -> display
+                                final Map<String, String> extrasToAdd = {};
                                 for (final idx in selectedComboIdx) {
                                   final row = combineRows[idx];
                                   for (int j = 0; j < row.extrasLc.length; j++) {
@@ -779,8 +757,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   }
                                 }
 
-                                // Jede Extra-Leistung als eigenes Cart-Item einfügen.
-                                // Preis/Dauer hier absichtlich null – computeTotal nutzt Fallbacks.
                                 extrasToAdd.forEach((lc, display) {
                                   final extraKey =
                                   _keyFor(zielgruppe: zg, category: category, partLc: lc);
@@ -922,7 +898,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             if (!existingBaseKeys.contains(key) && list.isNotEmpty) {
               final sample = list.first;
               final cat = sample.kategorie;
-              final partDisplay = sample.leistungen.first; // Original-Schreibweise
+              final partDisplay = sample.leistungen.first;
               final partLc = sample.leistungenLc.first;
 
               final Map<String, dynamic> zgMap = {};
@@ -960,7 +936,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   isBundle: false,
                   comboKey: null,
                   zielgruppen: zgMap,
-                  varianten: const [], // echte Basis hat leere Methodenliste
+                  varianten: const [],
                   titleDisplay: '$cat – $partDisplay',
                 ),
               );
@@ -1009,32 +985,205 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           }.toList()
             ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
+          // === pro Teil: effektiver Preis, wenn Bundle bereits GREIFT (ausgewählte Teile) ===
+          Map<String, double> perItemOptimizedPricesForGroup({
+            required String category,
+            required String zielgruppe,
+            required List<_CartItem> groupItems,
+          }) {
+            if (groupItems.isEmpty) return const {};
+            final partsLc = groupItems.map((e) => e.leistung.toLowerCase()).toList();
 
+            double _singlePriceAt(int idx) {
+              final item = groupItems[idx];
+              double? p = item.preis;
+              p ??= singleBaseIndex['$category|${partsLc[idx]}']?.priceFor(zielgruppe);
+              return p ?? 0.0;
+            }
+
+            final eff = <int, double>{};
+            final used = List<bool>.filled(partsLc.length, false);
+
+            final catBundles = bundles.where((b) => b.kategorie == category).toList()
+              ..sort((a, b) => b.leistungenLc.length.compareTo(a.leistungenLc.length));
+
+            for (final b in catBundles) {
+              final needed = b.leistungenLc;
+              if (needed.isEmpty) continue;
+
+              final idxs = <int>[];
+              for (final n in needed) {
+                int found = -1;
+                for (int i = 0; i < partsLc.length; i++) {
+                  if (!used[i] && partsLc[i] == n) { found = i; break; }
+                }
+                if (found == -1) { idxs.clear(); break; }
+                idxs.add(found);
+              }
+              if (idxs.isEmpty || idxs.length != needed.length) continue;
+
+              final bundlePrice = b.priceFor(zielgruppe);
+              if (bundlePrice == null) continue;
+
+              final singlesSum = idxs.fold<double>(0.0, (sum, i) => sum + _singlePriceAt(i));
+              if (bundlePrice >= singlesSum || singlesSum <= 0) continue;
+
+              for (final i in idxs) used[i] = true;
+              for (final i in idxs) {
+                final singleP = _singlePriceAt(i);
+                final share = singleP / singlesSum;
+                eff[i] = bundlePrice * share;
+              }
+            }
+
+            for (int i = 0; i < partsLc.length; i++) {
+              eff[i] = eff[i] ?? _singlePriceAt(i);
+            }
+
+            final out = <String, double>{};
+            for (int i = 0; i < partsLc.length; i++) {
+              out[partsLc[i]] = eff[i] ?? 0.0;
+            }
+            return out;
+          }
+
+          // === NEU: Vorschaupreis für "andere" Teile der gleichen Kombi ===
+          // Wenn irgendein ANDERER Teil derselben Kombi ausgewählt ist, zeige
+          // (Einzelpreis dieses Teils - gesamter Bundle-Rabatt).
+          double? previewPriceIfPartnerSelected({
+            required String category,
+            required String zielgruppe,
+            required String partLc,
+            required Set<String> selectedPartsLc, // nur andere, nicht dieser part
+          }) {
+            double? best; // kleinstmögliche Vorschau (falls mehrere Bundles matchen)
+            for (final b in bundles) {
+              if (b.kategorie != category) continue;
+              if (!b.leistungenLc.contains(partLc)) continue;
+
+              // Ist irgendein anderer Teil des Bundles ausgewählt?
+              final hasAnyOtherSelected = b.leistungenLc.any(
+                    (lc) => lc != partLc && selectedPartsLc.contains(lc),
+              );
+              if (!hasAnyOtherSelected) continue;
+
+              final bundlePrice = b.priceFor(zielgruppe);
+              if (bundlePrice == null) continue;
+
+              // Summe der Einzelpreise aller Teile des Bundles
+              double singlesSum = 0.0;
+              bool ok = true;
+              for (final lc in b.leistungenLc) {
+                final sp = singleBaseIndex['$category|$lc']?.priceFor(zielgruppe);
+                if (sp == null) { ok = false; break; }
+                singlesSum += sp;
+              }
+              if (!ok || singlesSum <= 0) continue;
+
+              if (bundlePrice >= singlesSum) continue; // kein Rabatt
+
+              final discount = singlesSum - bundlePrice; // GANZER Bundle-Rabatt
+              final singleOfThis = singleBaseIndex['$category|$partLc']?.priceFor(zielgruppe);
+              if (singleOfThis == null) continue;
+
+              final preview = (singleOfThis - discount).clamp(0.0, double.infinity);
+              if (preview < singleOfThis) {
+                if (best == null || preview < best!) best = preview;
+              }
+            }
+            return best;
+          }
+
+          // === Gesamtpreis-Berechnung (naiv vs. optimiert) für die Bottom-Bar ===
+          _CartTotals computeTotals(Map<String, _CartItem> map) {
+            if (map.isEmpty) return const _CartTotals(naive: 0.0, optimized: 0.0);
+
+            final byGroup = <String, List<_CartItem>>{};
+            map.forEach((_, item) {
+              final gKey = '${item.kategorie}|${item.zielgruppe}';
+              byGroup.putIfAbsent(gKey, () => []).add(item);
+            });
+
+            double naive = 0.0;
+            double optimized = 0.0;
+
+            byGroup.forEach((groupKey, groupItems) {
+              final split = groupKey.split('|');
+              final cat = split[0];
+              final zg  = split.length > 1 ? split[1] : 'Damen';
+
+              final partsLc = groupItems.map((e) => e.leistung.toLowerCase()).toList();
+
+              double _singlePriceAt(int idx) {
+                final item = groupItems[idx];
+                double? p = item.preis;
+                p ??= singleBaseIndex['$cat|${partsLc[idx]}']?.priceFor(zg);
+                return p ?? 0.0;
+              }
+
+              for (int i = 0; i < partsLc.length; i++) {
+                naive += _singlePriceAt(i);
+              }
+
+              final catBundles = bundles.where((b) => b.kategorie == cat).toList()
+                ..sort((a, b) => b.leistungenLc.length.compareTo(a.leistungenLc.length));
+
+              final used = List<bool>.filled(partsLc.length, false);
+
+              for (final b in catBundles) {
+                final needed = b.leistungenLc;
+                if (needed.isEmpty) continue;
+
+                final idxs = <int>[];
+                for (final n in needed) {
+                  int found = -1;
+                  for (int i = 0; i < partsLc.length; i++) {
+                    if (!used[i] && partsLc[i] == n) { found = i; break; }
+                  }
+                  if (found == -1) { idxs.clear(); break; }
+                  idxs.add(found);
+                }
+                if (idxs.isEmpty || idxs.length != needed.length) continue;
+
+                final bundlePrice = b.priceFor(zg);
+                if (bundlePrice == null) continue;
+
+                final singlesSum = idxs.fold<double>(0.0, (sum, i) => sum + _singlePriceAt(i));
+                if (bundlePrice < singlesSum) {
+                  for (final i in idxs) used[i] = true;
+                  optimized += bundlePrice;
+                }
+              }
+
+              for (int i = 0; i < partsLc.length; i++) {
+                if (!used[i]) optimized += _singlePriceAt(i);
+              }
+            });
+
+            return _CartTotals(naive: naive, optimized: optimized);
+          }
+
+          // ---------- Abschnitte bauen ----------
           final sections = <SectionData>[];
           for (final kat in kategorien) {
-            final items = [...(singlesByCategory[kat] ?? const <Offer>[])]
-              ..sort((a, b) => a.leistungen.first.toLowerCase()
-                  .compareTo(b.leistungen.first.toLowerCase()));
+            final items = [...(singlesByCategory[kat] ?? const <Offer>[])];
+            items.sort((a, b) =>
+                a.leistungen.first.toLowerCase().compareTo(b.leistungen.first.toLowerCase()));
 
             final children = <Widget>[];
 
-            // ---------- Singles rendern ----------
             for (final offer in items) {
               final partDisplay = offer.leistungen.first;
               final partLc = offer.leistungenLc.first;
 
-              final uiTitle = partDisplay; // <-- Nur die Leistung anzeigen
+              final uiTitle = partDisplay;
 
               final preis = offer.priceFor(_zielgruppe);
               final dauer = offer.durationFor(_zielgruppe);
 
               if (preis == null && dauer == null) continue;
 
-              final key = _keyFor(
-                zielgruppe: _zielgruppe,
-                category: kat,
-                partLc: partLc,
-              );
+              final selKey = _keyFor(zielgruppe: _zielgruppe, category: kat, partLc: partLc);
 
               final variantKey = '$kat|$partLc';
               final labelsSet = variantsAvailable[variantKey] ?? {};
@@ -1054,19 +1203,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                     ),
                     child: Row(
                       children: [
-                        // ====== LINKS: Titel + (optional) Methoden-Liste ======
+                        // ====== LINKS ======
                         Expanded(
                           child: ValueListenableBuilder<Map<String, _CartItem>>(
                             valueListenable: _selectedVN,
                             builder: (_, map, __) {
-                              final selKey = _keyFor(
-                                zielgruppe: _zielgruppe,
-                                category: kat,
-                                partLc: partLc,
-                              );
                               final selectedItem = map[selKey];
 
-                              // Effektive Werte (falls Variante gewählt)
                               final effectivePrice   = selectedItem?.preis ?? preis;
                               final effectiveDuration= selectedItem?.dauer ?? dauer;
 
@@ -1080,7 +1223,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   if (o != null) variantsForPart.add(o);
                                 }
 
-                                // Kombi-Zeilen für diese Basis bauen
                                 List<_ComboRow> _buildCombineRowsFor(String category, String partLc) {
                                   final combos = combosByCategory[category] ?? const <Offer>[];
                                   final rows = <_ComboRow>[];
@@ -1120,7 +1262,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // Nur der Titel links
                                   Text(
                                     uiTitle,
                                     style: const TextStyle(
@@ -1129,8 +1270,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     ),
                                     overflow: TextOverflow.ellipsis,
                                   ),
-
-                                  // Methoden-Zeile (nur wenn vorhanden)
                                   if (hasVariants) ...[
                                     const SizedBox(height: 4),
                                     GestureDetector(
@@ -1170,13 +1309,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           ),
                         ),
 
-// ====== MITTE: Dauer – spaltenbündig ======
+                        // ====== MITTE: Dauer ======
                         SizedBox(
                           width: kDurColWidth,
                           child: ValueListenableBuilder<Map<String, _CartItem>>(
                             valueListenable: _selectedVN,
                             builder: (_, map, __) {
-                              final selKey = _keyFor(zielgruppe: _zielgruppe, category: kat, partLc: partLc);
                               final selectedItem = map[selKey];
                               final effectiveDuration = selectedItem?.dauer ?? dauer;
                               if (effectiveDuration == null) return const SizedBox.shrink();
@@ -1203,36 +1341,104 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           ),
                         ),
 
-
-
-// ====== RECHTS: Preis + Icon – feste Spaltenbreite ======
+                        // ====== RECHTS: Preis + Icon ======
                         SizedBox(
                           width: kRightColWidth,
                           child: ValueListenableBuilder<Map<String, _CartItem>>(
                             valueListenable: _selectedVN,
                             builder: (_, map, __) {
-                              final selKey = _keyFor(zielgruppe: _zielgruppe, category: kat, partLc: partLc);
                               final selectedItem = map[selKey];
                               final effectivePrice = selectedItem?.preis ?? preis;
                               final selected = map.containsKey(selKey);
 
+                              // Set der bereits ausgewählten Teile (nur gleiche Kategorie/ZG)
+                              final selectedPartsLc = map.values
+                                  .where((it) => it.kategorie == kat && it.zielgruppe == _zielgruppe)
+                                  .map((it) => it.leistung.toLowerCase())
+                                  .toSet();
+
                               return Row(
                                 mainAxisAlignment: MainAxisAlignment.end,
                                 children: [
-                                  Text(
-                                    _preisText(effectivePrice),
-                                    style: const TextStyle(
-                                      color: Colors.black54,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
+                                  // --- Altpreis/Neupreis mit Rabatt/Preview ---
+                                  Builder(builder: (_) {
+                                    double? newPrice;
+
+                                    if (selected) {
+                                      // echter Rabatt: Bundle greift möglicherweise schon
+                                      final groupItems = map.values
+                                          .where((it) => it.kategorie == kat && it.zielgruppe == _zielgruppe)
+                                          .toList();
+                                      final perItem = perItemOptimizedPricesForGroup(
+                                        category: kat,
+                                        zielgruppe: _zielgruppe,
+                                        groupItems: groupItems,
+                                      );
+                                      final p = perItem[partLc];
+                                      if (p != null && effectivePrice != null && p < effectivePrice) {
+                                        newPrice = p;
+                                      }
+                                    } else {
+                                      // PREVIEW: ein anderer Teil dieser Kombi ist ausgewählt
+                                      final others = {...selectedPartsLc}..remove(partLc);
+                                      final preview = previewPriceIfPartnerSelected(
+                                        category: kat,
+                                        zielgruppe: _zielgruppe,
+                                        partLc: partLc,
+                                        selectedPartsLc: others,
+                                      );
+                                      if (preview != null &&
+                                          effectivePrice != null &&
+                                          preview < effectivePrice) {
+                                        newPrice = preview;
+                                      }
+                                    }
+
+                                    if (newPrice != null) {
+                                      return Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                        children: [
+                                          Text(
+                                            _preisText(effectivePrice),
+                                            style: const TextStyle(
+                                              color: Colors.black45,
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.w500,
+                                              decoration: TextDecoration.lineThrough,
+                                              decorationThickness: 2,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            _preisText(newPrice),
+                                            style: const TextStyle(
+                                              color: Colors.green,
+                                              fontSize: 13.5,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    }
+
+                                    // Kein Rabatt → normaler Preis
+                                    return Text(
+                                      _preisText(effectivePrice),
+                                      style: const TextStyle(
+                                        color: Colors.black54,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    );
+                                  }),
+
                                   const SizedBox(width: 8),
+
                                   IconButton(
                                     tooltip: selected ? 'Entfernen'
                                         : (hasVariants ? 'Methode/Kombi wählen' : 'Hinzufügen'),
                                     onPressed: () {
-                                      // <- deine bestehende onPressed-Logik unverändert lassen
                                       if (hasVariants) {
                                         if (selected) {
                                           final newMap = Map<String, _CartItem>.from(_selectedVN.value);
@@ -1244,7 +1450,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                             final o = singleVariantIndex['$kat|$partLc|${label.toLowerCase()}'];
                                             if (o != null) variantsForPart.add(o);
                                           }
-                                          // KombiRows wie bisher bauen …
                                           List<_ComboRow> _buildCombineRowsFor(String category, String partLc) {
                                             final combos = combosByCategory[category] ?? const <Offer>[];
                                             final rows = <_ComboRow>[];
@@ -1298,16 +1503,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             },
                           ),
                         ),
-
                       ],
-                    )
-
+                    ),
                   ),
                 ),
               );
             }
-
-
 
             if (children.isNotEmpty) {
               sections.add(SectionData(kat, children));
@@ -1319,89 +1520,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           if (selKat.isNotEmpty && kategorien.contains(selKat)) {
             initialIndex = kategorien.indexOf(selKat);
           }
-
-          _CartTotals computeTotals(Map<String, _CartItem> map) {
-            if (map.isEmpty) return const _CartTotals(naive: 0.0, optimized: 0.0);
-
-            // Nach (Kategorie, Zielgruppe) gruppieren – wie bisher
-            final byGroup = <String, List<_CartItem>>{};
-            map.forEach((_, item) {
-              final gKey = '${item.kategorie}|${item.zielgruppe}';
-              byGroup.putIfAbsent(gKey, () => []).add(item);
-            });
-
-            double naive = 0.0;
-            double optimized = 0.0;
-
-            byGroup.forEach((groupKey, groupItems) {
-              final split = groupKey.split('|');
-              final cat = split[0];
-              final zg  = split.length > 1 ? split[1] : 'Damen';
-
-              // Normalisierte Teile dieser Gruppe (gleiche Reihenfolge wie groupItems)
-              final partsLc = groupItems.map((e) => e.leistung.toLowerCase()).toList();
-
-              // Preis-Funktion pro Eintrag (Variante > Basis)
-              double _singlePriceAt(int idx) {
-                final item = groupItems[idx];
-                double? p = item.preis;
-                p ??= singleBaseIndex['$cat|${partsLc[idx]}']?.priceFor(zg);
-                return p ?? 0.0;
-              }
-
-              // 1) "Naive" Summe: einfach alle Einzelteile addieren
-              for (int i = 0; i < partsLc.length; i++) {
-                naive += _singlePriceAt(i);
-              }
-
-              // 2) Optimiert: Bundles anwenden (größte zuerst), aber nur wenn günstiger
-              final catBundles = bundles.where((b) => b.kategorie == cat).toList()
-                ..sort((a, b) => b.leistungenLc.length.compareTo(a.leistungenLc.length));
-
-              final used = List<bool>.filled(partsLc.length, false);
-
-              for (final b in catBundles) {
-                final needed = b.leistungenLc;
-
-                // Versuche, alle benötigten Teile in der aktuellen Auswahl zu finden
-                final idxs = <int>[];
-                for (final n in needed) {
-                  int found = -1;
-                  for (int i = 0; i < partsLc.length; i++) {
-                    if (!used[i] && partsLc[i] == n) {
-                      found = i;
-                      break;
-                    }
-                  }
-                  if (found == -1) { idxs.clear(); break; }
-                  idxs.add(found);
-                }
-
-                if (idxs.isNotEmpty && idxs.length == needed.length) {
-                  final bundlePrice = b.priceFor(zg);
-                  if (bundlePrice != null) {
-                    final singlesSum = idxs.fold<double>(0.0, (sum, i) => sum + _singlePriceAt(i));
-                    // Nur anwenden, wenn das Bundle wirklich günstiger ist
-                    if (bundlePrice < singlesSum) {
-                      for (final i in idxs) used[i] = true;
-                      optimized += bundlePrice;
-                    }
-                    // sonst lassen wir es links liegen und rechnen die Singles später
-                  }
-                }
-              }
-
-              // Restliche (nicht durch Bundle abgedeckte) Einzelpreise
-              for (int i = 0; i < partsLc.length; i++) {
-                if (!used[i]) {
-                  optimized += _singlePriceAt(i);
-                }
-              }
-            });
-
-            return _CartTotals(naive: naive, optimized: optimized);
-          }
-
 
           // Inhalt + fixierte Bottom-Bar
           return Stack(
@@ -1422,7 +1540,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   valueListenable: _selectedVN,
                   builder: (context, map, _) {
                     final hasSelection = map.isNotEmpty;
-                    final totals = computeTotals(map);
+                    final totals = (hasSelection) ? computeTotals(map) : const _CartTotals(naive: 0.0, optimized: 0.0);
                     final total = hasSelection ? totals.optimized : 0.0;
                     final savings = hasSelection ? totals.savings : 0.0;
 
@@ -1439,7 +1557,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               ? _BookingBar(
                             count: map.length,
                             total: total,
-                            savings: savings, // <- NEU!
+                            savings: savings,
                             onPressed: () {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text('Zur Buchung (${map.length}) – ${_formatEuro(total)}')),
@@ -1451,7 +1569,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       ),
                     );
                   },
-
                 ),
               ),
             ],
@@ -1473,21 +1590,20 @@ class _CartTotals {
   }
 }
 
-
 /// ---------------------------------------------------------------
 /// Bottom-Bar (Warenkorb / CTA)
 /// ---------------------------------------------------------------
 class _BookingBar extends StatelessWidget {
   final int count;
   final double? total;
-  final double savings; // <- NEU
+  final double savings;
   final VoidCallback onPressed;
 
   const _BookingBar({
     required this.count,
     required this.total,
     required this.onPressed,
-    this.savings = 0.0, // <- NEU
+    this.savings = 0.0,
   });
 
   String _formatEuro(double v) {
@@ -1558,7 +1674,6 @@ class _BookingBar extends StatelessWidget {
               const SizedBox(width: 8),
             ],
 
-            // Titel zentriert
             const Expanded(
               child: Center(
                 child: Text(
@@ -1570,7 +1685,6 @@ class _BookingBar extends StatelessWidget {
               ),
             ),
 
-            // Gesamt rechts
             Text(
               total == null ? '' : _formatEuro(total!),
               style: const TextStyle(
