@@ -1113,13 +1113,28 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // Titel
-                                  Text(
-                                    uiTitle,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          uiTitle,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Text(
+                                        '${_preisText(effectivePrice)}${_dauerText(effectiveDuration)}',
+                                        style: const TextStyle(
+                                          color: Colors.black54,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
                                   ),
 
                                   // Methoden-Zeile (nur wenn vorhanden)
@@ -1134,12 +1149,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                               TextSpan(
                                                 text: sortedLabels[i],
                                                 style: TextStyle(
-                                                  color: (sortedLabels[i].toLowerCase() ==
-                                                      (selectedVarLower ?? ''))
+                                                  color: (sortedLabels[i].toLowerCase() == (selectedVarLower ?? ''))
                                                       ? kBrandOrange
                                                       : Colors.black54,
-                                                  fontWeight: (sortedLabels[i].toLowerCase() ==
-                                                      (selectedVarLower ?? ''))
+                                                  fontWeight: (sortedLabels[i].toLowerCase() == (selectedVarLower ?? ''))
                                                       ? FontWeight.w700
                                                       : FontWeight.w400,
                                                 ),
@@ -1156,19 +1169,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       ),
                                     ),
                                   ],
-
-                                  const SizedBox(height: 6),
-
-                                  // Preis & Dauer – dynamisch nach Auswahl
-                                  Text(
-                                    '${_preisText(effectivePrice)}${_dauerText(effectiveDuration)}',
-                                    style: const TextStyle(
-                                      color: Colors.black54,
-                                      fontSize: 13,
-                                    ),
-                                  ),
                                 ],
                               );
+
                             },
                           ),
                         ),
