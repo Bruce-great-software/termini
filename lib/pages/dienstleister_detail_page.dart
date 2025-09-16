@@ -1320,38 +1320,51 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             initialIndex = kategorien.indexOf(selKat);
           }
 
-          // ---- Total mit Zielgruppen-Bezug je Item berechnen ----
-          double computeTotal(Map<String, _CartItem> map) {
-            if (map.isEmpty) return 0.0;
+          _CartTotals computeTotals(Map<String, _CartItem> map) {
+            if (map.isEmpty) return const _CartTotals(naive: 0.0, optimized: 0.0);
 
-            // Nach (Kategorie, Zielgruppe) gruppieren
+            // Nach (Kategorie, Zielgruppe) gruppieren – wie bisher
             final byGroup = <String, List<_CartItem>>{};
             map.forEach((_, item) {
               final gKey = '${item.kategorie}|${item.zielgruppe}';
               byGroup.putIfAbsent(gKey, () => []).add(item);
             });
 
-            double total = 0.0;
+            double naive = 0.0;
+            double optimized = 0.0;
 
             byGroup.forEach((groupKey, groupItems) {
               final split = groupKey.split('|');
               final cat = split[0];
-              final zg = split.length > 1 ? split[1] : 'Damen';
+              final zg  = split.length > 1 ? split[1] : 'Damen';
 
-              // normalisierte Teile dieser Gruppe (Reihenfolge = groupItems)
+              // Normalisierte Teile dieser Gruppe (gleiche Reihenfolge wie groupItems)
               final partsLc = groupItems.map((e) => e.leistung.toLowerCase()).toList();
 
-              // Greedy: größte Bundles zuerst
+              // Preis-Funktion pro Eintrag (Variante > Basis)
+              double _singlePriceAt(int idx) {
+                final item = groupItems[idx];
+                double? p = item.preis;
+                p ??= singleBaseIndex['$cat|${partsLc[idx]}']?.priceFor(zg);
+                return p ?? 0.0;
+              }
+
+              // 1) "Naive" Summe: einfach alle Einzelteile addieren
+              for (int i = 0; i < partsLc.length; i++) {
+                naive += _singlePriceAt(i);
+              }
+
+              // 2) Optimiert: Bundles anwenden (größte zuerst), aber nur wenn günstiger
               final catBundles = bundles.where((b) => b.kategorie == cat).toList()
                 ..sort((a, b) => b.leistungenLc.length.compareTo(a.leistungenLc.length));
 
               final used = List<bool>.filled(partsLc.length, false);
 
-              // Versuche Bundles zu „legen“
               for (final b in catBundles) {
                 final needed = b.leistungenLc;
-                final idxs = <int>[];
 
+                // Versuche, alle benötigten Teile in der aktuellen Auswahl zu finden
+                final idxs = <int>[];
                 for (final n in needed) {
                   int found = -1;
                   for (int i = 0; i < partsLc.length; i++) {
@@ -1360,37 +1373,35 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       break;
                     }
                   }
-                  if (found == -1) {
-                    idxs.clear();
-                    break;
-                  }
+                  if (found == -1) { idxs.clear(); break; }
                   idxs.add(found);
                 }
 
                 if (idxs.isNotEmpty && idxs.length == needed.length) {
                   final bundlePrice = b.priceFor(zg);
                   if (bundlePrice != null) {
-                    for (final i in idxs) used[i] = true;
-                    total += bundlePrice;
+                    final singlesSum = idxs.fold<double>(0.0, (sum, i) => sum + _singlePriceAt(i));
+                    // Nur anwenden, wenn das Bundle wirklich günstiger ist
+                    if (bundlePrice < singlesSum) {
+                      for (final i in idxs) used[i] = true;
+                      optimized += bundlePrice;
+                    }
+                    // sonst lassen wir es links liegen und rechnen die Singles später
                   }
                 }
               }
 
-              // Restliche Singles: **IMMER** Preis aus gewähltem Item,
-              // erst wenn null, fallback auf Basis-Single-Index.
+              // Restliche (nicht durch Bundle abgedeckte) Einzelpreise
               for (int i = 0; i < partsLc.length; i++) {
                 if (!used[i]) {
-                  final lc = partsLc[i];
-                  final item = groupItems[i];
-                  double? p = item.preis;
-                  p ??= singleBaseIndex['$cat|$lc']?.priceFor(zg);
-                  if (p != null) total += p;
+                  optimized += _singlePriceAt(i);
                 }
               }
             });
 
-            return total;
+            return _CartTotals(naive: naive, optimized: optimized);
           }
+
 
           // Inhalt + fixierte Bottom-Bar
           return Stack(
@@ -1411,7 +1422,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   valueListenable: _selectedVN,
                   builder: (context, map, _) {
                     final hasSelection = map.isNotEmpty;
-                    final total = hasSelection ? computeTotal(map) : 0.0;
+                    final totals = computeTotals(map);
+                    final total = hasSelection ? totals.optimized : 0.0;
+                    final savings = hasSelection ? totals.savings : 0.0;
+
                     return IgnorePointer(
                       ignoring: !hasSelection,
                       child: AnimatedContainer(
@@ -1425,13 +1439,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               ? _BookingBar(
                             count: map.length,
                             total: total,
+                            savings: savings, // <- NEU!
                             onPressed: () {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    'Zur Buchung (${map.length}) – ${_formatEuro(total)}',
-                                  ),
-                                ),
+                                SnackBar(content: Text('Zur Buchung (${map.length}) – ${_formatEuro(total)}')),
                               );
                             },
                           )
@@ -1440,6 +1451,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       ),
                     );
                   },
+
                 ),
               ),
             ],
@@ -1450,18 +1462,32 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   }
 }
 
+class _CartTotals {
+  final double naive;     // Summe aller Einzelpreise ohne Kombi
+  final double optimized; // Beste Summe mit Kombi-Rabatten
+  const _CartTotals({required this.naive, required this.optimized});
+
+  double get savings {
+    final s = naive - optimized;
+    return s > 0 ? s : 0.0;
+  }
+}
+
+
 /// ---------------------------------------------------------------
 /// Bottom-Bar (Warenkorb / CTA)
 /// ---------------------------------------------------------------
 class _BookingBar extends StatelessWidget {
   final int count;
   final double? total;
+  final double savings; // <- NEU
   final VoidCallback onPressed;
 
   const _BookingBar({
     required this.count,
     required this.total,
     required this.onPressed,
+    this.savings = 0.0, // <- NEU
   });
 
   String _formatEuro(double v) {
@@ -1476,32 +1502,27 @@ class _BookingBar extends StatelessWidget {
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
           backgroundColor: kBrandOrange,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(28),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 16),
         ),
         onPressed: onPressed,
         child: Row(
           children: [
+            // Warenkorb + Badge mit Anzahl
             Stack(
               clipBehavior: Clip.none,
               children: [
                 Container(
-                  width: 36,
-                  height: 36,
+                  width: 36, height: 36,
                   decoration: BoxDecoration(
-                    color: Colors.white.withAlpha(46),
-                    shape: BoxShape.circle,
+                    color: Colors.white.withAlpha(46), shape: BoxShape.circle,
                   ),
                   alignment: Alignment.center,
-                  child:
-                  const Icon(Icons.shopping_basket_outlined, size: 22, color: Colors.white),
+                  child: const Icon(Icons.shopping_basket_outlined, size: 22, color: Colors.white),
                 ),
                 Positioned(
-                  right: -3,
-                  top: -3,
+                  right: -3, top: -3,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
@@ -1512,37 +1533,48 @@ class _BookingBar extends StatelessWidget {
                     child: Text(
                       '$count',
                       style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: kBrandOrange,
-                      ),
+                          fontSize: 11, fontWeight: FontWeight.w800, color: kBrandOrange),
                     ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(width: 12),
+
+            const SizedBox(width: 8),
+
+            // *** Spare-Badge (nur wenn savings > 0) ***
+            if (savings > 0.0) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white, borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  'Spare ${_formatEuro(savings)}',
+                  style: const TextStyle(
+                      color: kBrandOrange, fontWeight: FontWeight.w800, fontSize: 12.5),
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+
+            // Titel zentriert
             const Expanded(
               child: Center(
                 child: Text(
                   'Zur Buchung',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                  ),
+                      color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16),
                 ),
               ),
             ),
+
+            // Gesamt rechts
             Text(
               total == null ? '' : _formatEuro(total!),
               style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
-                fontSize: 16,
-              ),
+                  color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16),
             ),
           ],
         ),
