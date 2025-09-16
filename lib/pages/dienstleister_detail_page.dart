@@ -181,7 +181,6 @@ class _ComboRow {
 
 /// ---------------------------------------------------------------
 /// Key-Helfer: unterscheidet Zielgruppe!
-/// ---------------------------------------------------------------
 String _keyFor({
   required String zielgruppe,
   required String category,
@@ -1082,13 +1081,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           for (final kat in kategorien) {
             final parts = [...(singlesByCategory[kat] ?? const <Offer>[])];
 
-            // --- NEU: fehlende Teile aus Kombi-Angeboten synthetisch ergänzen,
-            // damit Segmente (z. B. "Waschen") auch erscheinen, wenn es sie nur als Bundle gibt.
+            // fehlende Teile aus Kombis anzeigen (synthetisch, ohne Einzelpreis)
             final presentLc = parts.map((o) => o.leistungenLc.first).toSet();
             for (final combo in bundles.where((b) => b.kategorie == kat)) {
               for (int i = 0; i < combo.leistungen.length; i++) {
                 final lc = combo.leistungenLc[i];
-                if (presentLc.contains(lc)) continue; // existiert schon als Single
+                if (presentLc.contains(lc)) continue;
                 final display = combo.leistungen[i];
 
                 parts.add(
@@ -1112,8 +1110,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
             parts.sort((a, b) =>
                 a.leistungen.first.toLowerCase().compareTo(b.leistungen.first.toLowerCase()));
-            // ...
-
 
             // lc -> Base-Offer
             final Map<String, Offer> baseByLc = {
@@ -1134,7 +1130,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       final selectedSet = _getSelectedParts(kat, parts);
 
                       void _applySelection(Set<String> sel) {
-                        // leere Auswahl vermeiden
                         if (sel.isEmpty && parts.isNotEmpty) {
                           sel = {parts.first.leistungenLc.first};
                         }
@@ -1142,14 +1137,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         setSB(() {});
                       }
 
-                      // Für „Methoden anzeigen“ nutzen wir dann, wenn GENAU eine Basis gewählt ist.
+                      // Für „Methoden“: nur wenn genau 1 Basis
                       final bool singleChoice = selectedSet.length == 1;
                       final String activePartLc = selectedSet.first;
                       final Offer baseOffer = baseByLc[activePartLc]!;
                       final partDisplay = baseOffer.leistungen.first;
                       final partLc = baseOffer.leistungenLc.first;
 
-                      // Varianten für die aktuell (einzeln) gewählte Basis
+                      // Varianten für die aktive Basis
                       final variantKey = '$kat|$partLc';
                       final labelsSet = variantsAvailable[variantKey] ?? {};
                       final hasVariants = singleChoice && labelsSet.isNotEmpty;
@@ -1202,7 +1197,66 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         );
                       }
 
-                      // Vorschau für gesamte aktuelle Multi-Selection
+                      // --- NEU: Erlaubte Mengen (Singles mit Preis/Dauer + Bundles) ---
+                      final List<Set<String>> allowedSets = () {
+                        final list = <Set<String>>[];
+
+                        // erlaubte Singles (nur echte Singles mit Preis/Dauer)
+                        for (final o in parts) {
+                          final lc = o.leistungenLc.first;
+                          final single = singleBaseIndex['$kat|$lc'];
+                          final hasZg = (single?.priceFor(_zielgruppe) != null) ||
+                              (single?.durationFor(_zielgruppe) != null);
+                          if (hasZg == true) {
+                            list.add({lc});
+                          }
+                        }
+
+                        // vorhandene Bundles
+                        for (final b in combosByCategory[kat] ?? const <Offer>[]) {
+                          final s = b.leistungenLc.map((e) => e.toLowerCase()).toSet();
+                          if (s.isNotEmpty) list.add(s);
+                        }
+
+                        // klein -> groß sortieren
+                        list.sort((a, b) => a.length.compareTo(b.length));
+                        return list;
+                      }();
+
+                      // Snap-Helper
+                      Set<String> _snapAdd(Set<String> prev, String added) {
+                        // kleinste erlaubte Menge, die prev ∪ {added} enthält
+                        final candidates = allowedSets
+                            .where((s) => s.containsAll(prev) && s.contains(added))
+                            .toList()
+                          ..sort((a, b) => a.length.compareTo(b.length));
+                        if (candidates.isNotEmpty) return candidates.first;
+                        // ggf. reiner Single für added
+                        final singleForAdded =
+                        allowedSets.firstWhere((s) => s.length == 1 && s.contains(added),
+                            orElse: () => <String>{});
+                        if (singleForAdded.isNotEmpty) return singleForAdded;
+                        return prev; // keine Änderung
+                      }
+
+                      Set<String> _snapRemove(Set<String> prev, String removed) {
+                        final desired = {...prev}..remove(removed);
+                        if (desired.isEmpty) {
+                          // Fallback: erste erlaubte Single (Basis behalten)
+                          final firstSingle = allowedSets.firstWhere((s) => s.length == 1,
+                              orElse: () => <String>{});
+                          return firstSingle.isNotEmpty ? firstSingle : prev;
+                        }
+                        // größte erlaubte Teilmenge von desired
+                        final candidates = allowedSets
+                            .where((s) => desired.containsAll(s))
+                            .toList()
+                          ..sort((a, b) => b.length.compareTo(a.length));
+                        if (candidates.isNotEmpty) return candidates.first;
+                        return prev;
+                      }
+
+                      // Vorschau für aktuelle (gesnapte) Auswahl
                       final selPartsLc = selectedSet.toList()..sort();
                       final preview = _previewForSelection(
                         category: kat,
@@ -1210,7 +1264,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         partsLc: selPartsLc,
                       );
 
-                      // Key für die (ggf. einzige) Basis (für Varianten-Anzeige)
+                      // Key für Methode (wenn singleChoice)
                       final itemKey = _keyFor(
                         zielgruppe: _zielgruppe,
                         category: kat,
@@ -1247,16 +1301,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           const VisualDensity(horizontal: -2, vertical: -2),
                                           backgroundColor:
                                           MaterialStateProperty.resolveWith<Color?>(
-                                                (states) => states.contains(MaterialState.selected)
-                                                ? kBrandOrange
-                                                : null,
-                                          ),
+                                                  (states) => states.contains(MaterialState.selected)
+                                                  ? kBrandOrange
+                                                  : null),
                                           foregroundColor:
                                           MaterialStateProperty.resolveWith<Color?>(
-                                                (states) => states.contains(MaterialState.selected)
-                                                ? Colors.white
-                                                : null,
-                                          ),
+                                                  (states) => states.contains(MaterialState.selected)
+                                                  ? Colors.white
+                                                  : null),
                                         ),
                                         segments: parts
                                             .map((o) => ButtonSegment<String>(
@@ -1270,7 +1322,28 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         ))
                                             .toList(),
                                         selected: selectedSet,
-                                        onSelectionChanged: (sel) => _applySelection(sel),
+                                        // --- NEU: Snap auf erlaubte Sets ---
+                                        onSelectionChanged: (rawSel) {
+                                          // ermitteln, was getappt wurde
+                                          final added = rawSel.difference(selectedSet);
+                                          final removed = selectedSet.difference(rawSel);
+
+                                          Set<String> snapped = selectedSet;
+                                          if (added.length == 1) {
+                                            snapped = _snapAdd(selectedSet, added.first);
+                                          } else if (removed.length == 1) {
+                                            snapped = _snapRemove(selectedSet, removed.first);
+                                          } else {
+                                            // (seltene Fälle – multiple Änderungen): auf größte erlaubte Teilmenge snappen
+                                            final candidates = allowedSets
+                                                .where((s) => rawSel.containsAll(s))
+                                                .toList()
+                                              ..sort((a, b) => b.length.compareTo(a.length));
+                                            if (candidates.isNotEmpty) snapped = candidates.first;
+                                          }
+
+                                          _applySelection(snapped);
+                                        },
                                       ),
                                     ),
                                   ],
@@ -1299,8 +1372,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                         (selectedVarLower ?? ''))
                                                         ? kBrandOrange
                                                         : Colors.black54,
-                                                    fontWeight:
-                                                    (sortedLabels[i].toLowerCase() ==
+                                                    fontWeight: (sortedLabels[i].toLowerCase() ==
                                                         (selectedVarLower ?? ''))
                                                         ? FontWeight.w700
                                                         : FontWeight.w400,
@@ -1344,7 +1416,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             builder: (_, map, __) {
                               final zg = _zielgruppe;
 
-                              // sind ALLE selektierten Teile bereits im Warenkorb?
                               final allSelectedInCart = selPartsLc.every((lc) =>
                                   map.containsKey(_keyFor(zielgruppe: zg, category: kat, partLc: lc)));
 
@@ -1356,7 +1427,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     : 'Auswahl hinzufügen'),
                                 onPressed: () {
                                   if (hasVariants && singleChoice) {
-                                    // Bei genau 1 Basis mit Methoden -> Sheet
                                     _openSheet();
                                     return;
                                   }
