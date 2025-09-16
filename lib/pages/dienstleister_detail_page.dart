@@ -1422,21 +1422,36 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       );
 
                                       if (!isFirst) {
-                                        // Rabatt auf zusätzlich gewählte Teile
-                                        final groupItems = map.values
-                                            .where((it) =>
-                                        it.kategorie == kat && it.zielgruppe == _zielgruppe)
-                                            .toList();
-                                        final perItem = perItemOptimizedPricesForGroup(
+                                        // 🔒 Locked-Preview: Preis des später gewählten Teils
+                                        final others = {...selectedPartsLc}..remove(partLc);
+                                        final lockedPreview = previewPriceIfPartnerSelected(
                                           category: kat,
                                           zielgruppe: _zielgruppe,
-                                          groupItems: groupItems,
+                                          partLc: partLc,
+                                          selectedPartsLc: others,
                                         );
-                                        final p = perItem[partLc];
-                                        if (p != null &&
+                                        if (lockedPreview != null &&
                                             effectivePrice != null &&
-                                            p < effectivePrice) {
-                                          newPrice = p;
+                                            lockedPreview < effectivePrice) {
+                                          newPrice = lockedPreview; // z. B. bleibt bei 6,00 €
+                                        } else {
+                                          // Fallback: (nur wenn keine Preview bestimmbar ist)
+                                          final groupItems = map.values
+                                              .where((it) =>
+                                          it.kategorie == kat &&
+                                              it.zielgruppe == _zielgruppe)
+                                              .toList();
+                                          final perItem = perItemOptimizedPricesForGroup(
+                                            category: kat,
+                                            zielgruppe: _zielgruppe,
+                                            groupItems: groupItems,
+                                          );
+                                          final p = perItem[partLc];
+                                          if (p != null &&
+                                              effectivePrice != null &&
+                                              p < effectivePrice) {
+                                            newPrice = p;
+                                          }
                                         }
                                       }
                                     } else {
