@@ -3,9 +3,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:flutter/cupertino.dart';
 
+import 'dart:ui' show FontFeature;
+
+
 /// ---- Brand / Farben ----
 const Color kBrandOrange = Color(0xFFFF7A00); // Buttonfarbe
 const double kBottomBarHeight = 76.0;
+
+/// ---- Layout-Konstanten ----
+const double kDurColWidth   = 72.0;   // Mitte (Badge) – ggf. 68–80 testen
+const double kRightColWidth = 144.0;  // Rechts (Preis + Icon) – 136–152 testen
 
 /// ---------------------------------------------------------------
 /// Angebot-Modell
@@ -1047,7 +1054,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                     ),
                     child: Row(
                       children: [
-                        // Titel + Methoden-Zeile + Preis/Dauer
+                        // ====== LINKS: Titel + (optional) Methoden-Liste ======
                         Expanded(
                           child: ValueListenableBuilder<Map<String, _CartItem>>(
                             valueListenable: _selectedVN,
@@ -1059,8 +1066,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               );
                               final selectedItem = map[selKey];
 
-                              final effectivePrice = selectedItem?.preis ?? preis;
-                              final effectiveDuration = selectedItem?.dauer ?? dauer;
+                              // Effektive Werte (falls Variante gewählt)
+                              final effectivePrice   = selectedItem?.preis ?? preis;
+                              final effectiveDuration= selectedItem?.dauer ?? dauer;
 
                               final selectedVarLower =
                               selectedItem?.varianteLabel?.toLowerCase();
@@ -1068,8 +1076,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               void openSheet() {
                                 final variantsForPart = <Offer>[];
                                 for (final label in sortedLabels) {
-                                  final o = singleVariantIndex[
-                                  '$kat|$partLc|${label.toLowerCase()}'];
+                                  final o = singleVariantIndex['$kat|$partLc|${label.toLowerCase()}'];
                                   if (o != null) variantsForPart.add(o);
                                 }
 
@@ -1082,10 +1089,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       final extrasDisplay = <String>[];
                                       final extrasLc = <String>[];
                                       for (int i = 0; i < c.leistungen.length; i++) {
-                                        final lc = c.leistungenLc[i];
-                                        if (lc == partLc) continue;
+                                        final lc2 = c.leistungenLc[i];
+                                        if (lc2 == partLc) continue;
                                         extrasDisplay.add(c.leistungen[i]);
-                                        extrasLc.add(lc);
+                                        extrasLc.add(lc2);
                                       }
                                       if (extrasLc.isNotEmpty) {
                                         rows.add(_ComboRow(
@@ -1113,28 +1120,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          uiTitle,
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      Text(
-                                        '${_preisText(effectivePrice)}${_dauerText(effectiveDuration)}',
-                                        style: const TextStyle(
-                                          color: Colors.black54,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ],
+                                  // Nur der Titel links
+                                  Text(
+                                    uiTitle,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
                                   ),
 
                                   // Methoden-Zeile (nur wenn vorhanden)
@@ -1149,10 +1142,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                               TextSpan(
                                                 text: sortedLabels[i],
                                                 style: TextStyle(
-                                                  color: (sortedLabels[i].toLowerCase() == (selectedVarLower ?? ''))
+                                                  color: (sortedLabels[i].toLowerCase() ==
+                                                      (selectedVarLower ?? ''))
                                                       ? kBrandOrange
                                                       : Colors.black54,
-                                                  fontWeight: (sortedLabels[i].toLowerCase() == (selectedVarLower ?? ''))
+                                                  fontWeight: (sortedLabels[i].toLowerCase() ==
+                                                      (selectedVarLower ?? ''))
                                                       ? FontWeight.w700
                                                       : FontWeight.w400,
                                                 ),
@@ -1171,96 +1166,142 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   ],
                                 ],
                               );
-
                             },
                           ),
                         ),
 
-                        // Trailing-Icon reaktiv
-                        ValueListenableBuilder<Map<String, _CartItem>>(
-                          valueListenable: _selectedVN,
-                          builder: (_, map, __) {
-                            final selected = map.containsKey(key);
+// ====== MITTE: Dauer – spaltenbündig ======
+                        SizedBox(
+                          width: kDurColWidth,
+                          child: ValueListenableBuilder<Map<String, _CartItem>>(
+                            valueListenable: _selectedVN,
+                            builder: (_, map, __) {
+                              final selKey = _keyFor(zielgruppe: _zielgruppe, category: kat, partLc: partLc);
+                              final selectedItem = map[selKey];
+                              final effectiveDuration = selectedItem?.dauer ?? dauer;
+                              if (effectiveDuration == null) return const SizedBox.shrink();
 
-                            return IconButton(
-                              tooltip: selected
-                                  ? 'Entfernen'
-                                  : (hasVariants ? 'Methode/Kombi wählen' : 'Hinzufügen'),
-                              onPressed: () {
-                                if (hasVariants) {
-                                  if (selected) {
-                                    final newMap =
-                                    Map<String, _CartItem>.from(_selectedVN.value);
-                                    newMap.remove(key);
-                                    _selectedVN.value = newMap;
-                                  } else {
-                                    final variantsForPart = <Offer>[];
-                                    for (final label in sortedLabels) {
-                                      final o = singleVariantIndex[
-                                      '$kat|$partLc|${label.toLowerCase()}'];
-                                      if (o != null) variantsForPart.add(o);
-                                    }
-
-                                    // Kombi-Zeilen wie oben
-                                    List<_ComboRow> _buildCombineRowsFor(
-                                        String category, String partLc) {
-                                      final combos =
-                                          combosByCategory[category] ?? const <Offer>[];
-                                      final rows = <_ComboRow>[];
-                                      for (final c in combos) {
-                                        if (c.leistungenLc.contains(partLc)) {
-                                          final extrasDisplay = <String>[];
-                                          final extrasLc = <String>[];
-                                          for (int i = 0; i < c.leistungen.length; i++) {
-                                            final lc = c.leistungenLc[i];
-                                            if (lc == partLc) continue;
-                                            extrasDisplay.add(c.leistungen[i]);
-                                            extrasLc.add(lc);
-                                          }
-                                          if (extrasLc.isNotEmpty) {
-                                            rows.add(_ComboRow(
-                                              bundle: c,
-                                              extrasDisplay: extrasDisplay,
-                                              extrasLc: extrasLc,
-                                            ));
-                                          }
-                                        }
-                                      }
-                                      return rows;
-                                    }
-
-                                    final combineRows = _buildCombineRowsFor(kat, partLc);
-
-                                    _openVariantSheet(
-                                      base: offer,
-                                      category: kat,
-                                      variantOffersForPart: variantsForPart,
-                                      combineRows: combineRows,
-                                    );
-                                  }
-                                } else {
-                                  // Keine Methoden: normal toggeln
-                                  _toggleSelection(
-                                    key,
-                                    _CartItem(
-                                      kategorie: kat,
-                                      leistung: partDisplay,
-                                      preis: preis,
-                                      dauer: dauer,
-                                      zielgruppe: _zielgruppe,
+                              return Center(
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF2F4F7),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(color: Color(0xFFE5E7EB)),
+                                  ),
+                                  child: Text(
+                                    '$effectiveDuration Min',
+                                    style: const TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF374151),
                                     ),
-                                  );
-                                }
-                              },
-                              icon: Icon(
-                                selected ? Icons.check_circle : Icons.add_circle_outline,
-                              ),
-                              color: selected ? Colors.blueAccent : null,
-                            );
-                          },
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                         ),
+
+
+
+// ====== RECHTS: Preis + Icon – feste Spaltenbreite ======
+                        SizedBox(
+                          width: kRightColWidth,
+                          child: ValueListenableBuilder<Map<String, _CartItem>>(
+                            valueListenable: _selectedVN,
+                            builder: (_, map, __) {
+                              final selKey = _keyFor(zielgruppe: _zielgruppe, category: kat, partLc: partLc);
+                              final selectedItem = map[selKey];
+                              final effectivePrice = selectedItem?.preis ?? preis;
+                              final selected = map.containsKey(selKey);
+
+                              return Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    _preisText(effectivePrice),
+                                    style: const TextStyle(
+                                      color: Colors.black54,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  IconButton(
+                                    tooltip: selected ? 'Entfernen'
+                                        : (hasVariants ? 'Methode/Kombi wählen' : 'Hinzufügen'),
+                                    onPressed: () {
+                                      // <- deine bestehende onPressed-Logik unverändert lassen
+                                      if (hasVariants) {
+                                        if (selected) {
+                                          final newMap = Map<String, _CartItem>.from(_selectedVN.value);
+                                          newMap.remove(selKey);
+                                          _selectedVN.value = newMap;
+                                        } else {
+                                          final variantsForPart = <Offer>[];
+                                          for (final label in sortedLabels) {
+                                            final o = singleVariantIndex['$kat|$partLc|${label.toLowerCase()}'];
+                                            if (o != null) variantsForPart.add(o);
+                                          }
+                                          // KombiRows wie bisher bauen …
+                                          List<_ComboRow> _buildCombineRowsFor(String category, String partLc) {
+                                            final combos = combosByCategory[category] ?? const <Offer>[];
+                                            final rows = <_ComboRow>[];
+                                            for (final c in combos) {
+                                              if (c.leistungenLc.contains(partLc)) {
+                                                final extrasDisplay = <String>[];
+                                                final extrasLc = <String>[];
+                                                for (int i = 0; i < c.leistungen.length; i++) {
+                                                  final lc2 = c.leistungenLc[i];
+                                                  if (lc2 == partLc) continue;
+                                                  extrasDisplay.add(c.leistungen[i]);
+                                                  extrasLc.add(lc2);
+                                                }
+                                                if (extrasLc.isNotEmpty) {
+                                                  rows.add(_ComboRow(
+                                                    bundle: c,
+                                                    extrasDisplay: extrasDisplay,
+                                                    extrasLc: extrasLc,
+                                                  ));
+                                                }
+                                              }
+                                            }
+                                            return rows;
+                                          }
+                                          final combineRows = _buildCombineRowsFor(kat, partLc);
+                                          _openVariantSheet(
+                                            base: offer,
+                                            category: kat,
+                                            variantOffersForPart: variantsForPart,
+                                            combineRows: combineRows,
+                                          );
+                                        }
+                                      } else {
+                                        _toggleSelection(
+                                          selKey,
+                                          _CartItem(
+                                            kategorie: kat,
+                                            leistung: partDisplay,
+                                            preis: preis,
+                                            dauer: dauer,
+                                            zielgruppe: _zielgruppe,
+                                          ),
+                                        );
+                                      }
+                                    },
+                                    icon: Icon(selected ? Icons.check_circle : Icons.add_circle_outline),
+                                    color: selected ? Colors.blueAccent : null,
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+
                       ],
-                    ),
+                    )
+
                   ),
                 ),
               );
