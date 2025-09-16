@@ -999,9 +999,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
           final kategorien = <String>{
             ...singlesByCategory.keys,
-            ...combosByCategory.keys,
           }.toList()
             ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
 
           final sections = <SectionData>[];
           for (final kat in kategorien) {
@@ -1263,98 +1263,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               );
             }
 
-            // ---------- Kombi-Angebote rendern (immer, auch ohne Singles) ----------
-            final combosForCat = [...(combosByCategory[kat] ?? const <Offer>[])]
-              ..sort((a, b) => a.leistungen.join(', ').toLowerCase()
-                  .compareTo(b.leistungen.join(', ').toLowerCase()));
 
-            if (combosForCat.isNotEmpty) {
-              children.add(
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                  child: Text(
-                    'Kombi-Angebote',
-                    style: TextStyle(
-                      color: Colors.black.withAlpha(140),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              );
-
-              for (final combo in combosForCat) {
-                final preis = combo.priceFor(_zielgruppe);
-                final dauer = combo.durationFor(_zielgruppe);
-                final subtitle = '${_preisText(preis)}${_dauerText(dauer)}';
-                final displayName = combo.leistungen.join(', '); // <-- ohne "Kategorie – "
-
-                children.add(
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      decoration: const BoxDecoration(
-                        border: Border(
-                          bottom: BorderSide(color: Color(0xFFE5E5E5)),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  displayName,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  subtitle,
-                                  style: const TextStyle(
-                                    color: Colors.black54,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          ValueListenableBuilder<Map<String, _CartItem>>(
-                            valueListenable: _selectedVN,
-                            builder: (_, map, __) {
-                              final zg = _zielgruppe;
-                              final allSelected = combo.leistungenLc.every(
-                                    (lc) => map.containsKey(
-                                  _keyFor(zielgruppe: zg, category: kat, partLc: lc),
-                                ),
-                              );
-                              return IconButton(
-                                tooltip: 'Kombi auswählen',
-                                onPressed: () {
-                                  _toggleCombo(
-                                    category: kat,
-                                    partsOriginal: combo.leistungen,
-                                    partsLc: combo.leistungenLc,
-                                    singlesByKey: singleBaseIndex,
-                                  );
-                                },
-                                icon: Icon(allSelected
-                                    ? Icons.check_circle
-                                    : Icons.add_circle_outline),
-                                color: allSelected ? Colors.blueAccent : null,
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }
-            }
 
             if (children.isNotEmpty) {
               sections.add(SectionData(kat, children));
