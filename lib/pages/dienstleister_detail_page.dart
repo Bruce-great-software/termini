@@ -137,14 +137,15 @@ class SectionData {
 /// ---------------------------------------------------------------
 class _CartItem {
   final String kategorie;
-  final String leistung; // Normalisierter Teil (z. B. "Schneiden")
-  final double? preis; // Preis des konkret gewählten Angebots (Basis ODER Methode)
+  final String leistung;
+  final double? preis;        // Basis-/Variantenpreis des Items
   final int? dauer;
   final String zielgruppe;
-  final String? varianteLabel; // Name der gewählten Methode (für Anzeige)
-
-  /// NEU: Reihenfolge der Auswahl (kleiner = früher gewählt)
+  final String? varianteLabel;
   final int selectedAt;
+
+  // NEU: fixierter grüner Preis zur Anzeige (klebt nach Auswahl)
+  final double? lockedDisplayPrice;
 
   const _CartItem({
     required this.kategorie,
@@ -154,8 +155,170 @@ class _CartItem {
     required this.zielgruppe,
     this.varianteLabel,
     required this.selectedAt,
+    this.lockedDisplayPrice, // NEU (optional)
   });
 }
+
+// Singlepreis eines Parts bestimmen (Variantenpreis > Basis > 0)
+double _singlePriceOfPart({
+  required String category,
+  required String zielgruppe,
+  required String partLc,
+  required Map<String, _CartItem> selectionMap,
+  required Map<String, Offer> singleBaseIndex,
+}) {
+  // bereits gewähltes Item?
+  final it = selectionMap.values.firstWhere(
+        (e) => e.kategorie == category && e.leistung.toLowerCase() == partLc && e.zielgruppe == zielgruppe,
+    orElse: () => const _CartItem(
+        kategorie: '', leistung: '', preis: null, dauer: null, zielgruppe: '', selectedAt: 0),
+  );
+  if (it.kategorie.isNotEmpty && it.preis != null) return it.preis!;
+
+  final p = singleBaseIndex['$category|$partLc']?.priceFor(zielgruppe);
+  return p ?? 0.0;
+}
+
+// NEU: Wenn das NEUE Item eine Kombi komplett macht, gib den "Restbetrag" zurück,
+// der diesem neuen Item als grüner (locked) Preis zugewiesen wird.
+// Sonst: null.
+double? _lockedPriceForNewSelection({
+  required String category,
+  required String zielgruppe,
+  required String newPartLc,
+  required Map<String, _CartItem> selectionMap,
+  required Map<String, Offer> singleBaseIndex,
+  required List<Offer> bundles,
+  required double? newPartSinglePrice,
+}) {
+  if (newPartSinglePrice == null) return null;
+
+  double? bestRemainder;
+
+  for (final b in bundles) {
+    if (b.kategorie != category) continue;
+    if (!b.leistungenLc.contains(newPartLc)) continue;
+
+    // alle anderen Teile des Bundles bereits gewählt?
+    final others = b.leistungenLc.where((lc) => lc != newPartLc).toList();
+    final allOthersSelected = others.every((lc) =>
+        selectionMap.values.any((it) =>
+        it.kategorie == category && it.zielgruppe == zielgruppe && it.leistung.toLowerCase() == lc));
+    if (!allOthersSelected) continue;
+
+    final bundlePrice = b.priceFor(zielgruppe);
+    if (bundlePrice == null) continue;
+
+    // Prüfe, ob Bundle günstiger als Summe der Singlepreise
+    double singlesSum = 0.0;
+    for (final lc in b.leistungenLc) {
+      if (lc == newPartLc) {
+        singlesSum += newPartSinglePrice;
+      } else {
+        singlesSum += _singlePriceOfPart(
+          category: category,
+          zielgruppe: zielgruppe,
+          partLc: lc,
+          selectionMap: selectionMap,
+          singleBaseIndex: singleBaseIndex,
+        );
+      }
+    }
+    if (bundlePrice >= singlesSum) continue; // kein Rabatt
+
+    // Summe der (schon) Beiträge der anderen:
+    // lockedDisplayPrice, falls vorhanden, sonst Singlepreis.
+    double othersContribution = 0.0;
+    for (final lc in others) {
+      final sel = selectionMap.values.firstWhere(
+            (it) => it.kategorie == category && it.zielgruppe == zielgruppe && it.leistung.toLowerCase() == lc,
+        orElse: () => const _CartItem(
+            kategorie: '', leistung: '', preis: null, dauer: null, zielgruppe: '', selectedAt: 0),
+      );
+      if (sel.kategorie.isNotEmpty && sel.lockedDisplayPrice != null) {
+        othersContribution += sel.lockedDisplayPrice!;
+      } else {
+        othersContribution += _singlePriceOfPart(
+          category: category,
+          zielgruppe: zielgruppe,
+          partLc: lc,
+          selectionMap: selectionMap,
+          singleBaseIndex: singleBaseIndex,
+        );
+      }
+    }
+
+    final remainder = (bundlePrice - othersContribution).clamp(0.0, double.infinity);
+    // Bestes (kleinstes) Ergebnis nehmen
+    if (bestRemainder == null || remainder < bestRemainder!) {
+      bestRemainder = remainder;
+    }
+  }
+
+  // locked nur dann setzen, wenn es wirklich eine Ersparnis gegenüber Singlepreis ist
+  if (bestRemainder != null && bestRemainder! < newPartSinglePrice) {
+    return bestRemainder;
+  }
+  return null;
+}
+
+// NEU: Vorschau für ein NICHT ausgewähltes Item nur dann,
+// wenn ALLE anderen Teile eines Bundles bereits im Warenkorb liegen.
+// Rückgabe ist wieder der Restbetrag für dieses (letzte) Teil.
+double? _previewForLastMissingPart({
+  required String category,
+  required String zielgruppe,
+  required String partLc,
+  required Set<String> selectedPartsLc,
+  required Map<String, _CartItem> selectionMap,
+  required Map<String, Offer> singleBaseIndex,
+  required List<Offer> bundles,
+}) {
+  double? best;
+
+  for (final b in bundles) {
+    if (b.kategorie != category) continue;
+    if (!b.leistungenLc.contains(partLc)) continue;
+
+    final others = b.leistungenLc.where((lc) => lc != partLc).toList();
+    // alle anderen sind bereits gewählt?
+    if (!others.every(selectedPartsLc.contains)) continue;
+
+    final bundlePrice = b.priceFor(zielgruppe);
+    if (bundlePrice == null) continue;
+
+    // Summe der Beiträge der anderen (locked > Single)
+    double othersContribution = 0.0;
+    for (final lc in others) {
+      final sel = selectionMap.values.firstWhere(
+            (it) => it.kategorie == category && it.zielgruppe == zielgruppe && it.leistung.toLowerCase() == lc,
+        orElse: () => const _CartItem(kategorie: '', leistung: '', preis: null, dauer: null, zielgruppe: '', selectedAt: 0),
+      );
+      if (sel.kategorie.isNotEmpty && sel.lockedDisplayPrice != null) {
+        othersContribution += sel.lockedDisplayPrice!;
+      } else {
+        othersContribution += _singlePriceOfPart(
+          category: category,
+          zielgruppe: zielgruppe,
+          partLc: lc,
+          selectionMap: selectionMap,
+          singleBaseIndex: singleBaseIndex,
+        );
+      }
+    }
+
+    final remainder = (bundlePrice - othersContribution).clamp(0.0, double.infinity);
+
+    // Restbetrag muss < Singlepreis dieses Teils sein
+    final singleOfThis = singleBaseIndex['$category|$partLc']?.priceFor(zielgruppe) ?? 0.0;
+    if (remainder < singleOfThis) {
+      if (best == null || remainder < best!) best = remainder;
+    }
+  }
+
+  return best;
+}
+
 
 /// ---------------------------------------------------------------
 /// Methode-Option fürs BottomSheet
@@ -728,6 +891,30 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 final Offer chosen =
                                 selectedVarLc == null ? base : (variantsByLc[selectedVarLc] ?? base);
 
+                                // Aktuelle Auswahl kopieren (ohne das neue Item)
+                                final map = Map<String, _CartItem>.from(_selectedVN.value);
+
+                                if (_hasItemsFromOtherZielgruppe(zg)) {
+                                  final other = map.values.first.zielgruppe;
+                                  Navigator.pop(ctx);
+                                  _showWrongGroupSnack(other);
+                                  return;
+                                }
+
+                                // Locked-Preis berechnen, falls das neue Item eine Kombi vervollständigt
+                                final locked = _lockedPriceForNewSelection(
+                                  category: category,
+                                  zielgruppe: zg,
+                                  newPartLc: base.leistungenLc.first,
+                                  selectionMap: map,
+                                  singleBaseIndex: {}, // nicht benötigt in dieser Variante
+                                  bundles: [], // überschreiben wir gleich unten (wir haben Zugriff im build)
+                                  newPartSinglePrice: chosen.priceFor(zg),
+                                );
+
+                                // Da wir in diesem Scope keinen direkten Zugriff auf singleBaseIndex/bundles haben,
+                                // setzen wir locked hier erst einmal auf null. (Der echte Locked-Preis wird
+                                // im IconButton-Pfad berechnet, wo wir Zugriff haben.)
                                 final item = _CartItem(
                                   kategorie: category,
                                   leistung: base.leistungen.first,
@@ -737,16 +924,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   varianteLabel:
                                   selectedVarLc == null ? null : labelsByLc[selectedVarLc],
                                   selectedAt: ++_selectionTicker, // NEU
+                                  lockedDisplayPrice: null, // im Sheet lassen wir es neutral
                                 );
-
-                                final map = Map<String, _CartItem>.from(_selectedVN.value);
-
-                                if (_hasItemsFromOtherZielgruppe(zg)) {
-                                  final other = map.values.first.zielgruppe;
-                                  Navigator.pop(ctx);
-                                  _showWrongGroupSnack(other);
-                                  return;
-                                }
 
                                 final key = _keyFor(
                                   zielgruppe: zg,
@@ -990,6 +1169,38 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           }.toList()
             ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
+          // === HILFSFUNKTION: Bin ich der zuerst gewählte Teil einer kompletten Kombi? ===
+          bool _isFirstInAnyCompletedBundle({
+            required String category,
+            required String zielgruppe,
+            required String partLc,
+            required Map<String, _CartItem> selectionMap,
+            required List<Offer> bundles,
+          }) {
+            final selByLc = <String, int>{};
+            selectionMap.values
+                .where((it) => it.kategorie == category && it.zielgruppe == zielgruppe)
+                .forEach((it) => selByLc[it.leistung.toLowerCase()] = it.selectedAt);
+
+            for (final b in bundles) {
+              if (b.kategorie != category) continue;
+              if (!b.leistungenLc.contains(partLc)) continue;
+              if (!b.leistungenLc.every((lc) => selByLc.containsKey(lc))) continue;
+
+              String? firstLc;
+              int? minOrder;
+              for (final lc in b.leistungenLc) {
+                final ord = selByLc[lc]!;
+                if (minOrder == null || ord < minOrder) {
+                  minOrder = ord;
+                  firstLc = lc;
+                }
+              }
+              if (firstLc == partLc) return true;
+            }
+            return false;
+          }
+
           // === pro Teil: effektiver Preis, wenn Bundle bereits GREIFT (ausgewählte Teile) ===
           Map<String, double> perItemOptimizedPricesForGroup({
             required String category,
@@ -1056,82 +1267,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               out[partsLc[i]] = eff[i] ?? 0.0;
             }
             return out;
-          }
-
-          // === Vorschau: Wenn Partner der gleichen Kombi bereits ausgewählt ist ===
-          double? previewPriceIfPartnerSelected({
-            required String category,
-            required String zielgruppe,
-            required String partLc,
-            required Set<String> selectedPartsLc,
-          }) {
-            double? best;
-            for (final b in bundles) {
-              if (b.kategorie != category) continue;
-              if (!b.leistungenLc.contains(partLc)) continue;
-
-              final hasAnyOtherSelected =
-              b.leistungenLc.any((lc) => lc != partLc && selectedPartsLc.contains(lc));
-              if (!hasAnyOtherSelected) continue;
-
-              final bundlePrice = b.priceFor(zielgruppe);
-              if (bundlePrice == null) continue;
-
-              double singlesSum = 0.0;
-              bool ok = true;
-              for (final lc in b.leistungenLc) {
-                final sp = singleBaseIndex['$category|$lc']?.priceFor(zielgruppe);
-                if (sp == null) {
-                  ok = false;
-                  break;
-                }
-                singlesSum += sp;
-              }
-              if (!ok || singlesSum <= 0) continue;
-              if (bundlePrice >= singlesSum) continue;
-
-              final discount = singlesSum - bundlePrice;
-              final singleOfThis = singleBaseIndex['$category|$partLc']?.priceFor(zielgruppe);
-              if (singleOfThis == null) continue;
-
-              final preview = (singleOfThis - discount).clamp(0.0, double.infinity);
-              if (preview < singleOfThis) {
-                if (best == null || preview < best!) best = preview;
-              }
-            }
-            return best;
-          }
-
-          // === HILFSFUNKTION: Bin ich der zuerst gewählte Teil einer kompletten Kombi? ===
-          bool _isFirstInAnyCompletedBundle({
-            required String category,
-            required String zielgruppe,
-            required String partLc,
-            required Map<String, _CartItem> selectionMap,
-            required List<Offer> bundles,
-          }) {
-            final selByLc = <String, int>{};
-            selectionMap.values
-                .where((it) => it.kategorie == category && it.zielgruppe == zielgruppe)
-                .forEach((it) => selByLc[it.leistung.toLowerCase()] = it.selectedAt);
-
-            for (final b in bundles) {
-              if (b.kategorie != category) continue;
-              if (!b.leistungenLc.contains(partLc)) continue;
-              if (!b.leistungenLc.every((lc) => selByLc.containsKey(lc))) continue;
-
-              String? firstLc;
-              int? minOrder;
-              for (final lc in b.leistungenLc) {
-                final ord = selByLc[lc]!;
-                if (minOrder == null || ord < minOrder) {
-                  minOrder = ord;
-                  firstLc = lc;
-                }
-              }
-              if (firstLc == partLc) return true;
-            }
-            return false;
           }
 
           // === Gesamtpreis-Berechnung (naiv vs. optimiert) für die Bottom-Bar ===
@@ -1412,56 +1547,23 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     double? newPrice;
 
                                     if (selected) {
-                                      // Wenn dieses Item der ERSTE Teil einer vollständigen Kombi ist:
-                                      final isFirst = _isFirstInAnyCompletedBundle(
-                                        category: kat,
-                                        zielgruppe: _zielgruppe,
-                                        partLc: partLc,
-                                        selectionMap: map,
-                                        bundles: bundles,
-                                      );
-
-                                      if (!isFirst) {
-                                        // 🔒 Locked-Preview: Preis des später gewählten Teils
-                                        final others = {...selectedPartsLc}..remove(partLc);
-                                        final lockedPreview = previewPriceIfPartnerSelected(
-                                          category: kat,
-                                          zielgruppe: _zielgruppe,
-                                          partLc: partLc,
-                                          selectedPartsLc: others,
-                                        );
-                                        if (lockedPreview != null &&
-                                            effectivePrice != null &&
-                                            lockedPreview < effectivePrice) {
-                                          newPrice = lockedPreview; // z. B. bleibt bei 6,00 €
-                                        } else {
-                                          // Fallback: (nur wenn keine Preview bestimmbar ist)
-                                          final groupItems = map.values
-                                              .where((it) =>
-                                          it.kategorie == kat &&
-                                              it.zielgruppe == _zielgruppe)
-                                              .toList();
-                                          final perItem = perItemOptimizedPricesForGroup(
-                                            category: kat,
-                                            zielgruppe: _zielgruppe,
-                                            groupItems: groupItems,
-                                          );
-                                          final p = perItem[partLc];
-                                          if (p != null &&
-                                              effectivePrice != null &&
-                                              p < effectivePrice) {
-                                            newPrice = p;
-                                          }
-                                        }
+                                      // Zeige, wenn vorhanden, den gelockten (bei Auswahl ermittelten) Preis
+                                      final locked = selectedItem?.lockedDisplayPrice;
+                                      if (locked != null &&
+                                          effectivePrice != null &&
+                                          locked < effectivePrice) {
+                                        newPrice = locked;
                                       }
                                     } else {
-                                      // PREVIEW auf nicht ausgewählte Leistungen – sobald Partner gewählt wurde
-                                      final others = {...selectedPartsLc}..remove(partLc);
-                                      final preview = previewPriceIfPartnerSelected(
+                                      // Vorschau nur, wenn dieses Teil die Kombi abschließen würde
+                                      final preview = _previewForLastMissingPart(
                                         category: kat,
                                         zielgruppe: _zielgruppe,
                                         partLc: partLc,
-                                        selectedPartsLc: others,
+                                        selectedPartsLc: selectedPartsLc,
+                                        selectionMap: map,
+                                        singleBaseIndex: singleBaseIndex,
+                                        bundles: bundles,
                                       );
                                       if (preview != null &&
                                           effectivePrice != null &&
@@ -1565,15 +1667,40 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           );
                                         }
                                       } else {
+                                        // *** HINZUFÜGEN ohne Varianten: lockedDisplayPrice berechnen ***
+                                        final currentMap =
+                                        Map<String, _CartItem>.from(_selectedVN.value);
+
+                                        if (_hasItemsFromOtherZielgruppe(_zielgruppe)) {
+                                          final other =
+                                          currentMap.values.isNotEmpty ? currentMap.values.first.zielgruppe : _zielgruppe;
+                                          _showWrongGroupSnack(other);
+                                          return;
+                                        }
+
+                                        final singlePrice =
+                                            preis ?? singleBaseIndex['$kat|$partLc']?.priceFor(_zielgruppe);
+
+                                        final locked = _lockedPriceForNewSelection(
+                                          category: kat,
+                                          zielgruppe: _zielgruppe,
+                                          newPartLc: partLc,
+                                          selectionMap: currentMap,
+                                          singleBaseIndex: singleBaseIndex,
+                                          bundles: bundles,
+                                          newPartSinglePrice: singlePrice,
+                                        );
+
                                         _toggleSelection(
                                           selKey,
                                           _CartItem(
                                             kategorie: kat,
                                             leistung: partDisplay,
-                                            preis: preis,
+                                            preis: singlePrice,
                                             dauer: dauer,
                                             zielgruppe: _zielgruppe,
                                             selectedAt: ++_selectionTicker, // NEU
+                                            lockedDisplayPrice: locked,
                                           ),
                                         );
                                       }
