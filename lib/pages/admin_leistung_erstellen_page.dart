@@ -25,6 +25,11 @@ class _AdminLeistungErstellenPageState
   List<String> _ausgewaehlteBranchen = [];
   List<String> _ausgewaehlteMethoden = [];
 
+  // >>> Neue Ebene: Staffelungen
+  static const String _attrHaarlaengeId = 'Haarlänge'; // Doc-ID in "definitionen"
+  bool _haarlaengeAktiv = false; // Checkbox-Status in der UI
+  // <<<
+
   @override
   void initState() {
     super.initState();
@@ -98,11 +103,30 @@ class _AdminLeistungErstellenPageState
     _methodenController.clear();
   }
 
+  /// Definition-Dokument `definitionen/Haarlaenge` sicherstellen (+ Defaults).
+  Future<void> _ensureDefinitionHaarlaengeExists() async {
+    final defRef =
+    FirebaseFirestore.instance.collection('definitionen').doc(_attrHaarlaengeId);
+    final snap = await defRef.get();
+    if (!snap.exists) {
+      await defRef.set({
+        'id': _attrHaarlaengeId,
+        'titel': 'Haarlänge',
+        'options': const ['kurz', 'mittel', 'lang'],
+        'created_at': FieldValue.serverTimestamp(),
+        'active': true,
+      }, SetOptions(merge: true));
+    }
+  }
+
   /// Speichert alle Relationen:
   /// - leistungen/{L}: branchen[], leistungskategorien[], methoden[] (flach)
-  /// - leistungskategorien/{K}: branchen[], leistungen[], methoden[]
+  /// - leistungskategorien/{K}: branchen[], leistungen[], methoden[], definitionen[]
   /// - methoden/{M}: leistungen[], leistungskategorien[], branchen[]
-  /// (alte Felder 'varianten' / 'variantenAktiv' werden bereinigt)
+  /// - definitionen/Haarlaenge: leistungen[], leistungskategorien[], branchen[]
+  ///
+  /// Zusätzlich: Staffelung "Haarlaenge" pro Kategorie-zu-Leistung-Zuordnung:
+  ///   leistungen/{L}.definitionen.<Kategorie>  (Array)
   Future<void> _zuordnungSpeichern() async {
     if (_ausgewaehlteLeistungen.isEmpty ||
         _ausgewaehlteLeistungskategorien.isEmpty) {
@@ -113,6 +137,11 @@ class _AdminLeistungErstellenPageState
         ),
       );
       return;
+    }
+
+    // Falls aktiv, Definition-Dokument anlegen (mit Optionen)
+    if (_haarlaengeAktiv) {
+      await _ensureDefinitionHaarlaengeExists();
     }
 
     final batch = FirebaseFirestore.instance.batch();
@@ -129,10 +158,20 @@ class _AdminLeistungErstellenPageState
         FieldValue.arrayUnion(_ausgewaehlteLeistungskategorien),
         'branchen': FieldValue.arrayUnion(_ausgewaehlteBranchen),
         if (hasMethoden) 'methoden': FieldValue.arrayUnion(_ausgewaehlteMethoden),
+        'updated_at': FieldValue.serverTimestamp(),
       };
       batch.set(refLeistung, baseData, SetOptions(merge: true));
 
-      // Aufräumen alter Felder
+      // Staffelung "Haarlaenge" je gewählter Kategorie setzen/entfernen
+      for (final kat in _ausgewaehlteLeistungskategorien) {
+        final fieldPath = 'definitionen.$kat';
+        final payload = _haarlaengeAktiv
+            ? {fieldPath: FieldValue.arrayUnion([_attrHaarlaengeId])}
+            : {fieldPath: FieldValue.arrayRemove([_attrHaarlaengeId])};
+        batch.set(refLeistung, payload, SetOptions(merge: true));
+      }
+
+      // Aufräumen alter Felder (Legacy)
       batch.update(refLeistung, {
         'varianten': FieldValue.delete(),
         'variantenByKategorie': FieldValue.delete(),
@@ -145,15 +184,17 @@ class _AdminLeistungErstellenPageState
           .collection('leistungskategorien')
           .doc(kat);
 
-      batch.set(
-        refKat,
-        {
-          'branchen': FieldValue.arrayUnion(_ausgewaehlteBranchen),
-          'leistungen': FieldValue.arrayUnion(_ausgewaehlteLeistungen),
-          if (hasMethoden) 'methoden': FieldValue.arrayUnion(_ausgewaehlteMethoden),
-        },
-        SetOptions(merge: true),
-      );
+      final katData = <String, dynamic>{
+        'branchen': FieldValue.arrayUnion(_ausgewaehlteBranchen),
+        'leistungen': FieldValue.arrayUnion(_ausgewaehlteLeistungen),
+        if (hasMethoden) 'methoden': FieldValue.arrayUnion(_ausgewaehlteMethoden),
+        // NEU: Definitionen-Array in der Kategorie pflegen
+        'definitionen': _haarlaengeAktiv
+            ? FieldValue.arrayUnion([_attrHaarlaengeId])
+            : FieldValue.arrayRemove([_attrHaarlaengeId]),
+        'updated_at': FieldValue.serverTimestamp(),
+      };
+      batch.set(refKat, katData, SetOptions(merge: true));
 
       // altes Flag & Feld entfernen
       batch.update(refKat, {
@@ -174,13 +215,36 @@ class _AdminLeistungErstellenPageState
             'leistungskategorien':
             FieldValue.arrayUnion(_ausgewaehlteLeistungskategorien),
             'branchen': FieldValue.arrayUnion(_ausgewaehlteBranchen),
+            'updated_at': FieldValue.serverTimestamp(),
           },
           SetOptions(merge: true),
         );
       }
     }
 
+    // ---- Definitionen/Haarlaenge mit Meta-Relationen versorgen (falls aktiv) ----
+    if (_haarlaengeAktiv) {
+      final refDef = FirebaseFirestore.instance
+          .collection('definitionen')
+          .doc(_attrHaarlaengeId);
+
+      batch.set(
+        refDef,
+        {
+          'leistungen': FieldValue.arrayUnion(_ausgewaehlteLeistungen),
+          'leistungskategorien':
+          FieldValue.arrayUnion(_ausgewaehlteLeistungskategorien),
+          'branchen': FieldValue.arrayUnion(_ausgewaehlteBranchen),
+          'updated_at': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    }
+
     await batch.commit();
+
+    // Nach dem Speichern Status neu laden (zur Sicherheit)
+    await _syncHaarlaengeFromDB();
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Zuordnung erfolgreich gespeichert')),
@@ -201,7 +265,7 @@ class _AdminLeistungErstellenPageState
         return FilterChip(
           label: Text(item),
           selected: istAusgewaehlt,
-          onSelected: (_) {
+          onSelected: (_) async {
             setState(() {
               if (istAusgewaehlt) {
                 ausgewaehlt.remove(item);
@@ -210,10 +274,74 @@ class _AdminLeistungErstellenPageState
               }
             });
             onChanged(item);
+            // Auswahl geändert -> Haarlänge-Status aus Firestore nachziehen
+            await _syncHaarlaengeFromDB();
           },
         );
       }).toList(),
     );
+  }
+
+  // >>> Neue UI-Sektion: Staffelungen
+  Widget _buildStaffelungenSection() {
+    final disabled = _ausgewaehlteLeistungskategorien.isEmpty ||
+        _ausgewaehlteLeistungen.isEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        const Text("Staffelungen"),
+        const SizedBox(height: 8),
+        AbsorbPointer(
+          absorbing: disabled,
+          child: Opacity(
+            opacity: disabled ? 0.5 : 1,
+            child: CheckboxListTile(
+              title: const Text('Haarlänge (kurz/mittel/lang)'),
+              value: _haarlaengeAktiv,
+              onChanged: (v) => setState(() => _haarlaengeAktiv = v ?? false),
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              subtitle: const Text(
+                'Aktivieren, wenn diese Leistung je nach Haarlänge gestaffelt wird.',
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+  // <<<
+
+  /// Prüft anhand der aktuellen Auswahl (Kategorien × Leistungen),
+  /// ob überall die Definition "Haarlaenge" gesetzt ist.
+  /// Ergebnis: Checkbox an, wenn *alle* ausgewählten Kombinationen sie tragen.
+  Future<void> _syncHaarlaengeFromDB() async {
+    if (_ausgewaehlteLeistungskategorien.isEmpty ||
+        _ausgewaehlteLeistungen.isEmpty) {
+      setState(() => _haarlaengeAktiv = false);
+      return;
+    }
+
+    bool allHave = true;
+
+    for (final l in _ausgewaehlteLeistungen) {
+      final snap =
+      await FirebaseFirestore.instance.collection('leistungen').doc(l).get();
+      final defs = (snap.data()?['definitionen'] as Map<String, dynamic>?) ?? {};
+
+      for (final k in _ausgewaehlteLeistungskategorien) {
+        final list = (defs[k] as List?)?.cast<String>() ?? const [];
+        if (!list.contains(_attrHaarlaengeId)) {
+          allHave = false;
+        }
+      }
+    }
+
+    if (mounted) {
+      setState(() => _haarlaengeAktiv = allHave);
+    }
   }
 
   @override
@@ -277,7 +405,10 @@ class _AdminLeistungErstellenPageState
           ),
           const SizedBox(height: 8),
           _baueChips(
-              _leistungskategorien, _ausgewaehlteLeistungskategorien, (_) {}),
+            _leistungskategorien,
+            _ausgewaehlteLeistungskategorien,
+                (_) {},
+          ),
 
           const SizedBox(height: 24),
 
@@ -294,18 +425,25 @@ class _AdminLeistungErstellenPageState
                 ),
               ),
               IconButton(
-                onPressed: () =>
-                    _leistungHinzufuegen(_leistungsController.text),
+                onPressed: () => _leistungHinzufuegen(_leistungsController.text),
                 icon: const Icon(Icons.add),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          _baueChips(_leistungen, _ausgewaehlteLeistungen, (_) {}),
+          _baueChips(
+            _leistungen,
+            _ausgewaehlteLeistungen,
+                (_) {},
+          ),
+
+          // >>> Neue Ebene zwischen Leistung & Methoden
+          _buildStaffelungenSection(),
+          // <<<
 
           const SizedBox(height: 24),
 
-          // 4) Methoden (früher: Varianten)
+          // 4) Methoden
           const Text("Methoden hinzufügen"),
           const SizedBox(height: 8),
           Row(
@@ -380,7 +518,6 @@ class _AdminLeistungErstellenPageState
                     final data = doc.data() as Map<String, dynamic>;
                     final name = doc.id;
 
-                    // Fallback: altes Flag variantenAktiv noch unterstützen
                     final bool methodenAktiv =
                         (data['methodenAktiv'] as bool?) ??
                             (data['variantenAktiv'] as bool?) ??
@@ -394,7 +531,8 @@ class _AdminLeistungErstellenPageState
                           SizedBox(
                             width: 100,
                             child: Switch(
-                              value: (data['zielgruppenAktiv'] as bool?) ?? false,
+                              value:
+                              (data['zielgruppenAktiv'] as bool?) ?? false,
                               onChanged: (value) {
                                 FirebaseFirestore.instance
                                     .collection('leistungskategorien')
@@ -414,11 +552,12 @@ class _AdminLeistungErstellenPageState
                                     .set({
                                   'methodenAktiv': value,
                                 }, SetOptions(merge: true)).then((_) {
-                                  // altes Flag entfernen
                                   FirebaseFirestore.instance
                                       .collection('leistungskategorien')
                                       .doc(name)
-                                      .update({'variantenAktiv': FieldValue.delete()});
+                                      .update({
+                                    'variantenAktiv': FieldValue.delete()
+                                  });
                                 });
                               },
                             ),
