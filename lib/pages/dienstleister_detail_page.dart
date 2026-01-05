@@ -649,7 +649,35 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     }
     return null;
   }
+  double? _minSizePrice(Offer o, String zg) {
+    final sizeMap = _sizeMapForOffer(o, zg);
+    double? min;
+    for (final key in sizeMap.keys) {
+      final p = _sizePrice(sizeMap, key);
+      if (p != null) {
+        min = (min == null || p < min!) ? p : min;
+      }
+    }
+    return min;
+  }
 
+  int? _minSizeDuration(Offer o, String zg) {
+    final sizeMap = _sizeMapForOffer(o, zg);
+    int? min;
+    for (final key in sizeMap.keys) {
+      final d = _sizeDuration(sizeMap, key);
+      if (d != null) {
+        min = (min == null || d < min!) ? d : min;
+      }
+    }
+    return min;
+  }
+
+  double? _preisMitHaarlaengenFallback(Offer o, String zg) =>
+      o.priceFor(zg) ?? _minSizePrice(o, zg);
+
+  int? _dauerMitHaarlaengenFallback(Offer o, String zg) =>
+      o.durationFor(zg) ?? _minSizeDuration(o, zg);
   // === Zielgruppen-Mix verhindern ============================================
   bool _hasItemsFromOtherZielgruppe(String zg) {
     final map = _selectedVN.value;
@@ -1301,7 +1329,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           // ---- Anzeige: Singles & Kombis – Kategorien-Union aufbauen ----
           final Map<String, List<Offer>> singlesByCategory = {};
           for (final s in singlesBaseFinal) {
-            final hasZg = (s.priceFor(_zielgruppe) != null) || (s.durationFor(_zielgruppe) != null);
+            final hasZg = (s.priceFor(_zielgruppe) != null) ||
+                (s.durationFor(_zielgruppe) != null) ||
+                _hasSizeOptions(s, _zielgruppe);
             if (!hasZg) continue;
             singlesByCategory.putIfAbsent(s.kategorie, () => []).add(s);
           }
@@ -1408,10 +1438,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
               final uiTitle = partDisplay;
 
-              final preis = offer.priceFor(_zielgruppe);
-              final dauer = offer.durationFor(_zielgruppe);
+              final preis = _preisMitHaarlaengenFallback(offer, _zielgruppe);
+              final dauer = _dauerMitHaarlaengenFallback(offer, _zielgruppe);
+              final hasSizeOptionsBase = _hasSizeOptions(offer, _zielgruppe);
 
-              if (preis == null && dauer == null) continue;
+              if (preis == null && dauer == null && !hasSizeOptionsBase) continue;
 
               final selKey = _keyFor(zielgruppe: _zielgruppe, category: kat, partLc: partLc);
 
@@ -1421,7 +1452,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               final sortedLabels = labelsSet.toList()
                 ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
-              final hasSizeOptionsBase = _hasSizeOptions(offer, _zielgruppe);
+
 
               children.add(
                 Padding(
