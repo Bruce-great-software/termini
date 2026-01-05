@@ -1533,10 +1533,27 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       onTap: openSheet,
                                       child: Text(
                                         // Nur die Methoden anzeigen – ohne „Standard“
-                                        sortedLabels.join(' | '),
-                                        style: const TextStyle(
+                                            () {
+                                          final selectedLabel = map[selKey]?.varianteLabel?.trim();
+                                          if (selectedLabel != null && selectedLabel.isNotEmpty) {
+                                            return selectedLabel;
+                                          }
+                                          return sortedLabels.join(' | ');
+                                        }(),
+                                        style: TextStyle(
                                           fontSize: 13,
-                                          color: Colors.black54,
+                                          color: (() {
+                                            final selectedLabel = map[selKey]?.varianteLabel?.trim();
+                                            return (selectedLabel != null && selectedLabel.isNotEmpty)
+                                                ? Colors.green
+                                                : Colors.black54;
+                                          })(),
+                                          fontWeight: (() {
+                                            final selectedLabel = map[selKey]?.varianteLabel?.trim();
+                                            return (selectedLabel != null && selectedLabel.isNotEmpty)
+                                                ? FontWeight.w700
+                                                : FontWeight.w400;
+                                          })(),
                                         ),
                                         overflow: TextOverflow.ellipsis,
                                       ),
