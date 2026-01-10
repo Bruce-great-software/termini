@@ -692,8 +692,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required List<String> partsOriginal,
     required List<String> partsLc,
     required Map<String, Offer> singlesByKey,
-    double? bundlePrice,
-    int? bundleDuration,
   }) {
     final zg = _zielgruppe;
 
@@ -715,16 +713,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         map.remove(k);
       }
     } else {
-      final double? fallbackPartPrice =
-      (bundlePrice != null && partsLc.isNotEmpty) ? bundlePrice / partsLc.length : null;
       for (int i = 0; i < partsLc.length; i++) {
         final lc = partsLc[i];
         final display = partsOriginal[i];
         final key = _keyFor(zielgruppe: zg, category: category, partLc: lc);
         if (!map.containsKey(key)) {
           final single = singlesByKey['$category|$lc'];
-          final preis = single?.priceFor(zg) ?? fallbackPartPrice;
-          final dauer = single?.durationFor(zg) ?? bundleDuration;
+          final preis = single?.priceFor(zg);
+          final dauer = single?.durationFor(zg);
           map[key] = _CartItem(
             kategorie: category,
             leistung: display,
@@ -1319,7 +1315,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
           final kategorien = <String>{
             ...singlesByCategory.keys,
-            ...combosByCategory.keys,
           }.toList()
             ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
@@ -1744,140 +1739,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 ),
               );
             }
-
-            if (items.isEmpty) {
-              final combos = [...(combosByCategory[kat] ?? const <Offer>[])];
-              combos.sort((a, b) =>
-                  a.leistungen.join(' ').toLowerCase().compareTo(b.leistungen.join(' ').toLowerCase()));
-
-              for (final combo in combos) {
-                final comboPrice = combo.priceFor(_zielgruppe);
-                final comboDuration = combo.durationFor(_zielgruppe);
-                if (comboPrice == null && comboDuration == null) continue;
-
-                final partsDisplay = combo.leistungen.join('  &  ');
-                final comboKeys = combo.leistungenLc
-                    .map((lc) => _keyFor(zielgruppe: _zielgruppe, category: kat, partLc: lc))
-                    .toList();
-
-                children.add(
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      decoration: const BoxDecoration(
-                        border: Border(
-                          bottom: BorderSide(color: Color(0xFFE5E5E5)),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  partsDisplay,
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  maxLines: 2,
-                                  softWrap: true,
-                                  overflow: TextOverflow.visible,
-                                ),
-                                const SizedBox(height: 4),
-                                Container(
-                                  padding:
-                                  const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFEEF4FF),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: const Text(
-                                    'Kombi',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.blueAccent,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          SizedBox(
-                            width: kDurColWidth,
-                            child: comboDuration == null
-                                ? const SizedBox.shrink()
-                                : Center(
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF2F4F7),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: Color(0xFFE5E7EB)),
-                                ),
-                                child: Text(
-                                  '$comboDuration Min',
-                                  style: const TextStyle(
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF374151),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          SizedBox(
-                            width: kRightColWidth,
-                            child: ValueListenableBuilder<Map<String, _CartItem>>(
-                              valueListenable: _selectedVN,
-                              builder: (_, map, __) {
-                                final selected = comboKeys.every(map.containsKey);
-                                return Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      _preisText(comboPrice),
-                                      style: const TextStyle(
-                                        color: Colors.black54,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    IconButton(
-                                      tooltip: selected ? 'Entfernen' : 'Hinzufügen',
-                                      onPressed: () {
-                                        _toggleCombo(
-                                          category: kat,
-                                          partsOriginal: combo.leistungen,
-                                          partsLc: combo.leistungenLc,
-                                          singlesByKey: singleBaseIndex,
-                                          bundlePrice: comboPrice,
-                                          bundleDuration: comboDuration,
-                                        );
-                                      },
-                                      icon: Icon(selected
-                                          ? Icons.check_circle
-                                          : Icons.add_circle_outline),
-                                      color: selected ? Colors.blueAccent : null,
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }
-            }
-
 
             if (children.isNotEmpty) {
               sections.add(SectionData(kat, children));
