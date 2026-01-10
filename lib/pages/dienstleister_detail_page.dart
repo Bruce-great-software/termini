@@ -1315,6 +1315,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
           final kategorien = <String>{
             ...singlesByCategory.keys,
+            ...combosByCategory.keys,
           }.toList()
             ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
@@ -1739,6 +1740,131 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 ),
               );
             }
+            final combos = [...(combosByCategory[kat] ?? const <Offer>[])];
+            combos.sort((a, b) =>
+                a.leistungen.join(', ').toLowerCase().compareTo(b.leistungen.join(', ').toLowerCase()));
+
+            for (final combo in combos) {
+              final comboTitle = combo.leistungen.join(', ');
+              final comboPreis = combo.priceFor(_zielgruppe);
+              final comboDauer = combo.durationFor(_zielgruppe);
+
+              if (comboPreis == null && comboDauer == null) continue;
+
+              children.add(
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: Color(0xFFE5E5E5)),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        // ====== LINKS ======
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                comboTitle,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'Kombi-Angebot',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.black54,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // ====== MITTE: Dauer ======
+                        SizedBox(
+                          width: kDurColWidth,
+                          child: comboDauer == null
+                              ? const SizedBox.shrink()
+                              : Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF2F4F7),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: Color(0xFFE5E7EB)),
+                              ),
+                              child: Text(
+                                '$comboDauer Min',
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF374151),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        // ====== RECHTS: Preis + Icon ======
+                        SizedBox(
+                          width: kRightColWidth,
+                          child: ValueListenableBuilder<Map<String, _CartItem>>(
+                            valueListenable: _selectedVN,
+                            builder: (_, map, __) {
+                              final selected = combo.leistungenLc.every(
+                                    (lc) => map.containsKey(
+                                  _keyFor(zielgruppe: _zielgruppe, category: kat, partLc: lc),
+                                ),
+                              );
+
+                              return Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    _preisText(comboPreis),
+                                    style: const TextStyle(
+                                      color: Colors.black54,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  IconButton(
+                                    tooltip: selected ? 'Entfernen' : 'Kombi hinzufügen',
+                                    onPressed: () {
+                                      _toggleCombo(
+                                        category: kat,
+                                        partsOriginal: combo.leistungen,
+                                        partsLc: combo.leistungenLc,
+                                        singlesByKey: singleBaseIndex,
+                                      );
+                                    },
+                                    icon: Icon(
+                                      selected ? Icons.check_circle : Icons.add_circle_outline,
+                                    ),
+                                    color: selected ? Colors.blueAccent : null,
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }
+
 
             if (children.isNotEmpty) {
               sections.add(SectionData(kat, children));
