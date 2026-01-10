@@ -631,6 +631,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return false;
   }
 
+  bool _hasZielgruppenData(Offer o, String zg) {
+    return o.priceFor(zg) != null || o.durationFor(zg) != null || _hasSizeOptions(o, zg);
+  }
+
   /// liefert Map<String, dynamic> der Varianten (kurz/mittel/lang -> {preis,dauer})
   Map<String, dynamic> _sizeMapForOffer(Offer o, String zg) {
     final v = o.zielgruppen[zg];
@@ -658,7 +662,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   double? _sizePrice(Map<String, dynamic> sizeMap, String key) {
     final m = sizeMap[key];
     if (m is Map && m['preis'] != null) {
-      final p = (m['preis'] as num).toDouble();
+      final value = m['preis'];
+      double? p;
+      if (value is num) {
+        p = value.toDouble();
+      } else if (value is String) {
+        final s = value.replaceAll(RegExp(r'[^0-9,.\-]'), '').replaceAll(',', '.');
+        p = s.isEmpty ? null : double.tryParse(s);
+      }
+      if (p == null) return null;
       return p > 0 ? p : null;
     }
     return null;
@@ -667,11 +679,46 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   int? _sizeDuration(Map<String, dynamic> sizeMap, String key) {
     final m = sizeMap[key];
     if (m is Map && m['dauer'] != null) {
-      final d = (m['dauer'] as num).toInt();
+      final value = m['dauer'];
+      int? d;
+      if (value is int) {
+        d = value;
+      } else if (value is num) {
+        d = value.toInt();
+      } else if (value is String) {
+        final s = value.replaceAll(RegExp(r'[^0-9\-]'), '');
+        d = s.isEmpty ? null : int.tryParse(s);
+      }
+      if (d == null) return null;
       return d > 0 ? d : null;
     }
     return null;
   }
+
+  double? _minSizePriceFor(Offer o, String zg) {
+    final sizeMap = _sizeMapForOffer(o, zg);
+    if (sizeMap.isEmpty) return null;
+    double? minPrice;
+    for (final key in sizeMap.keys) {
+      final p = _sizePrice(sizeMap, key.toString());
+      if (p == null) continue;
+      minPrice = (minPrice == null || p < minPrice) ? p : minPrice;
+    }
+    return minPrice;
+  }
+
+  int? _minSizeDurationFor(Offer o, String zg) {
+    final sizeMap = _sizeMapForOffer(o, zg);
+    if (sizeMap.isEmpty) return null;
+    int? minDuration;
+    for (final key in sizeMap.keys) {
+      final d = _sizeDuration(sizeMap, key.toString());
+      if (d == null) continue;
+      minDuration = (minDuration == null || d < minDuration) ? d : minDuration;
+    }
+    return minDuration;
+  }
+
 
   // === Zielgruppen-Mix verhindern ============================================
   bool _hasItemsFromOtherZielgruppe(String zg) {
@@ -794,7 +841,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     final options = <_VariantOption>[];
     final byLabel = <String, Offer>{};
     for (final v in variantOffersForPart) {
-      final hasZg = (v.priceFor(zg) != null) || (v.durationFor(zg) != null);
+      final hasZg = _hasZielgruppenData(v, zg);
       if (v.varianten.isEmpty) continue;
       final label = v.varianten.first.trim();
       if (label.isEmpty) continue;
@@ -815,6 +862,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     // NEU: Nur wenn es einen echten Basis-Offer gibt, "Standard" als Option zeigen
     final bool hasRealBase = !base.id.startsWith('synthetic:');
+    final bool hasBaseValues = base.priceFor(zg) != null || base.durationFor(zg) != null;
+    final bool showStandard = hasRealBase && hasBaseValues;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -826,8 +875,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         // Voreinstellung:
         // - mit echter Basis: Standard (null) vorselektiert
         // - sonst (nur Varianten): erste Methode
-        String? selectedVarLc =
-            preselectVarLc ?? (hasRealBase ? null : (options.isNotEmpty ? options.first.lc : null));
+        String? selectedVarLc = preselectVarLc ??
+            (showStandard ? null : (options.isNotEmpty ? options.first.lc : null));
         String? selectedSizeKey;
         final Set<int> selectedComboIdx = <int>{};
 
@@ -863,7 +912,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 final List<Widget> methodTiles = [];
                 final String groupValue = selectedVarLc ?? 'STANDARD';
 
-                if (hasRealBase) {
+                if (showStandard) {
                   // Standard-Zeile (OBEN) – vorselektiert, wenn selectedVarLc == null
                   methodTiles.add(
                     Container(
@@ -1327,7 +1376,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           };
           final Map<String, Set<String>> variantsAvailable = {};
           for (final v in singleVariants) {
-            final hasZg = (v.priceFor(_zielgruppe) != null) || (v.durationFor(_zielgruppe) != null);
+            final hasZg = _hasZielgruppenData(v, _zielgruppe);
             if (!hasZg) continue; // -> nur dann anzeigen
             final key = '${v.kategorie}|${v.leistungenLc.first}';
             variantsAvailable.putIfAbsent(key, () => <String>{});
@@ -1339,14 +1388,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           // ---- Anzeige: Singles & Kombis – Kategorien-Union aufbauen ----
           final Map<String, List<Offer>> singlesByCategory = {};
           for (final s in singlesBaseFinal) {
-            final hasZg = (s.priceFor(_zielgruppe) != null) || (s.durationFor(_zielgruppe) != null);
+            final hasZg = _hasZielgruppenData(s, _zielgruppe);
             if (!hasZg) continue;
             singlesByCategory.putIfAbsent(s.kategorie, () => []).add(s);
           }
 
           final Map<String, List<Offer>> combosByCategory = {};
           for (final b in bundles) {
-            final hasZg = (b.priceFor(_zielgruppe) != null) || (b.durationFor(_zielgruppe) != null);
+            final hasZg = _hasZielgruppenData(b, _zielgruppe);
             if (!hasZg) continue;
             combosByCategory.putIfAbsent(b.kategorie, () => []).add(b);
           }
@@ -1477,8 +1526,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
               final preis = offer.priceFor(_zielgruppe);
               final dauer = offer.durationFor(_zielgruppe);
-
-              if (preis == null && dauer == null) continue;
+              final minPreis = _minSizePriceFor(offer, _zielgruppe);
+              final minDauer = _minSizeDurationFor(offer, _zielgruppe);
+              final displayPreis = preis ?? minPreis;
+              final displayDauer = dauer ?? minDauer;
 
               final selKey = _keyFor(zielgruppe: _zielgruppe, category: kat, partLc: partLc);
 
@@ -1489,6 +1540,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
               final hasSizeOptionsBase = _hasSizeOptions(offer, _zielgruppe);
+
+              if (displayPreis == null && displayDauer == null && !hasSizeOptionsBase) continue;
 
               children.add(
                 Padding(
@@ -1511,7 +1564,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 final variantsForPart = <Offer>[];
                                 for (final label in sortedLabels) {
                                   final o = singleVariantIndex['$kat|$partLc|${label.toLowerCase()}'];
-                                  if (o != null && ((o.priceFor(_zielgruppe) != null) || (o.durationFor(_zielgruppe) != null))) {
+                                  if (o != null && _hasZielgruppenData(o, _zielgruppe)) {
                                     variantsForPart.add(o);
                                   }
                                 }
@@ -1592,7 +1645,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             valueListenable: _selectedVN,
                             builder: (_, map, __) {
                               final selectedItem = map[selKey];
-                              final effectiveDuration = selectedItem?.dauer ?? dauer;
+                              final effectiveDuration = selectedItem?.dauer ?? displayDauer;
                               if (effectiveDuration == null) return const SizedBox.shrink();
 
                               return Center(
@@ -1624,7 +1677,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             valueListenable: _selectedVN,
                             builder: (_, map, __) {
                               final selectedItem = map[selKey];
-                              final effectivePrice = selectedItem?.preis ?? preis;
+                              final effectivePrice = selectedItem?.preis ?? displayPreis;
                               final selected = map.containsKey(selKey);
 
                               final selectedPartsLc = map.values
@@ -1717,7 +1770,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           for (final label in sortedLabels) {
                                             final o = singleVariantIndex[
                                             '$kat|$partLc|${label.toLowerCase()}'];
-                                            if (o != null) variantsForPart.add(o);
+                                            if (o != null && _hasZielgruppenData(o, _zielgruppe)) {
+                                              variantsForPart.add(o);
+                                            }
+
                                           }
                                           List<_ComboRow> _buildCombineRowsFor(
                                               String category, String partLc) {

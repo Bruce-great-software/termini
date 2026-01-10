@@ -45,6 +45,17 @@ class DienstleisterAngebotePage extends StatelessWidget {
           final d = _toInt(entry['dauer']);
           if (p != null) preise.add(p);
           if (d != null) dauern.add(d);
+          if (entry['varianten'] is Map) {
+            final varianten = Map<String, dynamic>.from(entry['varianten']);
+            for (final variante in varianten.values) {
+              if (variante is Map) {
+                final vp = _toDouble(variante['preis']);
+                final vd = _toInt(variante['dauer']);
+                if (vp != null) preise.add(vp);
+                if (vd != null) dauern.add(vd);
+              }
+            }
+          }
         }
       }
       if (preise.isNotEmpty) {

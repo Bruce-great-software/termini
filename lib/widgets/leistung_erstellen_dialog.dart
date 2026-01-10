@@ -487,30 +487,35 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
 
   // ---------- Step 3 ----------
   Widget _buildPreisDauerForm(String zielgruppe) {
+    final variantenAktiv = _variantenOn[zielgruppe] ?? false;
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextFormField(
-            controller: preisController[zielgruppe],
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              labelText: 'Preis',
-              suffixText: '€',
-              border: OutlineInputBorder(),
+          if (!_showHaarlaengeBlock || !variantenAktiv) ...[
+      TextFormField(
+      controller: preisController[zielgruppe],
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: const InputDecoration(
+        labelText: 'Preis',
+        suffixText: '€',
+        border: OutlineInputBorder(),
+      ),
             ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: dauerController[zielgruppe],
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Dauer',
+                suffixText: 'Minuten',
+                border: OutlineInputBorder(),
+              ),
+
+
           ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: dauerController[zielgruppe],
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: 'Dauer',
-              suffixText: 'Minuten',
-              border: OutlineInputBorder(),
-            ),
-          ),
+          ],
 
           // ▼▼▼ Haarlänge-Block nur anzeigen, wenn Definition greift ▼▼▼
           if (_showHaarlaengeBlock) ...[
@@ -520,12 +525,12 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                 const Text('Varianten (z. B. kurz/mittel/lang)'),
                 const Spacer(),
                 Switch(
-                  value: _variantenOn[zielgruppe] ?? false,
+                  value: variantenAktiv,
                   onChanged: (val) => setState(() => _variantenOn[zielgruppe] = val),
                 ),
               ],
             ),
-            if (_variantenOn[zielgruppe] == true) ...[
+            if (variantenAktiv) ...[
               const SizedBox(height: 8),
               for (final opt in _haarlaengeOptions) ...[
                 Padding(
@@ -639,13 +644,18 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
     final del = <String, dynamic>{};
 
     for (final zg in _zielgruppen) {
+      final switchOn = _variantenOn[zg] ?? false;
+
       final preisEmpty = _isEmpty(preisController[zg]?.text);
       final dauerEmpty = _isEmpty(dauerController[zg]?.text);
 
-      if (preisEmpty) del['zielgruppen.$zg.preis'] = FieldValue.delete();
-      if (dauerEmpty) del['zielgruppen.$zg.dauer'] = FieldValue.delete();
-
-      final switchOn = _variantenOn[zg] ?? false;
+      if (switchOn) {
+        del['zielgruppen.$zg.preis'] = FieldValue.delete();
+        del['zielgruppen.$zg.dauer'] = FieldValue.delete();
+      } else {
+        if (preisEmpty) del['zielgruppen.$zg.preis'] = FieldValue.delete();
+        if (dauerEmpty) del['zielgruppen.$zg.dauer'] = FieldValue.delete();
+      }
 
       if (!switchOn) {
         del['zielgruppen.$zg.varianten'] = FieldValue.delete();
@@ -691,8 +701,9 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
 
     final Map<String, dynamic> zielgruppenGesamt = {};
     for (final zg in _zielgruppen) {
-      final preis = _toDouble(preisController[zg]?.text);
-      final dauer = _toInt(dauerController[zg]?.text);
+      final switchOn = _variantenOn[zg] ?? false;
+      final preis = switchOn ? null : _toDouble(preisController[zg]?.text);
+      final dauer = switchOn ? null : _toInt(dauerController[zg]?.text);
       final varianten = _buildVariantenMapForZg(zg);
 
       if (preis != null || dauer != null || varianten != null) {
