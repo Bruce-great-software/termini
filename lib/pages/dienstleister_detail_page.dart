@@ -159,6 +159,18 @@ class _CartItem {
   });
 }
 
+class _ComboSelection {
+  final Offer bundle;
+  final String zielgruppe;
+  final int selectedAt;
+
+  const _ComboSelection({
+    required this.bundle,
+    required this.zielgruppe,
+    required this.selectedAt,
+  });
+}
+
 // Singlepreis eines Parts bestimmen (Variantenpreis > Basis > 0)
 double _singlePriceOfPart({
   required String category,
@@ -370,6 +382,14 @@ String _keyFor({
 }) =>
     '${zielgruppe.toLowerCase()}|${category.toLowerCase()}|$partLc';
 
+String _comboSelectionKey({
+  required String zielgruppe,
+  required Offer combo,
+}) {
+  final key = (combo.comboKey ?? combo.id).toLowerCase();
+  return '${zielgruppe.toLowerCase()}|${combo.kategorie.toLowerCase()}|$key';
+}
+
 /// ---------------------------------------------------------------
 /// Scroll-Wrapper mit Chips oben (Kategorien) + Sektionen
 /// ---------------------------------------------------------------
@@ -580,6 +600,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   final ValueNotifier<Map<String, _CartItem>> _selectedVN =
   ValueNotifier<Map<String, _CartItem>>({});
 
+  final ValueNotifier<Map<String, _ComboSelection>> _selectedCombosVN =
+  ValueNotifier<Map<String, _ComboSelection>>({});
+
   /// Auswahlreihenfolge hochzählen
   int _selectionTicker = 0;
 
@@ -653,8 +676,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   // === Zielgruppen-Mix verhindern ============================================
   bool _hasItemsFromOtherZielgruppe(String zg) {
     final map = _selectedVN.value;
-    if (map.isEmpty) return false;
-    return map.values.any((it) => it.zielgruppe != zg);
+    if (map.isNotEmpty && map.values.any((it) => it.zielgruppe != zg)) {
+      return true;
+    }
+    final combos = _selectedCombosVN.value;
+    if (combos.isNotEmpty && combos.values.any((it) => it.zielgruppe != zg)) {
+      return true;
+    }
+    return false;
   }
 
   void _showWrongGroupSnack(String other) {
@@ -671,68 +700,65 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   void _toggleSelection(String key, _CartItem item) {
     final map = Map<String, _CartItem>.from(_selectedVN.value);
+    final combos = Map<String, _ComboSelection>.from(_selectedCombosVN.value);
 
     if (!map.containsKey(key)) {
       if (_hasItemsFromOtherZielgruppe(item.zielgruppe)) {
-        final other = map.values.first.zielgruppe;
+        final other = map.values.isNotEmpty
+            ? map.values.first.zielgruppe
+            : _selectedCombosVN.value.values.first.zielgruppe;
         _showWrongGroupSnack(other);
         return;
       }
       map[key] = item;
+      combos.removeWhere(
+            (_, combo) =>
+        combo.zielgruppe == item.zielgruppe &&
+            combo.bundle.kategorie == item.kategorie &&
+            combo.bundle.leistungenLc.contains(item.leistung.toLowerCase()),
+      );
     } else {
       map.remove(key);
     }
 
     _selectedVN.value = map;
+    _selectedCombosVN.value = combos;
   }
 
   /// Combo-Helper: (de)selektiert alle Einzel-Leistungen der Kombi
   void _toggleCombo({
-    required String category,
-    required List<String> partsOriginal,
-    required List<String> partsLc,
-    required Map<String, Offer> singlesByKey,
+    required Offer combo,
   }) {
     final zg = _zielgruppe;
 
     if (_hasItemsFromOtherZielgruppe(zg)) {
-      final other = _selectedVN.value.values.first.zielgruppe;
+      final other = _selectedVN.value.values.isNotEmpty
+          ? _selectedVN.value.values.first.zielgruppe
+          : _selectedCombosVN.value.values.first.zielgruppe;
       _showWrongGroupSnack(other);
       return;
     }
 
-    final map = Map<String, _CartItem>.from(_selectedVN.value);
-    final keys = <String>[];
-    for (int i = 0; i < partsLc.length; i++) {
-      keys.add(_keyFor(zielgruppe: zg, category: category, partLc: partsLc[i]));
-    }
-    final allSelected = keys.every(map.containsKey);
+    final singles = Map<String, _CartItem>.from(_selectedVN.value);
+    final combos = Map<String, _ComboSelection>.from(_selectedCombosVN.value);
+    final comboKey = _comboSelectionKey(zielgruppe: zg, combo: combo);
 
-    if (allSelected) {
-      for (final k in keys) {
-        map.remove(k);
-      }
+    if (combos.containsKey(comboKey)) {
+      combos.remove(comboKey);
     } else {
-      for (int i = 0; i < partsLc.length; i++) {
-        final lc = partsLc[i];
-        final display = partsOriginal[i];
-        final key = _keyFor(zielgruppe: zg, category: category, partLc: lc);
-        if (!map.containsKey(key)) {
-          final single = singlesByKey['$category|$lc'];
-          final preis = single?.priceFor(zg);
-          final dauer = single?.durationFor(zg);
-          map[key] = _CartItem(
-            kategorie: category,
-            leistung: display,
-            preis: preis,
-            dauer: dauer,
-            zielgruppe: zg,
-            selectedAt: ++_selectionTicker,
-          );
-        }
+      for (final partLc in combo.leistungenLc) {
+        final key = _keyFor(zielgruppe: zg, category: combo.kategorie, partLc: partLc);
+        singles.remove(key);
       }
+      combos[comboKey] = _ComboSelection(
+        bundle: combo,
+        zielgruppe: zg,
+        selectedAt: ++_selectionTicker,
+      );
     }
-    _selectedVN.value = map;
+
+    _selectedVN.value = singles;
+    _selectedCombosVN.value = combos;
   }
 
   String _formatEuro(double v) {
@@ -1075,11 +1101,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             final map = Map<String, _CartItem>.from(_selectedVN.value);
 
                             if (_hasItemsFromOtherZielgruppe(zg)) {
-                              final other = map.values.first.zielgruppe;
+                              final other = map.values.isNotEmpty
+                                  ? map.values.first.zielgruppe
+                                  : _selectedCombosVN.value.values.first.zielgruppe;
                               Navigator.pop(ctx);
                               _showWrongGroupSnack(other);
                               return;
                             }
+
+                            final updatedCombos =
+                            Map<String, _ComboSelection>.from(_selectedCombosVN.value)
+                              ..removeWhere(
+                                    (_, combo) =>
+                                combo.zielgruppe == zg &&
+                                    combo.bundle.kategorie == category &&
+                                    combo.bundle.leistungenLc.contains(base.leistungenLc.first),
+                              );
 
                             _selectedVN.value = {
                               ...map,
@@ -1107,6 +1144,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 lockedDisplayPrice: null,
                               ),
                             };
+                            _selectedCombosVN.value = updatedCombos;
 
                             // ggf. noch Kombi-Extras hinzufügen (unverändert)
                             Navigator.pop(ctx);
@@ -1313,15 +1351,35 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             combosByCategory.putIfAbsent(b.kategorie, () => []).add(b);
           }
 
+          final Map<String, Set<String>> singlePartsByCategory = {};
+          singlesByCategory.forEach((cat, list) {
+            singlePartsByCategory[cat] = list.map((o) => o.leistungenLc.first).toSet();
+          });
+
+          final Map<String, List<Offer>> combosByCategoryDisplay = {};
+          combosByCategory.forEach((cat, list) {
+            final parts = singlePartsByCategory[cat] ?? const <String>{};
+            for (final combo in list) {
+              final redundant = combo.leistungenLc.every(parts.contains);
+              if (redundant) continue;
+              combosByCategoryDisplay.putIfAbsent(cat, () => []).add(combo);
+            }
+          });
+
           final kategorien = <String>{
             ...singlesByCategory.keys,
-            ...combosByCategory.keys,
+            ...combosByCategoryDisplay.keys,
           }.toList()
             ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
           // === Gesamtpreis-Berechnung (naiv vs. optimiert) für die Bottom-Bar ===
-          _CartTotals computeTotals(Map<String, _CartItem> map) {
-            if (map.isEmpty) return const _CartTotals(naive: 0.0, optimized: 0.0);
+          _CartTotals computeTotals(
+              Map<String, _CartItem> map,
+              Map<String, _ComboSelection> combos,
+              ) {
+            if (map.isEmpty && combos.isEmpty) {
+              return const _CartTotals(naive: 0.0, optimized: 0.0);
+            }
 
             final byGroup = <String, List<_CartItem>>{};
             map.forEach((_, item) {
@@ -1391,7 +1449,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               }
             });
 
-            return _CartTotals(naive: naive, optimized: optimized);
+            double combosTotal = 0.0;
+            for (final combo in combos.values) {
+              combosTotal += combo.bundle.priceFor(combo.zielgruppe) ?? 0.0;
+            }
+
+            return _CartTotals(
+              naive: naive + combosTotal,
+              optimized: optimized + combosTotal,
+            );
           }
 
           // ---------- Abschnitte bauen ----------
@@ -1451,7 +1517,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 }
 
                                 List<_ComboRow> _buildCombineRowsFor(String category, String partLc) {
-                                  final combos = combosByCategory[category] ?? const <Offer>[];
+                                  final combos =
+                                      combosByCategoryDisplay[category] ?? const <Offer>[];
                                   final rows = <_ComboRow>[];
                                   for (final c in combos) {
                                     if (c.leistungenLc.contains(partLc)) {
@@ -1655,7 +1722,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           List<_ComboRow> _buildCombineRowsFor(
                                               String category, String partLc) {
                                             final combos =
-                                                combosByCategory[category] ?? const <Offer>[];
+                                                combosByCategoryDisplay[category] ?? const <Offer>[];
                                             final rows = <_ComboRow>[];
                                             for (final c in combos) {
                                               if (c.leistungenLc.contains(partLc)) {
@@ -1694,7 +1761,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         if (_hasItemsFromOtherZielgruppe(_zielgruppe)) {
                                           final other = currentMap.values.isNotEmpty
                                               ? currentMap.values.first.zielgruppe
-                                              : _zielgruppe;
+                                              : _selectedCombosVN.value.values.first.zielgruppe;
                                           _showWrongGroupSnack(other);
                                           return;
                                         }
@@ -1740,7 +1807,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 ),
               );
             }
-            final combos = [...(combosByCategory[kat] ?? const <Offer>[])];
+            final combos = [...(combosByCategoryDisplay[kat] ?? const <Offer>[])];
             combos.sort((a, b) =>
                 a.leistungen.join(', ').toLowerCase().compareTo(b.leistungen.join(', ').toLowerCase()));
 
@@ -1817,13 +1884,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         // ====== RECHTS: Preis + Icon ======
                         SizedBox(
                           width: kRightColWidth,
-                          child: ValueListenableBuilder<Map<String, _CartItem>>(
-                            valueListenable: _selectedVN,
+                          child: ValueListenableBuilder<Map<String, _ComboSelection>>(
+                            valueListenable: _selectedCombosVN,
                             builder: (_, map, __) {
-                              final selected = combo.leistungenLc.every(
-                                    (lc) => map.containsKey(
-                                  _keyFor(zielgruppe: _zielgruppe, category: kat, partLc: lc),
-                                ),
+                              final selected = map.containsKey(
+                                _comboSelectionKey(zielgruppe: _zielgruppe, combo: combo),
                               );
 
                               return Row(
@@ -1841,12 +1906,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   IconButton(
                                     tooltip: selected ? 'Entfernen' : 'Kombi hinzufügen',
                                     onPressed: () {
-                                      _toggleCombo(
-                                        category: kat,
-                                        partsOriginal: combo.leistungen,
-                                        partsLc: combo.leistungenLc,
-                                        singlesByKey: singleBaseIndex,
-                                      );
+                                      _toggleCombo(combo: combo);
                                     },
                                     icon: Icon(
                                       selected ? Icons.check_circle : Icons.add_circle_outline,
@@ -1892,15 +1952,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: ValueListenableBuilder<Map<String, _CartItem>>(
-                  valueListenable: _selectedVN,
-                  builder: (context, map, _) {
-                    final hasSelection = map.isNotEmpty;
+                child: AnimatedBuilder(
+                  animation: Listenable.merge([_selectedVN, _selectedCombosVN]),
+                  builder: (context, _) {
+                    final map = _selectedVN.value;
+                    final combos = _selectedCombosVN.value;
+                    final hasSelection = map.isNotEmpty || combos.isNotEmpty;
                     final totals = (hasSelection)
-                        ? computeTotals(map)
+                        ? computeTotals(map, combos)
                         : const _CartTotals(naive: 0.0, optimized: 0.0);
                     final total = hasSelection ? totals.optimized : 0.0;
                     final savings = hasSelection ? totals.savings : 0.0;
+                    final count = map.length + combos.length;
 
                     return IgnorePointer(
                       ignoring: !hasSelection,
@@ -1913,14 +1976,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           top: false,
                           child: hasSelection
                               ? _BookingBar(
-                            count: map.length,
+                            count: count,
                             total: total,
                             savings: savings,
                             onPressed: () {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                     content: Text(
-                                        'Zur Buchung (${map.length}) – ${_formatEuro(total)}')),
+                                        'Zur Buchung ($count) – ${_formatEuro(total)}')),
                               );
                             },
                           )
