@@ -2094,23 +2094,23 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         bottom: BorderSide(color: Color(0xFFE5E5E5)),
                       ),
                     ),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // ====== LINKS ======
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                comboTitle,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
+                        Text(
+                          comboTitle,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            const Expanded(
+                              child: Text(
                                 'Kombi-Angebot',
                                 style: TextStyle(
                                   fontSize: 13,
@@ -2118,79 +2118,66 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
-                            ],
-                          ),
-                        ),
-
-                        // ====== MITTE: Dauer ======
-                        SizedBox(
-                          width: kDurColWidth,
-                          child: displayDauer == null
-                              ? const SizedBox.shrink()
-                              : Center(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF2F4F7),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: Color(0xFFE5E7EB)),
-                              ),
-                              child: Text(
-                                '$displayDauer Min',
-                                style: const TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF374151),
+                            ),
+                            if (displayDauer != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF2F4F7),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: Color(0xFFE5E7EB)),
+                                ),
+                                child: Text(
+                                  '$displayDauer Min',
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF374151),
+                                  ),
                                 ),
                               ),
+                            if (displayDauer != null) const SizedBox(width: 8),
+                            ValueListenableBuilder<Map<String, _ComboSelection>>(
+                              valueListenable: _selectedCombosVN,
+                              builder: (_, map, __) {
+                                final selected = map.containsKey(
+                                  _comboSelectionKey(zielgruppe: _zielgruppe, combo: combo),
+                                );
+
+                                return Row(
+                                  children: [
+                                    Text(
+                                      _preisText(displayPreis),
+                                      style: const TextStyle(
+                                        color: Colors.black54,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    IconButton(
+                                      tooltip: selected ? 'Entfernen' : 'Kombi hinzufügen',
+                                      onPressed: () {
+                                        if (selected) {
+                                          _toggleCombo(combo: combo);
+                                          return;
+                                        }
+                                        if (hasSizeOptionsBase) {
+                                          _openComboSizeSheet(combo: combo);
+                                        } else {
+                                          _toggleCombo(combo: combo);
+                                        }
+                                      },
+                                      icon: Icon(
+                                        selected ? Icons.check_circle : Icons.add_circle_outline,
+                                      ),
+                                      color: selected ? Colors.blueAccent : null,
+                                    ),
+                                  ],
+                                );
+                              },
                             ),
-                          ),
-                        ),
-
-                        // ====== RECHTS: Preis + Icon ======
-                        SizedBox(
-                          width: kRightColWidth,
-                          child: ValueListenableBuilder<Map<String, _ComboSelection>>(
-                            valueListenable: _selectedCombosVN,
-                            builder: (_, map, __) {
-                              final selected = map.containsKey(
-                                _comboSelectionKey(zielgruppe: _zielgruppe, combo: combo),
-                              );
-
-                              return Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    _preisText(displayPreis),
-                                    style: const TextStyle(
-                                      color: Colors.black54,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  IconButton(
-                                    tooltip: selected ? 'Entfernen' : 'Kombi hinzufügen',
-                                    onPressed: () {
-                                      if (selected) {
-                                        _toggleCombo(combo: combo);
-                                        return;
-                                      }
-                                      if (hasSizeOptionsBase) {
-                                        _openComboSizeSheet(combo: combo);
-                                      } else {
-                                        _toggleCombo(combo: combo);
-                                      }
-                                    },
-                                    icon: Icon(
-                                      selected ? Icons.check_circle : Icons.add_circle_outline,
-                                    ),
-                                    color: selected ? Colors.blueAccent : null,
-                                  ),
-                                ],
-                              );
-                            },
-                          ),
+                          ],
                         ),
                       ],
                     ),
