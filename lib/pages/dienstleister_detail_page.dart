@@ -613,7 +613,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   int _selectionTicker = 0;
 
   /// Abhängigkeiten für Kombi-Einzelteile (cat|partLc -> required parts)
-  Map<String, Set<String>> _comboDependencies = {};
+  Map<String, List<Set<String>>> _comboDependencies = {};
 
   Map<String, Widget> _zielgruppenSegments() {
     TextStyle label(String value) => TextStyle(
@@ -798,19 +798,23 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     while (removedAny) {
       removedAny = false;
+      final selectedParts = selectionMap.values
+          .where((it) => it.zielgruppe == zielgruppe && it.kategorie == category)
+          .map((it) => it.leistung.toLowerCase())
+          .toSet()
+        ..removeAll(pendingRemoved);
       selectionMap.removeWhere((_, item) {
         if (item.zielgruppe != zielgruppe || item.kategorie != category) {
           return false;
         }
         final key = '${item.kategorie}|${item.leistung.toLowerCase()}';
-        final req = _comboDependencies[key];
-        if (req == null || req.isEmpty) return false;
-        if (req.any(pendingRemoved.contains)) {
-          pendingRemoved.add(item.leistung.toLowerCase());
-          removedAny = true;
-          return true;
-        }
-        return false;
+        final reqSets = _comboDependencies[key];
+        if (reqSets == null || reqSets.isEmpty) return false;
+        final stillValid = reqSets.any((req) => req.every(selectedParts.contains));
+        if (stillValid) return false;
+        pendingRemoved.add(item.leistung.toLowerCase());
+        removedAny = true;
+        return true;
       });
     }
   }
@@ -1647,21 +1651,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           });
 
           final Map<String, List<Offer>> derivedSinglesByCategory = {};
-          final Map<String, Set<String>> dependentRequirements = {};
+          final Map<String, List<Set<String>>> dependentRequirements = {};
           final Map<String, Offer> derivedSinglesIndex = {};
 
           combosByCategory.forEach((cat, list) {
             final baseParts = singlePartsByCategory[cat] ?? const <String>{};
             for (final combo in list) {
-              final requiredParts = combo.leistungenLc.where(baseParts.contains).toSet();
-              if (requiredParts.isEmpty) continue;
 
               for (int i = 0; i < combo.leistungenLc.length; i++) {
                 final partLc = combo.leistungenLc[i];
                 if (baseParts.contains(partLc)) continue;
 
                 final key = '$cat|$partLc';
-                if (dependentRequirements.containsKey(key)) continue;
+                final requiredParts = combo.leistungenLc
+                    .where((lc) => lc != partLc)
+                    .toSet();
+                if (requiredParts.isEmpty) continue;
 
                 final partDisplay = combo.leistungen[i];
                 final synthetic = Offer(
@@ -1676,7 +1681,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   titleDisplay: '$cat – $partDisplay',
                 );
 
-                dependentRequirements[key] = requiredParts;
+                dependentRequirements.putIfAbsent(key, () => []).add(requiredParts);
                 derivedSinglesIndex[key] = synthetic;
                 derivedSinglesByCategory.putIfAbsent(cat, () => []).add(synthetic);
               }
@@ -1826,8 +1831,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               final selKey = _keyFor(zielgruppe: _zielgruppe, category: kat, partLc: partLc);
 
               final dependencyKey = '$kat|$partLc';
-              final requiredParts = _comboDependencies[dependencyKey] ?? const <String>{};
-              final isDependent = requiredParts.isNotEmpty;
+              final requiredSets = _comboDependencies[dependencyKey] ?? const <Set<String>>[];
+              final isDependent = requiredSets.isNotEmpty;
+              final requiredParts = requiredSets.isEmpty
+                  ? const <String>{}
+                  : (requiredSets.toList()
+                ..sort((a, b) => a.length.compareTo(b.length))).first;
 
               final variantKey = '$kat|$partLc';
               final labelsSet = variantsAvailable[variantKey] ?? {};
@@ -1990,7 +1999,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
 
                               final canAdd = !isDependent ||
-                                  requiredParts.every(selectedPartsLc.contains);
+                                  requiredSets.any(
+                                        (req) => req.every(selectedPartsLc.contains),
+                                  );
                               final effectivePrice =
                                   selectedItem?.preis ??
                                       ((canAdd && !isDerivedSingle) ? displayPreis : null);
