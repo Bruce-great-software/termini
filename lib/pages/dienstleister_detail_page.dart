@@ -1941,7 +1941,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             valueListenable: _selectedVN,
                             builder: (_, map, __) {
                               final selectedItem = map[selKey];
-                              final effectiveDuration = selectedItem?.dauer ?? displayDauer;
+                              final selectedPartsLc = map.values
+                                  .where((it) => it.kategorie == kat && it.zielgruppe == _zielgruppe)
+                                  .map((it) => it.leistung.toLowerCase())
+                                  .toSet();
+                              final canAdd = !isDependent ||
+                                  requiredParts.every(selectedPartsLc.contains);
+                              final effectiveDuration =
+                                  selectedItem?.dauer ?? (canAdd ? displayDauer : null);
                               if (effectiveDuration == null) return const SizedBox.shrink();
 
                               return Center(
@@ -1973,7 +1980,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             valueListenable: _selectedVN,
                             builder: (_, map, __) {
                               final selectedItem = map[selKey];
-                              final effectivePrice = selectedItem?.preis ?? displayPreis;
                               final selected = map.containsKey(selKey);
 
                               final selectedPartsLc = map.values
@@ -1983,6 +1989,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                               final canAdd = !isDependent ||
                                   requiredParts.every(selectedPartsLc.contains);
+                              final effectivePrice =
+                                  selectedItem?.preis ?? (canAdd ? displayPreis : null);
                               final canInteract = selected || canAdd;
 
                               return Row(
@@ -1992,13 +2000,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   Builder(builder: (_) {
                                     double? newPrice;
 
+                                    double? preview;
+
                                     if (selected) {
                                       final locked = selectedItem?.lockedDisplayPrice;
                                       if (locked != null && effectivePrice != null && locked < effectivePrice) {
                                         newPrice = locked;
                                       }
                                     } else {
-                                      final preview = _previewForLastMissingPart(
+                                      preview = _previewForLastMissingPart(
                                         category: kat,
                                         zielgruppe: _zielgruppe,
                                         partLc: partLc,
@@ -2037,6 +2047,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                             ),
                                           ),
                                         ],
+                                      );
+                                    }
+
+                                    if (preview != null && effectivePrice == null) {
+                                      return Text(
+                                        _preisText(preview),
+                                        style: const TextStyle(
+                                          color: Colors.green,
+                                          fontSize: 13.5,
+                                          fontWeight: FontWeight.w800,
+                                        ),
                                       );
                                     }
 
