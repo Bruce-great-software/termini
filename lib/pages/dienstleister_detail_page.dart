@@ -1836,6 +1836,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
               final hasSizeOptionsBase = _hasSizeOptions(offer, _zielgruppe);
+              final bool isDerivedSingle = offer.id.startsWith('combo-extra:');
 
               if (displayPreis == null && displayDauer == null && !hasSizeOptionsBase) continue;
 
@@ -1987,10 +1988,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   .map((it) => it.leistung.toLowerCase())
                                   .toSet();
 
+
                               final canAdd = !isDependent ||
                                   requiredParts.every(selectedPartsLc.contains);
                               final effectivePrice =
-                                  selectedItem?.preis ?? (canAdd ? displayPreis : null);
+                                  selectedItem?.preis ??
+                                      ((canAdd && !isDerivedSingle) ? displayPreis : null);
                               final canInteract = selected || canAdd;
 
                               return Row(
