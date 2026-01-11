@@ -728,7 +728,45 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return minDuration;
   }
 
+  double? _displayPriceFor(Offer o, String zg) {
+    return o.priceFor(zg) ?? _minSizePriceFor(o, zg);
+  }
 
+  int? _displayDurationFor(Offer o, String zg) {
+    return o.durationFor(zg) ?? _minSizeDurationFor(o, zg);
+  }
+
+  bool _isBetterOfferForDisplay(Offer candidate, Offer existing, String zg) {
+    int score(Offer o) {
+      int s = 0;
+      if (o.priceFor(zg) != null) s += 4;
+      if (o.durationFor(zg) != null) s += 2;
+      if (_hasSizeOptions(o, zg)) s += 1;
+      return s;
+    }
+
+    final candidateScore = score(candidate);
+    final existingScore = score(existing);
+    if (candidateScore != existingScore) {
+      return candidateScore > existingScore;
+    }
+
+    final candidatePrice = _displayPriceFor(candidate, zg);
+    final existingPrice = _displayPriceFor(existing, zg);
+    if (candidatePrice != null && existingPrice != null && candidatePrice != existingPrice) {
+      return candidatePrice < existingPrice;
+    }
+
+    final candidateDuration = _displayDurationFor(candidate, zg);
+    final existingDuration = _displayDurationFor(existing, zg);
+    if (candidateDuration != null &&
+        existingDuration != null &&
+        candidateDuration != existingDuration) {
+      return candidateDuration < existingDuration;
+    }
+
+    return candidate.id.compareTo(existing.id) < 0;
+  }
   // === Zielgruppen-Mix verhindern ============================================
   bool _hasItemsFromOtherZielgruppe(String zg) {
     final map = _selectedVN.value;
@@ -1810,12 +1848,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           final sections = <SectionData>[];
           for (final kat in kategorien) {
             final items = [...(displaySinglesByCategory[kat] ?? const <Offer>[])];
-            items.sort((a, b) =>
-                a.leistungen.first.toLowerCase().compareTo(b.leistungen.first.toLowerCase()));
+            final Map<String, Offer> uniqueItems = {};
+            for (final offer in items) {
+              final partLc = offer.leistungenLc.first;
+              final existing = uniqueItems[partLc];
+              if (existing == null || _isBetterOfferForDisplay(offer, existing, _zielgruppe)) {
+                uniqueItems[partLc] = offer;
+              }
+            }
+
+            final displayItems = uniqueItems.values.toList()
+              ..sort((a, b) =>
+                  a.leistungen.first.toLowerCase().compareTo(b.leistungen.first.toLowerCase()));
 
             final children = <Widget>[];
 
-            for (final offer in items) {
+            for (final offer in displayItems) {
               final partDisplay = offer.leistungen.first;
               final partLc = offer.leistungenLc.first;
 
