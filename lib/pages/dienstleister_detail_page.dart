@@ -177,6 +177,7 @@ class _ComboSelection {
   });
 }
 
+
 // Singlepreis eines Parts bestimmen (Variantenpreis > Basis > 0)
 double _singlePriceOfPart({
   required String category,
