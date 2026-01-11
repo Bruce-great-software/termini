@@ -612,6 +612,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   /// Auswahlreihenfolge hochzählen
   int _selectionTicker = 0;
 
+  /// Abhängigkeiten für Kombi-Einzelteile (cat|partLc -> required parts)
+  Map<String, Set<String>> _comboDependencies = {};
+
   Map<String, Widget> _zielgruppenSegments() {
     TextStyle label(String value) => TextStyle(
       fontWeight: FontWeight.w600,
@@ -772,10 +775,44 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       );
     } else {
       map.remove(key);
+      _removeDependentSelections(
+        selectionMap: map,
+        zielgruppe: item.zielgruppe,
+        category: item.kategorie,
+        removedPartLc: item.leistung.toLowerCase(),
+      );
     }
 
     _selectedVN.value = map;
     _selectedCombosVN.value = combos;
+  }
+
+  void _removeDependentSelections({
+    required Map<String, _CartItem> selectionMap,
+    required String zielgruppe,
+    required String category,
+    required String removedPartLc,
+  }) {
+    final pendingRemoved = <String>{removedPartLc};
+    bool removedAny = true;
+
+    while (removedAny) {
+      removedAny = false;
+      selectionMap.removeWhere((_, item) {
+        if (item.zielgruppe != zielgruppe || item.kategorie != category) {
+          return false;
+        }
+        final key = '${item.kategorie}|${item.leistung.toLowerCase()}';
+        final req = _comboDependencies[key];
+        if (req == null || req.isEmpty) return false;
+        if (req.any(pendingRemoved.contains)) {
+          pendingRemoved.add(item.leistung.toLowerCase());
+          removedAny = true;
+          return true;
+        }
+        return false;
+      });
+    }
   }
 
   /// Combo-Helper: (de)selektiert alle Einzel-Leistungen der Kombi
@@ -1609,18 +1646,68 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             singlePartsByCategory[cat] = list.map((o) => o.leistungenLc.first).toSet();
           });
 
+          final Map<String, List<Offer>> derivedSinglesByCategory = {};
+          final Map<String, Set<String>> dependentRequirements = {};
+          final Map<String, Offer> derivedSinglesIndex = {};
+
+          combosByCategory.forEach((cat, list) {
+            final baseParts = singlePartsByCategory[cat] ?? const <String>{};
+            for (final combo in list) {
+              final requiredParts = combo.leistungenLc.where(baseParts.contains).toSet();
+              if (requiredParts.isEmpty) continue;
+
+              for (int i = 0; i < combo.leistungenLc.length; i++) {
+                final partLc = combo.leistungenLc[i];
+                if (baseParts.contains(partLc)) continue;
+
+                final key = '$cat|$partLc';
+                if (dependentRequirements.containsKey(key)) continue;
+
+                final partDisplay = combo.leistungen[i];
+                final synthetic = Offer(
+                  id: 'combo-extra:${combo.id}:$partLc',
+                  kategorie: cat,
+                  leistungen: [partDisplay],
+                  leistungenLc: [partLc],
+                  isBundle: false,
+                  comboKey: combo.comboKey,
+                  zielgruppen: combo.zielgruppen,
+                  varianten: const [],
+                  titleDisplay: '$cat – $partDisplay',
+                );
+
+                dependentRequirements[key] = requiredParts;
+                derivedSinglesIndex[key] = synthetic;
+                derivedSinglesByCategory.putIfAbsent(cat, () => []).add(synthetic);
+              }
+            }
+          });
+
           final Map<String, List<Offer>> combosByCategoryDisplay = {};
           combosByCategory.forEach((cat, list) {
             final parts = singlePartsByCategory[cat] ?? const <String>{};
             for (final combo in list) {
-              final redundant = combo.leistungenLc.every(parts.contains);
-              if (redundant) continue;
+              final hasBasePart = combo.leistungenLc.any(parts.contains);
+              if (hasBasePart) continue;
               combosByCategoryDisplay.putIfAbsent(cat, () => []).add(combo);
             }
           });
 
+          final Map<String, List<Offer>> displaySinglesByCategory = {};
+          singlesByCategory.forEach((cat, list) {
+            displaySinglesByCategory[cat] = [...list];
+          });
+          derivedSinglesByCategory.forEach((cat, list) {
+            displaySinglesByCategory.putIfAbsent(cat, () => []).addAll(list);
+          });
+
+          for (final entry in derivedSinglesIndex.entries) {
+            singleBaseIndex.putIfAbsent(entry.key, () => entry.value);
+          }
+
+          _comboDependencies = dependentRequirements;
           final kategorien = <String>{
-            ...singlesByCategory.keys,
+            ...displaySinglesByCategory.keys,
             ...combosByCategoryDisplay.keys,
           }.toList()
             ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
@@ -1717,7 +1804,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           // ---------- Abschnitte bauen ----------
           final sections = <SectionData>[];
           for (final kat in kategorien) {
-            final items = [...(singlesByCategory[kat] ?? const <Offer>[])];
+            final items = [...(displaySinglesByCategory[kat] ?? const <Offer>[])];
             items.sort((a, b) =>
                 a.leistungen.first.toLowerCase().compareTo(b.leistungen.first.toLowerCase()));
 
@@ -1737,6 +1824,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               final displayDauer = dauer ?? minDauer;
 
               final selKey = _keyFor(zielgruppe: _zielgruppe, category: kat, partLc: partLc);
+
+              final dependencyKey = '$kat|$partLc';
+              final requiredParts = _comboDependencies[dependencyKey] ?? const <String>{};
+              final isDependent = requiredParts.isNotEmpty;
 
               final variantKey = '$kat|$partLc';
               final labelsSet = variantsAvailable[variantKey] ?? {};
@@ -1890,6 +1981,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   .map((it) => it.leistung.toLowerCase())
                                   .toSet();
 
+                              final canAdd = !isDependent ||
+                                  requiredParts.every(selectedPartsLc.contains);
+                              final canInteract = selected || canAdd;
+
                               return Row(
                                 mainAxisAlignment: MainAxisAlignment.end,
                                 children: [
@@ -1960,10 +2055,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   IconButton(
                                     tooltip: selected
                                         ? 'Entfernen'
+
+                                  : (!canAdd
+                              ? 'Nur mit vorheriger Auswahl'
                                         : ((hasMethodVariants || hasSizeOptionsBase)
                                         ? 'Methode/Option wählen'
-                                        : 'Hinzufügen'),
-                                    onPressed: () {
+                                        : 'Hinzufügen')),
+                                    onPressed: !canInteract
+                                        ? null
+                                        : () {
+
                                       if (hasMethodVariants || hasSizeOptionsBase) {
                                         if (selected) {
                                           final newMap =
