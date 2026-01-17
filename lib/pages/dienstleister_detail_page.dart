@@ -793,6 +793,29 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   }
   // ===========================================================================
 
+  bool _combosConflict(Offer first, Offer second) {
+    if (first.kategorie != second.kategorie) return false;
+    final setA = first.leistungenLc.toSet();
+    final setB = second.leistungenLc.toSet();
+    if (setA.length < 2 || setB.length < 2) return false;
+    if (setA.length == setB.length) {
+      return setA.containsAll(setB);
+    }
+    return setA.containsAll(setB) || setB.containsAll(setA);
+  }
+
+  Map<String, _ComboSelection> _removeConflictingCombos({
+    required Map<String, _ComboSelection> combos,
+    required Offer combo,
+    required String zielgruppe,
+  }) {
+    combos.removeWhere(
+          (_, existing) =>
+      existing.zielgruppe == zielgruppe && _combosConflict(existing.bundle, combo),
+    );
+    return combos;
+  }
+
   void _toggleSelection(String key, _CartItem item) {
     final map = Map<String, _CartItem>.from(_selectedVN.value);
     final combos = Map<String, _ComboSelection>.from(_selectedCombosVN.value);
@@ -879,6 +902,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     if (combos.containsKey(comboKey)) {
       combos.remove(comboKey);
     } else {
+      _removeConflictingCombos(combos: combos, combo: combo, zielgruppe: zg);
       for (final partLc in combo.leistungenLc) {
         final key = _keyFor(zielgruppe: zg, category: combo.kategorie, partLc: partLc);
         singles.remove(key);
@@ -1468,6 +1492,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               singles.remove(key);
                             }
 
+                            _removeConflictingCombos(
+                              combos: combos,
+                              combo: combo,
+                              zielgruppe: zg,
+                            );
+
                             combos[comboKey] = _ComboSelection(
                               bundle: combo,
                               zielgruppe: zg,
@@ -1695,7 +1725,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
           combosByCategory.forEach((cat, list) {
             final baseParts = singlePartsByCategory[cat] ?? const <String>{};
+            if (baseParts.isEmpty) return;
             for (final combo in list) {
+              final hasBasePart = combo.leistungenLc.any(baseParts.contains);
+              if (!hasBasePart) continue;
 
               for (int i = 0; i < combo.leistungenLc.length; i++) {
                 final partLc = combo.leistungenLc[i];
@@ -2325,14 +2358,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             ValueListenableBuilder<Map<String, _ComboSelection>>(
                               valueListenable: _selectedCombosVN,
                               builder: (_, map, __) {
-                                final selected = map.containsKey(
-                                  _comboSelectionKey(zielgruppe: _zielgruppe, combo: combo),
+                                final comboKey = _comboSelectionKey(
+                                  zielgruppe: _zielgruppe,
+                                  combo: combo,
                                 );
+                                final selectedCombo = map[comboKey];
+                                final selected = selectedCombo != null;
+                                final rowPrice = selectedCombo?.preis ?? displayPreis;
 
                                 return Row(
                                   children: [
                                     Text(
-                                      _preisText(displayPreis),
+                                      _preisText(rowPrice),
                                       style: const TextStyle(
                                         color: Colors.black54,
                                         fontSize: 13,
