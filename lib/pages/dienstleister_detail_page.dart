@@ -353,6 +353,52 @@ double? _previewForLastMissingPart({
   return best;
 }
 
+double? _previewForComboGroup({
+  required Offer combo,
+  required String category,
+  required String zielgruppe,
+  required Set<String> requiredBasePartsLc,
+  required Set<String> selectedPartsLc,
+  required Map<String, _CartItem> selectionMap,
+  required Map<String, Offer> singleBaseIndex,
+}) {
+  if (!requiredBasePartsLc.every(selectedPartsLc.contains)) return null;
+
+  final bundlePrice = combo.priceFor(zielgruppe);
+  if (bundlePrice == null) return null;
+
+  double baseContribution = 0.0;
+  for (final baseLc in requiredBasePartsLc) {
+    final sel = selectionMap.values.firstWhere(
+          (it) =>
+      it.kategorie == category &&
+          it.zielgruppe == zielgruppe &&
+          it.leistung.toLowerCase() == baseLc,
+      orElse: () => const _CartItem(
+        kategorie: '',
+        leistung: '',
+        preis: null,
+        dauer: null,
+        zielgruppe: '',
+        selectedAt: 0,
+      ),
+    );
+    if (sel.kategorie.isNotEmpty && sel.lockedDisplayPrice != null) {
+      baseContribution += sel.lockedDisplayPrice!;
+    } else {
+      baseContribution += _singlePriceOfPart(
+        category: category,
+        zielgruppe: zielgruppe,
+        partLc: baseLc,
+        selectionMap: selectionMap,
+        singleBaseIndex: singleBaseIndex,
+      );
+    }
+  }
+
+  return (bundlePrice - baseContribution).clamp(0.0, double.infinity);
+}
+
 /// ---------------------------------------------------------------
 /// Methode-Option fürs BottomSheet
 /// ---------------------------------------------------------------
@@ -378,6 +424,20 @@ class _ComboRow {
     required this.bundle,
     required this.extrasDisplay,
     required this.extrasLc,
+  });
+}
+
+class _ComboGroupRow {
+  final Offer bundle;
+  final List<String> missingDisplay;
+  final List<String> missingLc;
+  final Set<String> requiredBaseLc;
+
+  const _ComboGroupRow({
+    required this.bundle,
+    required this.missingDisplay,
+    required this.missingLc,
+    required this.requiredBaseLc,
   });
 }
 
@@ -821,6 +881,90 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         removedPartLc: item.leistung.toLowerCase(),
       );
     }
+
+    _selectedVN.value = map;
+    _selectedCombosVN.value = combos;
+  }
+
+  void _toggleGroupSelection({
+    required String category,
+    required Offer combo,
+    required List<String> partsDisplay,
+    required List<String> partsLc,
+    required Set<String> requiredBasePartsLc,
+    required Map<String, Offer> singleBaseIndex,
+  }) {
+    final map = Map<String, _CartItem>.from(_selectedVN.value);
+    final combos = Map<String, _ComboSelection>.from(_selectedCombosVN.value);
+    final zg = _zielgruppe;
+
+    if (_hasItemsFromOtherZielgruppe(zg)) {
+      final other = map.values.isNotEmpty
+          ? map.values.first.zielgruppe
+          : _selectedCombosVN.value.values.first.zielgruppe;
+      _showWrongGroupSnack(other);
+      return;
+    }
+
+    final selectedAll = partsLc.every(
+          (lc) => map.containsKey(_keyFor(zielgruppe: zg, category: category, partLc: lc)),
+    );
+
+    if (selectedAll) {
+      for (final partLc in partsLc) {
+        final key = _keyFor(zielgruppe: zg, category: category, partLc: partLc);
+        map.remove(key);
+        _removeDependentSelections(
+          selectionMap: map,
+          zielgruppe: zg,
+          category: category,
+          removedPartLc: partLc,
+        );
+      }
+      _selectedVN.value = map;
+      return;
+    }
+
+    final selectedPartsLc = map.values
+        .where((it) => it.kategorie == category && it.zielgruppe == zg)
+        .map((it) => it.leistung.toLowerCase())
+        .toSet();
+
+    final remainder = _previewForComboGroup(
+      combo: combo,
+      category: category,
+      zielgruppe: zg,
+      requiredBasePartsLc: requiredBasePartsLc,
+      selectedPartsLc: selectedPartsLc,
+      selectionMap: map,
+      singleBaseIndex: singleBaseIndex,
+    );
+    if (remainder == null) return;
+
+    final perPartPrice =
+        (remainder ?? 0.0) / (partsLc.isEmpty ? 1 : partsLc.length);
+
+    for (int i = 0; i < partsLc.length; i++) {
+      final partLc = partsLc[i];
+      final partDisplay = partsDisplay[i];
+      final key = _keyFor(zielgruppe: zg, category: category, partLc: partLc);
+      map[key] = _CartItem(
+        kategorie: category,
+        leistung: partDisplay,
+        preis: perPartPrice,
+        dauer: null,
+        zielgruppe: zg,
+        selectedAt: ++_selectionTicker,
+        lockedDisplayPrice: perPartPrice,
+      );
+    }
+
+    combos.removeWhere(
+          (_, comboSel) =>
+      comboSel.zielgruppe == zg &&
+          comboSel.bundle.kategorie == category &&
+          comboSel.bundle.leistungenLc.any(partsLc.contains),
+    );
 
     _selectedVN.value = map;
     _selectedCombosVN.value = combos;
@@ -1692,22 +1836,31 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           final Map<String, List<Offer>> derivedSinglesByCategory = {};
           final Map<String, List<Set<String>>> dependentRequirements = {};
           final Map<String, Offer> derivedSinglesIndex = {};
+          final Map<String, List<_ComboGroupRow>> comboGroupRowsByCategory = {};
 
           combosByCategory.forEach((cat, list) {
             final baseParts = singlePartsByCategory[cat] ?? const <String>{};
             for (final combo in list) {
+              final baseInCombo = combo.leistungenLc.where(baseParts.contains).toSet();
+              if (baseInCombo.isEmpty) continue;
 
+              final missingParts = <String>[];
+              final missingDisplay = <String>[];
               for (int i = 0; i < combo.leistungenLc.length; i++) {
                 final partLc = combo.leistungenLc[i];
                 if (baseParts.contains(partLc)) continue;
+                missingParts.add(partLc);
+                missingDisplay.add(combo.leistungen[i]);
+              }
 
+              if (missingParts.length == 1) {
+                final partLc = missingParts.first;
                 final key = '$cat|$partLc';
-                final requiredParts = combo.leistungenLc
-                    .where((lc) => lc != partLc)
-                    .toSet();
+                final requiredParts =
+                combo.leistungenLc.where((lc) => lc != partLc).toSet();
                 if (requiredParts.isEmpty) continue;
 
-                final partDisplay = combo.leistungen[i];
+                final partDisplay = missingDisplay.first;
                 final synthetic = Offer(
                   id: 'combo-extra:${combo.id}:$partLc',
                   kategorie: cat,
@@ -1724,6 +1877,43 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 derivedSinglesIndex[key] = synthetic;
                 derivedSinglesByCategory.putIfAbsent(cat, () => []).add(synthetic);
               }
+            }
+          });
+
+          combosByCategory.forEach((cat, list) {
+            final baseParts = singlePartsByCategory[cat] ?? const <String>{};
+            for (final combo in list) {
+              final baseInCombo = combo.leistungenLc.where(baseParts.contains).toSet();
+              if (baseInCombo.isEmpty) continue;
+
+              final missingParts = <String>[];
+              final missingDisplay = <String>[];
+              for (int i = 0; i < combo.leistungenLc.length; i++) {
+                final partLc = combo.leistungenLc[i];
+                if (baseParts.contains(partLc)) continue;
+                missingParts.add(partLc);
+                missingDisplay.add(combo.leistungen[i]);
+              }
+
+              if (missingParts.length <= 1) continue;
+
+              final hasIndividual =
+              missingParts.any((partLc) => derivedSinglesIndex.containsKey('$cat|$partLc'));
+              if (hasIndividual) continue;
+
+              for (final partLc in missingParts) {
+                final key = '$cat|$partLc';
+                dependentRequirements.putIfAbsent(key, () => []).add(baseInCombo);
+              }
+
+              comboGroupRowsByCategory.putIfAbsent(cat, () => []).add(
+                _ComboGroupRow(
+                  bundle: combo,
+                  missingDisplay: missingDisplay,
+                  missingLc: missingParts,
+                  requiredBaseLc: baseInCombo,
+                ),
+              );
             }
           });
 
@@ -2241,6 +2431,138 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     },
                                     icon: Icon(selected ? Icons.check_circle : Icons.add_circle_outline),
                                     color: selected ? Colors.blueAccent : null,
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            final groupRows = [...(comboGroupRowsByCategory[kat] ?? const <_ComboGroupRow>[])];
+            groupRows.sort(
+                  (a, b) => a.missingDisplay
+                  .join(' + ')
+                  .toLowerCase()
+                  .compareTo(b.missingDisplay.join(' + ').toLowerCase()),
+            );
+
+            for (final group in groupRows) {
+              final groupTitle = group.missingDisplay.join(' + ');
+              final groupPartsLc = group.missingLc;
+              final groupPartsDisplay = group.missingDisplay;
+              final groupPrice = group.bundle.priceFor(_zielgruppe);
+              final groupMinPrice = _minSizePriceFor(group.bundle, _zielgruppe);
+              final hasGroupSizeOptions = _hasSizeOptions(group.bundle, _zielgruppe);
+              if (groupPrice == null && groupMinPrice == null && !hasGroupSizeOptions) continue;
+              children.add(
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: Color(0xFFE5E5E5)),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            groupTitle,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        SizedBox(
+                          width: kDurColWidth,
+                          child: const SizedBox.shrink(),
+                        ),
+                        SizedBox(
+                          width: kRightColWidth,
+                          child: ValueListenableBuilder<Map<String, _CartItem>>(
+                            valueListenable: _selectedVN,
+                            builder: (_, map, __) {
+                              final selectedPartsLc = map.values
+                                  .where((it) => it.kategorie == kat && it.zielgruppe == _zielgruppe)
+                                  .map((it) => it.leistung.toLowerCase())
+                                  .toSet();
+                              final selectedAll = groupPartsLc.every(selectedPartsLc.contains);
+                              final previewPrice = selectedAll
+                                  ? null
+                                  : _previewForComboGroup(
+                                combo: group.bundle,
+                                category: kat,
+                                zielgruppe: _zielgruppe,
+                                requiredBasePartsLc: group.requiredBaseLc,
+                                selectedPartsLc: selectedPartsLc,
+                                selectionMap: map,
+                                singleBaseIndex: singleBaseIndex,
+                              );
+                              final canAdd = previewPrice != null;
+                              final canInteract = selectedAll || canAdd;
+
+                              double displayPrice;
+
+                              if (selectedAll) {
+                                displayPrice = 0.0;
+                                for (final partLc in groupPartsLc) {
+                                  final key = _keyFor(
+                                    zielgruppe: _zielgruppe,
+                                    category: kat,
+                                    partLc: partLc,
+                                  );
+                                  final item = map[key];
+                                  displayPrice += item?.lockedDisplayPrice ?? item?.preis ?? 0.0;
+                                }
+                              } else {
+                                displayPrice = previewPrice ?? 0.0;
+                              }
+
+
+                              final priceColor =
+                              (displayPrice != null && canAdd) ? Colors.green : Colors.black54;
+
+                              return Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    _preisText(displayPrice),
+                                    style: TextStyle(
+                                      color: priceColor,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  IconButton(
+                                    tooltip: selectedAll
+                                        ? 'Entfernen'
+                                        : (canAdd ? 'Hinzufügen' : 'Nur mit vorheriger Auswahl'),
+                                    onPressed: !canInteract
+                                        ? null
+                                        : () {
+                                      _toggleGroupSelection(
+                                        category: kat,
+                                        combo: group.bundle,
+                                        partsDisplay: groupPartsDisplay,
+                                        partsLc: groupPartsLc,
+                                        requiredBasePartsLc: group.requiredBaseLc,
+                                        singleBaseIndex: singleBaseIndex,
+                                      );
+                                    },
+                                    icon: Icon(
+                                      selectedAll ? Icons.check_circle : Icons.add_circle_outline,
+                                    ),
+                                    color: selectedAll ? Colors.blueAccent : null,
                                   ),
                                 ],
                               );
