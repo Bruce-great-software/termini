@@ -292,6 +292,7 @@ double? _lockedPriceForNewSelection({
   return null;
 }
 
+
 // Vorschau-Preis, wenn dieses letzte Teil ein Bundle vervollständigt
 double? _previewForLastMissingPart({
   required String category,
@@ -301,6 +302,7 @@ double? _previewForLastMissingPart({
   required Map<String, _CartItem> selectionMap,
   required Map<String, Offer> singleBaseIndex,
   required List<Offer> bundles,
+
 }) {
   double? best;
 
@@ -361,10 +363,11 @@ double? _previewForComboGroup({
   required Set<String> selectedPartsLc,
   required Map<String, _CartItem> selectionMap,
   required Map<String, Offer> singleBaseIndex,
+  double? bundlePriceOverride,
 }) {
   if (!requiredBasePartsLc.every(selectedPartsLc.contains)) return null;
 
-  final bundlePrice = combo.priceFor(zielgruppe);
+  final bundlePrice = bundlePriceOverride ?? combo.priceFor(zielgruppe);
   if (bundlePrice == null) return null;
 
   double baseContribution = 0.0;
@@ -796,6 +799,68 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   int? _displayDurationFor(Offer o, String zg) {
     return o.durationFor(zg) ?? _minSizeDurationFor(o, zg);
   }
+  String? _selectedSizeKeyFromSelection({
+    required Offer combo,
+    required String category,
+    required String zielgruppe,
+    required Set<String> requiredBasePartsLc,
+    required Map<String, _CartItem> selectionMap,
+  }) {
+    final sizeMap = _sizeMapForOffer(combo, zielgruppe);
+    if (sizeMap.isEmpty) return null;
+
+    final sizeKeys = _sortedSizeKeys(sizeMap.keys.map((e) => e.toString()));
+    if (sizeKeys.isEmpty) return null;
+
+    for (final key in sizeKeys) {
+      final keyLc = key.toLowerCase();
+      final match = selectionMap.values.firstWhere(
+            (it) =>
+        it.kategorie == category &&
+            it.zielgruppe == zielgruppe &&
+            requiredBasePartsLc.contains(it.leistung.toLowerCase()) &&
+            (it.varianteLabel?.toLowerCase().contains(keyLc) ?? false),
+        orElse: () => const _CartItem(
+          kategorie: '',
+          leistung: '',
+          preis: null,
+          dauer: null,
+          zielgruppe: '',
+          selectedAt: 0,
+        ),
+      );
+      if (match.kategorie.isNotEmpty) {
+        return key;
+      }
+    }
+    return null;
+  }
+
+  double? _bundlePriceForCombo({
+    required Offer combo,
+    required String zielgruppe,
+    String? sizeKey,
+  }) {
+    final sizeMap = _sizeMapForOffer(combo, zielgruppe);
+    if (sizeKey != null && sizeMap.isNotEmpty) {
+      final price = _sizePrice(sizeMap, sizeKey);
+      if (price != null) return price;
+    }
+    return combo.priceFor(zielgruppe) ?? _minSizePriceFor(combo, zielgruppe);
+  }
+
+  int? _bundleDurationForCombo({
+    required Offer combo,
+    required String zielgruppe,
+    String? sizeKey,
+  }) {
+    final sizeMap = _sizeMapForOffer(combo, zielgruppe);
+    if (sizeKey != null && sizeMap.isNotEmpty) {
+      final duration = _sizeDuration(sizeMap, sizeKey);
+      if (duration != null) return duration;
+    }
+    return combo.durationFor(zielgruppe) ?? _minSizeDurationFor(combo, zielgruppe);
+  }
 
   bool _isBetterOfferForDisplay(Offer candidate, Offer existing, String zg) {
     int score(Offer o) {
@@ -938,6 +1003,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       selectedPartsLc: selectedPartsLc,
       selectionMap: map,
       singleBaseIndex: singleBaseIndex,
+      bundlePriceOverride: _bundlePriceForCombo(
+        combo: combo,
+        zielgruppe: zg,
+        sizeKey: _selectedSizeKeyFromSelection(
+          combo: combo,
+          category: category,
+          zielgruppe: zg,
+          requiredBasePartsLc: requiredBasePartsLc,
+          selectionMap: map,
+        ),
+      ),
     );
     if (remainder == null) return;
 
@@ -1301,8 +1377,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         Builder(
                           builder: (_) {
                             final row = combineRows[i];
-                            final bundlePrice = row.bundle.priceFor(zg);
-                            final bundleDur = row.bundle.durationFor(zg);
+                            final bundlePrice = _bundlePriceForCombo(
+                              combo: row.bundle,
+                              zielgruppe: zg,
+                              sizeKey: selectedSizeKey,
+                            );
+                            final bundleDur = _bundleDurationForCombo(
+                              combo: row.bundle,
+                              zielgruppe: zg,
+                              sizeKey: selectedSizeKey,
+                            );
                             final label = row.extrasDisplay.join('  &  ');
                             final checked = selectedComboIdx.contains(i);
 
@@ -2496,6 +2580,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   .map((it) => it.leistung.toLowerCase())
                                   .toSet();
                               final selectedAll = groupPartsLc.every(selectedPartsLc.contains);
+                              final comboSizeKey = _selectedSizeKeyFromSelection(
+                                combo: group.bundle,
+                                category: kat,
+                                zielgruppe: _zielgruppe,
+                                requiredBasePartsLc: group.requiredBaseLc,
+                                selectionMap: map,
+                              );
                               final previewPrice = selectedAll
                                   ? null
                                   : _previewForComboGroup(
@@ -2506,6 +2597,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 selectedPartsLc: selectedPartsLc,
                                 selectionMap: map,
                                 singleBaseIndex: singleBaseIndex,
+                                bundlePriceOverride: _bundlePriceForCombo(
+                                  combo: group.bundle,
+                                  zielgruppe: _zielgruppe,
+                                  sizeKey: comboSizeKey,
+                                ),
                               );
                               final canAdd = previewPrice != null;
                               final canInteract = selectedAll || canAdd;
