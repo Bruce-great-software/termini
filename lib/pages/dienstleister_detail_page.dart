@@ -381,6 +381,15 @@ class _ComboRow {
   });
 }
 
+class _BundleRemainder {
+  final double? price;
+  final int? duration;
+
+  const _BundleRemainder({
+    required this.price,
+    required this.duration,
+  });
+}
 // Key-Helfer: unterscheidet Zielgruppe!
 String _keyFor({
   required String zielgruppe,
@@ -705,6 +714,125 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return null;
   }
 
+
+  String? _sizeKeyFromVariantLabel(String? label, Iterable<String> sizeKeys) {
+    if (label == null || label.trim().isEmpty) return null;
+    final parts = label.split('•').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    if (parts.isEmpty) return null;
+    final candidate = parts.last.toLowerCase();
+    for (final key in sizeKeys) {
+      final k = key.toString();
+      if (k.toLowerCase() == candidate) {
+        return k;
+      }
+    }
+    return null;
+  }
+
+  String? _selectedSizeKeyForBundleParts({
+    required Offer bundle,
+    required String category,
+    required String zielgruppe,
+    required Set<String> partsLc,
+    required Map<String, _CartItem> selectionMap,
+  }) {
+    final sizeMap = _sizeMapForOffer(bundle, zielgruppe);
+    if (sizeMap.isEmpty) return null;
+    final sizeKeys = sizeMap.keys.map((e) => e.toString());
+    for (final item in selectionMap.values) {
+      if (item.kategorie != category || item.zielgruppe != zielgruppe) continue;
+      if (!partsLc.contains(item.leistung.toLowerCase())) continue;
+      final key = _sizeKeyFromVariantLabel(item.varianteLabel, sizeKeys);
+      if (key != null) return key;
+    }
+    return null;
+  }
+
+  _BundleRemainder? _bestBundleRemainderForPart({
+    required String category,
+    required String zielgruppe,
+    required String partLc,
+    required Map<String, _CartItem> selectionMap,
+    required Map<String, Offer> singleBaseIndex,
+    required List<Offer> bundles,
+  }) {
+    double? bestPrice;
+    int? bestDuration;
+
+    final selectedPartsLc = selectionMap.values
+        .where((it) => it.kategorie == category && it.zielgruppe == zielgruppe)
+        .map((it) => it.leistung.toLowerCase())
+        .toSet();
+
+    for (final bundle in bundles) {
+      if (bundle.kategorie != category) continue;
+      if (!bundle.leistungenLc.contains(partLc)) continue;
+
+      final others = bundle.leistungenLc.where((lc) => lc != partLc).toSet();
+      if (others.isEmpty) continue;
+      if (!others.every(selectedPartsLc.contains)) continue;
+
+      final sizeMap = _sizeMapForOffer(bundle, zielgruppe);
+      final sizeKey = _selectedSizeKeyForBundleParts(
+        bundle: bundle,
+        category: category,
+        zielgruppe: zielgruppe,
+        partsLc: others,
+        selectionMap: selectionMap,
+      );
+
+      double? bundlePrice;
+      int? bundleDuration;
+      if (sizeMap.isNotEmpty && sizeKey != null) {
+        bundlePrice = _sizePrice(sizeMap, sizeKey);
+        bundleDuration = _sizeDuration(sizeMap, sizeKey);
+      }
+      bundlePrice ??= bundle.priceFor(zielgruppe);
+      bundleDuration ??= bundle.durationFor(zielgruppe);
+      if (bundlePrice == null) continue;
+
+      double othersContribution = 0.0;
+      for (final lc in others) {
+        final sel = selectionMap.values.firstWhere(
+              (it) =>
+          it.kategorie == category &&
+              it.zielgruppe == zielgruppe &&
+              it.leistung.toLowerCase() == lc,
+          orElse: () => const _CartItem(
+            kategorie: '',
+            leistung: '',
+            preis: null,
+            dauer: null,
+            zielgruppe: '',
+            selectedAt: 0,
+          ),
+        );
+
+        if (sel.kategorie.isNotEmpty && sel.lockedDisplayPrice != null) {
+          othersContribution += sel.lockedDisplayPrice!;
+        } else if (sel.kategorie.isNotEmpty && sel.preis != null) {
+          othersContribution += sel.preis!;
+        } else {
+          othersContribution += _singlePriceOfPart(
+            category: category,
+            zielgruppe: zielgruppe,
+            partLc: lc,
+            selectionMap: selectionMap,
+            singleBaseIndex: singleBaseIndex,
+          );
+        }
+      }
+
+      final remainder = (bundlePrice - othersContribution).clamp(0.0, double.infinity);
+      if (bestPrice == null || remainder < bestPrice!) {
+        bestPrice = remainder;
+        bestDuration = bundleDuration;
+      }
+    }
+
+    if (bestPrice == null) return null;
+    return _BundleRemainder(price: bestPrice, duration: bestDuration);
+  }
   double? _minSizePriceFor(Offer o, String zg) {
     final sizeMap = _sizeMapForOffer(o, zg);
     if (sizeMap.isEmpty) return null;
@@ -2084,10 +2212,28 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   requiredSets.any(
                                         (req) => req.every(selectedPartsLc.contains),
                                   );
+
+                              final derivedRemainder = isDerivedSingle
+                                  ? _bestBundleRemainderForPart(
+                                category: kat,
+                                zielgruppe: _zielgruppe,
+                                partLc: partLc,
+                                selectionMap: map,
+                                singleBaseIndex: singleBaseIndex,
+                                bundles: bundles,
+                              )
+                                  : null;
+                              final canAutoApplyDerived =
+                                  isDerivedSingle && derivedRemainder?.price != null;
                               final effectivePrice =
                                   selectedItem?.preis ??
-                                      ((canAdd && !isDerivedSingle) ? displayPreis : null);
+                                      (canAdd
+                                          ? (isDerivedSingle ? derivedRemainder?.price : displayPreis)
+                                          : null);
                               final canInteract = selected || canAdd;
+                              final shouldOpenSheet =
+                                  hasMethodVariants || (hasSizeOptionsBase && !canAutoApplyDerived);
+
 
                               return Row(
                                 mainAxisAlignment: MainAxisAlignment.end,
@@ -2175,14 +2321,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                                   : (!canAdd
                               ? 'Nur mit vorheriger Auswahl'
-                                        : ((hasMethodVariants || hasSizeOptionsBase)
+                                        : (shouldOpenSheet
                                         ? 'Methode/Option wählen'
                                         : 'Hinzufügen')),
                                     onPressed: !canInteract
                                         ? null
                                         : () {
 
-                                      if (hasMethodVariants || hasSizeOptionsBase) {
+                                      if (shouldOpenSheet) {
                                         if (selected) {
                                           final newMap =
                                           Map<String, _CartItem>.from(_selectedVN.value);
@@ -2257,17 +2403,24 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           bundles: bundles,
                                           newPartSinglePrice: singlePrice,
                                         );
+                                        final resolvedPrice =
+                                            (canAutoApplyDerived ? derivedRemainder?.price : null) ??
+                                                singlePrice;
+                                        final resolvedDuration =
+                                            (canAutoApplyDerived ? derivedRemainder?.duration : null) ??
+                                                dauer;
 
                                         _toggleSelection(
                                           selKey,
                                           _CartItem(
                                             kategorie: kat,
                                             leistung: partDisplay,
-                                            preis: singlePrice,
-                                            dauer: dauer,
+                                            preis: resolvedPrice,
+                                            dauer: resolvedDuration,
                                             zielgruppe: _zielgruppe,
                                             selectedAt: ++_selectionTicker,
-                                            lockedDisplayPrice: locked,
+                                            lockedDisplayPrice:
+                                            canAutoApplyDerived ? null : locked,
                                           ),
                                         );
                                       }
