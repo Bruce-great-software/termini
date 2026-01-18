@@ -1098,6 +1098,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     if (combos.containsKey(comboKey)) {
       combos.remove(comboKey);
     } else {
+      combos.removeWhere(
+            (_, comboSel) =>
+        comboSel.zielgruppe == zg &&
+            comboSel.bundle.kategorie == combo.kategorie &&
+            comboSel.bundle.leistungenLc.any(combo.leistungenLc.contains),
+      );
       for (final partLc in combo.leistungenLc) {
         final key = _keyFor(zielgruppe: zg, category: combo.kategorie, partLc: partLc);
         singles.remove(key);
