@@ -2721,35 +2721,44 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            if (displayDauer != null)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF2F4F7),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: Color(0xFFE5E7EB)),
-                                ),
-                                child: Text(
-                                  '$displayDauer Min',
-                                  style: const TextStyle(
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF374151),
-                                  ),
-                                ),
-                              ),
-                            if (displayDauer != null) const SizedBox(width: 8),
                             ValueListenableBuilder<Map<String, _ComboSelection>>(
                               valueListenable: _selectedCombosVN,
                               builder: (_, map, __) {
-                                final selected = map.containsKey(
-                                  _comboSelectionKey(zielgruppe: _zielgruppe, combo: combo),
+                                final comboKey = _comboSelectionKey(
+                                  zielgruppe: _zielgruppe,
+                                  combo: combo,
                                 );
+                                final selectedCombo = map[comboKey];
+                                final selected = selectedCombo != null;
+                                final effectivePrice = selectedCombo?.preis ?? displayPreis;
+                                final effectiveDuration = selectedCombo?.dauer ?? displayDauer;
 
                                 return Row(
                                   children: [
+                                    if (effectiveDuration != null) ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF2F4F7),
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(color: Color(0xFFE5E7EB)),
+                                        ),
+                                        child: Text(
+                                          '$effectiveDuration Min',
+                                          style: const TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFF374151),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                    ],
                                     Text(
-                                      _preisText(displayPreis),
+                                      _preisText(effectivePrice),
                                       style: const TextStyle(
                                         color: Colors.black54,
                                         fontSize: 13,
