@@ -2262,14 +2262,52 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     const SizedBox(height: 4),
                                     GestureDetector(
                                       onTap: openSheet,
-                                      child: Text(
-                                        // Nur die Methoden anzeigen – ohne „Standard“
-                                        sortedLabels.join(' | '),
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          color: Colors.black54,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
+                                      child: Builder(
+                                        builder: (_) {
+                                          final selectedItem = map[selKey];
+                                          String? selectedMethod;
+                                          final rawLabel = selectedItem?.varianteLabel;
+                                          if (rawLabel != null && rawLabel.isNotEmpty) {
+                                            final parts = rawLabel.split('•');
+                                            selectedMethod = parts.first.trim();
+                                          }
+                                          final spans = <TextSpan>[];
+                                          for (int i = 0; i < sortedLabels.length; i++) {
+                                            final label = sortedLabels[i];
+                                            final isSelected = selectedMethod != null &&
+                                                label.toLowerCase() ==
+                                                    selectedMethod!.toLowerCase();
+                                            spans.add(
+                                              TextSpan(
+                                                text: label,
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: isSelected
+                                                      ? Colors.green
+                                                      : Colors.black54,
+                                                  fontWeight:
+                                                      isSelected ? FontWeight.w700 : FontWeight.w500,
+                                                ),
+                                              ),
+                                            );
+                                            if (i != sortedLabels.length - 1) {
+                                              spans.add(
+                                                const TextSpan(
+                                                  text: ' | ',
+                                                  style: TextStyle(
+                                                    fontSize: 13,
+                                                    color: Colors.black54,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                          }
+                                          return RichText(
+                                            text: TextSpan(children: spans),
+                                            overflow: TextOverflow.ellipsis,
+                                          );
+                                        },
                                       ),
                                     ),
                                   ],
