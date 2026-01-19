@@ -2391,6 +2391,33 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     if (selected) {
                                       final locked = selectedItem?.lockedDisplayPrice;
                                       if (locked != null) {
+                                        if (!isDerivedSingle && effectivePrice != null) {
+                                          return Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            crossAxisAlignment: CrossAxisAlignment.end,
+                                            children: [
+                                              Text(
+                                                _preisText(effectivePrice),
+                                                style: const TextStyle(
+                                                  color: Colors.black45,
+                                                  fontSize: 12.5,
+                                                  fontWeight: FontWeight.w500,
+                                                  decoration: TextDecoration.lineThrough,
+                                                  decorationThickness: 2,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                _preisText(locked),
+                                                style: const TextStyle(
+                                                  color: Colors.green,
+                                                  fontSize: 13.5,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                            ],
+                                          );
+                                        }
                                         return Text(
                                           _preisText(locked),
                                           style: const TextStyle(
@@ -2901,6 +2928,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         ? computeTotals(map, combos)
                         : const _CartTotals(naive: 0.0, optimized: 0.0);
                     final total = hasSelection ? totals.optimized : 0.0;
+                    final savings = hasSelection ? totals.savings : 0.0;
                     final count = map.length + combos.length;
 
                     return IgnorePointer(
@@ -2916,6 +2944,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               ? _BookingBar(
                             count: count,
                             total: total,
+                            savings: savings,
                             onPressed: () {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
@@ -2943,6 +2972,11 @@ class _CartTotals {
   final double naive; // Summe aller Einzelpreise ohne Kombi
   final double optimized; // Beste Summe mit Kombi-Rabatten
   const _CartTotals({required this.naive, required this.optimized});
+
+  double get savings {
+    final s = naive - optimized;
+    return s > 0 ? s : 0.0;
+  }
 }
 
 /// ---------------------------------------------------------------
@@ -2951,12 +2985,14 @@ class _CartTotals {
 class _BookingBar extends StatelessWidget {
   final int count;
   final double? total;
+  final double savings;
   final VoidCallback onPressed;
 
   const _BookingBar({
     required this.count,
     required this.total,
     required this.onPressed,
+    this.savings = 0.0,
   });
 
   String _formatEuro(double v) {
@@ -3014,6 +3050,25 @@ class _BookingBar extends StatelessWidget {
             ),
 
             const SizedBox(width: 8),
+
+            if (savings > 0.0) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  'Spare ${_formatEuro(savings)}',
+                  style: const TextStyle(
+                    color: kBrandOrange,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
 
             const Expanded(
               child: Center(
