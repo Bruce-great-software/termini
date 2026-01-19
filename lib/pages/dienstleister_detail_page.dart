@@ -2376,8 +2376,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         (req) => req.every(selectedPartsLc.contains),
                                   );
                               final effectivePrice =
-                                  selectedItem?.preis ??
-                                      ((canAdd && !isDerivedSingle) ? displayPreis : null);
+                                  selectedItem?.preis ?? (canAdd ? displayPreis : null);
                               final canInteract = selected || canAdd;
 
                               return Row(
