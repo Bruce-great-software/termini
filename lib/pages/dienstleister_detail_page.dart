@@ -2069,8 +2069,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
               double _singlePriceAt(int idx) {
                 final item = groupItems[idx];
+                final baseOffer = singleBaseIndex['$cat|${partsLc[idx]}'];
+                if (item.lockedDisplayPrice != null &&
+                    baseOffer != null &&
+                    baseOffer.id.startsWith('combo-extra:')) {
+                  return item.lockedDisplayPrice!;
+                }
                 double? p = item.preis;
-                p ??= singleBaseIndex['$cat|${partsLc[idx]}']?.priceFor(zg);
+                p ??= baseOffer?.priceFor(zg);
                 return p ?? 0.0;
               }
 
