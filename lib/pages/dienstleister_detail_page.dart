@@ -2391,8 +2391,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                                     if (selected) {
                                       final locked = selectedItem?.lockedDisplayPrice;
-                                      if (locked != null && effectivePrice != null && locked < effectivePrice) {
-                                        newPrice = locked;
+                                      if (locked != null) {
+                                        return Text(
+                                          _preisText(locked),
+                                          style: const TextStyle(
+                                            color: Colors.green,
+                                            fontSize: 13.5,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        );
                                       }
                                     } else {
                                       preview = _previewForLastMissingPart(
