@@ -2411,6 +2411,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         bundles: bundles,
                                       );
                                       if (preview != null && effectivePrice != null && preview < effectivePrice) {
+                                        if (isDerivedSingle) {
+                                          return Text(
+                                            _preisText(preview),
+                                            style: const TextStyle(
+                                              color: Colors.green,
+                                              fontSize: 13.5,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          );
+                                        }
                                         newPrice = preview;
                                       }
                                     }
