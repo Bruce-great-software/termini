@@ -273,14 +273,32 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
 
   // ---------- Methoden laden / Sheet ----------
   Future<List<String>> _ladeMethodenFuerLeistung(String leistungstitel) async {
-    final snap =
-    await FirebaseFirestore.instance.collection('leistungen').doc(leistungstitel).get();
-    if (!snap.exists) return [];
-    final data = snap.data() as Map<String, dynamic>;
+    final kategorie = ausgewaehlteLeistungskategorie?.trim();
+    final branche = aktuelleBranche?.trim();
 
-    if (data['methoden'] is List) return List<String>.from(data['methoden']);
-    if (data['varianten'] is List) return List<String>.from(data['varianten']); // Legacy
-    return <String>[];
+    final snapshot = await FirebaseFirestore.instance.collection('methoden').get();
+    final gefiltert = snapshot.docs.where((doc) {
+      final data = doc.data();
+      final leistungen = List<String>.from(data['leistungen'] ?? const []);
+      if (!leistungen.contains(leistungstitel)) return false;
+
+      if (kategorie != null && kategorie.isNotEmpty) {
+        final kategorien = List<String>.from(data['leistungskategorien'] ?? const []);
+        if (!kategorien.contains(kategorie)) return false;
+      }
+
+      if (branche != null && branche.isNotEmpty) {
+        final branchen = List<String>.from(data['branchen'] ?? const []);
+        final brancheLower = branche.toLowerCase();
+        final normalized = branchen.map((b) => b.toLowerCase()).toList();
+        if (!normalized.contains(brancheLower)) return false;
+      }
+
+      return true;
+    }).map((doc) => doc.id).toList();
+
+    gefiltert.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return gefiltert;
   }
 
   Future<String?> _zeigeMethodenSheet(
