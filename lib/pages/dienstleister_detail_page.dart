@@ -1892,8 +1892,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           // ---- Docs in Modelle umwandeln, Singles/Bundles trennen ----
           final all = snap.data!.docs.map((d) => Offer.fromDoc(d)).toList();
 
-          // Singles = genau 1 Leistung
-          final singles = all.where((o) => !o.isBundle && o.leistungen.length == 1).toList();
+          // Singles = genau 1 Leistung (auch wenn isBundle fälschlich gesetzt wurde)
+          final singles = all.where((o) => o.leistungen.length == 1).toList();
 
           // In der Liste zeigen wir NUR die Basiseinträge (varianten.isEmpty)
           final singlesBase = singles.where((o) => o.varianten.isEmpty).toList();
@@ -1902,7 +1902,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           final singleVariants = singles.where((o) => o.varianten.length == 1).toList();
 
           // Bundles
-          final bundles = all.where((o) => o.isBundle && o.leistungen.length >= 2).toList();
+          final bundles = all.where((o) => o.leistungen.length >= 2).toList();
 
           // ---------- SYNTHETISCHE BASIS-EINTRÄGE AUS METHODEN ----------
           final Map<String, List<Offer>> variantsByPart = {};
