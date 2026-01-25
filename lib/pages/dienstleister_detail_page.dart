@@ -3284,6 +3284,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       tooltip:
                                           selected ? 'Auswahl ändern' : 'Kombi hinzufügen',
                                       onPressed: () {
+                                        if (selectedCombo != null) {
+                                          final combosMap = Map<String, _ComboSelection>.from(
+                                            _selectedCombosVN.value,
+                                          );
+                                          combosMap.remove(
+                                            _comboSelectionKey(
+                                              zielgruppe: _zielgruppe,
+                                              combo: selectedCombo!.bundle,
+                                            ),
+                                          );
+                                          _selectedCombosVN.value = combosMap;
+                                          return;
+                                        }
                                         _openComboMethodSheet(combos: group.offers);
                                       },
                                       icon: Icon(
