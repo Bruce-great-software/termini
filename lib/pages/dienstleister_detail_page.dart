@@ -2000,16 +2000,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               variantsAvailable[key]!.add(v.varianten.first);
             }
           }
+          final Map<String, Set<String>> comboMethodLabelsByPart = {};
           for (final b in bundles) {
             if (b.varianten.isEmpty) continue;
             if (!_hasZielgruppenData(b, _zielgruppe)) continue;
             for (final partLc in b.leistungenLc) {
               final key = '${b.kategorie}|$partLc';
-              variantsAvailable.putIfAbsent(key, () => <String>{});
+              comboMethodLabelsByPart.putIfAbsent(key, () => <String>{});
               for (final label in b.varianten) {
                 final trimmed = label.trim();
                 if (trimmed.isEmpty) continue;
-                variantsAvailable[key]!.add(trimmed);
+                comboMethodLabelsByPart[key]!.add(trimmed);
               }
             }
           }
@@ -2279,7 +2280,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 ..sort((a, b) => a.length.compareTo(b.length))).first;
 
               final variantKey = '$kat|$partLc';
-              final labelsSet = variantsAvailable[variantKey] ?? {};
+              final labelsSet = variantsAvailable[variantKey] ??
+                  comboMethodLabelsByPart[variantKey] ??
+                  {};
               final hasMethodVariants = labelsSet.isNotEmpty;
               final sortedLabels = labelsSet.toList()
                 ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
@@ -2289,7 +2292,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 final o = singleVariantIndex['$kat|$partLc|${label.toLowerCase()}'];
                 if (o != null && _hasZielgruppenData(o, _zielgruppe)) {
                   variantOffersForPart.add(o);
-                } else {
+                } else if (comboMethodLabelsByPart.containsKey(variantKey)) {
                   variantOffersForPart.add(_cloneOfferWithMethod(offer, label));
                 }
               }
