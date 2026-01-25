@@ -2732,18 +2732,47 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   if (hasMethodVariants) ...[
-                                    const SizedBox(height: 4),
+                                    const SizedBox(height: 6),
                                     GestureDetector(
                                       onTap: openSheet,
-                                      child: Text(
-                                        // Nur die Methoden anzeigen – ohne „Standard“
-                                        sortedLabels.join(' | '),
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          color: Colors.black54,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
+                                      child: Builder(builder: (context) {
+                                        final selectedLabel =
+                                            map[selKey]?.varianteLabel?.split(' • ').first;
+                                        return Wrap(
+                                          spacing: 6,
+                                          runSpacing: 6,
+                                          children: [
+                                            for (final label in sortedLabels)
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 8,
+                                                  vertical: 4,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: label == selectedLabel
+                                                      ? const Color(0xFF34C759)
+                                                      : Colors.white,
+                                                  borderRadius: BorderRadius.circular(6),
+                                                  border: Border.all(
+                                                    color: label == selectedLabel
+                                                        ? const Color(0xFF34C759)
+                                                        : const Color(0xFFBDBDBD),
+                                                  ),
+                                                ),
+                                                child: Text(
+                                                  label,
+                                                  style: TextStyle(
+                                                    fontSize: 12.5,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: label == selectedLabel
+                                                        ? Colors.white
+                                                        : Colors.black54,
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
+                                        );
+                                      }),
                                     ),
                                   ],
                                 ],
