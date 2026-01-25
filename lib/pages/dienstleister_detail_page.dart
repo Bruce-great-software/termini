@@ -3197,14 +3197,54 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         if (methodLabels.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            methodLabels.join('  '),
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: Colors.black54,
-                            ),
-                            overflow: TextOverflow.ellipsis,
+                          const SizedBox(height: 6),
+                          ValueListenableBuilder<Map<String, _ComboSelection>>(
+                            valueListenable: _selectedCombosVN,
+                            builder: (_, map, __) {
+                              String? selectedMethodLabel;
+                              for (final comboSel in map.values) {
+                                if (comboSel.zielgruppe == _zielgruppe &&
+                                    comboSel.bundle.kategorie == kat &&
+                                    _comboGroupKey(comboSel.bundle) == group.groupKey) {
+                                  selectedMethodLabel = _comboMethodLabelSingle(comboSel.bundle);
+                                  break;
+                                }
+                              }
+                              return Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  for (final label in methodLabels)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: label == selectedMethodLabel
+                                            ? const Color(0xFF34C759)
+                                            : Colors.white,
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(
+                                          color: label == selectedMethodLabel
+                                              ? const Color(0xFF34C759)
+                                              : const Color(0xFFBDBDBD),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        label,
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: label == selectedMethodLabel
+                                              ? Colors.white
+                                              : Colors.black54,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              );
+                            },
                           ),
                         ],
                         const SizedBox(height: 4),
