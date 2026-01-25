@@ -1895,6 +1895,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           // Bundles
           final bundles = all.where((o) => o.isBundle && o.leistungen.length >= 2).toList();
 
+          // Methoden aus Bundles ableiten (z. B. "Schneiden (Neuschnitt), Waschen")
+          final Map<String, Set<String>> comboMethodLabelsByPart = {};
+          for (final combo in bundles) {
+            if (!_hasZielgruppenData(combo, _zielgruppe)) continue;
+            final labels = _comboMethodLabels(combo);
+            if (labels.isEmpty || combo.leistungenLc.isEmpty) continue;
+            final partLc = combo.leistungenLc.first;
+            final key = '${combo.kategorie}|$partLc';
+            comboMethodLabelsByPart.putIfAbsent(key, () => <String>{}).addAll(labels);
+          }
+
           // ---------- SYNTHETISCHE BASIS-EINTRÄGE AUS METHODEN ----------
           final Map<String, List<Offer>> variantsByPart = {};
           for (final v in singleVariants) {
@@ -1977,6 +1988,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               variantsAvailable[key]!.add(v.varianten.first);
             }
           }
+          comboMethodLabelsByPart.forEach((key, labels) {
+            variantsAvailable.putIfAbsent(key, () => <String>{}).addAll(labels);
+          });
 
           // ---- Anzeige: Singles & Kombis – Kategorien-Union aufbauen ----
           final Map<String, List<Offer>> singlesByCategory = {};
@@ -2253,6 +2267,20 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 final o = singleVariantIndex['$kat|$partLc|${label.toLowerCase()}'];
                 if (o != null && _hasZielgruppenData(o, _zielgruppe)) {
                   variantOffersForPart.add(o);
+                } else {
+                  variantOffersForPart.add(
+                    Offer(
+                      id: 'synthetic-method:${offer.id}:${label.toLowerCase()}',
+                      kategorie: offer.kategorie,
+                      leistungen: offer.leistungen,
+                      leistungenLc: offer.leistungenLc,
+                      isBundle: false,
+                      comboKey: offer.comboKey,
+                      zielgruppen: offer.zielgruppen,
+                      varianten: [label],
+                      titleDisplay: offer.titleDisplay,
+                    ),
+                  );
                 }
               }
               final hasSizeOptionsFromVariants =
@@ -2535,6 +2563,20 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                             '$kat|$partLc|${label.toLowerCase()}'];
                                             if (o != null && _hasZielgruppenData(o, _zielgruppe)) {
                                               variantsForPart.add(o);
+                                            } else {
+                                              variantsForPart.add(
+                                                Offer(
+                                                  id: 'synthetic-method:${offer.id}:${label.toLowerCase()}',
+                                                  kategorie: offer.kategorie,
+                                                  leistungen: offer.leistungen,
+                                                  leistungenLc: offer.leistungenLc,
+                                                  isBundle: false,
+                                                  comboKey: offer.comboKey,
+                                                  zielgruppen: offer.zielgruppen,
+                                                  varianten: [label],
+                                                  titleDisplay: offer.titleDisplay,
+                                                ),
+                                              );
                                             }
 
                                           }
