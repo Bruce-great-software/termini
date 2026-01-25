@@ -2738,39 +2738,43 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       child: Builder(builder: (context) {
                                         final selectedLabel =
                                             map[selKey]?.varianteLabel?.split(' • ').first;
-                                        return Wrap(
-                                          spacing: 6,
-                                          runSpacing: 6,
-                                          children: [
-                                            for (final label in sortedLabels)
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(
-                                                  horizontal: 8,
-                                                  vertical: 4,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: label == selectedLabel
-                                                      ? const Color(0xFF34C759)
-                                                      : Colors.white,
-                                                  borderRadius: BorderRadius.circular(6),
-                                                  border: Border.all(
-                                                    color: label == selectedLabel
-                                                        ? const Color(0xFF34C759)
-                                                        : const Color(0xFFBDBDBD),
+                                        return SingleChildScrollView(
+                                          scrollDirection: Axis.horizontal,
+                                          child: Row(
+                                            children: [
+                                              for (final label in sortedLabels)
+                                                Padding(
+                                                  padding: const EdgeInsets.only(right: 6),
+                                                  child: Container(
+                                                    padding: const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 4,
+                                                    ),
+                                                    decoration: BoxDecoration(
+                                                      color: label == selectedLabel
+                                                          ? const Color(0xFF34C759)
+                                                          : Colors.white,
+                                                      borderRadius: BorderRadius.circular(6),
+                                                      border: Border.all(
+                                                        color: label == selectedLabel
+                                                            ? const Color(0xFF34C759)
+                                                            : const Color(0xFFBDBDBD),
+                                                      ),
+                                                    ),
+                                                    child: Text(
+                                                      label,
+                                                      style: TextStyle(
+                                                        fontSize: 12.5,
+                                                        fontWeight: FontWeight.w600,
+                                                        color: label == selectedLabel
+                                                            ? Colors.white
+                                                            : Colors.black54,
+                                                      ),
+                                                    ),
                                                   ),
                                                 ),
-                                                child: Text(
-                                                  label,
-                                                  style: TextStyle(
-                                                    fontSize: 12.5,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: label == selectedLabel
-                                                        ? Colors.white
-                                                        : Colors.black54,
-                                                  ),
-                                                ),
-                                              ),
-                                          ],
+                                            ],
+                                          ),
                                         );
                                       }),
                                     ),
@@ -3239,39 +3243,43 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   break;
                                 }
                               }
-                              return Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                children: [
-                                  for (final label in methodLabels)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: label == selectedMethodLabel
-                                            ? const Color(0xFF34C759)
-                                            : Colors.white,
-                                        borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(
-                                          color: label == selectedMethodLabel
-                                              ? const Color(0xFF34C759)
-                                              : const Color(0xFFBDBDBD),
+                              return SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    for (final label in methodLabels)
+                                      Padding(
+                                        padding: const EdgeInsets.only(right: 6),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: label == selectedMethodLabel
+                                                ? const Color(0xFF34C759)
+                                                : Colors.white,
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(
+                                              color: label == selectedMethodLabel
+                                                  ? const Color(0xFF34C759)
+                                                  : const Color(0xFFBDBDBD),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            label,
+                                            style: TextStyle(
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.w600,
+                                              color: label == selectedMethodLabel
+                                                  ? Colors.white
+                                                  : Colors.black54,
+                                            ),
+                                          ),
                                         ),
                                       ),
-                                      child: Text(
-                                        label,
-                                        style: TextStyle(
-                                          fontSize: 12.5,
-                                          fontWeight: FontWeight.w600,
-                                          color: label == selectedMethodLabel
-                                              ? Colors.white
-                                              : Colors.black54,
-                                        ),
-                                      ),
-                                    ),
-                                ],
+                                  ],
+                                ),
                               );
                             },
                           ),
