@@ -454,8 +454,12 @@ String _comboSelectionKey({
   required String zielgruppe,
   required Offer combo,
 }) {
-  final key = (combo.comboKey ?? combo.id).toLowerCase();
-  return '${zielgruppe.toLowerCase()}|${combo.kategorie.toLowerCase()}|$key';
+  return '${zielgruppe.toLowerCase()}|${combo.kategorie.toLowerCase()}|${combo.id.toLowerCase()}';
+}
+
+String _comboGroupKey(Offer combo) {
+  final key = combo.comboKey ?? combo.leistungenLc.join('|');
+  return key.toLowerCase();
 }
 
 /// ---------------------------------------------------------------
@@ -1146,10 +1150,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     final singles = Map<String, _CartItem>.from(_selectedVN.value);
     final combos = Map<String, _ComboSelection>.from(_selectedCombosVN.value);
     final comboKey = _comboSelectionKey(zielgruppe: zg, combo: combo);
+    final groupKey = _comboGroupKey(combo);
 
     if (combos.containsKey(comboKey)) {
       combos.remove(comboKey);
     } else {
+      combos.removeWhere(
+            (_, comboSel) =>
+        comboSel.zielgruppe == zg &&
+            comboSel.bundle.kategorie == combo.kategorie &&
+            _comboGroupKey(comboSel.bundle) == groupKey,
+      );
       for (final partLc in combo.leistungenLc) {
         final key = _keyFor(zielgruppe: zg, category: combo.kategorie, partLc: partLc);
         singles.remove(key);
@@ -1764,6 +1775,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             Map<String, _CartItem>.from(_selectedVN.value);
                             final combos =
                             Map<String, _ComboSelection>.from(_selectedCombosVN.value);
+                            final groupKey = _comboGroupKey(combo);
 
                             for (final partLc in combo.leistungenLc) {
                               final key = _keyFor(
@@ -1773,6 +1785,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               );
                               singles.remove(key);
                             }
+
+                            combos.removeWhere(
+                                  (_, comboSel) =>
+                              comboSel.zielgruppe == zg &&
+                                  comboSel.bundle.kategorie == combo.kategorie &&
+                                  _comboGroupKey(comboSel.bundle) == groupKey,
+                            );
 
                             combos[comboKey] = _ComboSelection(
                               bundle: combo,
