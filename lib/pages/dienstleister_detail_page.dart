@@ -790,6 +790,58 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return minDuration;
   }
 
+  List<String> _comboMethodLabels(Offer combo) {
+    final labels = combo.varianten
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (labels.isNotEmpty) {
+      return labels;
+    }
+    final match = RegExp(r'\(([^)]+)\)').firstMatch(combo.titleDisplay);
+    final extracted = match?.group(1)?.trim();
+    if (extracted != null && extracted.isNotEmpty) {
+      return [extracted];
+    }
+    return const [];
+  }
+
+  String? _comboMethodLabelForDisplay(Offer combo) {
+    final labels = _comboMethodLabels(combo);
+    if (labels.isEmpty) return null;
+    return labels.join(' | ');
+  }
+
+  String? _comboVariantLabel({
+    String? method,
+    String? size,
+  }) {
+    if (method != null && size != null) return '$method • $size';
+    if (method != null) return method;
+    if (size != null) return size;
+    return null;
+  }
+
+  double? _minSizePriceForVariants(List<Offer> offers, String zg) {
+    double? minPrice;
+    for (final offer in offers) {
+      final p = _minSizePriceFor(offer, zg);
+      if (p == null) continue;
+      minPrice = (minPrice == null || p < minPrice) ? p : minPrice;
+    }
+    return minPrice;
+  }
+
+  int? _minSizeDurationForVariants(List<Offer> offers, String zg) {
+    int? minDuration;
+    for (final offer in offers) {
+      final d = _minSizeDurationFor(offer, zg);
+      if (d == null) continue;
+      minDuration = (minDuration == null || d < minDuration) ? d : minDuration;
+    }
+    return minDuration;
+  }
+
   double? _displayPriceFor(Offer o, String zg) {
     return o.priceFor(zg) ?? _minSizePriceFor(o, zg);
   }
@@ -1561,7 +1613,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     final comboTitle = combo.leistungen.join(', ');
     final sizeMap = _sizeMapForOffer(combo, zg);
     final sizeKeys = _sortedSizeKeys(sizeMap.keys.map((e) => e.toString()));
+    final methodLabels = _comboMethodLabels(combo);
     String? selectedSizeKey = sizeKeys.isNotEmpty ? sizeKeys.first : null;
+    String? selectedMethod = methodLabels.isNotEmpty ? methodLabels.first : null;
 
     final comboKey = _comboSelectionKey(zielgruppe: zg, combo: combo);
     final alreadySelected = _selectedCombosVN.value.containsKey(comboKey);
@@ -1611,6 +1665,31 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       ),
                     ),
                     const SizedBox(height: 12),
+
+                    if (methodLabels.isNotEmpty) ...[
+                      const Text(
+                        'Methode auswählen',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      ...methodLabels.map((label) {
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Radio<String>(
+                            value: label,
+                            groupValue: selectedMethod,
+                            onChanged: (val) => setSheetState(() => selectedMethod = val),
+                          ),
+                          title: Text(label),
+                          trailing: Text(
+                            '${_preisText(priceForButton)}${_dauerText(durationForButton)}',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          onTap: () => setSheetState(() => selectedMethod = label),
+                        );
+                      }),
+                      const SizedBox(height: 12),
+                    ],
 
                     if (sizeKeys.isNotEmpty) ...[
                       const Text(
@@ -1701,7 +1780,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               selectedAt: ++_selectionTicker,
                               preis: priceForButton,
                               dauer: durationForButton,
-                              varianteLabel: selectedSizeKey,
+                              varianteLabel: _comboVariantLabel(
+                                method: selectedMethod,
+                                size: selectedSizeKey,
+                              ),
                             );
 
                             _selectedVN.value = singles;
@@ -2166,10 +2248,36 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               final sortedLabels = labelsSet.toList()
                 ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
+              final variantOffersForPart = <Offer>[];
+              for (final label in sortedLabels) {
+                final o = singleVariantIndex['$kat|$partLc|${label.toLowerCase()}'];
+                if (o != null && _hasZielgruppenData(o, _zielgruppe)) {
+                  variantOffersForPart.add(o);
+                }
+              }
+              final hasSizeOptionsFromVariants =
+                  variantOffersForPart.any((o) => _hasSizeOptions(o, _zielgruppe));
               final hasSizeOptionsBase = _hasSizeOptions(offer, _zielgruppe);
+              final variantMinPreis = _minSizePriceForVariants(
+                variantOffersForPart,
+                _zielgruppe,
+              );
+              final variantMinDauer = _minSizeDurationForVariants(
+                variantOffersForPart,
+                _zielgruppe,
+              );
               final bool isDerivedSingle = offer.id.startsWith('combo-extra:');
 
-              if (displayPreis == null && displayDauer == null && !hasSizeOptionsBase) continue;
+              final effectiveDisplayPreis = displayPreis ?? variantMinPreis;
+              final effectiveDisplayDauer = displayDauer ?? variantMinDauer;
+              final hasAnySizeOptions = hasSizeOptionsBase || hasSizeOptionsFromVariants;
+
+              if (effectiveDisplayPreis == null &&
+                  effectiveDisplayDauer == null &&
+                  !hasAnySizeOptions &&
+                  !hasMethodVariants) {
+                continue;
+              }
 
               children.add(
                 Padding(
@@ -2189,14 +2297,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             valueListenable: _selectedVN,
                             builder: (_, map, __) {
                               void openSheet() {
-                                final variantsForPart = <Offer>[];
-                                for (final label in sortedLabels) {
-                                  final o = singleVariantIndex['$kat|$partLc|${label.toLowerCase()}'];
-                                  if (o != null && _hasZielgruppenData(o, _zielgruppe)) {
-                                    variantsForPart.add(o);
-                                  }
-                                }
-
                                 List<_ComboRow> _buildCombineRowsFor(String category, String partLc) {
                                   final combos =
                                       combosByCategoryDisplay[category] ?? const <Offer>[];
@@ -2228,7 +2328,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 _openVariantSheet(
                                   base: offer,
                                   category: kat,
-                                  variantOffersForPart: variantsForPart,
+                                  variantOffersForPart: variantOffersForPart,
                                   preselectVarLc: null,
                                   combineRows: combineRows,
                                 );
@@ -2280,7 +2380,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               final canAdd = !isDependent ||
                                   requiredParts.every(selectedPartsLc.contains);
                               final effectiveDuration =
-                                  selectedItem?.dauer ?? (canAdd ? displayDauer : null);
+                                  selectedItem?.dauer ?? (canAdd ? effectiveDisplayDauer : null);
                               if (effectiveDuration == null) return const SizedBox.shrink();
 
                               return Center(
@@ -2326,7 +2426,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   );
                               final effectivePrice =
                                   selectedItem?.preis ??
-                                      ((canAdd && !isDerivedSingle) ? displayPreis : null);
+                                      ((canAdd && !isDerivedSingle) ? effectiveDisplayPreis : null);
                               final canInteract = selected || canAdd;
 
                               return Row(
@@ -2415,14 +2515,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                                   : (!canAdd
                               ? 'Nur mit vorheriger Auswahl'
-                                        : ((hasMethodVariants || hasSizeOptionsBase)
+                                        : ((hasMethodVariants || hasAnySizeOptions)
                                         ? 'Methode/Option wählen'
                                         : 'Hinzufügen')),
                                     onPressed: !canInteract
                                         ? null
                                         : () {
 
-                                      if (hasMethodVariants || hasSizeOptionsBase) {
+                                      if (hasMethodVariants || hasAnySizeOptions) {
                                         if (selected) {
                                           final newMap =
                                           Map<String, _CartItem>.from(_selectedVN.value);
@@ -2676,6 +2776,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
             for (final combo in combos) {
               final comboTitle = combo.leistungen.join(', ');
+              final comboMethodLabel = _comboMethodLabelForDisplay(combo);
               final comboPreis = combo.priceFor(_zielgruppe);
               final comboDauer = combo.durationFor(_zielgruppe);
               final minPreis = _minSizePriceFor(combo, _zielgruppe);
@@ -2684,6 +2785,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               final displayDauer = comboDauer ?? minDauer;
 
               final hasSizeOptionsBase = _hasSizeOptions(combo, _zielgruppe);
+              final hasMethodOptions = _comboMethodLabels(combo).isNotEmpty;
               if (displayPreis == null && displayDauer == null && !hasSizeOptionsBase) continue;
 
               children.add(
@@ -2711,10 +2813,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            const Expanded(
+                            Expanded(
                               child: Text(
-                                'Kombi-Angebot',
-                                style: TextStyle(
+                                comboMethodLabel ?? 'Kombi-Angebot',
+                                style: const TextStyle(
                                   fontSize: 13,
                                   color: Colors.black54,
                                 ),
@@ -2773,7 +2875,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           _toggleCombo(combo: combo);
                                           return;
                                         }
-                                        if (hasSizeOptionsBase) {
+                                        if (hasSizeOptionsBase || hasMethodOptions) {
                                           _openComboSizeSheet(combo: combo);
                                         } else {
                                           _toggleCombo(combo: combo);
