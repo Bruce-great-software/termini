@@ -822,6 +822,20 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return null;
   }
 
+  Offer _cloneOfferWithMethod(Offer base, String label) {
+    return Offer(
+      id: 'synthetic-method:${base.id}|${label.toLowerCase()}',
+      kategorie: base.kategorie,
+      leistungen: base.leistungen,
+      leistungenLc: base.leistungenLc,
+      isBundle: base.isBundle,
+      comboKey: base.comboKey,
+      zielgruppen: base.zielgruppen,
+      varianten: [label],
+      titleDisplay: base.titleDisplay,
+    );
+  }
+
   String? _methodLabelFromSelection(String? varianteLabel, Set<String> options) {
     if (varianteLabel == null || varianteLabel.isEmpty) return null;
     final candidate = varianteLabel.split('•').first.trim();
@@ -1986,6 +2000,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               variantsAvailable[key]!.add(v.varianten.first);
             }
           }
+          for (final b in bundles) {
+            if (b.varianten.isEmpty) continue;
+            if (!_hasZielgruppenData(b, _zielgruppe)) continue;
+            for (final partLc in b.leistungenLc) {
+              final key = '${b.kategorie}|$partLc';
+              variantsAvailable.putIfAbsent(key, () => <String>{});
+              for (final label in b.varianten) {
+                final trimmed = label.trim();
+                if (trimmed.isEmpty) continue;
+                variantsAvailable[key]!.add(trimmed);
+              }
+            }
+          }
 
           // ---- Anzeige: Singles & Kombis – Kategorien-Union aufbauen ----
           final Map<String, List<Offer>> singlesByCategory = {};
@@ -2262,6 +2289,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 final o = singleVariantIndex['$kat|$partLc|${label.toLowerCase()}'];
                 if (o != null && _hasZielgruppenData(o, _zielgruppe)) {
                   variantOffersForPart.add(o);
+                } else {
+                  variantOffersForPart.add(_cloneOfferWithMethod(offer, label));
                 }
               }
               final hasSizeOptionsFromVariants =
