@@ -2675,55 +2675,164 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         bottom: BorderSide(color: Color(0xFFE5E5E5)),
                       ),
                     ),
-                    child: Row(
-                      children: [
-                        // ====== LINKS ======
-                        Expanded(
-                          child: ValueListenableBuilder<Map<String, _CartItem>>(
-                            valueListenable: _selectedVN,
-                            builder: (_, map, __) {
-                              void openSheet() {
-                                List<_ComboRow> _buildCombineRowsFor(String category, String partLc) {
-                                  final combos =
-                                      combosByCategoryDisplay[category] ?? const <Offer>[];
-                                  final rows = <_ComboRow>[];
-                                  for (final c in combos) {
-                                    if (c.leistungenLc.contains(partLc)) {
-                                      final extrasDisplay = <String>[];
-                                      final extrasLc = <String>[];
-                                      for (int i = 0; i < c.leistungen.length; i++) {
-                                        final lc2 = c.leistungenLc[i];
-                                        if (lc2 == partLc) continue;
-                                        extrasDisplay.add(c.leistungen[i]);
-                                        extrasLc.add(lc2);
-                                      }
-                                      if (extrasLc.isNotEmpty) {
-                                        rows.add(_ComboRow(
-                                          bundle: c,
-                                          extrasDisplay: extrasDisplay,
-                                          extrasLc: extrasLc,
-                                        ));
-                                      }
-                                    }
-                                  }
-                                  return rows;
-                                }
-
-                                final combineRows = _buildCombineRowsFor(kat, partLc);
-
-                                _openVariantSheet(
-                                  base: offer,
-                                  category: kat,
-                                  variantOffersForPart: variantOffersForPart,
-                                  preselectVarLc: null,
-                                  combineRows: combineRows,
-                                );
+                    child: ValueListenableBuilder<Map<String, _CartItem>>(
+                      valueListenable: _selectedVN,
+                      builder: (_, map, __) {
+                        List<_ComboRow> _buildCombineRowsFor(String category, String partLc) {
+                          final combos = combosByCategoryDisplay[category] ?? const <Offer>[];
+                          final rows = <_ComboRow>[];
+                          for (final c in combos) {
+                            if (c.leistungenLc.contains(partLc)) {
+                              final extrasDisplay = <String>[];
+                              final extrasLc = <String>[];
+                              for (int i = 0; i < c.leistungen.length; i++) {
+                                final lc2 = c.leistungenLc[i];
+                                if (lc2 == partLc) continue;
+                                extrasDisplay.add(c.leistungen[i]);
+                                extrasLc.add(lc2);
                               }
+                              if (extrasLc.isNotEmpty) {
+                                rows.add(_ComboRow(
+                                  bundle: c,
+                                  extrasDisplay: extrasDisplay,
+                                  extrasLc: extrasLc,
+                                ));
+                              }
+                            }
+                          }
+                          return rows;
+                        }
 
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
+                        void openSheet() {
+                          final combineRows = _buildCombineRowsFor(kat, partLc);
+
+                          _openVariantSheet(
+                            base: offer,
+                            category: kat,
+                            variantOffersForPart: variantOffersForPart,
+                            preselectVarLc: null,
+                            combineRows: combineRows,
+                          );
+                        }
+
+                        final selectedItem = map[selKey];
+                        final selected = map.containsKey(selKey);
+
+                        final selectedPartsLc = map.values
+                            .where((it) => it.kategorie == kat && it.zielgruppe == _zielgruppe)
+                            .map((it) => it.leistung.toLowerCase())
+                            .toSet();
+
+                        final canAdd = !isDependent ||
+                            requiredSets.any((req) => req.every(selectedPartsLc.contains));
+                        final canInteract = selected || canAdd;
+
+                        final effectiveDuration =
+                            selectedItem?.dauer ?? (canAdd ? effectiveDisplayDauer : null);
+                        final effectivePrice = selectedItem?.preis ??
+                            ((canAdd && !isDerivedSingle) ? effectiveDisplayPreis : null);
+
+                        Widget buildDurationBadge() {
+                          if (effectiveDuration == null) return const SizedBox.shrink();
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF2F4F7),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Color(0xFFE5E7EB)),
+                            ),
+                            child: Text(
+                              '$effectiveDuration Min',
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF374151),
+                              ),
+                            ),
+                          );
+                        }
+
+                        Widget buildPriceText() {
+                          double? newPrice;
+                          double? preview;
+
+                          if (selected) {
+                            final locked = selectedItem?.lockedDisplayPrice;
+                            if (locked != null && effectivePrice != null && locked < effectivePrice) {
+                              newPrice = locked;
+                            }
+                          } else {
+                            preview = _previewForLastMissingPart(
+                              category: kat,
+                              zielgruppe: _zielgruppe,
+                              partLc: partLc,
+                              selectedPartsLc: selectedPartsLc,
+                              selectionMap: map,
+                              singleBaseIndex: singleBaseIndex,
+                              bundles: bundles,
+                            );
+                            if (preview != null && effectivePrice != null && preview < effectivePrice) {
+                              newPrice = preview;
+                            }
+                          }
+
+                          if (newPrice != null) {
+                            return Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  _preisText(effectivePrice),
+                                  style: const TextStyle(
+                                    color: Colors.black45,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w500,
+                                    decoration: TextDecoration.lineThrough,
+                                    decorationThickness: 2,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _preisText(newPrice),
+                                  style: const TextStyle(
+                                    color: Colors.green,
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            );
+                          }
+
+                          if (preview != null && effectivePrice == null) {
+                            return Text(
+                              _preisText(preview),
+                              style: const TextStyle(
+                                color: Colors.green,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            );
+                          }
+
+                          return Text(
+                            _preisText(effectivePrice),
+                            style: const TextStyle(
+                              color: Colors.black54,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          );
+                        }
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Expanded(
+                                  child: Text(
                                     uiTitle,
                                     style: const TextStyle(
                                       fontSize: 16,
@@ -2731,315 +2840,148 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     ),
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                                  if (hasMethodVariants) ...[
-                                    const SizedBox(height: 6),
-                                    GestureDetector(
-                                      onTap: openSheet,
-                                      child: Builder(builder: (context) {
-                                        final selectedLabel =
-                                            map[selKey]?.varianteLabel?.split(' • ').first;
-                                        return SingleChildScrollView(
-                                          scrollDirection: Axis.horizontal,
-                                          child: Row(
-                                            children: [
-                                              for (final label in sortedLabels)
-                                                Padding(
-                                                  padding: const EdgeInsets.only(right: 6),
-                                                  child: Container(
-                                                    padding: const EdgeInsets.symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 4,
-                                                    ),
-                                                    decoration: BoxDecoration(
-                                                      color: label == selectedLabel
-                                                          ? const Color(0xFF34C759)
-                                                          : Colors.white,
-                                                      borderRadius: BorderRadius.circular(6),
-                                                      border: Border.all(
-                                                        color: label == selectedLabel
-                                                            ? const Color(0xFF34C759)
-                                                            : const Color(0xFFBDBDBD),
-                                                      ),
-                                                    ),
-                                                    child: Text(
-                                                      label,
-                                                      style: TextStyle(
-                                                        fontSize: 12.5,
-                                                        fontWeight: FontWeight.w600,
-                                                        color: label == selectedLabel
-                                                            ? Colors.white
-                                                            : Colors.black54,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                            ],
-                                          ),
-                                        );
-                                      }),
-                                    ),
-                                  ],
-                                ],
-                              );
-                            },
-                          ),
-                        ),
-
-                        // ====== MITTE: Dauer ======
-                        SizedBox(
-                          width: kDurColWidth,
-                          child: ValueListenableBuilder<Map<String, _CartItem>>(
-                            valueListenable: _selectedVN,
-                            builder: (_, map, __) {
-                              final selectedItem = map[selKey];
-                              final selectedPartsLc = map.values
-                                  .where((it) => it.kategorie == kat && it.zielgruppe == _zielgruppe)
-                                  .map((it) => it.leistung.toLowerCase())
-                                  .toSet();
-                              final canAdd = !isDependent ||
-                                  requiredParts.every(selectedPartsLc.contains);
-                              final effectiveDuration =
-                                  selectedItem?.dauer ?? (canAdd ? effectiveDisplayDauer : null);
-                              if (effectiveDuration == null) return const SizedBox.shrink();
-
-                              return Center(
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF2F4F7),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(color: Color(0xFFE5E7EB)),
-                                  ),
-                                  child: Text(
-                                    '$effectiveDuration Min',
-                                    style: const TextStyle(
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF374151),
-                                    ),
-                                  ),
                                 ),
-                              );
-                            },
-                          ),
-                        ),
-
-                        // ====== RECHTS: Preis + Icon ======
-                        SizedBox(
-                          width: kRightColWidth,
-                          child: ValueListenableBuilder<Map<String, _CartItem>>(
-                            valueListenable: _selectedVN,
-                            builder: (_, map, __) {
-                              final selectedItem = map[selKey];
-                              final selected = map.containsKey(selKey);
-
-                              final selectedPartsLc = map.values
-                                  .where((it) => it.kategorie == kat && it.zielgruppe == _zielgruppe)
-                                  .map((it) => it.leistung.toLowerCase())
-                                  .toSet();
-
-
-                              final canAdd = !isDependent ||
-                                  requiredSets.any(
-                                        (req) => req.every(selectedPartsLc.contains),
-                                  );
-                              final effectivePrice =
-                                  selectedItem?.preis ??
-                                      ((canAdd && !isDerivedSingle) ? effectiveDisplayPreis : null);
-                              final canInteract = selected || canAdd;
-
-                              return Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  // --- Altpreis/Neupreis mit Rabatt/Preview ---
-                                  Builder(builder: (_) {
-                                    double? newPrice;
-
-                                    double? preview;
-
-                                    if (selected) {
-                                      final locked = selectedItem?.lockedDisplayPrice;
-                                      if (locked != null && effectivePrice != null && locked < effectivePrice) {
-                                        newPrice = locked;
-                                      }
-                                    } else {
-                                      preview = _previewForLastMissingPart(
-                                        category: kat,
-                                        zielgruppe: _zielgruppe,
-                                        partLc: partLc,
-                                        selectedPartsLc: selectedPartsLc,
-                                        selectionMap: map,
-                                        singleBaseIndex: singleBaseIndex,
-                                        bundles: bundles,
-                                      );
-                                      if (preview != null && effectivePrice != null && preview < effectivePrice) {
-                                        newPrice = preview;
-                                      }
-                                    }
-
-                                    if (newPrice != null) {
-                                      return Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        crossAxisAlignment: CrossAxisAlignment.end,
-                                        children: [
-                                          Text(
-                                            _preisText(effectivePrice),
-                                            style: const TextStyle(
-                                              color: Colors.black45,
-                                              fontSize: 12.5,
-                                              fontWeight: FontWeight.w500,
-                                              decoration: TextDecoration.lineThrough,
-                                              decorationThickness: 2,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            _preisText(newPrice),
-                                            style: const TextStyle(
-                                              color: Colors.green,
-                                              fontSize: 13.5,
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                        ],
-                                      );
-                                    }
-
-                                    if (preview != null && effectivePrice == null) {
-                                      return Text(
-                                        _preisText(preview),
-                                        style: const TextStyle(
-                                          color: Colors.green,
-                                          fontSize: 13.5,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      );
-                                    }
-
-                                    return Text(
-                                      _preisText(effectivePrice),
-                                      style: const TextStyle(
-                                        color: Colors.black54,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    );
-                                  }),
-
+                                if (effectiveDuration != null) ...[
+                                  buildDurationBadge(),
                                   const SizedBox(width: 8),
-
-                                  IconButton(
-                                    tooltip: selected
-                                        ? 'Entfernen'
-
-                                        : (!canAdd
-                                        ? 'Nur mit vorheriger Auswahl'
-                                        : ((hasMethodVariants || hasAnySizeOptions)
-                                        ? 'Methode/Option wählen'
-                                        : 'Hinzufügen')),
-                                    onPressed: !canInteract
-                                        ? null
-                                        : () {
-
-                                      if (hasMethodVariants || hasAnySizeOptions) {
-                                        if (selected) {
-                                          final newMap =
-                                          Map<String, _CartItem>.from(_selectedVN.value);
-                                          newMap.remove(selKey);
-                                          _selectedVN.value = newMap;
-                                        } else {
-                                          final variantsForPart = <Offer>[];
-                                          for (final label in sortedLabels) {
-                                            final o = singleVariantIndex[
-                                            '$kat|$partLc|${label.toLowerCase()}'];
-                                            if (o != null && _hasZielgruppenData(o, _zielgruppe)) {
-                                              variantsForPart.add(o);
-                                            }
-
-                                          }
-                                          List<_ComboRow> _buildCombineRowsFor(
-                                              String category, String partLc) {
-                                            final combos =
-                                                combosByCategoryDisplay[category] ?? const <Offer>[];
-                                            final rows = <_ComboRow>[];
-                                            for (final c in combos) {
-                                              if (c.leistungenLc.contains(partLc)) {
-                                                final extrasDisplay = <String>[];
-                                                final extrasLc = <String>[];
-                                                for (int i = 0; i < c.leistungen.length; i++) {
-                                                  final lc2 = c.leistungenLc[i];
-                                                  if (lc2 == partLc) continue;
-                                                  extrasDisplay.add(c.leistungen[i]);
-                                                  extrasLc.add(lc2);
-                                                }
-                                                if (extrasLc.isNotEmpty) {
-                                                  rows.add(_ComboRow(
-                                                    bundle: c,
-                                                    extrasDisplay: extrasDisplay,
-                                                    extrasLc: extrasLc,
-                                                  ));
+                                ],
+                                buildPriceText(),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  tooltip: selected
+                                      ? 'Entfernen'
+                                      : (!canAdd
+                                          ? 'Nur mit vorheriger Auswahl'
+                                          : ((hasMethodVariants || hasAnySizeOptions)
+                                              ? 'Methode/Option wählen'
+                                              : 'Hinzufügen')),
+                                  onPressed: !canInteract
+                                      ? null
+                                      : () {
+                                          if (hasMethodVariants || hasAnySizeOptions) {
+                                            if (selected) {
+                                              final newMap =
+                                                  Map<String, _CartItem>.from(_selectedVN.value);
+                                              newMap.remove(selKey);
+                                              _selectedVN.value = newMap;
+                                            } else {
+                                              final variantsForPart = <Offer>[];
+                                              for (final label in sortedLabels) {
+                                                final o = singleVariantIndex[
+                                                    '$kat|$partLc|${label.toLowerCase()}'];
+                                                if (o != null &&
+                                                    _hasZielgruppenData(o, _zielgruppe)) {
+                                                  variantsForPart.add(o);
                                                 }
                                               }
+                                              final combineRows =
+                                                  _buildCombineRowsFor(kat, partLc);
+                                              _openVariantSheet(
+                                                base: offer,
+                                                category: kat,
+                                                variantOffersForPart: variantsForPart,
+                                                combineRows: combineRows,
+                                              );
                                             }
-                                            return rows;
+                                          } else {
+                                            // HINZUFÜGEN ohne Methode/Option
+                                            final currentMap =
+                                                Map<String, _CartItem>.from(_selectedVN.value);
+
+                                            if (_hasItemsFromOtherZielgruppe(_zielgruppe)) {
+                                              final other = currentMap.values.isNotEmpty
+                                                  ? currentMap.values.first.zielgruppe
+                                                  : _selectedCombosVN.value.values.first.zielgruppe;
+                                              _showWrongGroupSnack(other);
+                                              return;
+                                            }
+
+                                            final singlePrice = preis ??
+                                                singleBaseIndex['$kat|$partLc']
+                                                    ?.priceFor(_zielgruppe);
+
+                                            final locked = _lockedPriceForNewSelection(
+                                              category: kat,
+                                              zielgruppe: _zielgruppe,
+                                              newPartLc: partLc,
+                                              selectionMap: currentMap,
+                                              singleBaseIndex: singleBaseIndex,
+                                              bundles: bundles,
+                                              newPartSinglePrice: singlePrice,
+                                            );
+
+                                            _toggleSelection(
+                                              selKey,
+                                              _CartItem(
+                                                kategorie: kat,
+                                                leistung: partDisplay,
+                                                preis: singlePrice,
+                                                dauer: dauer,
+                                                zielgruppe: _zielgruppe,
+                                                selectedAt: ++_selectionTicker,
+                                                lockedDisplayPrice: locked,
+                                              ),
+                                            );
                                           }
-                                          final combineRows = _buildCombineRowsFor(kat, partLc);
-                                          _openVariantSheet(
-                                            base: offer,
-                                            category: kat,
-                                            variantOffersForPart: variantsForPart,
-                                            combineRows: combineRows,
-                                          );
-                                        }
-                                      } else {
-                                        // HINZUFÜGEN ohne Methode/Option
-                                        final currentMap =
-                                        Map<String, _CartItem>.from(_selectedVN.value);
-
-                                        if (_hasItemsFromOtherZielgruppe(_zielgruppe)) {
-                                          final other = currentMap.values.isNotEmpty
-                                              ? currentMap.values.first.zielgruppe
-                                              : _selectedCombosVN.value.values.first.zielgruppe;
-                                          _showWrongGroupSnack(other);
-                                          return;
-                                        }
-
-                                        final singlePrice = preis ??
-                                            singleBaseIndex['$kat|$partLc']?.priceFor(_zielgruppe);
-
-                                        final locked = _lockedPriceForNewSelection(
-                                          category: kat,
-                                          zielgruppe: _zielgruppe,
-                                          newPartLc: partLc,
-                                          selectionMap: currentMap,
-                                          singleBaseIndex: singleBaseIndex,
-                                          bundles: bundles,
-                                          newPartSinglePrice: singlePrice,
-                                        );
-
-                                        _toggleSelection(
-                                          selKey,
-                                          _CartItem(
-                                            kategorie: kat,
-                                            leistung: partDisplay,
-                                            preis: singlePrice,
-                                            dauer: dauer,
-                                            zielgruppe: _zielgruppe,
-                                            selectedAt: ++_selectionTicker,
-                                            lockedDisplayPrice: locked,
-                                          ),
-                                        );
-                                      }
-                                    },
-                                    icon: Icon(selected ? Icons.check_circle : Icons.add_circle_outline),
-                                    color: selected ? Colors.blueAccent : null,
+                                        },
+                                  icon: Icon(
+                                    selected ? Icons.check_circle : Icons.add_circle_outline,
                                   ),
-                                ],
-                              );
-                            },
-                          ),
-                        ),
-                      ],
+                                  color: selected ? Colors.blueAccent : null,
+                                ),
+                              ],
+                            ),
+                            if (hasMethodVariants) ...[
+                              const SizedBox(height: 6),
+                              GestureDetector(
+                                onTap: openSheet,
+                                child: Builder(builder: (context) {
+                                  final selectedLabel =
+                                      map[selKey]?.varianteLabel?.split(' • ').first;
+                                  return SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(
+                                      children: [
+                                        for (final label in sortedLabels)
+                                          Padding(
+                                            padding: const EdgeInsets.only(right: 6),
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 8,
+                                                vertical: 4,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: label == selectedLabel
+                                                    ? const Color(0xFF34C759)
+                                                    : Colors.white,
+                                                borderRadius: BorderRadius.circular(6),
+                                                border: Border.all(
+                                                  color: label == selectedLabel
+                                                      ? const Color(0xFF34C759)
+                                                      : const Color(0xFFBDBDBD),
+                                                ),
+                                              ),
+                                              child: Text(
+                                                label,
+                                                style: TextStyle(
+                                                  fontSize: 12.5,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: label == selectedLabel
+                                                      ? Colors.white
+                                                      : Colors.black54,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  );
+                                }),
+                              ),
+                            ],
+                          ],
+                        );
+                      },
                     ),
                   ),
                 ),
