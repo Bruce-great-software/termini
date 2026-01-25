@@ -442,6 +442,28 @@ class _ComboGroupRow {
   });
 }
 
+class _ComboOfferGroup {
+  final String title;
+  final String groupKey;
+  final List<Offer> offers;
+
+  const _ComboOfferGroup({
+    required this.title,
+    required this.groupKey,
+    required this.offers,
+  });
+}
+
+class _ComboMethodOption {
+  final String label;
+  final Offer offer;
+
+  const _ComboMethodOption({
+    required this.label,
+    required this.offer,
+  });
+}
+
 // Key-Helfer: unterscheidet Zielgruppe!
 String _keyFor({
   required String zielgruppe,
@@ -810,6 +832,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return const [];
   }
 
+  String _comboMethodLabelSingle(Offer combo) {
+    final labels = _comboMethodLabels(combo);
+    if (labels.isNotEmpty) {
+      return labels.first;
+    }
+    return 'Kombi-Angebot';
+  }
+
   String? _comboMethodLabelForDisplay(Offer combo) {
     final labels = _comboMethodLabels(combo);
     if (labels.isEmpty) return null;
@@ -852,6 +882,42 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   int? _displayDurationFor(Offer o, String zg) {
     return o.durationFor(zg) ?? _minSizeDurationFor(o, zg);
+  }
+
+  double? _minDisplayPriceForCombos(List<Offer> offers, String zg) {
+    double? minPrice;
+    for (final offer in offers) {
+      final price = _displayPriceFor(offer, zg);
+      if (price == null) continue;
+      minPrice = (minPrice == null || price < minPrice) ? price : minPrice;
+    }
+    return minPrice;
+  }
+
+  int? _minDisplayDurationForCombos(List<Offer> offers, String zg) {
+    int? minDuration;
+    for (final offer in offers) {
+      final duration = _displayDurationFor(offer, zg);
+      if (duration == null) continue;
+      minDuration = (minDuration == null || duration < minDuration) ? duration : minDuration;
+    }
+    return minDuration;
+  }
+
+  List<_ComboMethodOption> _comboMethodOptionsFor(List<Offer> offers) {
+    final Map<String, Offer> byLabel = {};
+    for (final combo in offers) {
+      final label = _comboMethodLabelSingle(combo);
+      final existing = byLabel[label];
+      if (existing == null || _isBetterOfferForDisplay(combo, existing, _zielgruppe)) {
+        byLabel[label] = combo;
+      }
+    }
+    final labels = byLabel.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return [
+      for (final label in labels) _ComboMethodOption(label: label, offer: byLabel[label]!)
+    ];
   }
 
   String? _selectedSizeKeyFromSelection({
@@ -1617,6 +1683,291 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     );
   }
 
+  Future<void> _openComboMethodSheet({
+    required List<Offer> combos,
+  }) async {
+    if (combos.isEmpty) return;
+    final zg = _zielgruppe;
+    final category = combos.first.kategorie;
+    final comboTitle = combos.first.leistungen.join(', ');
+    final methodOptions = _comboMethodOptionsFor(combos);
+    if (methodOptions.isEmpty) return;
+
+    _ComboSelection? selectedCombo;
+    final groupKey = _comboGroupKey(combos.first);
+    for (final comboSel in _selectedCombosVN.value.values) {
+      if (comboSel.zielgruppe == zg &&
+          comboSel.bundle.kategorie == category &&
+          _comboGroupKey(comboSel.bundle) == groupKey) {
+        selectedCombo = comboSel;
+        break;
+      }
+    }
+
+    String? selectedMethodLabel =
+        selectedCombo != null ? _comboMethodLabelSingle(selectedCombo.bundle) : null;
+    Offer selectedOffer = selectedCombo?.bundle ?? methodOptions.first.offer;
+    String? selectedSizeKey;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            if (selectedMethodLabel == null) {
+              selectedMethodLabel = methodOptions.first.label;
+              selectedOffer = methodOptions.first.offer;
+            }
+
+            final sizeMap = _sizeMapForOffer(selectedOffer, zg);
+            final sizeKeys = _sortedSizeKeys(sizeMap.keys.map((e) => e.toString()));
+            if (sizeKeys.isEmpty) {
+              selectedSizeKey = null;
+            } else if (selectedSizeKey == null || !sizeKeys.contains(selectedSizeKey)) {
+              selectedSizeKey = sizeKeys.first;
+              if (selectedCombo?.bundle.id == selectedOffer.id &&
+                  selectedCombo?.varianteLabel != null) {
+                final currentLabel = selectedCombo!.varianteLabel!.toLowerCase();
+                for (final key in sizeKeys) {
+                  if (currentLabel.contains(key.toLowerCase())) {
+                    selectedSizeKey = key;
+                    break;
+                  }
+                }
+              }
+            }
+
+            double? priceForButton;
+            int? durationForButton;
+            if (selectedSizeKey != null && sizeMap.isNotEmpty) {
+              priceForButton = _sizePrice(sizeMap, selectedSizeKey!);
+              durationForButton = _sizeDuration(sizeMap, selectedSizeKey!);
+            } else {
+              priceForButton = selectedOffer.priceFor(zg);
+              durationForButton = selectedOffer.durationFor(zg);
+            }
+
+            return SafeArea(
+              top: false,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Text(
+                        comboTitle,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Center(
+                      child: Text(
+                        priceForButton != null ? _formatEuro(priceForButton!) : '–',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    if (methodOptions.length > 1) ...[
+                      const Text(
+                        'Methode auswählen',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      ...methodOptions.map((option) {
+                        final optionPrice = _displayPriceFor(option.offer, zg);
+                        final optionDuration = _displayDurationFor(option.offer, zg);
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Radio<String>(
+                            value: option.label,
+                            groupValue: selectedMethodLabel,
+                            onChanged: (val) {
+                              if (val == null) return;
+                              setSheetState(() {
+                                selectedMethodLabel = val;
+                                selectedOffer = option.offer;
+                              });
+                            },
+                          ),
+                          title: Text(option.label),
+                          trailing: Text(
+                            '${_preisText(optionPrice)}${_dauerText(optionDuration)}',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          onTap: () {
+                            setSheetState(() {
+                              selectedMethodLabel = option.label;
+                              selectedOffer = option.offer;
+                            });
+                          },
+                        );
+                      }),
+                      const SizedBox(height: 12),
+                    ],
+
+                    if (sizeKeys.isNotEmpty) ...[
+                      const Text(
+                        'Haarlänge auswählen',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      ...sizeKeys.map((k) {
+                        final p = _sizePrice(sizeMap, k);
+                        final d = _sizeDuration(sizeMap, k);
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Radio<String>(
+                            value: k,
+                            groupValue: selectedSizeKey,
+                            onChanged: (val) => setSheetState(() => selectedSizeKey = val),
+                          ),
+                          title: Text(k),
+                          trailing: Text(
+                            '${_preisText(p)}${_dauerText(d)}',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          onTap: () => setSheetState(() => selectedSizeKey = k),
+                        );
+                      }),
+                      const SizedBox(height: 12),
+                    ],
+
+                    if (selectedCombo != null) ...[
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () {
+                            final combosMap =
+                                Map<String, _ComboSelection>.from(_selectedCombosVN.value);
+                            final key = _comboSelectionKey(
+                              zielgruppe: zg,
+                              combo: selectedCombo!.bundle,
+                            );
+                            combosMap.remove(key);
+                            _selectedCombosVN.value = combosMap;
+                            Navigator.pop(ctx);
+                          },
+                          icon: const Icon(Icons.delete_outline),
+                          label: const Text('Auswahl entfernen'),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+
+                    SafeArea(
+                      top: false,
+                      child: SizedBox(
+                        height: 52,
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: kBrandOrange,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(28),
+                            ),
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                          ),
+                          onPressed: () {
+                            if (_hasItemsFromOtherZielgruppe(zg)) {
+                              final other = _selectedVN.value.values.isNotEmpty
+                                  ? _selectedVN.value.values.first.zielgruppe
+                                  : _selectedCombosVN.value.values.first.zielgruppe;
+                              Navigator.pop(ctx);
+                              _showWrongGroupSnack(other);
+                              return;
+                            }
+
+                            final singles =
+                                Map<String, _CartItem>.from(_selectedVN.value);
+                            final combosMap =
+                                Map<String, _ComboSelection>.from(_selectedCombosVN.value);
+
+                            for (final partLc in selectedOffer.leistungenLc) {
+                              final key = _keyFor(
+                                zielgruppe: zg,
+                                category: selectedOffer.kategorie,
+                                partLc: partLc,
+                              );
+                              singles.remove(key);
+                            }
+
+                            combosMap.removeWhere(
+                                  (_, comboSel) =>
+                              comboSel.zielgruppe == zg &&
+                                  comboSel.bundle.kategorie == selectedOffer.kategorie &&
+                                  _comboGroupKey(comboSel.bundle) == groupKey,
+                            );
+
+                            combosMap[_comboSelectionKey(
+                              zielgruppe: zg,
+                              combo: selectedOffer,
+                            )] = _ComboSelection(
+                              bundle: selectedOffer,
+                              zielgruppe: zg,
+                              selectedAt: ++_selectionTicker,
+                              preis: priceForButton,
+                              dauer: durationForButton,
+                              varianteLabel: _comboVariantLabel(
+                                method: selectedMethodLabel,
+                                size: selectedSizeKey,
+                              ),
+                            );
+
+                            _selectedVN.value = singles;
+                            _selectedCombosVN.value = combosMap;
+                            Navigator.pop(ctx);
+                          },
+                          child: Row(
+                            children: [
+                              const Expanded(
+                                child: Center(
+                                  child: Text(
+                                    'Hinzufügen',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                priceForButton == null ? '' : _formatEuro(priceForButton!),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _openComboSizeSheet({
     required Offer combo,
   }) async {
@@ -2109,6 +2460,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               if (hasBasePart) continue;
               combosByCategoryDisplay.putIfAbsent(cat, () => []).add(combo);
             }
+          });
+
+          final Map<String, List<_ComboOfferGroup>> comboDisplayGroupsByCategory = {};
+          combosByCategoryDisplay.forEach((cat, list) {
+            final Map<String, List<Offer>> grouped = {};
+            for (final combo in list) {
+              final key = _comboGroupKey(combo);
+              grouped.putIfAbsent(key, () => []).add(combo);
+            }
+            final groups = <_ComboOfferGroup>[];
+            grouped.forEach((key, offers) {
+              if (offers.isEmpty) return;
+              final title = offers.first.leistungen.join(', ');
+              groups.add(_ComboOfferGroup(title: title, groupKey: key, offers: offers));
+            });
+            comboDisplayGroupsByCategory[cat] = groups;
           });
 
           final Map<String, List<Offer>> displaySinglesByCategory = {};
@@ -2789,22 +3156,23 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 ),
               );
             }
-            final combos = [...(combosByCategoryDisplay[kat] ?? const <Offer>[])];
-            combos.sort((a, b) =>
-                a.leistungen.join(', ').toLowerCase().compareTo(b.leistungen.join(', ').toLowerCase()));
+            final comboGroups = [
+              ...(comboDisplayGroupsByCategory[kat] ?? const <_ComboOfferGroup>[])
+            ];
+            comboGroups.sort(
+                  (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+            );
 
-            for (final combo in combos) {
-              final comboTitle = combo.leistungen.join(', ');
-              final comboMethodLabel = _comboMethodLabelForDisplay(combo);
-              final comboPreis = combo.priceFor(_zielgruppe);
-              final comboDauer = combo.durationFor(_zielgruppe);
-              final minPreis = _minSizePriceFor(combo, _zielgruppe);
-              final minDauer = _minSizeDurationFor(combo, _zielgruppe);
-              final displayPreis = comboPreis ?? minPreis;
-              final displayDauer = comboDauer ?? minDauer;
+            for (final group in comboGroups) {
+              final methodOptions = _comboMethodOptionsFor(group.offers);
+              if (methodOptions.isEmpty) continue;
+              final methodLabels = methodOptions.map((e) => e.label).toList();
 
-              final hasSizeOptionsBase = _hasSizeOptions(combo, _zielgruppe);
-              final hasMethodOptions = _comboMethodLabels(combo).isNotEmpty;
+              final displayPreis = _minDisplayPriceForCombos(group.offers, _zielgruppe);
+              final displayDauer = _minDisplayDurationForCombos(group.offers, _zielgruppe);
+              final hasSizeOptionsBase =
+                  group.offers.any((offer) => _hasSizeOptions(offer, _zielgruppe));
+
               if (displayPreis == null && displayDauer == null && !hasSizeOptionsBase) continue;
 
               children.add(
@@ -2821,35 +3189,41 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          comboTitle,
+                          group.title,
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),
+                        if (methodLabels.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            methodLabels.join('  '),
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Colors.black54,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                         const SizedBox(height: 4),
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            Expanded(
-                              child: Text(
-                                comboMethodLabel ?? 'Kombi-Angebot',
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.black54,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
+                            const Spacer(),
                             ValueListenableBuilder<Map<String, _ComboSelection>>(
                               valueListenable: _selectedCombosVN,
                               builder: (_, map, __) {
-                                final comboKey = _comboSelectionKey(
-                                  zielgruppe: _zielgruppe,
-                                  combo: combo,
-                                );
-                                final selectedCombo = map[comboKey];
+                                _ComboSelection? selectedCombo;
+                                for (final comboSel in map.values) {
+                                  if (comboSel.zielgruppe == _zielgruppe &&
+                                      comboSel.bundle.kategorie == kat &&
+                                      _comboGroupKey(comboSel.bundle) == group.groupKey) {
+                                    selectedCombo = comboSel;
+                                    break;
+                                  }
+                                }
                                 final selected = selectedCombo != null;
                                 final effectivePrice = selectedCombo?.preis ?? displayPreis;
                                 final effectiveDuration = selectedCombo?.dauer ?? displayDauer;
@@ -2888,17 +3262,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     ),
                                     const SizedBox(width: 8),
                                     IconButton(
-                                      tooltip: selected ? 'Entfernen' : 'Kombi hinzufügen',
+                                      tooltip:
+                                          selected ? 'Auswahl ändern' : 'Kombi hinzufügen',
                                       onPressed: () {
-                                        if (selected) {
-                                          _toggleCombo(combo: combo);
-                                          return;
-                                        }
-                                        if (hasSizeOptionsBase || hasMethodOptions) {
-                                          _openComboSizeSheet(combo: combo);
-                                        } else {
-                                          _toggleCombo(combo: combo);
-                                        }
+                                        _openComboMethodSheet(combos: group.offers);
                                       },
                                       icon: Icon(
                                         selected ? Icons.check_circle : Icons.add_circle_outline,
