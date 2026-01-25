@@ -1689,7 +1689,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     if (combos.isEmpty) return;
     final zg = _zielgruppe;
     final category = combos.first.kategorie;
-    final comboTitle = combos.first.leistungen.join(', ');
+    final comboTitle = combos.first.leistungen.join(' + ');
     final methodOptions = _comboMethodOptionsFor(combos);
     if (methodOptions.isEmpty) return;
 
@@ -1972,7 +1972,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required Offer combo,
   }) async {
     final zg = _zielgruppe;
-    final comboTitle = combo.leistungen.join(', ');
+    final comboTitle = combo.leistungen.join(' + ');
     final sizeMap = _sizeMapForOffer(combo, zg);
     final sizeKeys = _sortedSizeKeys(sizeMap.keys.map((e) => e.toString()));
     final methodLabels = _comboMethodLabels(combo);
@@ -2472,7 +2472,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             final groups = <_ComboOfferGroup>[];
             grouped.forEach((key, offers) {
               if (offers.isEmpty) return;
-              final title = offers.first.leistungen.join(', ');
+              final title = offers.first.leistungen.join(' + ');
               groups.add(_ComboOfferGroup(title: title, groupKey: key, offers: offers));
             });
             comboDisplayGroupsByCategory[cat] = groups;
@@ -3284,6 +3284,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       tooltip:
                                       selected ? 'Auswahl ändern' : 'Kombi hinzufügen',
                                       onPressed: () {
+                                        if (selectedCombo != null) {
+                                          final combosMap = Map<String, _ComboSelection>.from(
+                                            _selectedCombosVN.value,
+                                          );
+                                          combosMap.remove(
+                                            _comboSelectionKey(
+                                              zielgruppe: _zielgruppe,
+                                              combo: selectedCombo!.bundle,
+                                            ),
+                                          );
+                                          _selectedCombosVN.value = combosMap;
+                                          return;
+                                        }
                                         _openComboMethodSheet(combos: group.offers);
                                       },
                                       icon: Icon(
