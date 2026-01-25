@@ -1923,8 +1923,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 double? minPrice;
                 int? minDur;
                 for (final o in list) {
-                  final p = o.priceFor(zg);
-                  final d = o.durationFor(zg);
+                  final p = o.priceFor(zg) ?? _minSizePriceFor(o, zg);
+                  final d = o.durationFor(zg) ?? _minSizeDurationFor(o, zg);
                   if (p != null) {
                     minPrice = (minPrice == null) ? p : (p < minPrice! ? p : minPrice);
                   }
