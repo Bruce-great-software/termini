@@ -1259,6 +1259,150 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   String _dauerText(int? d) => d == null ? '' : ' • ${d.toString()} Min';
 
+  Future<void> _openBookingSummaryPanel({
+    required Map<String, _CartItem> singles,
+    required Map<String, _ComboSelection> combos,
+    required double total,
+    required double savings,
+  }) async {
+    final entries = <_BookingSummaryEntry>[
+      ...singles.values.map(
+            (item) => _BookingSummaryEntry(
+          selectedAt: item.selectedAt,
+          title: item.leistung,
+          subtitle: [item.kategorie, item.varianteLabel]
+              .where((e) => e != null && e.trim().isNotEmpty)
+              .join(' • '),
+          price: item.preis,
+          duration: item.dauer,
+        ),
+      ),
+      ...combos.values.map(
+            (combo) => _BookingSummaryEntry(
+          selectedAt: combo.selectedAt,
+          title: combo.bundle.leistungen.join(' + '),
+          subtitle: [combo.bundle.kategorie, combo.varianteLabel ?? _comboMethodLabelForDisplay(combo.bundle)]
+              .where((e) => e != null && e.trim().isNotEmpty)
+              .join(' • '),
+          price: combo.preis,
+          duration: combo.dauer,
+        ),
+      ),
+    ]..sort((a, b) => a.selectedAt.compareTo(b.selectedAt));
+
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Buchungsübersicht schließen',
+      barrierColor: Colors.black45,
+      transitionDuration: const Duration(milliseconds: 260),
+      pageBuilder: (ctx, _, __) {
+        final media = MediaQuery.of(ctx);
+        return Align(
+          alignment: Alignment.centerRight,
+          child: Material(
+            color: Colors.white,
+            child: SafeArea(
+              child: SizedBox(
+                width: media.size.width.clamp(320.0, 420.0),
+                child: Column(
+                  children: [
+                    ListTile(
+                      title: const Text('Deine Buchungsübersicht', style: TextStyle(fontWeight: FontWeight.w700)),
+                      subtitle: Text('${entries.length} Leistungen ausgewählt'),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: ListView.separated(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: entries.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (_, i) {
+                          final entry = entries[i];
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              color: const Color(0xFFF7F8FB),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(entry.title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                                      if (entry.subtitle.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 2),
+                                          child: Text(entry.subtitle, style: const TextStyle(color: Colors.black54, fontSize: 12.5)),
+                                        ),
+                                      if (entry.duration != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 4),
+                                          child: Text('${entry.duration} Min', style: const TextStyle(fontSize: 12.5)),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  entry.price == null ? '–' : _formatEuro(entry.price!),
+                                  style: const TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Gesamt', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                              Text(_formatEuro(total), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                            ],
+                          ),
+                          if (savings > 0)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('Dein Vorteil', style: TextStyle(color: Colors.black54)),
+                                  Text('-${_formatEuro(savings)}', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w700)),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (ctx, animation, _, child) {
+        final offset = Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
+            .chain(CurveTween(curve: Curves.easeOutCubic))
+            .animate(animation);
+        return SlideTransition(position: offset, child: child);
+      },
+    );
+  }
+
 
   /// Öffnet das Sheet für Methode + Haarlänge + Kombinationen
   Future<void> _openVariantSheet({
@@ -3372,10 +3516,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             total: total,
                             savings: savings,
                             onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                    content: Text(
-                                        'Zur Buchung ($count) – ${_formatEuro(total)}')),
+                              _openBookingSummaryPanel(
+                                singles: map,
+                                combos: combos,
+                                total: total,
+                                savings: savings,
                               );
                             },
                           )
@@ -3403,6 +3548,23 @@ class _CartTotals {
     final s = naive - optimized;
     return s > 0 ? s : 0.0;
   }
+}
+
+
+class _BookingSummaryEntry {
+  final int selectedAt;
+  final String title;
+  final String subtitle;
+  final double? price;
+  final int? duration;
+
+  const _BookingSummaryEntry({
+    required this.selectedAt,
+    required this.title,
+    required this.subtitle,
+    required this.price,
+    required this.duration,
+  });
 }
 
 /// ---------------------------------------------------------------
