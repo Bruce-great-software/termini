@@ -3129,9 +3129,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           required String label,
                           required Offer variantOffer,
                           required bool isLast,
+                          bool isStandard = false,
                         }) {
                           final selectedLabel = currentMethodLabel();
-                          final selectedThis = selected && selectedLabel == label;
+                          final selectedThis = isStandard
+                              ? (selected &&
+                                  (selectedLabel == null ||
+                                      selectedLabel.trim().isEmpty ||
+                                      selectedLabel.toLowerCase() == 'standard'))
+                              : (selected && selectedLabel == label);
                           final variantDuration =
                               selectedThis && selectedItem?.dauer != null
                                   ? selectedItem!.dauer
@@ -3325,7 +3331,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                             preis: variantBasePrice,
                                             dauer: variantDuration,
                                             zielgruppe: _zielgruppe,
-                                            varianteLabel: label,
+                                            varianteLabel: isStandard ? 'Standard' : label,
                                             selectedAt: ++_selectionTicker,
                                             lockedDisplayPrice: locked,
                                           );
@@ -3353,6 +3359,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         }
 
                         if (hasMethodVariants) {
+                          final hasBaseStandardOption =
+                              !offer.id.startsWith('synthetic:') &&
+                              (offer.priceFor(_zielgruppe) != null ||
+                                  offer.durationFor(_zielgruppe) != null ||
+                                  _hasSizeOptions(offer, _zielgruppe));
                           final groupId = '$kat|$partLc';
                           final isExpanded =
                               !_expandedVariantGroups.contains(groupId);
@@ -3408,17 +3419,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.stretch,
                                     children: [
-                                      const Padding(
-                                        padding: EdgeInsets.only(left: 2, bottom: 4),
-                                        child: Text(
-                                          'Varianten',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w700,
-                                            color: Color(0xFF3E67B1),
-                                          ),
+                                      if (hasBaseStandardOption)
+                                        buildVariantRow(
+                                          label: 'Standard',
+                                          variantOffer: offer,
+                                          isStandard: true,
+                                          isLast: sortedLabels.isEmpty,
                                         ),
-                                      ),
                                       for (int i = 0; i < sortedLabels.length; i++)
                                         Builder(
                                           builder: (_) {
