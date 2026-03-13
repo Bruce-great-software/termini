@@ -619,16 +619,85 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
         const SizedBox(height: 8),
 
         Expanded(
-          child: ScrollablePositionedList.builder(
-            itemScrollController: itemScrollController,
-            itemPositionsListener: itemPositionsListener,
-            itemCount: widget.sections.length + 1,
-            itemBuilder: (context, index) {
-              if (index == _spacerIndex) {
-                return SizedBox(height: widget.extraBottom);
-              }
-              final section = widget.sections[index];
-              return _SectionBlock(section: section);
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              const double stickyHeaderHeight = 44;
+
+              return Stack(
+                children: [
+                  ScrollablePositionedList.builder(
+                    itemScrollController: itemScrollController,
+                    itemPositionsListener: itemPositionsListener,
+                    itemCount: widget.sections.length + 1,
+                    itemBuilder: (context, index) {
+                      if (index == _spacerIndex) {
+                        return SizedBox(height: widget.extraBottom);
+                      }
+                      final section = widget.sections[index];
+                      return _SectionBlock(section: section);
+                    },
+                  ),
+                  if (widget.sections.isNotEmpty)
+                    ValueListenableBuilder<Iterable<ItemPosition>>(
+                      valueListenable: itemPositionsListener.itemPositions,
+                      builder: (_, positions, __) {
+                        ItemPosition? currentPosition;
+                        for (final p in positions) {
+                          if (p.index == activeChip) {
+                            currentPosition = p;
+                            break;
+                          }
+                        }
+                        final showSticky =
+                            currentPosition != null && currentPosition.itemLeadingEdge < 0;
+
+                        final nextIndex = activeChip + 1;
+                        ItemPosition? nextPosition;
+                        if (nextIndex < widget.sections.length) {
+                          for (final p in positions) {
+                            if (p.index == nextIndex) {
+                              nextPosition = p;
+                              break;
+                            }
+                          }
+                        }
+
+                        double translateY = 0;
+                        if (nextPosition != null) {
+                          final nextTopPx =
+                              nextPosition.itemLeadingEdge * constraints.maxHeight;
+                          if (nextTopPx < stickyHeaderHeight) {
+                            translateY = nextTopPx - stickyHeaderHeight;
+                          }
+                        }
+
+                        if (!showSticky) {
+                          return const SizedBox.shrink();
+                        }
+
+                        return IgnorePointer(
+                          child: Transform.translate(
+                            offset: Offset(0, translateY),
+                            child: Container(
+                              height: stickyHeaderHeight,
+                              width: double.infinity,
+                              color: Colors.black,
+                              alignment: Alignment.centerLeft,
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              child: Text(
+                                widget.sections[activeChip].title,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                ],
+              );
             },
           ),
         ),
