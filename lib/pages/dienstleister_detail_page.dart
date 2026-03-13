@@ -1461,7 +1461,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         ],
                                       ),
                                     ),
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: 6),
                                     Text(
                                       entry.price == null
                                           ? '–'
@@ -1921,7 +1921,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   Expanded(
                                     child: Text(
                                       label,
-                                      overflow: TextOverflow.ellipsis,
+                                      overflow: TextOverflow.fade,
                                       style: const TextStyle(fontSize: 15),
                                     ),
                                   ),
@@ -2037,7 +2037,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   child: Text(
                                     'Hinzufügen',
                                     maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
+                                    overflow: TextOverflow.fade,
                                     style: TextStyle(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w800,
@@ -3224,6 +3224,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   ? selectedItem!.dauer
                                   : (variantOffer.durationFor(_zielgruppe) ??
                                   _minSizeDurationFor(variantOffer, _zielgruppe));
+                              final isCompactVariantRow =
+                                  MediaQuery.of(context).size.width <= 380;
 
                               final variantBasePrice = variantOffer.priceFor(_zielgruppe) ??
                                   _minSizePriceFor(variantOffer, _zielgruppe);
@@ -3303,7 +3305,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   _preisText(variantEffectivePrice),
                                   style: const TextStyle(
                                     color: Colors.black54,
-                                    fontSize: 13,
+                                    fontSize: 12.5,
                                     fontWeight: FontWeight.w500,
                                   ),
                                 );
@@ -3330,10 +3332,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
-                                    if (variantDuration != null) ...[
+                                    if (variantDuration != null && !isCompactVariantRow) ...[
                                       Container(
                                         padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
+                                          horizontal: 8,
                                           vertical: 4,
                                         ),
                                         decoration: BoxDecoration(
@@ -3352,16 +3354,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           ),
                                         ),
                                       ),
-                                      const SizedBox(width: 8),
+                                      const SizedBox(width: 4),
                                     ],
                                     buildVariantPriceText(),
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: 4),
                                     IconButton(
                                       tooltip: selectedThis
                                           ? 'Entfernen'
                                           : (!canAdd
                                           ? 'Nur mit vorheriger Auswahl'
                                           : 'Hinzufügen'),
+                                      padding: EdgeInsets.zero,
+                                      visualDensity: VisualDensity.compact,
+                                      constraints: const BoxConstraints(
+                                        minWidth: 36,
+                                        minHeight: 36,
+                                      ),
                                       onPressed: !canInteract
                                           ? null
                                           : () {
@@ -3562,7 +3570,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     ),
                                     if (effectiveDuration != null) ...[
                                       buildDurationBadge(),
-                                      const SizedBox(width: 8),
+                                      const SizedBox(width: 4),
                                     ],
                                     buildPriceText(),
                                     const SizedBox(width: 8),
