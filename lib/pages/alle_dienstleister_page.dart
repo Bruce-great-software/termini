@@ -816,7 +816,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: const StadiumBorder(),
-                          backgroundColor: Colors.blueAccent,
+                          backgroundColor: Colors.white,
                           foregroundColor: Colors.white,
                         ),
                         child: Text(
@@ -1031,7 +1031,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                           if (mounted) Navigator.of(ctx).pop();
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent,
+                          backgroundColor: Colors.white,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: const StadiumBorder(),
@@ -1579,64 +1579,138 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
 
 // ---------- Inline-Chips unter dem Suchfeld ----------
-    Widget _buildInlineFilterChips() {
-      final bool branchenAktiv = ausgewaehlteBranchen.isNotEmpty;
-      final String branchenText =
-          'Branchen${branchenAktiv ? '(${ausgewaehlteBranchen.length})' : ''}';
+  Widget _buildInlineFilterChips() {
+    final bool branchenAktiv = ausgewaehlteBranchen.isNotEmpty;
+    final String branchenText =
+        'Branchen${branchenAktiv ? '(${ausgewaehlteBranchen.length})' : ''}';
 
-      final int leistungenCount =
-      ausgewaehlteLeistungen.values.fold<int>(0, (s, l) => s + l.length);
-      final bool leistungenAktiv = leistungenCount > 0;
-      final String leistungenText =
-          'Leistungen${leistungenAktiv ? '($leistungenCount)' : ''}';
+    final int leistungenCount =
+    ausgewaehlteLeistungen.values.fold<int>(0, (s, l) => s + l.length);
+    final bool leistungenAktiv = leistungenCount > 0;
+    final String leistungenText =
+        'Leistungen${leistungenAktiv ? '($leistungenCount)' : ''}';
 
-      final bool sortAktiv = _sortOrder != SortOrder.none;
+    final bool sortAktiv = _sortOrder != SortOrder.none;
 
-      final List<Widget> chips = [];
+    final List<Widget> chips = [];
 
-      // Branchen
-      chips.add(
-        InputChip(
-          label: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  branchenText,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: branchenAktiv ? Colors.white : Colors.black,
-                    fontWeight: FontWeight.w600,
-                  ),
+    // Branchen
+    chips.add(
+      InputChip(
+        label: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                branchenText,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: branchenAktiv ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              if (!branchenAktiv) ...[
-                const SizedBox(width: 6),
-                const Icon(Icons.keyboard_arrow_down_rounded,
-                    size: 18, color: Colors.black54),
-              ],
+            ),
+            if (!branchenAktiv) ...[
+              const SizedBox(width: 6),
+              const Icon(Icons.keyboard_arrow_down_rounded,
+                  size: 18, color: Colors.black54),
             ],
-          ),
-          selected: branchenAktiv,
-          onSelected: (_) => _showBranchenQuickSheet(),
-          onDeleted: branchenAktiv
-              ? () async {
-            setState(() {
-              ausgewaehlteBranchen.clear();
-            });
-            await _applyOfferFiltersFromSelections(branchen: null);
-            _ladeZielgruppenUndKategorien();
-          }
-              : null,
-          deleteIcon: Icon(Icons.close,
-              size: 18, color: branchenAktiv ? Colors.white : Colors.black54),
-          selectedColor: Colors.blueAccent,
-          backgroundColor: Colors.white,
-          shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
+          ],
         ),
-      );
+        selected: branchenAktiv,
+        onSelected: (_) => _showBranchenQuickSheet(),
+        onDeleted: branchenAktiv
+            ? () async {
+          setState(() {
+            ausgewaehlteBranchen.clear();
+          });
+          await _applyOfferFiltersFromSelections(branchen: null);
+          _ladeZielgruppenUndKategorien();
+        }
+            : null,
+        deleteIcon: Icon(Icons.close,
+            size: 18, color: branchenAktiv ? Colors.white : Colors.black54),
+        selectedColor: Colors.blueAccent,
+        backgroundColor: Colors.white,
+        shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
+      ),
+    );
 
-      // Leistungen (öffnet das Leistungen-Sheet)
+    // Leistungen (öffnet das Leistungen-Sheet)
+    chips.add(
+      InputChip(
+        label: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                leistungenText,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: leistungenAktiv ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            if (!leistungenAktiv) ...[
+              const SizedBox(width: 6),
+              const Icon(Icons.keyboard_arrow_down_rounded,
+                  size: 18, color: Colors.black54),
+            ],
+          ],
+        ),
+        selected: leistungenAktiv,
+        onSelected: (_) => _showLeistungenSheet(),
+        onDeleted: leistungenAktiv
+            ? () async {
+          setState(() {
+            ausgewaehlteKategorien.clear();
+            ausgewaehlteLeistungen.clear();
+          });
+          await _applyOfferFiltersFromSelections(
+              branchen: ausgewaehlteBranchen);
+        }
+            : null,
+        deleteIcon: Icon(Icons.close,
+            size: 18, color: leistungenAktiv ? Colors.white : Colors.black54),
+        selectedColor: Colors.blueAccent,
+        backgroundColor: Colors.white,
+        shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
+      ),
+    );
+
+    // Sortieren
+    chips.add(
+      InputChip(
+        label: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Sortieren', style: TextStyle(fontWeight: FontWeight.w600)),
+            if (!sortAktiv) ...[
+              const SizedBox(width: 6),
+              const Icon(Icons.keyboard_arrow_down_rounded,
+                  size: 18, color: Colors.black54),
+            ],
+          ],
+        ),
+        selected: sortAktiv,
+        onSelected: (_) => _showSortSheet(),
+        onDeleted:
+        sortAktiv ? () => setState(() => _sortOrder = SortOrder.none) : null,
+        deleteIcon: Icon(Icons.close,
+            size: 18, color: sortAktiv ? Colors.white : Colors.black54),
+        selectedColor: Colors.blueAccent,
+        backgroundColor: Colors.white,
+        labelStyle: TextStyle(color: sortAktiv ? Colors.white : Colors.black),
+        shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
+      ),
+    );
+
+    // >>> HIER WIEDER DRIN: Kategorie-Chips (z. B. „Augenbrauen“) <<<
+    for (final kategorie in ausgewaehlteKategorien) {
+      final bool aktiv =
+      (ausgewaehlteLeistungen[kategorie]?.isNotEmpty ?? false);
+
       chips.add(
         InputChip(
           label: Row(
@@ -1644,135 +1718,61 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             children: [
               Flexible(
                 child: Text(
-                  leistungenText,
+                  kategorie,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: leistungenAktiv ? Colors.white : Colors.black,
+                    color: aktiv ? Colors.white : Colors.black,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
-              if (!leistungenAktiv) ...[
+              if (!aktiv) ...[
                 const SizedBox(width: 6),
                 const Icon(Icons.keyboard_arrow_down_rounded,
                     size: 18, color: Colors.black54),
               ],
             ],
           ),
-          selected: leistungenAktiv,
-          onSelected: (_) => _showLeistungenSheet(),
-          onDeleted: leistungenAktiv
+          selected: aktiv,
+          onSelected: (_) async {
+            await _openLeistungskategorieDialog(kategorie,
+                branchen: ausgewaehlteBranchen);
+            await _applyOfferFiltersFromSelections(
+                branchen: ausgewaehlteBranchen);
+            setState(() {});
+          },
+          onDeleted: aktiv
               ? () async {
             setState(() {
-              ausgewaehlteKategorien.clear();
-              ausgewaehlteLeistungen.clear();
+              ausgewaehlteLeistungen.remove(kategorie);
+              ausgewaehlteKategorien.removeWhere((e) => e == kategorie);
             });
             await _applyOfferFiltersFromSelections(
                 branchen: ausgewaehlteBranchen);
           }
               : null,
           deleteIcon: Icon(Icons.close,
-              size: 18, color: leistungenAktiv ? Colors.white : Colors.black54),
+              size: 18, color: aktiv ? Colors.white : Colors.black54),
           selectedColor: Colors.blueAccent,
           backgroundColor: Colors.white,
           shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
-        ),
-      );
-
-      // Sortieren
-      chips.add(
-        InputChip(
-          label: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Sortieren', style: TextStyle(fontWeight: FontWeight.w600)),
-              if (!sortAktiv) ...[
-                const SizedBox(width: 6),
-                const Icon(Icons.keyboard_arrow_down_rounded,
-                    size: 18, color: Colors.black54),
-              ],
-            ],
-          ),
-          selected: sortAktiv,
-          onSelected: (_) => _showSortSheet(),
-          onDeleted:
-          sortAktiv ? () => setState(() => _sortOrder = SortOrder.none) : null,
-          deleteIcon: Icon(Icons.close,
-              size: 18, color: sortAktiv ? Colors.white : Colors.black54),
-          selectedColor: Colors.blueAccent,
-          backgroundColor: Colors.white,
-          labelStyle: TextStyle(color: sortAktiv ? Colors.white : Colors.black),
-          shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
-        ),
-      );
-
-      // >>> HIER WIEDER DRIN: Kategorie-Chips (z. B. „Augenbrauen“) <<<
-      for (final kategorie in ausgewaehlteKategorien) {
-        final bool aktiv =
-        (ausgewaehlteLeistungen[kategorie]?.isNotEmpty ?? false);
-
-        chips.add(
-          InputChip(
-            label: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Text(
-                    kategorie,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: aktiv ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                if (!aktiv) ...[
-                  const SizedBox(width: 6),
-                  const Icon(Icons.keyboard_arrow_down_rounded,
-                      size: 18, color: Colors.black54),
-                ],
-              ],
-            ),
-            selected: aktiv,
-            onSelected: (_) async {
-              await _openLeistungskategorieDialog(kategorie,
-                  branchen: ausgewaehlteBranchen);
-              await _applyOfferFiltersFromSelections(
-                  branchen: ausgewaehlteBranchen);
-              setState(() {});
-            },
-            onDeleted: aktiv
-                ? () async {
-              setState(() {
-                ausgewaehlteLeistungen.remove(kategorie);
-                ausgewaehlteKategorien.removeWhere((e) => e == kategorie);
-              });
-              await _applyOfferFiltersFromSelections(
-                  branchen: ausgewaehlteBranchen);
-            }
-                : null,
-            deleteIcon: Icon(Icons.close,
-                size: 18, color: aktiv ? Colors.white : Colors.black54),
-            selectedColor: Colors.blueAccent,
-            backgroundColor: Colors.white,
-            shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
-          ),
-        );
-      }
-
-      // HORIZONTALE, SCROLLBARE EIN-ZEILIGE REIHE
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            for (int i = 0; i < chips.length; i++) ...[
-              chips[i],
-              if (i != chips.length - 1) const SizedBox(width: 8),
-            ],
-          ],
         ),
       );
     }
+
+    // HORIZONTALE, SCROLLBARE EIN-ZEILIGE REIHE
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (int i = 0; i < chips.length; i++) ...[
+            chips[i],
+            if (i != chips.length - 1) const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
 
   // ---------- Suchfeld + Filterbutton ----------
   Widget _buildSuchfeldMitFilterButton() {
@@ -1857,7 +1857,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         _filterBadgeCount > 99 ? '99+' : '$_filterBadgeCount',
                         textAlign: TextAlign.center,
                         style: const TextStyle(
-                          color: Colors.white,
+                          color: Colors.black,
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                         ),
@@ -2097,19 +2097,19 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.blueAccent,
+        backgroundColor: Colors.white,
         centerTitle: true,
         title: Text(
           currentCity != null ? currentCity! : 'Ort wird geladen...',
           style: const TextStyle(
-            color: Colors.white,
+            color: Colors.black,
             fontWeight: FontWeight.bold,
             fontSize: 20,
           ),
         ),
         leading: geoeffneterDienstleister != null
             ? IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
           onPressed: () {
             setState(() {
               geoeffneterDienstleister = null;

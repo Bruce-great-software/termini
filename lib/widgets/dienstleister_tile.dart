@@ -68,9 +68,8 @@ class DienstleisterTile extends StatelessWidget {
     final adresse  = (data['adresse'] ?? '').toString();
     final plz      = (data['plz'] ?? '').toString();
     final ort      = (data['ort'] ?? '').toString();
-
-    // AppBar-Farbton bleibt für Überschrift/Label
-    const Color appBarColor = Colors.blueAccent;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
     // Quelle: Prop > data['matchedOffers'] > []
     final List<Map<String, dynamic>> offers =
@@ -81,14 +80,12 @@ class DienstleisterTile extends StatelessWidget {
                 const <Map<String, dynamic>>[]);
 
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      elevation: 2,
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(20),
         child: Padding(
-          padding: const EdgeInsets.all(12.0),
+          padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -97,29 +94,36 @@ class DienstleisterTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Logo links
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: (logoUrl != null && logoUrl.toString().isNotEmpty)
-                        ? Image.network(
-                      logoUrl,
-                      width: 60,
-                      height: 60,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        width: 60,
-                        height: 60,
-                        color: Colors.grey.shade300,
-                        child: const Icon(Icons.store, size: 30, color: Colors.grey),
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceVariant,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: colorScheme.outlineVariant),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: (logoUrl != null && logoUrl.toString().isNotEmpty)
+                          ? Image.network(
+                        logoUrl,
+                        width: 64,
+                        height: 64,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Icon(
+                          Icons.storefront,
+                          size: 30,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      )
+                          : Icon(
+                        Icons.storefront,
+                        size: 30,
+                        color: colorScheme.onSurfaceVariant,
                       ),
-                    )
-                        : Container(
-                      width: 60,
-                      height: 60,
-                      color: Colors.grey.shade300,
-                      child: const Icon(Icons.store, size: 30, color: Colors.grey),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 14),
 
                   // Name, Adresse, Entfernung
                   Expanded(
@@ -128,12 +132,9 @@ class DienstleisterTile extends StatelessWidget {
                       children: [
                         Text(
                           name,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: theme.textTheme.titleMedium,
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 6),
                         Text(
                           [
                             if (adresse.isNotEmpty) adresse,
@@ -141,16 +142,32 @@ class DienstleisterTile extends StatelessWidget {
                           ]
                               .where((s) => s.toString().trim().isNotEmpty)
                               .join(', '),
-                          style: const TextStyle(color: Colors.black54),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
                         ),
-                        if (distance is num)
+                        if (distance is num) ...[
                           Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              '${distance.toStringAsFixed(1)} km entfernt',
-                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.place,
+                                  size: 16,
+                                  color: colorScheme.primary,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${distance.toStringAsFixed(1)} km entfernt',
+                                  style: theme.textTheme.labelMedium?.copyWith(
+                                    color: colorScheme.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
+                        ],
                       ],
                     ),
                   ),
@@ -159,18 +176,18 @@ class DienstleisterTile extends StatelessWidget {
 
               // -------------------- NEU: Angebote gruppiert pro Titel --------------------
               if (offers.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                const Divider(height: 1),
-                const SizedBox(height: 8),
+                const SizedBox(height: 14),
+                Divider(height: 1, color: colorScheme.outlineVariant),
+                const SizedBox(height: 12),
                 Row(
                   children: [
-                    Icon(Icons.local_offer, size: 18, color: appBarColor),
+                    Icon(Icons.local_offer, size: 18, color: colorScheme.primary),
                     const SizedBox(width: 6),
                     Text(
                       'Passende Angebote',
-                      style: TextStyle(
+                      style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w600,
-                        color: appBarColor,
+                        color: colorScheme.primary,
                       ),
                     ),
                   ],
@@ -197,74 +214,39 @@ class DienstleisterTile extends StatelessWidget {
 
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 10),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Links: "Kategorie – Leistung"
-                            Expanded(
-                              child: Text(
-                                title,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 15,
-                                ),
+                            Text(
+                              title,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
-
-                            // Rechts: Zielgruppen-Segmente in einer Reihe (nur vorhandene Gruppen)
+                            const SizedBox(height: 8),
                             Wrap(
                               spacing: 8,
-                              runSpacing: 8,
-                              children: zielgruppenOrder
-                                  .where(byGroup.containsKey)
-                                  .map((zg) {
-                                final o = byGroup[zg]!;
-                                final color = _resolveChipColor(o);
-                                final preis = _fmtPreis(o['preis']);
-                                final dauer = _fmtDauer(o['dauer']);
+                              runSpacing: 6,
+                              children: zielgruppenOrder.map((zg) {
+                                final offer = byGroup[zg];
+                                if (offer == null) return const SizedBox.shrink();
 
-                                const textColor = Colors.black;
+                                final dauer = _fmtDauer(offer['dauer']);
+                                final preis = _fmtPreis(offer['preis']);
+                                final chipColor = _resolveChipColor(offer);
 
-                                return Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: color.withOpacity(0.15), // Farbiges Badge
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(color: color), // Farbig umrissen
+                                return Chip(
+                                  backgroundColor: chipColor.withOpacity(0.12),
+                                  side: BorderSide(color: chipColor.withOpacity(0.4)),
+                                  label: Text(
+                                    [zg, if (dauer.isNotEmpty) dauer, if (preis.isNotEmpty) preis]
+                                        .join(' • '),
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: colorScheme.onSurface,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment: CrossAxisAlignment.center,
-                                    children: [
-                                      Text(
-                                        zg,
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                          color: textColor, // <-- jetzt schwarz
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        preis,
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                          color: textColor, // <-- jetzt schwarz
-                                        ),
-                                      ),
-                                      if (dauer.isNotEmpty) ...[
-                                        const SizedBox(height: 1),
-                                        Text(
-                                          dauer,
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            color: textColor.withOpacity(0.7), // leicht abgetöntes Schwarz
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
+                                  visualDensity: VisualDensity.compact,
                                 );
                               }).toList(),
                             ),

@@ -8,7 +8,6 @@ import 'pages/alle_dienstleister_page.dart';
 import 'pages/dienstleister_main_page.dart';
 import 'pages/admin_page.dart';
 
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
@@ -27,7 +26,8 @@ class MyApp extends StatelessWidget {
       return const AlleDienstleisterPage();
     }
 
-    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    final userDoc =
+    await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
     final data = userDoc.data();
     final rolle = data?['rolle'];
     final dienstleisterId = data?['dienstleisterId'];
@@ -35,7 +35,9 @@ class MyApp extends StatelessWidget {
 
     if (rolle == 'admin') {
       return const AlleDienstleisterPage();
-    } else if (rolle == 'dienstleister' && dienstleisterId != null && branche != null) {
+    } else if (rolle == 'dienstleister' &&
+        dienstleisterId != null &&
+        branche != null) {
       return DienstleisterMainPage(
         branche: branche,
         dienstleisterId: dienstleisterId,
@@ -47,12 +49,79 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF3D5AFE),
+      brightness: Brightness.light,
+    );
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Termini',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        colorScheme: colorScheme,
         useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFFF8F9FC),
+
+        appBarTheme: AppBarTheme(
+          backgroundColor: colorScheme.surface,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          centerTitle: true,
+          titleTextStyle: TextStyle(
+            color: colorScheme.onSurface,
+            fontWeight: FontWeight.w600,
+            fontSize: 18,
+          ),
+        ),
+
+        // ✅ FIX: CardTheme -> CardThemeData (Material 3 / neue Flutter Versionen)
+        cardTheme: CardThemeData(
+          elevation: 0,
+          color: colorScheme.surface,
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          // Optional, verhindert "Material3 Tint"
+          surfaceTintColor: Colors.transparent,
+        ),
+
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: colorScheme.surface,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: colorScheme.outlineVariant),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: colorScheme.outlineVariant),
+          ),
+          contentPadding:
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        ),
+
+        chipTheme: ChipThemeData(
+          shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          side: BorderSide(color: colorScheme.outlineVariant),
+          labelStyle: TextStyle(color: colorScheme.onSurface),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        ),
+
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          ),
+        ),
+
+        textTheme: const TextTheme(
+          titleLarge: TextStyle(fontWeight: FontWeight.w700),
+          titleMedium: TextStyle(fontWeight: FontWeight.w600),
+          bodyMedium: TextStyle(height: 1.4),
+        ),
       ),
       home: FutureBuilder(
         future: _handleStart(),
