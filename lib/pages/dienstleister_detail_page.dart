@@ -600,15 +600,15 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
                   label: Text(title),
                   selected: sel,
                   onSelected: (_) => _scrollTo(i),
-                  selectedColor: Colors.blueAccent.withAlpha(36),
+                  selectedColor: Colors.black,
                   backgroundColor: Colors.white,
                   labelStyle: TextStyle(
                     fontWeight: FontWeight.w600,
-                    color: sel ? Colors.blueAccent : Colors.black,
+                    color: sel ? Colors.white : Colors.black,
                   ),
                   shape: StadiumBorder(
                     side: BorderSide(
-                      color: sel ? Colors.blueAccent : Colors.black54,
+                      color: sel ? Colors.black : Colors.black54,
                     ),
                   ),
                 ),
@@ -649,7 +649,7 @@ class _SectionBlock extends StatelessWidget {
         Container(
           margin: const EdgeInsets.fromLTRB(0, 12, 0, 8),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          color: const Color(0xFF4E8DF5),
+          color: Colors.black,
           child: Text(
             section.title,
             style: const TextStyle(
@@ -706,7 +706,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   Map<String, Widget> _zielgruppenSegments() {
     TextStyle label(String value) => TextStyle(
       fontWeight: FontWeight.w600,
-      color: _zielgruppe == value ? Colors.white : Colors.blueAccent,
+      color: _zielgruppe == value ? Colors.white : Colors.black,
     );
     const EdgeInsets pad = EdgeInsets.symmetric(horizontal: 14, vertical: 8);
     return {
@@ -2517,18 +2517,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.blueAccent,
+        backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.white),
+        iconTheme: const IconThemeData(color: Colors.black),
         title: CupertinoSegmentedControl<String>(
           children: _zielgruppenSegments(),
           groupValue: _zielgruppe,
           onValueChanged: (v) => setState(() => _zielgruppe = v),
-          borderColor: Colors.white,
-          selectedColor: Colors.blueAccent,
+          borderColor: const Color(0xFF1A1A1A),
+          selectedColor: Colors.black,
           unselectedColor: Colors.white,
-          pressedColor: Colors.white.withAlpha(38),
+          pressedColor: const Color(0xFFECECEC),
           padding: EdgeInsets.zero,
         ),
         bottom: PreferredSize(
@@ -2538,7 +2538,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             child: Text(
               (widget.dienstleister['name'] as String?) ?? 'Profil',
               style: const TextStyle(
-                color: Colors.white,
+                color: Colors.black,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -3412,9 +3412,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   margin: const EdgeInsets.only(left: 10),
                                   padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFFEFF4FF),
+                                    color: const Color(0xFFF4F4F4),
                                     borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(color: const Color(0xFFD6E4FF)),
+                                    border: Border.all(color: const Color(0xFFD8D8D8)),
                                   ),
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.stretch,
