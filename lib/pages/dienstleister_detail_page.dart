@@ -698,10 +698,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   int _selectionTicker = 0;
 
   /// Expand-State für Leistungen mit Varianten
-  final Set<String> _expandedVariantGroups = <String>{};
+  final ValueNotifier<Set<String>> _expandedVariantGroupsVN =
+      ValueNotifier<Set<String>>(<String>{});
 
   /// Abhängigkeiten für Kombi-Einzelteile (cat|partLc -> required parts)
   Map<String, List<Set<String>>> _comboDependencies = {};
+
+  @override
+  void dispose() {
+    _selectedVN.dispose();
+    _selectedCombosVN.dispose();
+    _expandedVariantGroupsVN.dispose();
+    super.dispose();
+  }
 
   Map<String, Widget> _zielgruppenSegments() {
     TextStyle label(String value) => TextStyle(
@@ -3365,88 +3374,101 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   offer.durationFor(_zielgruppe) != null ||
                                   _hasSizeOptions(offer, _zielgruppe));
                           final groupId = '$kat|$partLc';
-                          final isExpanded =
-                              !_expandedVariantGroups.contains(groupId);
 
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              InkWell(
-                                borderRadius: BorderRadius.circular(8),
-                                onTap: () {
-                                  setState(() {
-                                    if (isExpanded) {
-                                      _expandedVariantGroups.add(groupId);
-                                    } else {
-                                      _expandedVariantGroups.remove(groupId);
-                                    }
-                                  });
-                                },
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 2),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          uiTitle,
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w600,
+                          return ValueListenableBuilder<Set<String>>(
+                            valueListenable: _expandedVariantGroupsVN,
+                            builder: (_, collapsedGroups, __) {
+                              final isExpanded = !collapsedGroups.contains(groupId);
+
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  InkWell(
+                                    borderRadius: BorderRadius.circular(8),
+                                    onTap: () {
+                                      final next = Set<String>.from(
+                                        _expandedVariantGroupsVN.value,
+                                      );
+                                      if (isExpanded) {
+                                        next.add(groupId);
+                                      } else {
+                                        next.remove(groupId);
+                                      }
+                                      _expandedVariantGroupsVN.value = next;
+                                    },
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 2),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              uiTitle,
+                                              style: const TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
                                           ),
-                                          overflow: TextOverflow.ellipsis,
+                                          Icon(
+                                            isExpanded
+                                                ? Icons.keyboard_arrow_down
+                                                : Icons.chevron_right,
+                                            color: Colors.black54,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  if (isExpanded) ...[
+                                    const SizedBox(height: 6),
+                                    Container(
+                                      margin: const EdgeInsets.only(left: 10),
+                                      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF4F4F4),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: const Color(0xFFD8D8D8),
                                         ),
                                       ),
-                                      Icon(
-                                        isExpanded
-                                            ? Icons.keyboard_arrow_down
-                                            : Icons.chevron_right,
-                                        color: Colors.black54,
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          if (hasBaseStandardOption)
+                                            buildVariantRow(
+                                              label: 'Standard',
+                                              variantOffer: offer,
+                                              isStandard: true,
+                                              isLast: sortedLabels.isEmpty,
+                                            ),
+                                          for (int i = 0;
+                                              i < sortedLabels.length;
+                                              i++)
+                                            Builder(
+                                              builder: (_) {
+                                                final label = sortedLabels[i];
+                                                final o = singleVariantIndex[
+                                                    '$kat|$partLc|${label.toLowerCase()}'];
+                                                if (o == null) {
+                                                  return const SizedBox.shrink();
+                                                }
+                                                return buildVariantRow(
+                                                  label: label,
+                                                  variantOffer: o,
+                                                  isLast:
+                                                      i == sortedLabels.length - 1,
+                                                );
+                                              },
+                                            ),
+                                        ],
                                       ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              if (isExpanded) ...[
-                                const SizedBox(height: 6),
-                                Container(
-                                  margin: const EdgeInsets.only(left: 10),
-                                  padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF4F4F4),
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(color: const Color(0xFFD8D8D8)),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                                    children: [
-                                      if (hasBaseStandardOption)
-                                        buildVariantRow(
-                                          label: 'Standard',
-                                          variantOffer: offer,
-                                          isStandard: true,
-                                          isLast: sortedLabels.isEmpty,
-                                        ),
-                                      for (int i = 0; i < sortedLabels.length; i++)
-                                        Builder(
-                                          builder: (_) {
-                                            final label = sortedLabels[i];
-                                            final o = singleVariantIndex[
-                                                '$kat|$partLc|${label.toLowerCase()}'];
-                                            if (o == null) {
-                                              return const SizedBox.shrink();
-                                            }
-                                            return buildVariantRow(
-                                              label: label,
-                                              variantOffer: o,
-                                              isLast: i == sortedLabels.length - 1,
-                                            );
-                                          },
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ],
+                                    ),
+                                  ],
+                                ],
+                              );
+                            },
                           );
                         }
 
