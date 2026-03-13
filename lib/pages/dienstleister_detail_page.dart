@@ -1265,9 +1265,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required double total,
     required double savings,
   }) async {
-    final entries = <_BookingSummaryEntry>[
+    List<_BookingSummaryEntry> entries = [
       ...singles.entries.map(
-            (entry) => _BookingSummaryEntry(
+        (entry) => _BookingSummaryEntry(
           selectionKey: entry.key,
           isCombo: false,
           selectedAt: entry.value.selectedAt,
@@ -1280,20 +1280,24 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         ),
       ),
       ...combos.entries.map(
-            (entry) => _BookingSummaryEntry(
+        (entry) => _BookingSummaryEntry(
           selectionKey: entry.key,
           isCombo: true,
           selectedAt: entry.value.selectedAt,
           title: entry.value.bundle.leistungen.join(' + '),
           subtitle: [
             entry.value.bundle.kategorie,
-            entry.value.varianteLabel ?? _comboMethodLabelForDisplay(entry.value.bundle)
+            entry.value.varianteLabel ??
+                _comboMethodLabelForDisplay(entry.value.bundle),
           ].where((e) => e != null && e.trim().isNotEmpty).join(' • '),
           price: entry.value.preis,
           duration: entry.value.dauer,
         ),
       ),
     ]..sort((a, b) => a.selectedAt.compareTo(b.selectedAt));
+
+    double panelTotal = total;
+    double panelSavings = savings;
 
     await showGeneralDialog<void>(
       context: context,
@@ -1308,118 +1312,246 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           child: Material(
             color: Colors.white,
             child: SafeArea(
-              child: SizedBox(
-                width: media.size.width.clamp(320.0, 420.0),
-                child: Column(
-                  children: [
-                    ListTile(
-                      title: const Text('Deine Buchungsübersicht', style: TextStyle(fontWeight: FontWeight.w700)),
-                      subtitle: Text('${entries.length} Leistungen ausgewählt'),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.of(ctx).pop(),
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    Expanded(
-                      child: ListView.separated(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: entries.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 12),
-                        itemBuilder: (_, i) {
-                          final entry = entries[i];
-                          return Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              color: const Color(0xFFF7F8FB),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+              child: StatefulBuilder(
+                builder: (ctx, setSheetState) {
+                  return SizedBox(
+                    width: media.size.width.clamp(320.0, 420.0),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          title: const Text(
+                            'Deine Buchungsübersicht',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            '${entries.length} Leistungen ausgewählt',
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.of(ctx).pop(),
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        Expanded(
+                          child: ListView.separated(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: entries.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 12),
+                            itemBuilder: (_, i) {
+                              final entry = entries[i];
+                              return Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  color: const Color(0xFFF7F8FB),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            entry.title,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                          if (entry.subtitle.isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.only(top: 2),
+                                              child: Text(
+                                                entry.subtitle,
+                                                style: const TextStyle(
+                                                  color: Colors.black54,
+                                                  fontSize: 12.5,
+                                                ),
+                                              ),
+                                            ),
+                                          if (entry.duration != null)
+                                            Padding(
+                                              padding: const EdgeInsets.only(top: 4),
+                                              child: Text(
+                                                '${entry.duration} Min',
+                                                style: const TextStyle(
+                                                  fontSize: 12.5,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      entry.price == null
+                                          ? '–'
+                                          : _formatEuro(entry.price!),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Leistung entfernen',
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        size: 20,
+                                      ),
+                                      onPressed: () {
+                                        final singlesMap = Map<String, _CartItem>.from(
+                                          _selectedVN.value,
+                                        );
+                                        final combosMap =
+                                            Map<String, _ComboSelection>.from(
+                                          _selectedCombosVN.value,
+                                        );
+
+                                        if (entry.isCombo) {
+                                          combosMap.remove(entry.selectionKey);
+                                        } else {
+                                          final removedItem = singlesMap.remove(
+                                            entry.selectionKey,
+                                          );
+                                          if (removedItem != null) {
+                                            _removeDependentSelections(
+                                              selectionMap: singlesMap,
+                                              zielgruppe: removedItem.zielgruppe,
+                                              category: removedItem.kategorie,
+                                              removedPartLc:
+                                                  removedItem.leistung.toLowerCase(),
+                                            );
+                                          }
+                                        }
+
+                                        _selectedVN.value = singlesMap;
+                                        _selectedCombosVN.value = combosMap;
+
+                                        entries = [
+                                          ...singlesMap.entries.map(
+                                            (e) => _BookingSummaryEntry(
+                                              selectionKey: e.key,
+                                              isCombo: false,
+                                              selectedAt: e.value.selectedAt,
+                                              title: e.value.leistung,
+                                              subtitle: [
+                                                e.value.kategorie,
+                                                e.value.varianteLabel,
+                                              ]
+                                                  .where(
+                                                    (x) =>
+                                                        x != null &&
+                                                        x.trim().isNotEmpty,
+                                                  )
+                                                  .join(' • '),
+                                              price: e.value.preis,
+                                              duration: e.value.dauer,
+                                            ),
+                                          ),
+                                          ...combosMap.entries.map(
+                                            (e) => _BookingSummaryEntry(
+                                              selectionKey: e.key,
+                                              isCombo: true,
+                                              selectedAt: e.value.selectedAt,
+                                              title: e.value.bundle.leistungen
+                                                  .join(' + '),
+                                              subtitle: [
+                                                e.value.bundle.kategorie,
+                                                e.value.varianteLabel ??
+                                                    _comboMethodLabelForDisplay(
+                                                      e.value.bundle,
+                                                    ),
+                                              ]
+                                                  .where(
+                                                    (x) =>
+                                                        x != null &&
+                                                        x.trim().isNotEmpty,
+                                                  )
+                                                  .join(' • '),
+                                              price: e.value.preis,
+                                              duration: e.value.dauer,
+                                            ),
+                                          ),
+                                        ]
+                                          ..sort(
+                                            (a, b) => a.selectedAt.compareTo(
+                                              b.selectedAt,
+                                            ),
+                                          );
+
+                                        panelTotal = entries.fold<double>(
+                                          0.0,
+                                          (sum, e) => sum + (e.price ?? 0.0),
+                                        );
+                                        panelSavings = 0.0;
+
+                                        if (entries.isEmpty) {
+                                          Navigator.of(ctx).pop();
+                                          return;
+                                        }
+
+                                        setSheetState(() {});
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                          child: Column(
+                            children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Gesamt',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  Text(
+                                    _formatEuro(panelTotal),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (panelSavings > 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
                                     children: [
-                                      Text(entry.title, style: const TextStyle(fontWeight: FontWeight.w700)),
-                                      if (entry.subtitle.isNotEmpty)
-                                        Padding(
-                                          padding: const EdgeInsets.only(top: 2),
-                                          child: Text(entry.subtitle, style: const TextStyle(color: Colors.black54, fontSize: 12.5)),
+                                      const Text(
+                                        'Dein Vorteil',
+                                        style: TextStyle(color: Colors.black54),
+                                      ),
+                                      Text(
+                                        '-${_formatEuro(panelSavings)}',
+                                        style: const TextStyle(
+                                          color: Colors.green,
+                                          fontWeight: FontWeight.w700,
                                         ),
-                                      if (entry.duration != null)
-                                        Padding(
-                                          padding: const EdgeInsets.only(top: 4),
-                                          child: Text('${entry.duration} Min', style: const TextStyle(fontSize: 12.5)),
-                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  entry.price == null ? '–' : _formatEuro(entry.price!),
-                                  style: const TextStyle(fontWeight: FontWeight.w700),
-                                ),
-                                IconButton(
-                                  tooltip: 'Leistung entfernen',
-                                  icon: const Icon(Icons.delete_outline, size: 20),
-                                  onPressed: () {
-                                    final singlesMap = Map<String, _CartItem>.from(_selectedVN.value);
-                                    final combosMap = Map<String, _ComboSelection>.from(_selectedCombosVN.value);
-
-                                    if (entry.isCombo) {
-                                      combosMap.remove(entry.selectionKey);
-                                    } else {
-                                      final removedItem = singlesMap.remove(entry.selectionKey);
-                                      if (removedItem != null) {
-                                        _removeDependentSelections(
-                                          selectionMap: singlesMap,
-                                          zielgruppe: removedItem.zielgruppe,
-                                          category: removedItem.kategorie,
-                                          removedPartLc: removedItem.leistung.toLowerCase(),
-                                        );
-                                      }
-                                    }
-
-                                    _selectedVN.value = singlesMap;
-                                    _selectedCombosVN.value = combosMap;
-                                    Navigator.of(ctx).pop();
-                                  },
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Gesamt', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-                              Text(_formatEuro(total), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
                             ],
                           ),
-                          if (savings > 0)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text('Dein Vorteil', style: TextStyle(color: Colors.black54)),
-                                  Text('-${_formatEuro(savings)}', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w700)),
-                                ],
-                              ),
-                            ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  );
+                },
               ),
             ),
           ),
@@ -1433,6 +1565,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       },
     );
   }
+
 
 
   /// Öffnet das Sheet für Methode + Haarlänge + Kombinationen
