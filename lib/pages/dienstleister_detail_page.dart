@@ -1266,26 +1266,31 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required double savings,
   }) async {
     final entries = <_BookingSummaryEntry>[
-      ...singles.values.map(
-            (item) => _BookingSummaryEntry(
-          selectedAt: item.selectedAt,
-          title: item.leistung,
-          subtitle: [item.kategorie, item.varianteLabel]
+      ...singles.entries.map(
+            (entry) => _BookingSummaryEntry(
+          selectionKey: entry.key,
+          isCombo: false,
+          selectedAt: entry.value.selectedAt,
+          title: entry.value.leistung,
+          subtitle: [entry.value.kategorie, entry.value.varianteLabel]
               .where((e) => e != null && e.trim().isNotEmpty)
               .join(' • '),
-          price: item.preis,
-          duration: item.dauer,
+          price: entry.value.preis,
+          duration: entry.value.dauer,
         ),
       ),
-      ...combos.values.map(
-            (combo) => _BookingSummaryEntry(
-          selectedAt: combo.selectedAt,
-          title: combo.bundle.leistungen.join(' + '),
-          subtitle: [combo.bundle.kategorie, combo.varianteLabel ?? _comboMethodLabelForDisplay(combo.bundle)]
-              .where((e) => e != null && e.trim().isNotEmpty)
-              .join(' • '),
-          price: combo.preis,
-          duration: combo.dauer,
+      ...combos.entries.map(
+            (entry) => _BookingSummaryEntry(
+          selectionKey: entry.key,
+          isCombo: true,
+          selectedAt: entry.value.selectedAt,
+          title: entry.value.bundle.leistungen.join(' + '),
+          subtitle: [
+            entry.value.bundle.kategorie,
+            entry.value.varianteLabel ?? _comboMethodLabelForDisplay(entry.value.bundle)
+          ].where((e) => e != null && e.trim().isNotEmpty).join(' • '),
+          price: entry.value.preis,
+          duration: entry.value.dauer,
         ),
       ),
     ]..sort((a, b) => a.selectedAt.compareTo(b.selectedAt));
@@ -1354,6 +1359,32 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 Text(
                                   entry.price == null ? '–' : _formatEuro(entry.price!),
                                   style: const TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                                IconButton(
+                                  tooltip: 'Leistung entfernen',
+                                  icon: const Icon(Icons.delete_outline, size: 20),
+                                  onPressed: () {
+                                    final singlesMap = Map<String, _CartItem>.from(_selectedVN.value);
+                                    final combosMap = Map<String, _ComboSelection>.from(_selectedCombosVN.value);
+
+                                    if (entry.isCombo) {
+                                      combosMap.remove(entry.selectionKey);
+                                    } else {
+                                      final removedItem = singlesMap.remove(entry.selectionKey);
+                                      if (removedItem != null) {
+                                        _removeDependentSelections(
+                                          selectionMap: singlesMap,
+                                          zielgruppe: removedItem.zielgruppe,
+                                          category: removedItem.kategorie,
+                                          removedPartLc: removedItem.leistung.toLowerCase(),
+                                        );
+                                      }
+                                    }
+
+                                    _selectedVN.value = singlesMap;
+                                    _selectedCombosVN.value = combosMap;
+                                    Navigator.of(ctx).pop();
+                                  },
                                 ),
                               ],
                             ),
@@ -3552,6 +3583,8 @@ class _CartTotals {
 
 
 class _BookingSummaryEntry {
+  final String selectionKey;
+  final bool isCombo;
   final int selectedAt;
   final String title;
   final String subtitle;
@@ -3559,6 +3592,8 @@ class _BookingSummaryEntry {
   final int? duration;
 
   const _BookingSummaryEntry({
+    required this.selectionKey,
+    required this.isCombo,
     required this.selectedAt,
     required this.title,
     required this.subtitle,
