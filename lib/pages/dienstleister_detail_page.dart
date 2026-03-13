@@ -697,6 +697,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   /// Auswahlreihenfolge hochzählen
   int _selectionTicker = 0;
 
+  /// Expand-State für Leistungen mit Varianten
+  final Set<String> _expandedVariantGroups = <String>{};
+
   /// Abhängigkeiten für Kombi-Einzelteile (cat|partLc -> required parts)
   Map<String, List<Set<String>>> _comboDependencies = {};
 
@@ -3008,18 +3011,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           return rows;
                         }
 
-                        void openSheet() {
-                          final combineRows = _buildCombineRowsFor(kat, partLc);
-
-                          _openVariantSheet(
-                            base: offer,
-                            category: kat,
-                            variantOffersForPart: variantOffersForPart,
-                            preselectVarLc: null,
-                            combineRows: combineRows,
-                          );
-                        }
-
                         final selectedItem = map[selKey];
                         final selected = map.containsKey(selKey);
 
@@ -3130,6 +3121,301 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           );
                         }
 
+                        String? currentMethodLabel() {
+                          return selectedItem?.varianteLabel?.split(' • ').first;
+                        }
+
+                        Widget buildVariantRow({
+                          required String label,
+                          required Offer variantOffer,
+                          required bool isLast,
+                        }) {
+                          final selectedLabel = currentMethodLabel();
+                          final selectedThis = selected && selectedLabel == label;
+                          final variantDuration =
+                              selectedThis && selectedItem?.dauer != null
+                                  ? selectedItem!.dauer
+                                  : (variantOffer.durationFor(_zielgruppe) ??
+                                      _minSizeDurationFor(variantOffer, _zielgruppe));
+
+                          final variantBasePrice = variantOffer.priceFor(_zielgruppe) ??
+                              _minSizePriceFor(variantOffer, _zielgruppe);
+                          final variantEffectivePrice =
+                              selectedThis && selectedItem?.preis != null
+                                  ? selectedItem!.preis
+                                  : variantBasePrice;
+
+                          Widget buildVariantPriceText() {
+                            double? newPrice;
+                            double? preview;
+
+                            if (selectedThis) {
+                              final locked = selectedItem?.lockedDisplayPrice;
+                              if (locked != null &&
+                                  variantEffectivePrice != null &&
+                                  locked < variantEffectivePrice) {
+                                newPrice = locked;
+                              }
+                            } else {
+                              preview = _previewForLastMissingPart(
+                                category: kat,
+                                zielgruppe: _zielgruppe,
+                                partLc: partLc,
+                                selectedPartsLc: selectedPartsLc,
+                                selectionMap: map,
+                                singleBaseIndex: singleBaseIndex,
+                                bundles: bundles,
+                              );
+                              if (preview != null &&
+                                  variantEffectivePrice != null &&
+                                  preview < variantEffectivePrice) {
+                                newPrice = preview;
+                              }
+                            }
+
+                            if (newPrice != null) {
+                              return Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    _preisText(variantEffectivePrice),
+                                    style: const TextStyle(
+                                      color: Colors.black45,
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w500,
+                                      decoration: TextDecoration.lineThrough,
+                                      decorationThickness: 2,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _preisText(newPrice),
+                                    style: const TextStyle(
+                                      color: Colors.green,
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ],
+                              );
+                            }
+
+                            if (preview != null && variantEffectivePrice == null) {
+                              return Text(
+                                _preisText(preview),
+                                style: const TextStyle(
+                                  color: Colors.green,
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              );
+                            }
+
+                            return Text(
+                              _preisText(variantEffectivePrice),
+                              style: const TextStyle(
+                                color: Colors.black54,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            );
+                          }
+
+                          return Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(
+                              border: isLast
+                                  ? null
+                                  : const Border(
+                                      bottom: BorderSide(color: Color(0xFFECECEC)),
+                                    ),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    label,
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (variantDuration != null) ...[
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF2F4F7),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                        color: const Color(0xFFE5E7EB),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      '$variantDuration Min',
+                                      style: const TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF374151),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                ],
+                                buildVariantPriceText(),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  tooltip: selectedThis
+                                      ? 'Entfernen'
+                                      : (!canAdd
+                                          ? 'Nur mit vorheriger Auswahl'
+                                          : 'Hinzufügen'),
+                                  onPressed: !canInteract
+                                      ? null
+                                      : () {
+                                          if (selectedThis) {
+                                            final existing = selectedItem;
+                                            if (existing != null) {
+                                              _toggleSelection(selKey, existing);
+                                            }
+                                            return;
+                                          }
+
+                                          final currentMap =
+                                              Map<String, _CartItem>.from(
+                                            _selectedVN.value,
+                                          );
+                                          final combosMap =
+                                              Map<String, _ComboSelection>.from(
+                                            _selectedCombosVN.value,
+                                          );
+
+                                          if (_hasItemsFromOtherZielgruppe(
+                                            _zielgruppe,
+                                          )) {
+                                            final other = currentMap.values.isNotEmpty
+                                                ? currentMap.values.first.zielgruppe
+                                                : _selectedCombosVN
+                                                    .value
+                                                    .values
+                                                    .first
+                                                    .zielgruppe;
+                                            _showWrongGroupSnack(other);
+                                            return;
+                                          }
+
+                                          final locked = _lockedPriceForNewSelection(
+                                            category: kat,
+                                            zielgruppe: _zielgruppe,
+                                            newPartLc: partLc,
+                                            selectionMap: currentMap,
+                                            singleBaseIndex: singleBaseIndex,
+                                            bundles: bundles,
+                                            newPartSinglePrice: variantBasePrice,
+                                          );
+
+                                          currentMap[selKey] = _CartItem(
+                                            kategorie: kat,
+                                            leistung: partDisplay,
+                                            preis: variantBasePrice,
+                                            dauer: variantDuration,
+                                            zielgruppe: _zielgruppe,
+                                            varianteLabel: label,
+                                            selectedAt: ++_selectionTicker,
+                                            lockedDisplayPrice: locked,
+                                          );
+
+                                          combosMap.removeWhere(
+                                            (_, combo) =>
+                                                combo.zielgruppe == _zielgruppe &&
+                                                combo.bundle.kategorie == kat &&
+                                                combo.bundle.leistungenLc.contains(partLc),
+                                          );
+
+                                          _selectedVN.value = currentMap;
+                                          _selectedCombosVN.value = combosMap;
+                                        },
+                                  icon: Icon(
+                                    selectedThis
+                                        ? Icons.check_circle
+                                        : Icons.add_circle_outline,
+                                  ),
+                                  color: selectedThis ? Colors.blueAccent : null,
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+
+                        if (hasMethodVariants) {
+                          final groupId = '$kat|$partLc';
+                          final isExpanded =
+                              !_expandedVariantGroups.contains(groupId);
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              InkWell(
+                                borderRadius: BorderRadius.circular(8),
+                                onTap: () {
+                                  setState(() {
+                                    if (isExpanded) {
+                                      _expandedVariantGroups.add(groupId);
+                                    } else {
+                                      _expandedVariantGroups.remove(groupId);
+                                    }
+                                  });
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 2),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          uiTitle,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Icon(
+                                        isExpanded
+                                            ? Icons.expand_less
+                                            : Icons.expand_more,
+                                        color: Colors.black54,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              if (isExpanded) ...[
+                                const SizedBox(height: 6),
+                                for (int i = 0; i < sortedLabels.length; i++)
+                                  Builder(
+                                    builder: (_) {
+                                      final label = sortedLabels[i];
+                                      final o = singleVariantIndex[
+                                          '$kat|$partLc|${label.toLowerCase()}'];
+                                      if (o == null) return const SizedBox.shrink();
+                                      return buildVariantRow(
+                                        label: label,
+                                        variantOffer: o,
+                                        isLast: i == sortedLabels.length - 1,
+                                      );
+                                    },
+                                  ),
+                              ],
+                            ],
+                          );
+                        }
+
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -3156,137 +3442,111 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   tooltip: selected
                                       ? 'Entfernen'
                                       : (!canAdd
-                                      ? 'Nur mit vorheriger Auswahl'
-                                      : ((hasMethodVariants || hasAnySizeOptions)
-                                      ? 'Methode/Option wählen'
-                                      : 'Hinzufügen')),
+                                          ? 'Nur mit vorheriger Auswahl'
+                                          : (hasAnySizeOptions
+                                              ? 'Methode/Option wählen'
+                                              : 'Hinzufügen')),
                                   onPressed: !canInteract
                                       ? null
                                       : () {
-                                    if (hasMethodVariants || hasAnySizeOptions) {
-                                      if (selected) {
-                                        final newMap =
-                                        Map<String, _CartItem>.from(_selectedVN.value);
-                                        newMap.remove(selKey);
-                                        _selectedVN.value = newMap;
-                                      } else {
-                                        final variantsForPart = <Offer>[];
-                                        for (final label in sortedLabels) {
-                                          final o = singleVariantIndex[
-                                          '$kat|$partLc|${label.toLowerCase()}'];
-                                          if (o != null &&
-                                              _hasZielgruppenData(o, _zielgruppe)) {
-                                            variantsForPart.add(o);
+                                          if (hasAnySizeOptions) {
+                                            if (selected) {
+                                              final newMap =
+                                                  Map<String, _CartItem>.from(
+                                                _selectedVN.value,
+                                              );
+                                              newMap.remove(selKey);
+                                              _selectedVN.value = newMap;
+                                            } else {
+                                              final variantsForPart = <Offer>[];
+                                              for (final label in sortedLabels) {
+                                                final o = singleVariantIndex[
+                                                    '$kat|$partLc|${label.toLowerCase()}'];
+                                                if (o != null &&
+                                                    _hasZielgruppenData(
+                                                      o,
+                                                      _zielgruppe,
+                                                    )) {
+                                                  variantsForPart.add(o);
+                                                }
+                                              }
+                                              final combineRows =
+                                                  _buildCombineRowsFor(kat, partLc);
+                                              _openVariantSheet(
+                                                base: offer,
+                                                category: kat,
+                                                variantOffersForPart:
+                                                    variantsForPart,
+                                                combineRows: combineRows,
+                                              );
+                                            }
+                                          } else {
+                                            final currentMap =
+                                                Map<String, _CartItem>.from(
+                                              _selectedVN.value,
+                                            );
+
+                                            if (_hasItemsFromOtherZielgruppe(
+                                              _zielgruppe,
+                                            )) {
+                                              final other =
+                                                  currentMap.values.isNotEmpty
+                                                      ? currentMap
+                                                          .values
+                                                          .first
+                                                          .zielgruppe
+                                                      : _selectedCombosVN
+                                                          .value
+                                                          .values
+                                                          .first
+                                                          .zielgruppe;
+                                              _showWrongGroupSnack(other);
+                                              return;
+                                            }
+
+                                            final singlePrice = preis ??
+                                                singleBaseIndex[
+                                                        '$kat|$partLc']
+                                                    ?.priceFor(_zielgruppe);
+
+                                            final locked =
+                                                _lockedPriceForNewSelection(
+                                              category: kat,
+                                              zielgruppe: _zielgruppe,
+                                              newPartLc: partLc,
+                                              selectionMap: currentMap,
+                                              singleBaseIndex: singleBaseIndex,
+                                              bundles: bundles,
+                                              newPartSinglePrice: singlePrice,
+                                            );
+
+                                            _toggleSelection(
+                                              selKey,
+                                              _CartItem(
+                                                kategorie: kat,
+                                                leistung: partDisplay,
+                                                preis: singlePrice,
+                                                dauer: dauer,
+                                                zielgruppe: _zielgruppe,
+                                                selectedAt: ++_selectionTicker,
+                                                lockedDisplayPrice: locked,
+                                              ),
+                                            );
                                           }
-                                        }
-                                        final combineRows =
-                                        _buildCombineRowsFor(kat, partLc);
-                                        _openVariantSheet(
-                                          base: offer,
-                                          category: kat,
-                                          variantOffersForPart: variantsForPart,
-                                          combineRows: combineRows,
-                                        );
-                                      }
-                                    } else {
-                                      // HINZUFÜGEN ohne Methode/Option
-                                      final currentMap =
-                                      Map<String, _CartItem>.from(_selectedVN.value);
-
-                                      if (_hasItemsFromOtherZielgruppe(_zielgruppe)) {
-                                        final other = currentMap.values.isNotEmpty
-                                            ? currentMap.values.first.zielgruppe
-                                            : _selectedCombosVN.value.values.first.zielgruppe;
-                                        _showWrongGroupSnack(other);
-                                        return;
-                                      }
-
-                                      final singlePrice = preis ??
-                                          singleBaseIndex['$kat|$partLc']
-                                              ?.priceFor(_zielgruppe);
-
-                                      final locked = _lockedPriceForNewSelection(
-                                        category: kat,
-                                        zielgruppe: _zielgruppe,
-                                        newPartLc: partLc,
-                                        selectionMap: currentMap,
-                                        singleBaseIndex: singleBaseIndex,
-                                        bundles: bundles,
-                                        newPartSinglePrice: singlePrice,
-                                      );
-
-                                      _toggleSelection(
-                                        selKey,
-                                        _CartItem(
-                                          kategorie: kat,
-                                          leistung: partDisplay,
-                                          preis: singlePrice,
-                                          dauer: dauer,
-                                          zielgruppe: _zielgruppe,
-                                          selectedAt: ++_selectionTicker,
-                                          lockedDisplayPrice: locked,
-                                        ),
-                                      );
-                                    }
-                                  },
+                                        },
                                   icon: Icon(
-                                    selected ? Icons.check_circle : Icons.add_circle_outline,
+                                    selected
+                                        ? Icons.check_circle
+                                        : Icons.add_circle_outline,
                                   ),
                                   color: selected ? Colors.blueAccent : null,
                                 ),
                               ],
                             ),
-                            if (hasMethodVariants) ...[
-                              const SizedBox(height: 6),
-                              GestureDetector(
-                                onTap: openSheet,
-                                child: Builder(builder: (context) {
-                                  final selectedLabel =
-                                      map[selKey]?.varianteLabel?.split(' • ').first;
-                                  return SingleChildScrollView(
-                                    scrollDirection: Axis.horizontal,
-                                    child: Row(
-                                      children: [
-                                        for (final label in sortedLabels)
-                                          Padding(
-                                            padding: const EdgeInsets.only(right: 6),
-                                            child: Container(
-                                              padding: const EdgeInsets.symmetric(
-                                                horizontal: 8,
-                                                vertical: 4,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: label == selectedLabel
-                                                    ? const Color(0xFF34C759)
-                                                    : Colors.white,
-                                                borderRadius: BorderRadius.circular(6),
-                                                border: Border.all(
-                                                  color: label == selectedLabel
-                                                      ? const Color(0xFF34C759)
-                                                      : const Color(0xFFBDBDBD),
-                                                ),
-                                              ),
-                                              child: Text(
-                                                label,
-                                                style: TextStyle(
-                                                  fontSize: 12.5,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: label == selectedLabel
-                                                      ? Colors.white
-                                                      : Colors.black54,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  );
-                                }),
-                              ),
-                            ],
                           ],
                         );
                       },
+                    },
                     ),
                   ),
                 ),
