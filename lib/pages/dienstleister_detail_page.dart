@@ -2542,8 +2542,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(40),
-          child: Padding(
+          child: Container(
+            width: double.infinity,
+            color: Colors.white,
             padding: const EdgeInsets.only(bottom: 8.0),
+            alignment: Alignment.center,
             child: Text(
               (widget.dienstleister['name'] as String?) ?? 'Profil',
               style: const TextStyle(
@@ -3378,7 +3381,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           return ValueListenableBuilder<Set<String>>(
                             valueListenable: _expandedVariantGroupsVN,
                             builder: (_, collapsedGroups, __) {
-                              final isExpanded = !collapsedGroups.contains(groupId);
+                              final isExpanded = collapsedGroups.contains(groupId);
 
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -3390,9 +3393,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         _expandedVariantGroupsVN.value,
                                       );
                                       if (isExpanded) {
-                                        next.add(groupId);
-                                      } else {
                                         next.remove(groupId);
+                                      } else {
+                                        next.add(groupId);
                                       }
                                       _expandedVariantGroupsVN.value = next;
                                     },
