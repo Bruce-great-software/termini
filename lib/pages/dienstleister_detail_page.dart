@@ -3387,8 +3387,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       ),
                                       Icon(
                                         isExpanded
-                                            ? Icons.expand_less
-                                            : Icons.expand_more,
+                                            ? Icons.keyboard_arrow_down
+                                            : Icons.chevron_right,
                                         color: Colors.black54,
                                       ),
                                     ],
@@ -3397,20 +3397,47 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               ),
                               if (isExpanded) ...[
                                 const SizedBox(height: 6),
-                                for (int i = 0; i < sortedLabels.length; i++)
-                                  Builder(
-                                    builder: (_) {
-                                      final label = sortedLabels[i];
-                                      final o = singleVariantIndex[
-                                          '$kat|$partLc|${label.toLowerCase()}'];
-                                      if (o == null) return const SizedBox.shrink();
-                                      return buildVariantRow(
-                                        label: label,
-                                        variantOffer: o,
-                                        isLast: i == sortedLabels.length - 1,
-                                      );
-                                    },
+                                Container(
+                                  margin: const EdgeInsets.only(left: 10),
+                                  padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEFF4FF),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: const Color(0xFFD6E4FF)),
                                   ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    children: [
+                                      const Padding(
+                                        padding: EdgeInsets.only(left: 2, bottom: 4),
+                                        child: Text(
+                                          'Varianten',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFF3E67B1),
+                                          ),
+                                        ),
+                                      ),
+                                      for (int i = 0; i < sortedLabels.length; i++)
+                                        Builder(
+                                          builder: (_) {
+                                            final label = sortedLabels[i];
+                                            final o = singleVariantIndex[
+                                                '$kat|$partLc|${label.toLowerCase()}'];
+                                            if (o == null) {
+                                              return const SizedBox.shrink();
+                                            }
+                                            return buildVariantRow(
+                                              label: label,
+                                              variantOffer: o,
+                                              isLast: i == sortedLabels.length - 1,
+                                            );
+                                          },
+                                        ),
+                                    ],
+                                  ),
+                                ),
                               ],
                             ],
                           );
