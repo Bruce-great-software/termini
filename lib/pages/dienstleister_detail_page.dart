@@ -3342,13 +3342,29 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           return Container(
                             padding: const EdgeInsets.symmetric(vertical: 8),
                             decoration: BoxDecoration(
-                              border: isLast
-                                  ? null
-                                  : const Border(
-                                      bottom: BorderSide(color: Color(0xFFECECEC)),
-                                    ),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: selectedThis
+                                    ? activeColorFor(_zielgruppe)
+                                    : Colors.transparent,
+                                width: 1.5,
+                              ),
                             ),
-                            child: Row(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 2,
+                                horizontal: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                border: isLast
+                                    ? null
+                                    : const Border(
+                                        bottom: BorderSide(
+                                          color: Color(0xFFECECEC),
+                                        ),
+                                      ),
+                              ),
+                              child: Row(
                               children: [
                                 Expanded(
                                   child: Text(
@@ -3472,6 +3488,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 ),
                               ],
                             ),
+                            ),
                           );
                         }
 
@@ -3498,9 +3515,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(10),
                                   border: Border.all(
-                                    color: selected
-                                        ? activeColorFor(_zielgruppe)
-                                        : Colors.transparent,
+                                    color: Colors.transparent,
                                     width: 1.8,
                                   ),
                                 ),
