@@ -786,11 +786,39 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       fontWeight: FontWeight.w600,
       color: _zielgruppe == value ? Colors.white : Colors.black,
     );
-    const EdgeInsets pad = EdgeInsets.symmetric(horizontal: 14, vertical: 8);
+
+    IconData iconFor(String value) {
+      switch (value) {
+        case 'Damen':
+          return Icons.female;
+        case 'Herren':
+          return Icons.male;
+        case 'Kinder':
+          return Icons.child_care;
+        default:
+          return Icons.person;
+      }
+    }
+
+    Widget segment(String value) {
+      final color = _zielgruppe == value ? Colors.white : Colors.black;
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(iconFor(value), size: 14, color: color),
+            const SizedBox(width: 6),
+            Text(value, style: label(value)),
+          ],
+        ),
+      );
+    }
+
     return {
-      'Damen': Padding(padding: pad, child: Text('Damen', style: label('Damen'))),
-      'Herren': Padding(padding: pad, child: Text('Herren', style: label('Herren'))),
-      'Kinder': Padding(padding: pad, child: Text('Kinder', style: label('Kinder'))),
+      'Damen': segment('Damen'),
+      'Herren': segment('Herren'),
+      'Kinder': segment('Kinder'),
     };
   }
 
