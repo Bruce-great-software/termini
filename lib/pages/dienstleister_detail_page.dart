@@ -3468,7 +3468,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         ? Icons.check_circle
                                         : Icons.add_circle_outline,
                                   ),
-                                  color: selectedThis ? Colors.blueAccent : null,
+                                  color: selectedThis ? activeColorFor(_zielgruppe) : null,
                                 ),
                               ],
                             ),
@@ -3488,9 +3488,25 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             builder: (_, collapsedGroups, __) {
                               final isExpanded = collapsedGroups.contains(groupId);
 
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
+                              return AnimatedContainer(
+                                duration: const Duration(milliseconds: 180),
+                                curve: Curves.easeOut,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: selected
+                                        ? activeColorFor(_zielgruppe)
+                                        : Colors.transparent,
+                                    width: 1.8,
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
                                   InkWell(
                                     borderRadius: BorderRadius.circular(8),
                                     onTap: () {
@@ -3575,14 +3591,31 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     ),
                                   ],
                                 ],
-                              );
+                              ),
+                            );
                             },
                           );
                         }
 
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                        return AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOut,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: selected
+                                  ? activeColorFor(_zielgruppe)
+                                  : Colors.transparent,
+                              width: 1.8,
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
@@ -3703,12 +3736,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         ? Icons.check_circle
                                         : Icons.add_circle_outline,
                                   ),
-                                  color: selected ? Colors.blueAccent : null,
+                                  color: selected ? activeColorFor(_zielgruppe) : null,
                                 ),
                               ],
                             ),
                           ],
-                        );
+                        ),
+                      );
                       },
                     },
                     ),
@@ -3847,7 +3881,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     icon: Icon(
                                       selectedAll ? Icons.check_circle : Icons.add_circle_outline,
                                     ),
-                                    color: selectedAll ? Colors.blueAccent : null,
+                                    color: selectedAll ? activeColorFor(_zielgruppe) : null,
                                   ),
                                 ],
                               );
@@ -4031,7 +4065,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       icon: Icon(
                                         selected ? Icons.check_circle : Icons.add_circle_outline,
                                       ),
-                                      color: selected ? Colors.blueAccent : null,
+                                      color: selected ? activeColorFor(_zielgruppe) : null,
                                     ),
                                   ],
                                 );
