@@ -1341,10 +1341,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required double total,
     required double savings,
   }) async {
+    var panelSingles = Map<String, _CartItem>.from(singles);
+    var panelCombos = Map<String, _ComboSelection>.from(combos);
+
     _BookingSummaryEntry _singleEntry(String key, _CartItem item) {
       final lockedDiscount = _validatedLockedDisplayPrice(
         item: item,
-        selectionMap: singles,
+        selectionMap: panelSingles,
         singleBaseIndex: singleBaseIndex,
         bundles: bundles,
       );
@@ -1376,7 +1379,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               category: selection.bundle.kategorie,
               zielgruppe: selection.zielgruppe,
               partLc: partLc,
-              selectionMap: singles,
+              selectionMap: panelSingles,
               singleBaseIndex: singleBaseIndex,
             ),
       );
@@ -1400,8 +1403,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     }
 
     List<_BookingSummaryEntry> entries = [
-      ...singles.entries.map((entry) => _singleEntry(entry.key, entry.value)),
-      ...combos.entries.map((entry) => _comboEntry(entry.key, entry.value)),
+      ...panelSingles.entries.map((entry) => _singleEntry(entry.key, entry.value)),
+      ...panelCombos.entries.map((entry) => _comboEntry(entry.key, entry.value)),
     ]..sort((a, b) => a.selectedAt.compareTo(b.selectedAt));
 
     double panelTotal = total;
@@ -1554,11 +1557,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                                         _selectedVN.value = singlesMap;
                                         _selectedCombosVN.value = combosMap;
+                                        panelSingles = singlesMap;
+                                        panelCombos = combosMap;
 
                                         entries = [
-                                          ...singlesMap.entries
+                                          ...panelSingles.entries
                                               .map((e) => _singleEntry(e.key, e.value)),
-                                          ...combosMap.entries
+                                          ...panelCombos.entries
                                               .map((e) => _comboEntry(e.key, e.value)),
                                         ]
                                           ..sort(
