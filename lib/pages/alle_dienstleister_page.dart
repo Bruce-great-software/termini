@@ -816,7 +816,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: const StadiumBorder(),
-                          backgroundColor: Colors.blueAccent,
+                          backgroundColor: Colors.white,
                           foregroundColor: Colors.white,
                         ),
                         child: Text(
@@ -1031,7 +1031,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                           if (mounted) Navigator.of(ctx).pop();
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent,
+                          backgroundColor: Colors.white,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: const StadiumBorder(),
@@ -1857,7 +1857,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         _filterBadgeCount > 99 ? '99+' : '$_filterBadgeCount',
                         textAlign: TextAlign.center,
                         style: const TextStyle(
-                          color: Colors.white,
+                          color: Colors.black,
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                         ),
@@ -2097,19 +2097,19 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.blueAccent,
+        backgroundColor: Colors.white,
         centerTitle: true,
         title: Text(
           currentCity != null ? currentCity! : 'Ort wird geladen...',
           style: const TextStyle(
-            color: Colors.white,
+            color: Colors.black,
             fontWeight: FontWeight.bold,
             fontSize: 20,
           ),
         ),
         leading: geoeffneterDienstleister != null
             ? IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
           onPressed: () {
             setState(() {
               geoeffneterDienstleister = null;
