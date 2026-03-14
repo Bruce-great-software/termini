@@ -1373,15 +1373,23 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   }) async {
     List<_BookingSummaryEntry> entries = [
       ...singles.entries.map(
-        (entry) => _BookingSummaryEntry(
-          selectionKey: entry.key,
-          isCombo: false,
-          selectedAt: entry.value.selectedAt,
-          title: '${entry.value.kategorie} - ${entry.value.leistung}',
-          subtitle: (entry.value.varianteLabel ?? '').trim(),
-          price: entry.value.preis,
-          duration: entry.value.dauer,
-        ),
+        (entry) {
+          final effectivePrice = entry.value.lockedDisplayPrice != null &&
+                  entry.value.preis != null &&
+                  entry.value.lockedDisplayPrice! < entry.value.preis!
+              ? entry.value.lockedDisplayPrice
+              : entry.value.preis;
+          return _BookingSummaryEntry(
+            selectionKey: entry.key,
+            isCombo: false,
+            selectedAt: entry.value.selectedAt,
+            title: '${entry.value.kategorie} - ${entry.value.leistung}',
+            subtitle: (entry.value.varianteLabel ?? '').trim(),
+            price: effectivePrice,
+            originalPrice: effectivePrice != entry.value.preis ? entry.value.preis : null,
+            duration: entry.value.dauer,
+          );
+        },
       ),
       ...combos.entries.map(
         (entry) => _BookingSummaryEntry(
@@ -1488,13 +1496,32 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       ),
                                     ),
                                     const SizedBox(width: 6),
-                                    Text(
-                                      entry.price == null
-                                          ? '–'
-                                          : _formatEuro(entry.price!),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        if (entry.originalPrice != null)
+                                          Text(
+                                            _formatEuro(entry.originalPrice!),
+                                            style: const TextStyle(
+                                              color: Colors.black45,
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.w500,
+                                              decoration: TextDecoration.lineThrough,
+                                              decorationThickness: 2,
+                                            ),
+                                          ),
+                                        Text(
+                                          entry.price == null
+                                              ? '–'
+                                              : _formatEuro(entry.price!),
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            color: entry.originalPrice != null
+                                                ? Colors.green
+                                                : Colors.black,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                     IconButton(
                                       tooltip: 'Leistung entfernen',
@@ -1533,45 +1560,36 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                                         entries = [
                                           ...singlesMap.entries.map(
-                                            (e) => _BookingSummaryEntry(
-                                              selectionKey: e.key,
-                                              isCombo: false,
-                                              selectedAt: e.value.selectedAt,
-                                              title: e.value.leistung,
-                                              subtitle: [
-                                                e.value.kategorie,
-                                                e.value.varianteLabel,
-                                              ]
-                                                  .where(
-                                                    (x) =>
-                                                        x != null &&
-                                                        x.trim().isNotEmpty,
-                                                  )
-                                                  .join(' • '),
-                                              price: e.value.preis,
-                                              duration: e.value.dauer,
-                                            ),
+                                            (e) {
+                                              final effectivePrice = e.value.lockedDisplayPrice != null &&
+                                                      e.value.preis != null &&
+                                                      e.value.lockedDisplayPrice! < e.value.preis!
+                                                  ? e.value.lockedDisplayPrice
+                                                  : e.value.preis;
+                                              return _BookingSummaryEntry(
+                                                selectionKey: e.key,
+                                                isCombo: false,
+                                                selectedAt: e.value.selectedAt,
+                                                title: '${e.value.kategorie} - ${e.value.leistung}',
+                                                subtitle: (e.value.varianteLabel ?? '').trim(),
+                                                price: effectivePrice,
+                                                originalPrice:
+                                                    effectivePrice != e.value.preis ? e.value.preis : null,
+                                                duration: e.value.dauer,
+                                              );
+                                            },
                                           ),
                                           ...combosMap.entries.map(
                                             (e) => _BookingSummaryEntry(
                                               selectionKey: e.key,
                                               isCombo: true,
                                               selectedAt: e.value.selectedAt,
-                                              title: e.value.bundle.leistungen
-                                                  .join(' + '),
-                                              subtitle: [
-                                                e.value.bundle.kategorie,
-                                                e.value.varianteLabel ??
-                                                    _comboMethodLabelForDisplay(
-                                                      e.value.bundle,
-                                                    ),
-                                              ]
-                                                  .where(
-                                                    (x) =>
-                                                        x != null &&
-                                                        x.trim().isNotEmpty,
-                                                  )
-                                                  .join(' • '),
+                                              title:
+                                                  '${e.value.bundle.kategorie} - ${e.value.bundle.leistungen.join(' + ')}',
+                                              subtitle: (e.value.varianteLabel ??
+                                                      _comboMethodLabelForDisplay(e.value.bundle) ??
+                                                      '')
+                                                  .trim(),
                                               price: e.value.preis,
                                               duration: e.value.dauer,
                                             ),
@@ -4191,6 +4209,7 @@ class _BookingSummaryEntry {
   final String title;
   final String subtitle;
   final double? price;
+  final double? originalPrice;
   final int? duration;
 
   const _BookingSummaryEntry({
@@ -4200,6 +4219,7 @@ class _BookingSummaryEntry {
     required this.title,
     required this.subtitle,
     required this.price,
+    this.originalPrice,
     required this.duration,
   });
 }
