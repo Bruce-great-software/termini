@@ -3342,135 +3342,152 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               return Container(
                                 padding: const EdgeInsets.symmetric(vertical: 8),
                                 decoration: BoxDecoration(
-                                  border: isLast
-                                      ? null
-                                      : const Border(
-                                    bottom: BorderSide(color: Color(0xFFECECEC)),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: selectedThis
+                                        ? activeColorFor(_zielgruppe)
+                                        : Colors.transparent,
+                                    width: 1.5,
                                   ),
                                 ),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        label,
-                                        style: const TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 2,
+                                    horizontal: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    border: isLast
+                                        ? null
+                                        : const Border(
+                                      bottom: BorderSide(
+                                        color: Color(0xFFECECEC),
                                       ),
                                     ),
-                                    if (variantDuration != null && !isCompactVariantRow) ...[
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFF2F4F7),
-                                          borderRadius: BorderRadius.circular(20),
-                                          border: Border.all(
-                                            color: const Color(0xFFE5E7EB),
-                                          ),
-                                        ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
                                         child: Text(
-                                          '$variantDuration Min',
+                                          label,
                                           style: const TextStyle(
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.w700,
-                                            color: Color(0xFF374151),
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w500,
                                           ),
+                                          overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
+                                      if (variantDuration != null && !isCompactVariantRow) ...[
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFF2F4F7),
+                                            borderRadius: BorderRadius.circular(20),
+                                            border: Border.all(
+                                              color: const Color(0xFFE5E7EB),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            '$variantDuration Min',
+                                            style: const TextStyle(
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.w700,
+                                              color: Color(0xFF374151),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                      ],
+                                      buildVariantPriceText(),
                                       const SizedBox(width: 4),
-                                    ],
-                                    buildVariantPriceText(),
-                                    const SizedBox(width: 4),
-                                    IconButton(
-                                      tooltip: selectedThis
-                                          ? 'Entfernen'
-                                          : (!canAdd
-                                          ? 'Nur mit vorheriger Auswahl'
-                                          : 'Hinzufügen'),
-                                      padding: EdgeInsets.zero,
-                                      visualDensity: VisualDensity.compact,
-                                      constraints: const BoxConstraints(
-                                        minWidth: 36,
-                                        minHeight: 36,
-                                      ),
-                                      onPressed: !canInteract
-                                          ? null
-                                          : () {
-                                        if (selectedThis) {
-                                          final existing = selectedItem;
-                                          if (existing != null) {
-                                            _toggleSelection(selKey, existing);
+                                      IconButton(
+                                        tooltip: selectedThis
+                                            ? 'Entfernen'
+                                            : (!canAdd
+                                            ? 'Nur mit vorheriger Auswahl'
+                                            : 'Hinzufügen'),
+                                        padding: EdgeInsets.zero,
+                                        visualDensity: VisualDensity.compact,
+                                        constraints: const BoxConstraints(
+                                          minWidth: 36,
+                                          minHeight: 36,
+                                        ),
+                                        onPressed: !canInteract
+                                            ? null
+                                            : () {
+                                          if (selectedThis) {
+                                            final existing = selectedItem;
+                                            if (existing != null) {
+                                              _toggleSelection(selKey, existing);
+                                            }
+                                            return;
                                           }
-                                          return;
-                                        }
 
-                                        final currentMap =
-                                        Map<String, _CartItem>.from(
-                                          _selectedVN.value,
-                                        );
-                                        final combosMap =
-                                        Map<String, _ComboSelection>.from(
-                                          _selectedCombosVN.value,
-                                        );
+                                          final currentMap =
+                                          Map<String, _CartItem>.from(
+                                            _selectedVN.value,
+                                          );
+                                          final combosMap =
+                                          Map<String, _ComboSelection>.from(
+                                            _selectedCombosVN.value,
+                                          );
 
-                                        if (_hasItemsFromOtherZielgruppe(
-                                          _zielgruppe,
-                                        )) {
-                                          final other = currentMap.values.isNotEmpty
-                                              ? currentMap.values.first.zielgruppe
-                                              : _selectedCombosVN
-                                              .value
-                                              .values
-                                              .first
-                                              .zielgruppe;
-                                          _showWrongGroupSnack(other);
-                                          return;
-                                        }
+                                          if (_hasItemsFromOtherZielgruppe(
+                                            _zielgruppe,
+                                          )) {
+                                            final other = currentMap.values.isNotEmpty
+                                                ? currentMap.values.first.zielgruppe
+                                                : _selectedCombosVN
+                                                .value
+                                                .values
+                                                .first
+                                                .zielgruppe;
+                                            _showWrongGroupSnack(other);
+                                            return;
+                                          }
 
-                                        final locked = _lockedPriceForNewSelection(
-                                          category: kat,
-                                          zielgruppe: _zielgruppe,
-                                          newPartLc: partLc,
-                                          selectionMap: currentMap,
-                                          singleBaseIndex: singleBaseIndex,
-                                          bundles: bundles,
-                                          newPartSinglePrice: variantBasePrice,
-                                        );
+                                          final locked = _lockedPriceForNewSelection(
+                                            category: kat,
+                                            zielgruppe: _zielgruppe,
+                                            newPartLc: partLc,
+                                            selectionMap: currentMap,
+                                            singleBaseIndex: singleBaseIndex,
+                                            bundles: bundles,
+                                            newPartSinglePrice: variantBasePrice,
+                                          );
 
-                                        currentMap[selKey] = _CartItem(
-                                          kategorie: kat,
-                                          leistung: partDisplay,
-                                          preis: variantBasePrice,
-                                          dauer: variantDuration,
-                                          zielgruppe: _zielgruppe,
-                                          varianteLabel: isStandard ? 'Standard' : label,
-                                          selectedAt: ++_selectionTicker,
-                                          lockedDisplayPrice: locked,
-                                        );
+                                          currentMap[selKey] = _CartItem(
+                                            kategorie: kat,
+                                            leistung: partDisplay,
+                                            preis: variantBasePrice,
+                                            dauer: variantDuration,
+                                            zielgruppe: _zielgruppe,
+                                            varianteLabel: isStandard ? 'Standard' : label,
+                                            selectedAt: ++_selectionTicker,
+                                            lockedDisplayPrice: locked,
+                                          );
 
-                                        combosMap.removeWhere(
-                                              (_, combo) =>
-                                          combo.zielgruppe == _zielgruppe &&
-                                              combo.bundle.kategorie == kat &&
-                                              combo.bundle.leistungenLc.contains(partLc),
-                                        );
+                                          combosMap.removeWhere(
+                                                (_, combo) =>
+                                            combo.zielgruppe == _zielgruppe &&
+                                                combo.bundle.kategorie == kat &&
+                                                combo.bundle.leistungenLc.contains(partLc),
+                                          );
 
-                                        _selectedVN.value = currentMap;
-                                        _selectedCombosVN.value = combosMap;
-                                      },
-                                      icon: Icon(
-                                        selectedThis
-                                            ? Icons.check_circle
-                                            : Icons.add_circle_outline,
+                                          _selectedVN.value = currentMap;
+                                          _selectedCombosVN.value = combosMap;
+                                        },
+                                        icon: Icon(
+                                          selectedThis
+                                              ? Icons.check_circle
+                                              : Icons.add_circle_outline,
+                                        ),
+                                        color: selectedThis ? activeColorFor(_zielgruppe) : null,
                                       ),
-                                      color: selectedThis ? activeColorFor(_zielgruppe) : null,
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               );
                             }
@@ -3498,9 +3515,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     decoration: BoxDecoration(
                                       borderRadius: BorderRadius.circular(10),
                                       border: Border.all(
-                                        color: selected
-                                            ? activeColorFor(_zielgruppe)
-                                            : Colors.transparent,
+                                        color: Colors.transparent,
                                         width: 1.8,
                                       ),
                                     ),
@@ -3744,6 +3759,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               ),
                             );
                           },
+
                         ),
                       ),
                     ),
