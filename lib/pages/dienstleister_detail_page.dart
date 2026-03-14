@@ -298,6 +298,28 @@ double? _currentDiscountedSingleDisplayPrice({
   );
 }
 
+double? _validatedLockedDisplayPrice({
+  required _CartItem item,
+  required Map<String, _CartItem> selectionMap,
+  required Map<String, Offer> singleBaseIndex,
+  required List<Offer> bundles,
+}) {
+  final locked = item.lockedDisplayPrice;
+  if (locked == null || item.preis == null || locked >= item.preis!) return null;
+
+  final dynamicDiscount = _currentDiscountedSingleDisplayPrice(
+    category: item.kategorie,
+    zielgruppe: item.zielgruppe,
+    partLc: item.leistung.toLowerCase(),
+    selectionMap: selectionMap,
+    singleBaseIndex: singleBaseIndex,
+    bundles: bundles,
+  );
+
+  if (dynamicDiscount == null) return null;
+  return locked;
+}
+
 // Vorschau-Preis, wenn dieses letzte Teil ein Bundle vervollständigt
 double? _previewForLastMissingPart({
   required String category,
@@ -1320,16 +1342,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required double savings,
   }) async {
     _BookingSummaryEntry _singleEntry(String key, _CartItem item) {
-      final dynamicDiscount = _currentDiscountedSingleDisplayPrice(
-        category: item.kategorie,
-        zielgruppe: item.zielgruppe,
-        partLc: item.leistung.toLowerCase(),
+      final lockedDiscount = _validatedLockedDisplayPrice(
+        item: item,
         selectionMap: singles,
         singleBaseIndex: singleBaseIndex,
         bundles: bundles,
       );
-      final hasDiscount =
-          dynamicDiscount != null && item.preis != null && dynamicDiscount < item.preis!;
+      final hasDiscount = lockedDiscount != null;
 
       return _BookingSummaryEntry(
         selectionKey: key,
@@ -1341,7 +1360,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         subtitle: [item.varianteLabel]
             .where((e) => e != null && e.trim().isNotEmpty)
             .join(' • '),
-        price: hasDiscount ? dynamicDiscount : item.preis,
+        price: hasDiscount ? lockedDiscount : item.preis,
         originalPrice: hasDiscount ? item.preis : null,
         duration: item.dauer,
       );
@@ -3126,18 +3145,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           double? preview;
 
                           if (selected) {
-                            final dynamicDiscount = _currentDiscountedSingleDisplayPrice(
-                              category: kat,
-                              zielgruppe: _zielgruppe,
-                              partLc: partLc,
-                              selectionMap: map,
-                              singleBaseIndex: singleBaseIndex,
-                              bundles: bundles,
-                            );
-                            if (dynamicDiscount != null &&
+                            final lockedDiscount = selectedItem == null
+                                ? null
+                                : _validatedLockedDisplayPrice(
+                                    item: selectedItem,
+                                    selectionMap: map,
+                                    singleBaseIndex: singleBaseIndex,
+                                    bundles: bundles,
+                                  );
+                            if (lockedDiscount != null &&
                                 effectivePrice != null &&
-                                dynamicDiscount < effectivePrice) {
-                              newPrice = dynamicDiscount;
+                                lockedDiscount < effectivePrice) {
+                              newPrice = lockedDiscount;
                             }
                           } else {
                             preview = _previewForLastMissingPart(
@@ -3240,18 +3259,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             double? preview;
 
                             if (selectedThis) {
-                              final dynamicDiscount = _currentDiscountedSingleDisplayPrice(
-                                category: kat,
-                                zielgruppe: _zielgruppe,
-                                partLc: partLc,
-                                selectionMap: map,
-                                singleBaseIndex: singleBaseIndex,
-                                bundles: bundles,
-                              );
-                              if (dynamicDiscount != null &&
+                              final lockedDiscount = selectedItem == null
+                                  ? null
+                                  : _validatedLockedDisplayPrice(
+                                      item: selectedItem,
+                                      selectionMap: map,
+                                      singleBaseIndex: singleBaseIndex,
+                                      bundles: bundles,
+                                    );
+                              if (lockedDiscount != null &&
                                   variantEffectivePrice != null &&
-                                  dynamicDiscount < variantEffectivePrice) {
-                                newPrice = dynamicDiscount;
+                                  lockedDiscount < variantEffectivePrice) {
+                                newPrice = lockedDiscount;
                               }
                             } else {
                               preview = _previewForLastMissingPart(
