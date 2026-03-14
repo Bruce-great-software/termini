@@ -1146,29 +1146,54 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   // ===========================================================================
 
 
+  bool _hasActiveComboContextForItem({
+    required _CartItem item,
+    required String entryKey,
+    required Map<String, _CartItem> selectionMap,
+  }) {
+    final partLc = item.leistung.toLowerCase();
+    final selectedWithoutSelf = selectionMap.entries
+        .where((e) =>
+            e.key != entryKey &&
+            e.value.kategorie == item.kategorie &&
+            e.value.zielgruppe == item.zielgruppe)
+        .map((e) => e.value.leistung.toLowerCase())
+        .toSet();
+
+    if (selectedWithoutSelf.isEmpty) return false;
+
+    final bundles = widget.offers.where((o) =>
+        o.isBundle &&
+        o.kategorie == item.kategorie &&
+        o.leistungenLc.contains(partLc) &&
+        _hasZielgruppenData(o, item.zielgruppe));
+
+    for (final bundle in bundles) {
+      final others = bundle.leistungenLc.where((lc) => lc != partLc).toSet();
+      if (others.isEmpty) continue;
+      if (others.every(selectedWithoutSelf.contains)) return true;
+    }
+
+    return false;
+  }
+
   Map<String, _CartItem> _withNormalizedLockedPrices(Map<String, _CartItem> selectionMap) {
     final normalized = <String, _CartItem>{};
 
     for (final entry in selectionMap.entries) {
       final item = entry.value;
-      final dependencyKey = '${item.kategorie}|${item.leistung.toLowerCase()}';
-      final reqSets = _comboDependencies[dependencyKey];
 
       bool keepLocked = item.lockedDisplayPrice != null;
       if (keepLocked) {
-        if (reqSets == null || reqSets.isEmpty) {
-          keepLocked = false;
-        } else {
-          final selectedWithoutSelf = selectionMap.entries
-              .where((e) =>
-                  e.key != entry.key &&
-                  e.value.kategorie == item.kategorie &&
-                  e.value.zielgruppe == item.zielgruppe)
-              .map((e) => e.value)
-              .map((it) => it.leistung.toLowerCase())
-              .toSet();
-          keepLocked = reqSets.any((req) => req.every(selectedWithoutSelf.contains));
-        }
+        final locked = item.lockedDisplayPrice;
+        final base = item.preis;
+        final hasDiscount = locked != null && base != null && locked < base;
+        keepLocked = hasDiscount &&
+            _hasActiveComboContextForItem(
+              item: item,
+              entryKey: entry.key,
+              selectionMap: selectionMap,
+            );
       }
 
       normalized[entry.key] = keepLocked
