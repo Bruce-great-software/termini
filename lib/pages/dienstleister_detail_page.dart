@@ -787,31 +787,31 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       color: _zielgruppe == value ? Colors.white : Colors.black,
     );
 
-    IconData iconFor(String value) {
+    Color activeBorderFor(String value) {
       switch (value) {
         case 'Damen':
-          return Icons.female;
+          return Colors.pink;
         case 'Herren':
-          return Icons.male;
+          return Colors.blue;
         case 'Kinder':
-          return Icons.child_care;
+          return Colors.green;
         default:
-          return Icons.person;
+          return Colors.black;
       }
     }
 
     Widget segment(String value) {
-      final color = _zielgruppe == value ? Colors.white : Colors.black;
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(iconFor(value), size: 14, color: color),
-            const SizedBox(width: 6),
-            Text(value, style: label(value)),
-          ],
+      final isActive = _zielgruppe == value;
+      return Container(
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: isActive ? activeBorderFor(value) : Colors.transparent,
+            width: 2,
+          ),
+          borderRadius: BorderRadius.circular(2),
         ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        child: Text(value, style: label(value)),
       );
     }
 
