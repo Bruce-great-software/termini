@@ -253,31 +253,13 @@ double? _lockedPriceForNewSelection({
 
     double othersContribution = 0.0;
     for (final lc in others) {
-      final sel = selectionMap.values.firstWhere(
-            (it) =>
-        it.kategorie == category &&
-            it.zielgruppe == zielgruppe &&
-            it.leistung.toLowerCase() == lc,
-        orElse: () => const _CartItem(
-          kategorie: '',
-          leistung: '',
-          preis: null,
-          dauer: null,
-          zielgruppe: '',
-          selectedAt: 0,
-        ),
+      othersContribution += _singlePriceOfPart(
+        category: category,
+        zielgruppe: zielgruppe,
+        partLc: lc,
+        selectionMap: selectionMap,
+        singleBaseIndex: singleBaseIndex,
       );
-      if (sel.kategorie.isNotEmpty && sel.lockedDisplayPrice != null) {
-        othersContribution += sel.lockedDisplayPrice!;
-      } else {
-        othersContribution += _singlePriceOfPart(
-          category: category,
-          zielgruppe: zielgruppe,
-          partLc: lc,
-          selectionMap: selectionMap,
-          singleBaseIndex: singleBaseIndex,
-        );
-      }
     }
 
     final remainder = (bundlePrice - othersContribution).clamp(0.0, double.infinity);
@@ -290,6 +272,30 @@ double? _lockedPriceForNewSelection({
     return bestRemainder;
   }
   return null;
+}
+
+double? _currentDiscountedSingleDisplayPrice({
+  required String category,
+  required String zielgruppe,
+  required String partLc,
+  required Map<String, _CartItem> selectionMap,
+  required Map<String, Offer> singleBaseIndex,
+  required List<Offer> bundles,
+}) {
+  final key = _keyFor(zielgruppe: zielgruppe, category: category, partLc: partLc);
+  final selected = selectionMap[key];
+  if (selected == null || selected.preis == null) return null;
+
+  final otherSelections = Map<String, _CartItem>.from(selectionMap)..remove(key);
+  return _lockedPriceForNewSelection(
+    category: category,
+    zielgruppe: zielgruppe,
+    newPartLc: partLc,
+    selectionMap: otherSelections,
+    singleBaseIndex: singleBaseIndex,
+    bundles: bundles,
+    newPartSinglePrice: selected.preis,
+  );
 }
 
 // Vorschau-Preis, wenn dieses letzte Teil ein Bundle vervollständigt
@@ -316,31 +322,13 @@ double? _previewForLastMissingPart({
 
     double othersContribution = 0.0;
     for (final lc in others) {
-      final sel = selectionMap.values.firstWhere(
-            (it) =>
-        it.kategorie == category &&
-            it.zielgruppe == zielgruppe &&
-            it.leistung.toLowerCase() == lc,
-        orElse: () => const _CartItem(
-          kategorie: '',
-          leistung: '',
-          preis: null,
-          dauer: null,
-          zielgruppe: '',
-          selectedAt: 0,
-        ),
+      othersContribution += _singlePriceOfPart(
+        category: category,
+        zielgruppe: zielgruppe,
+        partLc: lc,
+        selectionMap: selectionMap,
+        singleBaseIndex: singleBaseIndex,
       );
-      if (sel.kategorie.isNotEmpty && sel.lockedDisplayPrice != null) {
-        othersContribution += sel.lockedDisplayPrice!;
-      } else {
-        othersContribution += _singlePriceOfPart(
-          category: category,
-          zielgruppe: zielgruppe,
-          partLc: lc,
-          selectionMap: selectionMap,
-          singleBaseIndex: singleBaseIndex,
-        );
-      }
     }
 
     final remainder = (bundlePrice - othersContribution).clamp(0.0, double.infinity);
@@ -370,31 +358,13 @@ double? _previewForComboGroup({
 
   double baseContribution = 0.0;
   for (final baseLc in requiredBasePartsLc) {
-    final sel = selectionMap.values.firstWhere(
-          (it) =>
-      it.kategorie == category &&
-          it.zielgruppe == zielgruppe &&
-          it.leistung.toLowerCase() == baseLc,
-      orElse: () => const _CartItem(
-        kategorie: '',
-        leistung: '',
-        preis: null,
-        dauer: null,
-        zielgruppe: '',
-        selectedAt: 0,
-      ),
+    baseContribution += _singlePriceOfPart(
+      category: category,
+      zielgruppe: zielgruppe,
+      partLc: baseLc,
+      selectionMap: selectionMap,
+      singleBaseIndex: singleBaseIndex,
     );
-    if (sel.kategorie.isNotEmpty && sel.lockedDisplayPrice != null) {
-      baseContribution += sel.lockedDisplayPrice!;
-    } else {
-      baseContribution += _singlePriceOfPart(
-        category: category,
-        zielgruppe: zielgruppe,
-        partLc: baseLc,
-        selectionMap: selectionMap,
-        singleBaseIndex: singleBaseIndex,
-      );
-    }
   }
 
   return (bundlePrice - baseContribution).clamp(0.0, double.infinity);
@@ -1341,6 +1311,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required Map<String, _CartItem> singles,
     required Map<String, _ComboSelection> combos,
     required Map<String, Offer> singleBaseIndex,
+    required List<Offer> bundles,
     required _CartTotals Function(
       Map<String, _CartItem> singles,
       Map<String, _ComboSelection> combos,
@@ -1349,10 +1320,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required double savings,
   }) async {
     _BookingSummaryEntry _singleEntry(String key, _CartItem item) {
+      final dynamicDiscount = _currentDiscountedSingleDisplayPrice(
+        category: item.kategorie,
+        zielgruppe: item.zielgruppe,
+        partLc: item.leistung.toLowerCase(),
+        selectionMap: singles,
+        singleBaseIndex: singleBaseIndex,
+        bundles: bundles,
+      );
       final hasDiscount =
-          item.lockedDisplayPrice != null &&
-          item.preis != null &&
-          item.lockedDisplayPrice! < item.preis!;
+          dynamicDiscount != null && item.preis != null && dynamicDiscount < item.preis!;
 
       return _BookingSummaryEntry(
         selectionKey: key,
@@ -1364,7 +1341,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         subtitle: [item.varianteLabel]
             .where((e) => e != null && e.trim().isNotEmpty)
             .join(' • '),
-        price: hasDiscount ? item.lockedDisplayPrice : item.preis,
+        price: hasDiscount ? dynamicDiscount : item.preis,
         originalPrice: hasDiscount ? item.preis : null,
         duration: item.dauer,
       );
@@ -3149,9 +3126,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           double? preview;
 
                           if (selected) {
-                            final locked = selectedItem?.lockedDisplayPrice;
-                            if (locked != null && effectivePrice != null && locked < effectivePrice) {
-                              newPrice = locked;
+                            final dynamicDiscount = _currentDiscountedSingleDisplayPrice(
+                              category: kat,
+                              zielgruppe: _zielgruppe,
+                              partLc: partLc,
+                              selectionMap: map,
+                              singleBaseIndex: singleBaseIndex,
+                              bundles: bundles,
+                            );
+                            if (dynamicDiscount != null &&
+                                effectivePrice != null &&
+                                dynamicDiscount < effectivePrice) {
+                              newPrice = dynamicDiscount;
                             }
                           } else {
                             preview = _previewForLastMissingPart(
@@ -3254,11 +3240,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             double? preview;
 
                             if (selectedThis) {
-                              final locked = selectedItem?.lockedDisplayPrice;
-                              if (locked != null &&
+                              final dynamicDiscount = _currentDiscountedSingleDisplayPrice(
+                                category: kat,
+                                zielgruppe: _zielgruppe,
+                                partLc: partLc,
+                                selectionMap: map,
+                                singleBaseIndex: singleBaseIndex,
+                                bundles: bundles,
+                              );
+                              if (dynamicDiscount != null &&
                                   variantEffectivePrice != null &&
-                                  locked < variantEffectivePrice) {
-                                newPrice = locked;
+                                  dynamicDiscount < variantEffectivePrice) {
+                                newPrice = dynamicDiscount;
                               }
                             } else {
                               preview = _previewForLastMissingPart(
@@ -4092,6 +4085,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 singles: map,
                                 combos: combos,
                                 singleBaseIndex: singleBaseIndex,
+                                bundles: bundles,
                                 computeTotals: computeTotals,
                                 total: total,
                                 savings: savings,
