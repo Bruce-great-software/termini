@@ -4134,6 +4134,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             count: count,
                             total: total,
                             savings: savings,
+                            accentColor: activeColorFor(_zielgruppe),
                             onPressed: () {
                               _openBookingSummaryPanel(
                                 singles: map,
@@ -4197,12 +4198,14 @@ class _BookingBar extends StatelessWidget {
   final int count;
   final double? total;
   final double savings;
+  final Color accentColor;
   final VoidCallback onPressed;
 
   const _BookingBar({
     required this.count,
     required this.total,
     required this.onPressed,
+    required this.accentColor,
     this.savings = 0.0,
   });
 
@@ -4217,7 +4220,7 @@ class _BookingBar extends StatelessWidget {
       height: 52,
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
-          backgroundColor: kBrandOrange,
+          backgroundColor: accentColor,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -4248,12 +4251,12 @@ class _BookingBar extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: kBrandOrange, width: 2),
+                      border: Border.all(color: accentColor, width: 2),
                     ),
                     child: Text(
                       '$count',
-                      style: const TextStyle(
-                          fontSize: 11, fontWeight: FontWeight.w800, color: kBrandOrange),
+                      style: TextStyle(
+                          fontSize: 11, fontWeight: FontWeight.w800, color: accentColor),
                     ),
                   ),
                 ),
@@ -4272,8 +4275,8 @@ class _BookingBar extends StatelessWidget {
                 ),
                 child: Text(
                   'Spare ${_formatEuro(savings)}',
-                  style: const TextStyle(
-                      color: kBrandOrange, fontWeight: FontWeight.w800, fontSize: 12.5),
+                  style: TextStyle(
+                      color: accentColor, fontWeight: FontWeight.w800, fontSize: 12.5),
                 ),
               ),
               const SizedBox(width: 8),
