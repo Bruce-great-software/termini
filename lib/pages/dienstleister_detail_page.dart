@@ -786,12 +786,40 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       fontWeight: FontWeight.w600,
       color: _zielgruppe == value ? Colors.white : Colors.black,
     );
-    const EdgeInsets pad = EdgeInsets.symmetric(horizontal: 14, vertical: 8);
+
+    Widget segment(String value) {
+      final isActive = _zielgruppe == value;
+      return Container(
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: isActive ? activeColorFor(value) : Colors.transparent,
+            width: 2,
+          ),
+          borderRadius: BorderRadius.circular(2),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        child: Text(value, style: label(value)),
+      );
+    }
+
     return {
-      'Damen': Padding(padding: pad, child: Text('Damen', style: label('Damen'))),
-      'Herren': Padding(padding: pad, child: Text('Herren', style: label('Herren'))),
-      'Kinder': Padding(padding: pad, child: Text('Kinder', style: label('Kinder'))),
+      'Damen': segment('Damen'),
+      'Herren': segment('Herren'),
+      'Kinder': segment('Kinder'),
     };
+  }
+
+  Color activeColorFor(String value) {
+    switch (value) {
+      case 'Damen':
+        return Colors.pink;
+      case 'Herren':
+        return Colors.blue;
+      case 'Kinder':
+        return Colors.green;
+      default:
+        return Colors.black;
+    }
   }
 
   // ===== Helpers für Haarlängen-Optionen =====================================
@@ -2604,7 +2632,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             groupValue: _zielgruppe,
             onValueChanged: (v) => setState(() => _zielgruppe = v),
             borderColor: const Color(0xFF1A1A1A),
-            selectedColor: Colors.black,
+            selectedColor: activeColorFor(_zielgruppe),
             unselectedColor: Colors.white,
             pressedColor: const Color(0xFFECECEC),
             padding: EdgeInsets.zero,
@@ -3440,7 +3468,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                             ? Icons.check_circle
                                             : Icons.add_circle_outline,
                                       ),
-                                      color: selectedThis ? Colors.blueAccent : null,
+                                      color: selectedThis ? activeColorFor(_zielgruppe) : null,
                                     ),
                                   ],
                                 ),
@@ -3460,229 +3488,262 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 builder: (_, collapsedGroups, __) {
                                   final isExpanded = collapsedGroups.contains(groupId);
 
-                                  return Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      InkWell(
-                                        borderRadius: BorderRadius.circular(8),
-                                        onTap: () {
-                                          final next = Set<String>.from(
-                                            _expandedVariantGroupsVN.value,
-                                          );
-                                          if (isExpanded) {
-                                            next.remove(groupId);
-                                          } else {
-                                            next.add(groupId);
-                                          }
-                                          _expandedVariantGroupsVN.value = next;
-                                        },
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(vertical: 2),
-                                          child: Row(
-                                            children: [
-                                              Expanded(
-                                                child: Text(
-                                                  uiTitle,
-                                                  style: const TextStyle(
-                                                    fontSize: 16,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                  overflow: TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                              Icon(
-                                                isExpanded
-                                                    ? Icons.keyboard_arrow_down
-                                                    : Icons.chevron_right,
-                                                color: Colors.black54,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
+                                  return AnimatedContainer(
+                                    duration: const Duration(milliseconds: 180),
+                                    curve: Curves.easeOut,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: selected
+                                            ? activeColorFor(_zielgruppe)
+                                            : Colors.transparent,
+                                        width: 1.8,
                                       ),
-                                      if (isExpanded) ...[
-                                        const SizedBox(height: 6),
-                                        Container(
-                                          margin: const EdgeInsets.only(left: 10),
-                                          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFF4F4F4),
-                                            borderRadius: BorderRadius.circular(10),
-                                            border: Border.all(
-                                              color: const Color(0xFFD8D8D8),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        InkWell(
+                                          borderRadius: BorderRadius.circular(8),
+                                          onTap: () {
+                                            final next = Set<String>.from(
+                                              _expandedVariantGroupsVN.value,
+                                            );
+                                            if (isExpanded) {
+                                              next.remove(groupId);
+                                            } else {
+                                              next.add(groupId);
+                                            }
+                                            _expandedVariantGroupsVN.value = next;
+                                          },
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(vertical: 2),
+                                            child: Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    uiTitle,
+                                                    style: const TextStyle(
+                                                      fontSize: 16,
+                                                      fontWeight: FontWeight.w600,
+                                                    ),
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                Icon(
+                                                  isExpanded
+                                                      ? Icons.keyboard_arrow_down
+                                                      : Icons.chevron_right,
+                                                  color: Colors.black54,
+                                                ),
+                                              ],
                                             ),
                                           ),
-                                          child: Column(
-                                            crossAxisAlignment:
-                                            CrossAxisAlignment.stretch,
-                                            children: [
-                                              if (hasBaseStandardOption)
-                                                buildVariantRow(
-                                                  label: 'Standard',
-                                                  variantOffer: offer,
-                                                  isStandard: true,
-                                                  isLast: sortedLabels.isEmpty,
-                                                ),
-                                              for (int i = 0;
-                                              i < sortedLabels.length;
-                                              i++)
-                                                Builder(
-                                                  builder: (_) {
-                                                    final label = sortedLabels[i];
-                                                    final o = singleVariantIndex[
-                                                    '$kat|$partLc|${label.toLowerCase()}'];
-                                                    if (o == null) {
-                                                      return const SizedBox.shrink();
-                                                    }
-                                                    return buildVariantRow(
-                                                      label: label,
-                                                      variantOffer: o,
-                                                      isLast:
-                                                      i == sortedLabels.length - 1,
-                                                    );
-                                                  },
-                                                ),
-                                            ],
-                                          ),
                                         ),
+                                        if (isExpanded) ...[
+                                          const SizedBox(height: 6),
+                                          Container(
+                                            margin: const EdgeInsets.only(left: 10),
+                                            padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF4F4F4),
+                                              borderRadius: BorderRadius.circular(10),
+                                              border: Border.all(
+                                                color: const Color(0xFFD8D8D8),
+                                              ),
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
+                                              children: [
+                                                if (hasBaseStandardOption)
+                                                  buildVariantRow(
+                                                    label: 'Standard',
+                                                    variantOffer: offer,
+                                                    isStandard: true,
+                                                    isLast: sortedLabels.isEmpty,
+                                                  ),
+                                                for (int i = 0;
+                                                i < sortedLabels.length;
+                                                i++)
+                                                  Builder(
+                                                    builder: (_) {
+                                                      final label = sortedLabels[i];
+                                                      final o = singleVariantIndex[
+                                                      '$kat|$partLc|${label.toLowerCase()}'];
+                                                      if (o == null) {
+                                                        return const SizedBox.shrink();
+                                                      }
+                                                      return buildVariantRow(
+                                                        label: label,
+                                                        variantOffer: o,
+                                                        isLast:
+                                                        i == sortedLabels.length - 1,
+                                                      );
+                                                    },
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
                                       ],
-                                    ],
+                                    ),
                                   );
                                 },
                               );
                             }
 
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        uiTitle,
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w600,
+                            return AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOut,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: selected
+                                      ? activeColorFor(_zielgruppe)
+                                      : Colors.transparent,
+                                  width: 1.8,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          uiTitle,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
                                         ),
-                                        overflow: TextOverflow.ellipsis,
                                       ),
-                                    ),
-                                    if (effectiveDuration != null) ...[
-                                      buildDurationBadge(),
-                                      const SizedBox(width: 4),
-                                    ],
-                                    buildPriceText(),
-                                    const SizedBox(width: 8),
-                                    IconButton(
-                                      tooltip: selected
-                                          ? 'Entfernen'
-                                          : (!canAdd
-                                          ? 'Nur mit vorheriger Auswahl'
-                                          : (hasAnySizeOptions
-                                          ? 'Methode/Option wählen'
-                                          : 'Hinzufügen')),
-                                      onPressed: !canInteract
-                                          ? null
-                                          : () {
-                                        if (hasAnySizeOptions) {
-                                          if (selected) {
-                                            final newMap =
+                                      if (effectiveDuration != null) ...[
+                                        buildDurationBadge(),
+                                        const SizedBox(width: 4),
+                                      ],
+                                      buildPriceText(),
+                                      const SizedBox(width: 8),
+                                      IconButton(
+                                        tooltip: selected
+                                            ? 'Entfernen'
+                                            : (!canAdd
+                                            ? 'Nur mit vorheriger Auswahl'
+                                            : (hasAnySizeOptions
+                                            ? 'Methode/Option wählen'
+                                            : 'Hinzufügen')),
+                                        onPressed: !canInteract
+                                            ? null
+                                            : () {
+                                          if (hasAnySizeOptions) {
+                                            if (selected) {
+                                              final newMap =
+                                              Map<String, _CartItem>.from(
+                                                _selectedVN.value,
+                                              );
+                                              newMap.remove(selKey);
+                                              _selectedVN.value = newMap;
+                                            } else {
+                                              final variantsForPart = <Offer>[];
+                                              for (final label in sortedLabels) {
+                                                final o = singleVariantIndex[
+                                                '$kat|$partLc|${label.toLowerCase()}'];
+                                                if (o != null &&
+                                                    _hasZielgruppenData(
+                                                      o,
+                                                      _zielgruppe,
+                                                    )) {
+                                                  variantsForPart.add(o);
+                                                }
+                                              }
+                                              final combineRows =
+                                              _buildCombineRowsFor(kat, partLc);
+                                              _openVariantSheet(
+                                                base: offer,
+                                                category: kat,
+                                                variantOffersForPart:
+                                                variantsForPart,
+                                                combineRows: combineRows,
+                                              );
+                                            }
+                                          } else {
+                                            final currentMap =
                                             Map<String, _CartItem>.from(
                                               _selectedVN.value,
                                             );
-                                            newMap.remove(selKey);
-                                            _selectedVN.value = newMap;
-                                          } else {
-                                            final variantsForPart = <Offer>[];
-                                            for (final label in sortedLabels) {
-                                              final o = singleVariantIndex[
-                                              '$kat|$partLc|${label.toLowerCase()}'];
-                                              if (o != null &&
-                                                  _hasZielgruppenData(
-                                                    o,
-                                                    _zielgruppe,
-                                                  )) {
-                                                variantsForPart.add(o);
-                                              }
+
+                                            if (_hasItemsFromOtherZielgruppe(
+                                              _zielgruppe,
+                                            )) {
+                                              final other =
+                                              currentMap.values.isNotEmpty
+                                                  ? currentMap
+                                                  .values
+                                                  .first
+                                                  .zielgruppe
+                                                  : _selectedCombosVN
+                                                  .value
+                                                  .values
+                                                  .first
+                                                  .zielgruppe;
+                                              _showWrongGroupSnack(other);
+                                              return;
                                             }
-                                            final combineRows =
-                                            _buildCombineRowsFor(kat, partLc);
-                                            _openVariantSheet(
-                                              base: offer,
+
+                                            final singlePrice = preis ??
+                                                singleBaseIndex[
+                                                '$kat|$partLc']
+                                                    ?.priceFor(_zielgruppe);
+
+                                            final locked =
+                                            _lockedPriceForNewSelection(
                                               category: kat,
-                                              variantOffersForPart:
-                                              variantsForPart,
-                                              combineRows: combineRows,
+                                              zielgruppe: _zielgruppe,
+                                              newPartLc: partLc,
+                                              selectionMap: currentMap,
+                                              singleBaseIndex: singleBaseIndex,
+                                              bundles: bundles,
+                                              newPartSinglePrice: singlePrice,
+                                            );
+
+                                            _toggleSelection(
+                                              selKey,
+                                              _CartItem(
+                                                kategorie: kat,
+                                                leistung: partDisplay,
+                                                preis: singlePrice,
+                                                dauer: dauer,
+                                                zielgruppe: _zielgruppe,
+                                                selectedAt: ++_selectionTicker,
+                                                lockedDisplayPrice: locked,
+                                              ),
                                             );
                                           }
-                                        } else {
-                                          final currentMap =
-                                          Map<String, _CartItem>.from(
-                                            _selectedVN.value,
-                                          );
-
-                                          if (_hasItemsFromOtherZielgruppe(
-                                            _zielgruppe,
-                                          )) {
-                                            final other =
-                                            currentMap.values.isNotEmpty
-                                                ? currentMap
-                                                .values
-                                                .first
-                                                .zielgruppe
-                                                : _selectedCombosVN
-                                                .value
-                                                .values
-                                                .first
-                                                .zielgruppe;
-                                            _showWrongGroupSnack(other);
-                                            return;
-                                          }
-
-                                          final singlePrice = preis ??
-                                              singleBaseIndex[
-                                              '$kat|$partLc']
-                                                  ?.priceFor(_zielgruppe);
-
-                                          final locked =
-                                          _lockedPriceForNewSelection(
-                                            category: kat,
-                                            zielgruppe: _zielgruppe,
-                                            newPartLc: partLc,
-                                            selectionMap: currentMap,
-                                            singleBaseIndex: singleBaseIndex,
-                                            bundles: bundles,
-                                            newPartSinglePrice: singlePrice,
-                                          );
-
-                                          _toggleSelection(
-                                            selKey,
-                                            _CartItem(
-                                              kategorie: kat,
-                                              leistung: partDisplay,
-                                              preis: singlePrice,
-                                              dauer: dauer,
-                                              zielgruppe: _zielgruppe,
-                                              selectedAt: ++_selectionTicker,
-                                              lockedDisplayPrice: locked,
-                                            ),
-                                          );
-                                        }
-                                      },
-                                      icon: Icon(
-                                        selected
-                                            ? Icons.check_circle
-                                            : Icons.add_circle_outline,
+                                        },
+                                        icon: Icon(
+                                          selected
+                                              ? Icons.check_circle
+                                              : Icons.add_circle_outline,
+                                        ),
+                                        color: selected ? activeColorFor(_zielgruppe) : null,
                                       ),
-                                      color: selected ? Colors.blueAccent : null,
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                    ],
+                                  ),
+                                ],
+                              ),
                             );
                           },
-
                         ),
                       ),
                     ),
@@ -3819,7 +3880,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         icon: Icon(
                                           selectedAll ? Icons.check_circle : Icons.add_circle_outline,
                                         ),
-                                        color: selectedAll ? Colors.blueAccent : null,
+                                        color: selectedAll ? activeColorFor(_zielgruppe) : null,
                                       ),
                                     ],
                                   );
@@ -4003,7 +4064,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           icon: Icon(
                                             selected ? Icons.check_circle : Icons.add_circle_outline,
                                           ),
-                                          color: selected ? Colors.blueAccent : null,
+                                          color: selected ? activeColorFor(_zielgruppe) : null,
                                         ),
                                       ],
                                     );
@@ -4072,6 +4133,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     count: count,
     total: total,
     savings: savings,
+    accentColor: activeColorFor(_zielgruppe),
     onPressed: () {
     _openBookingSummaryPanel(
     singles: map,
@@ -4135,12 +4197,14 @@ class _BookingBar extends StatelessWidget {
   final int count;
   final double? total;
   final double savings;
+  final Color accentColor;
   final VoidCallback onPressed;
 
   const _BookingBar({
     required this.count,
     required this.total,
     required this.onPressed,
+    required this.accentColor,
     this.savings = 0.0,
   });
 
@@ -4155,7 +4219,7 @@ class _BookingBar extends StatelessWidget {
       height: 52,
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
-          backgroundColor: kBrandOrange,
+          backgroundColor: accentColor,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -4186,12 +4250,12 @@ class _BookingBar extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: kBrandOrange, width: 2),
+                      border: Border.all(color: accentColor, width: 2),
                     ),
                     child: Text(
                       '$count',
-                      style: const TextStyle(
-                          fontSize: 11, fontWeight: FontWeight.w800, color: kBrandOrange),
+                      style: TextStyle(
+                          fontSize: 11, fontWeight: FontWeight.w800, color: accentColor),
                     ),
                   ),
                 ),
@@ -4210,8 +4274,8 @@ class _BookingBar extends StatelessWidget {
                 ),
                 child: Text(
                   'Spare ${_formatEuro(savings)}',
-                  style: const TextStyle(
-                      color: kBrandOrange, fontWeight: FontWeight.w800, fontSize: 12.5),
+                  style: TextStyle(
+                      color: accentColor, fontWeight: FontWeight.w800, fontSize: 12.5),
                 ),
               ),
               const SizedBox(width: 8),
