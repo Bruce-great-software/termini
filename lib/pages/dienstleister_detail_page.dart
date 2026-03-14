@@ -1377,10 +1377,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           selectionKey: entry.key,
           isCombo: false,
           selectedAt: entry.value.selectedAt,
-          title: entry.value.leistung,
-          subtitle: [entry.value.kategorie, entry.value.varianteLabel]
-              .where((e) => e != null && e.trim().isNotEmpty)
-              .join(' • '),
+          title: '${entry.value.kategorie} - ${entry.value.leistung}',
+          subtitle: (entry.value.varianteLabel ?? '').trim(),
           price: entry.value.preis,
           duration: entry.value.dauer,
         ),
@@ -1390,12 +1388,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           selectionKey: entry.key,
           isCombo: true,
           selectedAt: entry.value.selectedAt,
-          title: entry.value.bundle.leistungen.join(' + '),
-          subtitle: [
-            entry.value.bundle.kategorie,
-            entry.value.varianteLabel ??
-                _comboMethodLabelForDisplay(entry.value.bundle),
-          ].where((e) => e != null && e.trim().isNotEmpty).join(' • '),
+          title:
+              '${entry.value.bundle.kategorie} - ${entry.value.bundle.leistungen.join(' + ')}',
+          subtitle: (entry.value.varianteLabel ??
+                  _comboMethodLabelForDisplay(entry.value.bundle) ??
+                  '')
+              .trim(),
           price: entry.value.preis,
           duration: entry.value.dauer,
         ),
