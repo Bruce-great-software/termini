@@ -787,25 +787,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       color: _zielgruppe == value ? Colors.white : Colors.black,
     );
 
-    Color activeBorderFor(String value) {
-      switch (value) {
-        case 'Damen':
-          return Colors.pink;
-        case 'Herren':
-          return Colors.blue;
-        case 'Kinder':
-          return Colors.green;
-        default:
-          return Colors.black;
-      }
-    }
-
     Widget segment(String value) {
       final isActive = _zielgruppe == value;
       return Container(
         decoration: BoxDecoration(
           border: Border.all(
-            color: isActive ? activeBorderFor(value) : Colors.transparent,
+            color: isActive ? activeColorFor(value) : Colors.transparent,
             width: 2,
           ),
           borderRadius: BorderRadius.circular(2),
@@ -820,6 +807,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       'Herren': segment('Herren'),
       'Kinder': segment('Kinder'),
     };
+  }
+
+  Color activeColorFor(String value) {
+    switch (value) {
+      case 'Damen':
+        return Colors.pink;
+      case 'Herren':
+        return Colors.blue;
+      case 'Kinder':
+        return Colors.green;
+      default:
+        return Colors.black;
+    }
   }
 
   // ===== Helpers für Haarlängen-Optionen =====================================
@@ -2632,7 +2632,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           groupValue: _zielgruppe,
           onValueChanged: (v) => setState(() => _zielgruppe = v),
           borderColor: const Color(0xFF1A1A1A),
-          selectedColor: Colors.black,
+          selectedColor: activeColorFor(_zielgruppe),
           unselectedColor: Colors.white,
           pressedColor: const Color(0xFFECECEC),
           padding: EdgeInsets.zero,
