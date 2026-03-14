@@ -1145,6 +1145,49 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   }
   // ===========================================================================
 
+
+  Map<String, _CartItem> _withNormalizedLockedPrices(Map<String, _CartItem> selectionMap) {
+    final normalized = <String, _CartItem>{};
+
+    for (final entry in selectionMap.entries) {
+      final item = entry.value;
+      final dependencyKey = '${item.kategorie}|${item.leistung.toLowerCase()}';
+      final reqSets = _comboDependencies[dependencyKey];
+
+      bool keepLocked = item.lockedDisplayPrice != null;
+      if (keepLocked) {
+        if (reqSets == null || reqSets.isEmpty) {
+          keepLocked = false;
+        } else {
+          final selectedWithoutSelf = selectionMap.entries
+              .where((e) =>
+                  e.key != entry.key &&
+                  e.value.kategorie == item.kategorie &&
+                  e.value.zielgruppe == item.zielgruppe)
+              .map((e) => e.value)
+              .map((it) => it.leistung.toLowerCase())
+              .toSet();
+          keepLocked = reqSets.any((req) => req.every(selectedWithoutSelf.contains));
+        }
+      }
+
+      normalized[entry.key] = keepLocked
+          ? item
+          : _CartItem(
+              kategorie: item.kategorie,
+              leistung: item.leistung,
+              preis: item.preis,
+              dauer: item.dauer,
+              zielgruppe: item.zielgruppe,
+              varianteLabel: item.varianteLabel,
+              selectedAt: item.selectedAt,
+              lockedDisplayPrice: null,
+            );
+    }
+
+    return normalized;
+  }
+
   void _toggleSelection(String key, _CartItem item) {
     final map = Map<String, _CartItem>.from(_selectedVN.value);
     final combos = Map<String, _ComboSelection>.from(_selectedCombosVN.value);
@@ -1174,7 +1217,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       );
     }
 
-    _selectedVN.value = map;
+    _selectedVN.value = _withNormalizedLockedPrices(map);
     _selectedCombosVN.value = combos;
   }
 
@@ -1213,7 +1256,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           removedPartLc: partLc,
         );
       }
-      _selectedVN.value = map;
+      _selectedVN.value = _withNormalizedLockedPrices(map);
       return;
     }
 
@@ -1269,7 +1312,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           comboSel.bundle.leistungenLc.any(partsLc.contains),
     );
 
-    _selectedVN.value = map;
+    _selectedVN.value = _withNormalizedLockedPrices(map);
     _selectedCombosVN.value = combos;
   }
 
@@ -1348,7 +1391,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       );
     }
 
-    _selectedVN.value = singles;
+    _selectedVN.value = _withNormalizedLockedPrices(singles);
     _selectedCombosVN.value = combos;
   }
 
@@ -1555,7 +1598,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           }
                                         }
 
-                                        _selectedVN.value = singlesMap;
+                                        _selectedVN.value = _withNormalizedLockedPrices(singlesMap);
                                         _selectedCombosVN.value = combosMap;
 
                                         entries = [
@@ -1991,7 +2034,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           onPressed: () {
                             final map = Map<String, _CartItem>.from(_selectedVN.value);
                             map.remove(key);
-                            _selectedVN.value = map;
+                            _selectedVN.value = _withNormalizedLockedPrices(map);
                             Navigator.pop(ctx);
                           },
                           icon: const Icon(Icons.delete_outline),
@@ -2043,7 +2086,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     combo.bundle.leistungenLc.contains(base.leistungenLc.first),
                               );
 
-                            _selectedVN.value = {
+                            _selectedVN.value = _withNormalizedLockedPrices({
                               ...map,
                               _keyFor(
                                 zielgruppe: zg,
@@ -2068,7 +2111,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 selectedAt: ++_selectionTicker,
                                 lockedDisplayPrice: null,
                               ),
-                            };
+                            });
                             _selectedCombosVN.value = updatedCombos;
 
                             // ggf. noch Kombi-Extras hinzufügen (unverändert)
@@ -2355,7 +2398,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               ),
                             );
 
-                            _selectedVN.value = singles;
+                            _selectedVN.value = _withNormalizedLockedPrices(singles);
                             _selectedCombosVN.value = combosMap;
                             Navigator.pop(ctx);
                           },
@@ -2586,7 +2629,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               ),
                             );
 
-                            _selectedVN.value = singles;
+                            _selectedVN.value = _withNormalizedLockedPrices(singles);
                             _selectedCombosVN.value = combos;
                             Navigator.pop(ctx);
                           },
@@ -3492,7 +3535,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                 combo.bundle.leistungenLc.contains(partLc),
                                           );
 
-                                          _selectedVN.value = currentMap;
+                                          _selectedVN.value = _withNormalizedLockedPrices(currentMap);
                                           _selectedCombosVN.value = combosMap;
                                         },
                                   icon: Icon(
@@ -3684,7 +3727,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                 _selectedVN.value,
                                               );
                                               newMap.remove(selKey);
-                                              _selectedVN.value = newMap;
+                                              _selectedVN.value = _withNormalizedLockedPrices(newMap);
                                             } else {
                                               final variantsForPart = <Offer>[];
                                               for (final label in sortedLabels) {
