@@ -253,31 +253,13 @@ double? _lockedPriceForNewSelection({
 
     double othersContribution = 0.0;
     for (final lc in others) {
-      final sel = selectionMap.values.firstWhere(
-            (it) =>
-        it.kategorie == category &&
-            it.zielgruppe == zielgruppe &&
-            it.leistung.toLowerCase() == lc,
-        orElse: () => const _CartItem(
-          kategorie: '',
-          leistung: '',
-          preis: null,
-          dauer: null,
-          zielgruppe: '',
-          selectedAt: 0,
-        ),
+      othersContribution += _singlePriceOfPart(
+        category: category,
+        zielgruppe: zielgruppe,
+        partLc: lc,
+        selectionMap: selectionMap,
+        singleBaseIndex: singleBaseIndex,
       );
-      if (sel.kategorie.isNotEmpty && sel.lockedDisplayPrice != null) {
-        othersContribution += sel.lockedDisplayPrice!;
-      } else {
-        othersContribution += _singlePriceOfPart(
-          category: category,
-          zielgruppe: zielgruppe,
-          partLc: lc,
-          selectionMap: selectionMap,
-          singleBaseIndex: singleBaseIndex,
-        );
-      }
     }
 
     final remainder = (bundlePrice - othersContribution).clamp(0.0, double.infinity);
@@ -290,6 +272,30 @@ double? _lockedPriceForNewSelection({
     return bestRemainder;
   }
   return null;
+}
+
+double? _currentDiscountedSingleDisplayPrice({
+  required String category,
+  required String zielgruppe,
+  required String partLc,
+  required Map<String, _CartItem> selectionMap,
+  required Map<String, Offer> singleBaseIndex,
+  required List<Offer> bundles,
+}) {
+  final key = _keyFor(zielgruppe: zielgruppe, category: category, partLc: partLc);
+  final selected = selectionMap[key];
+  if (selected == null || selected.preis == null) return null;
+
+  final otherSelections = Map<String, _CartItem>.from(selectionMap)..remove(key);
+  return _lockedPriceForNewSelection(
+    category: category,
+    zielgruppe: zielgruppe,
+    newPartLc: partLc,
+    selectionMap: otherSelections,
+    singleBaseIndex: singleBaseIndex,
+    bundles: bundles,
+    newPartSinglePrice: selected.preis,
+  );
 }
 
 // Vorschau-Preis, wenn dieses letzte Teil ein Bundle vervollständigt
@@ -316,31 +322,13 @@ double? _previewForLastMissingPart({
 
     double othersContribution = 0.0;
     for (final lc in others) {
-      final sel = selectionMap.values.firstWhere(
-            (it) =>
-        it.kategorie == category &&
-            it.zielgruppe == zielgruppe &&
-            it.leistung.toLowerCase() == lc,
-        orElse: () => const _CartItem(
-          kategorie: '',
-          leistung: '',
-          preis: null,
-          dauer: null,
-          zielgruppe: '',
-          selectedAt: 0,
-        ),
+      othersContribution += _singlePriceOfPart(
+        category: category,
+        zielgruppe: zielgruppe,
+        partLc: lc,
+        selectionMap: selectionMap,
+        singleBaseIndex: singleBaseIndex,
       );
-      if (sel.kategorie.isNotEmpty && sel.lockedDisplayPrice != null) {
-        othersContribution += sel.lockedDisplayPrice!;
-      } else {
-        othersContribution += _singlePriceOfPart(
-          category: category,
-          zielgruppe: zielgruppe,
-          partLc: lc,
-          selectionMap: selectionMap,
-          singleBaseIndex: singleBaseIndex,
-        );
-      }
     }
 
     final remainder = (bundlePrice - othersContribution).clamp(0.0, double.infinity);
@@ -370,31 +358,13 @@ double? _previewForComboGroup({
 
   double baseContribution = 0.0;
   for (final baseLc in requiredBasePartsLc) {
-    final sel = selectionMap.values.firstWhere(
-          (it) =>
-      it.kategorie == category &&
-          it.zielgruppe == zielgruppe &&
-          it.leistung.toLowerCase() == baseLc,
-      orElse: () => const _CartItem(
-        kategorie: '',
-        leistung: '',
-        preis: null,
-        dauer: null,
-        zielgruppe: '',
-        selectedAt: 0,
-      ),
+    baseContribution += _singlePriceOfPart(
+      category: category,
+      zielgruppe: zielgruppe,
+      partLc: baseLc,
+      selectionMap: selectionMap,
+      singleBaseIndex: singleBaseIndex,
     );
-    if (sel.kategorie.isNotEmpty && sel.lockedDisplayPrice != null) {
-      baseContribution += sel.lockedDisplayPrice!;
-    } else {
-      baseContribution += _singlePriceOfPart(
-        category: category,
-        zielgruppe: zielgruppe,
-        partLc: baseLc,
-        selectionMap: selectionMap,
-        singleBaseIndex: singleBaseIndex,
-      );
-    }
   }
 
   return (bundlePrice - baseContribution).clamp(0.0, double.infinity);
@@ -1340,38 +1310,79 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   Future<void> _openBookingSummaryPanel({
     required Map<String, _CartItem> singles,
     required Map<String, _ComboSelection> combos,
+    required Map<String, Offer> singleBaseIndex,
+    required List<Offer> bundles,
+    required _CartTotals Function(
+      Map<String, _CartItem> singles,
+      Map<String, _ComboSelection> combos,
+    ) computeTotals,
     required double total,
     required double savings,
   }) async {
+    _BookingSummaryEntry _singleEntry(String key, _CartItem item) {
+      final dynamicDiscount = _currentDiscountedSingleDisplayPrice(
+        category: item.kategorie,
+        zielgruppe: item.zielgruppe,
+        partLc: item.leistung.toLowerCase(),
+        selectionMap: singles,
+        singleBaseIndex: singleBaseIndex,
+        bundles: bundles,
+      );
+      final hasDiscount =
+          dynamicDiscount != null && item.preis != null && dynamicDiscount < item.preis!;
+
+      return _BookingSummaryEntry(
+        selectionKey: key,
+        isCombo: false,
+        selectedAt: item.selectedAt,
+        title: item.kategorie.trim().isEmpty
+            ? item.leistung
+            : '${item.kategorie} - ${item.leistung}',
+        subtitle: [item.varianteLabel]
+            .where((e) => e != null && e.trim().isNotEmpty)
+            .join(' • '),
+        price: hasDiscount ? dynamicDiscount : item.preis,
+        originalPrice: hasDiscount ? item.preis : null,
+        duration: item.dauer,
+      );
+    }
+
+    _BookingSummaryEntry _comboEntry(String key, _ComboSelection selection) {
+      final comboPrice = selection.preis;
+      final comboOriginal = selection.bundle.leistungenLc.fold<double>(
+        0.0,
+        (sum, partLc) =>
+            sum +
+            _singlePriceOfPart(
+              category: selection.bundle.kategorie,
+              zielgruppe: selection.zielgruppe,
+              partLc: partLc,
+              selectionMap: singles,
+              singleBaseIndex: singleBaseIndex,
+            ),
+      );
+      final hasDiscount =
+          comboPrice != null && comboOriginal > 0 && comboOriginal > comboPrice;
+
+      return _BookingSummaryEntry(
+        selectionKey: key,
+        isCombo: true,
+        selectedAt: selection.selectedAt,
+        title: selection.bundle.leistungen.join(' + '),
+        subtitle: [
+          selection.bundle.kategorie,
+          selection.varianteLabel ??
+              _comboMethodLabelForDisplay(selection.bundle),
+        ].where((e) => e != null && e.trim().isNotEmpty).join(' • '),
+        price: comboPrice,
+        originalPrice: hasDiscount ? comboOriginal : null,
+        duration: selection.dauer,
+      );
+    }
+
     List<_BookingSummaryEntry> entries = [
-      ...singles.entries.map(
-            (entry) => _BookingSummaryEntry(
-          selectionKey: entry.key,
-          isCombo: false,
-          selectedAt: entry.value.selectedAt,
-          title: entry.value.leistung,
-          subtitle: [entry.value.kategorie, entry.value.varianteLabel]
-              .where((e) => e != null && e.trim().isNotEmpty)
-              .join(' • '),
-          price: entry.value.preis,
-          duration: entry.value.dauer,
-        ),
-      ),
-      ...combos.entries.map(
-            (entry) => _BookingSummaryEntry(
-          selectionKey: entry.key,
-          isCombo: true,
-          selectedAt: entry.value.selectedAt,
-          title: entry.value.bundle.leistungen.join(' + '),
-          subtitle: [
-            entry.value.bundle.kategorie,
-            entry.value.varianteLabel ??
-                _comboMethodLabelForDisplay(entry.value.bundle),
-          ].where((e) => e != null && e.trim().isNotEmpty).join(' • '),
-          price: entry.value.preis,
-          duration: entry.value.dauer,
-        ),
-      ),
+      ...singles.entries.map((entry) => _singleEntry(entry.key, entry.value)),
+      ...combos.entries.map((entry) => _comboEntry(entry.key, entry.value)),
     ]..sort((a, b) => a.selectedAt.compareTo(b.selectedAt));
 
     double panelTotal = total;
@@ -1462,13 +1473,33 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       ),
                                     ),
                                     const SizedBox(width: 6),
-                                    Text(
-                                      entry.price == null
-                                          ? '–'
-                                          : _formatEuro(entry.price!),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        if (entry.originalPrice != null)
+                                          Text(
+                                            _formatEuro(entry.originalPrice!),
+                                            style: const TextStyle(
+                                              color: Colors.black45,
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.w500,
+                                              decoration:
+                                                  TextDecoration.lineThrough,
+                                              decorationThickness: 2,
+                                            ),
+                                          ),
+                                        Text(
+                                          entry.price == null
+                                              ? '–'
+                                              : _formatEuro(entry.price!),
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            color: entry.originalPrice != null
+                                                ? Colors.green
+                                                : null,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                     IconButton(
                                       tooltip: 'Leistung entfernen',
@@ -1506,50 +1537,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         _selectedCombosVN.value = combosMap;
 
                                         entries = [
-                                          ...singlesMap.entries.map(
-                                                (e) => _BookingSummaryEntry(
-                                              selectionKey: e.key,
-                                              isCombo: false,
-                                              selectedAt: e.value.selectedAt,
-                                              title: e.value.leistung,
-                                              subtitle: [
-                                                e.value.kategorie,
-                                                e.value.varianteLabel,
-                                              ]
-                                                  .where(
-                                                    (x) =>
-                                                x != null &&
-                                                    x.trim().isNotEmpty,
-                                              )
-                                                  .join(' • '),
-                                              price: e.value.preis,
-                                              duration: e.value.dauer,
-                                            ),
-                                          ),
-                                          ...combosMap.entries.map(
-                                                (e) => _BookingSummaryEntry(
-                                              selectionKey: e.key,
-                                              isCombo: true,
-                                              selectedAt: e.value.selectedAt,
-                                              title: e.value.bundle.leistungen
-                                                  .join(' + '),
-                                              subtitle: [
-                                                e.value.bundle.kategorie,
-                                                e.value.varianteLabel ??
-                                                    _comboMethodLabelForDisplay(
-                                                      e.value.bundle,
-                                                    ),
-                                              ]
-                                                  .where(
-                                                    (x) =>
-                                                x != null &&
-                                                    x.trim().isNotEmpty,
-                                              )
-                                                  .join(' • '),
-                                              price: e.value.preis,
-                                              duration: e.value.dauer,
-                                            ),
-                                          ),
+                                          ...singlesMap.entries
+                                              .map((e) => _singleEntry(e.key, e.value)),
+                                          ...combosMap.entries
+                                              .map((e) => _comboEntry(e.key, e.value)),
                                         ]
                                           ..sort(
                                                 (a, b) => a.selectedAt.compareTo(
@@ -1557,11 +1548,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                             ),
                                           );
 
-                                        panelTotal = entries.fold<double>(
-                                          0.0,
-                                              (sum, e) => sum + (e.price ?? 0.0),
+                                        final totals = computeTotals(
+                                          singlesMap,
+                                          combosMap,
                                         );
-                                        panelSavings = 0.0;
+                                        panelTotal = totals.optimized;
+                                        panelSavings = totals.savings;
 
                                         if (entries.isEmpty) {
                                           Navigator.of(ctx).pop();
@@ -3134,9 +3126,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           double? preview;
 
                           if (selected) {
-                            final locked = selectedItem?.lockedDisplayPrice;
-                            if (locked != null && effectivePrice != null && locked < effectivePrice) {
-                              newPrice = locked;
+                            final dynamicDiscount = _currentDiscountedSingleDisplayPrice(
+                              category: kat,
+                              zielgruppe: _zielgruppe,
+                              partLc: partLc,
+                              selectionMap: map,
+                              singleBaseIndex: singleBaseIndex,
+                              bundles: bundles,
+                            );
+                            if (dynamicDiscount != null &&
+                                effectivePrice != null &&
+                                dynamicDiscount < effectivePrice) {
+                              newPrice = dynamicDiscount;
                             }
                           } else {
                             preview = _previewForLastMissingPart(
@@ -3239,11 +3240,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             double? preview;
 
                             if (selectedThis) {
-                              final locked = selectedItem?.lockedDisplayPrice;
-                              if (locked != null &&
+                              final dynamicDiscount = _currentDiscountedSingleDisplayPrice(
+                                category: kat,
+                                zielgruppe: _zielgruppe,
+                                partLc: partLc,
+                                selectionMap: map,
+                                singleBaseIndex: singleBaseIndex,
+                                bundles: bundles,
+                              );
+                              if (dynamicDiscount != null &&
                                   variantEffectivePrice != null &&
-                                  locked < variantEffectivePrice) {
-                                newPrice = locked;
+                                  dynamicDiscount < variantEffectivePrice) {
+                                newPrice = dynamicDiscount;
                               }
                             } else {
                               preview = _previewForLastMissingPart(
@@ -4076,6 +4084,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               _openBookingSummaryPanel(
                                 singles: map,
                                 combos: combos,
+                                singleBaseIndex: singleBaseIndex,
+                                bundles: bundles,
+                                computeTotals: computeTotals,
                                 total: total,
                                 savings: savings,
                               );
@@ -4115,6 +4126,7 @@ class _BookingSummaryEntry {
   final String title;
   final String subtitle;
   final double? price;
+  final double? originalPrice;
   final int? duration;
 
   const _BookingSummaryEntry({
@@ -4124,6 +4136,7 @@ class _BookingSummaryEntry {
     required this.title,
     required this.subtitle,
     required this.price,
+    this.originalPrice,
     required this.duration,
   });
 }
