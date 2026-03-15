@@ -348,7 +348,7 @@ double? _validatedLockedDisplayPrice({
   );
 
   if (dynamicDiscount == null) return null;
-  return locked;
+  return dynamicDiscount;
 }
 
 // Vorschau-Preis, wenn dieses letzte Teil ein Bundle vervollständigt
@@ -1161,24 +1161,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         singleBaseIndex: singleBaseIndex,
         bundles: bundles,
       );
-      final shouldKeep =
-          dynamicDiscount != null &&
-          item.preis != null &&
-          dynamicDiscount < item.preis! &&
-          (dynamicDiscount - item.lockedDisplayPrice!).abs() < 0.01;
+      final hasDynamicDiscount =
+          dynamicDiscount != null && item.preis != null && dynamicDiscount < item.preis!;
 
-      if (!shouldKeep) {
-        selectionMap[key] = _CartItem(
-          kategorie: item.kategorie,
-          leistung: item.leistung,
-          preis: item.preis,
-          dauer: item.dauer,
-          zielgruppe: item.zielgruppe,
-          varianteLabel: item.varianteLabel,
-          selectedAt: item.selectedAt,
-          lockedDisplayPrice: null,
-        );
-      }
+      selectionMap[key] = _CartItem(
+        kategorie: item.kategorie,
+        leistung: item.leistung,
+        preis: item.preis,
+        dauer: item.dauer,
+        zielgruppe: item.zielgruppe,
+        varianteLabel: item.varianteLabel,
+        selectedAt: item.selectedAt,
+        lockedDisplayPrice: hasDynamicDiscount ? dynamicDiscount : null,
+      );
     }
   }
 
