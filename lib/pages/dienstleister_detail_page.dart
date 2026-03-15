@@ -166,6 +166,9 @@ class _ComboSelection {
   final double? preis;
   final int? dauer;
   final String? varianteLabel;
+  final String? titleOverride;
+  final List<String>? pricedPartsLcOverride;
+  final Set<String> requiredBasePartsLc;
 
   const _ComboSelection({
     required this.bundle,
@@ -174,6 +177,9 @@ class _ComboSelection {
     this.preis,
     this.dauer,
     this.varianteLabel,
+    this.titleOverride,
+    this.pricedPartsLcOverride,
+    this.requiredBasePartsLc = const <String>{},
   });
 }
 
@@ -1509,7 +1515,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     _BookingSummaryEntry _comboEntry(String key, _ComboSelection selection) {
       final comboPrice = selection.preis;
-      final comboOriginal = selection.bundle.leistungenLc.fold<double>(
+      final pricedParts = selection.pricedPartsLcOverride;
+      final pricePartsLc = (pricedParts != null && pricedParts.isNotEmpty)
+          ? pricedParts
+          : selection.bundle.leistungenLc;
+      final comboOriginal = pricePartsLc.fold<double>(
         0.0,
             (sum, partLc) =>
         sum +
@@ -1528,7 +1538,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         selectionKey: key,
         isCombo: true,
         selectedAt: selection.selectedAt,
-        title: selection.bundle.leistungen.join(' + '),
+        title: selection.titleOverride ?? selection.bundle.leistungen.join(' + '),
         subtitle: [
           selection.bundle.kategorie,
           selection.varianteLabel ??
@@ -1870,15 +1880,25 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                             entry.selectionKey,
                                           );
                                           if (removedItem != null) {
+                                            final removedPartLc =
+                                                removedItem.leistung.toLowerCase();
                                             _removeDependentSelections(
                                               selectionMap: singlesMap,
                                               zielgruppe:
                                               removedItem.zielgruppe,
                                               category:
                                               removedItem.kategorie,
-                                              removedPartLc: removedItem
-                                                  .leistung
-                                                  .toLowerCase(),
+                                              removedPartLc: removedPartLc,
+                                            );
+                                            combosMap.removeWhere(
+                                                  (_, comboSel) =>
+                                              comboSel.zielgruppe ==
+                                                  removedItem.zielgruppe &&
+                                                  comboSel.bundle.kategorie ==
+                                                      removedItem.kategorie &&
+                                                  comboSel.requiredBasePartsLc.contains(
+                                                    removedPartLc,
+                                                  ),
                                             );
                                           }
                                         }
@@ -2085,6 +2105,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                   );
                                                   if (removedItem !=
                                                       null) {
+                                                    final removedPartLc =
+                                                        removedItem.leistung.toLowerCase();
                                                     _removeDependentSelections(
                                                       selectionMap:
                                                       singlesMap,
@@ -2095,9 +2117,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                       removedItem
                                                           .kategorie,
                                                       removedPartLc:
-                                                      removedItem
-                                                          .leistung
-                                                          .toLowerCase(),
+                                                      removedPartLc,
+                                                    );
+                                                    combosMap.removeWhere(
+                                                          (_, comboSel) =>
+                                                      comboSel.zielgruppe ==
+                                                          removedItem.zielgruppe &&
+                                                          comboSel.bundle.kategorie ==
+                                                              removedItem.kategorie &&
+                                                          comboSel.requiredBasePartsLc.contains(
+                                                            removedPartLc,
+                                                          ),
                                                     );
                                                   }
                                                 }
@@ -2314,25 +2344,65 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                       ? null
                                                       : () {
                                                     if (suggestion.isGroupSuggestion) {
-                                                      _toggleGroupSelection(
-                                                        category: suggestion.category,
-                                                        combo: suggestion.combo!,
-                                                        partsDisplay: suggestion.groupPartsDisplay,
-                                                        partsLc: suggestion.groupPartsLc,
-                                                        requiredBasePartsLc:
-                                                            suggestion.requiredBasePartsLc,
-                                                        singleBaseIndex: singleBaseIndex,
-                                                        bundles: bundles,
-                                                      );
+                                                      if (_hasItemsFromOtherZielgruppe(
+                                                        suggestion.zielgruppe,
+                                                      )) {
+                                                        final other = _selectedVN
+                                                            .value
+                                                            .values
+                                                            .isNotEmpty
+                                                            ? _selectedVN
+                                                            .value
+                                                            .values
+                                                            .first
+                                                            .zielgruppe
+                                                            : _selectedCombosVN
+                                                            .value
+                                                            .values
+                                                            .first
+                                                            .zielgruppe;
+                                                        _showWrongGroupSnack(other);
+                                                        return;
+                                                      }
 
-                                                      panelSingles =
+                                                      final singlesMap =
                                                           Map<String, _CartItem>.from(
                                                         _selectedVN.value,
                                                       );
-                                                      panelCombos =
+                                                      final combosMap =
                                                           Map<String, _ComboSelection>.from(
                                                         _selectedCombosVN.value,
                                                       );
+
+                                                      if (combosMap.containsKey(suggestion.contextKey)) {
+                                                        combosMap.remove(suggestion.contextKey);
+                                                      } else {
+                                                        for (final partLc in suggestion.groupPartsLc) {
+                                                          final singleKey = _keyFor(
+                                                            zielgruppe: suggestion.zielgruppe,
+                                                            category: suggestion.category,
+                                                            partLc: partLc,
+                                                          );
+                                                          singlesMap.remove(singleKey);
+                                                        }
+
+                                                        combosMap[suggestion.contextKey] = _ComboSelection(
+                                                          bundle: suggestion.combo!,
+                                                          zielgruppe: suggestion.zielgruppe,
+                                                          selectedAt: ++_selectionTicker,
+                                                          preis: suggestion.price,
+                                                          dauer: suggestion.duration,
+                                                          titleOverride: suggestion.displayName,
+                                                          pricedPartsLcOverride: suggestion.groupPartsLc,
+                                                          requiredBasePartsLc:
+                                                              suggestion.requiredBasePartsLc,
+                                                        );
+                                                      }
+
+                                                      _selectedVN.value = singlesMap;
+                                                      _selectedCombosVN.value = combosMap;
+                                                      panelSingles = singlesMap;
+                                                      panelCombos = combosMap;
                                                     } else {
                                                       if (_hasItemsFromOtherZielgruppe(
                                                         suggestion
