@@ -2305,12 +2305,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                           .zielgruppe,
                                                     );
 
-                                                    final priceForSelection =
-                                                        suggestion.price ?? singlePrice;
+                                                    final basePriceForSelection =
+                                                        singlePrice ?? suggestion.price;
                                                     final durationForSelection =
                                                         suggestion.duration ?? singleDuration;
 
-                                                    final locked =
+                                                    final computedLocked =
                                                     _lockedPriceForNewSelection(
                                                       category:
                                                       suggestion
@@ -2328,8 +2328,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                       bundles:
                                                       bundles,
                                                       newPartSinglePrice:
-                                                      priceForSelection,
+                                                      basePriceForSelection,
                                                     );
+                                                    final locked =
+                                                        (suggestion.originalPrice != null &&
+                                                                suggestion.price != null &&
+                                                                basePriceForSelection != null &&
+                                                                suggestion.price! <
+                                                                    basePriceForSelection)
+                                                            ? suggestion.price
+                                                            : computedLocked;
 
                                                     singlesMap[
                                                     selectionKey] = _CartItem(
@@ -2340,7 +2348,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                       suggestion
                                                           .displayName,
                                                       preis:
-                                                      priceForSelection,
+                                                      basePriceForSelection,
                                                       dauer:
                                                       durationForSelection,
                                                       zielgruppe:
