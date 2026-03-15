@@ -338,17 +338,79 @@ double? _validatedLockedDisplayPrice({
   final locked = item.lockedDisplayPrice;
   if (locked == null || item.preis == null || locked >= item.preis!) return null;
 
-  final dynamicDiscount = _currentDiscountedSingleDisplayPrice(
-    category: item.kategorie,
-    zielgruppe: item.zielgruppe,
-    partLc: item.leistung.toLowerCase(),
-    selectionMap: selectionMap,
-    singleBaseIndex: singleBaseIndex,
-    bundles: bundles,
-  );
+  const tolerance = 0.001;
+  final partLc = item.leistung.toLowerCase();
 
-  if (dynamicDiscount == null) return null;
-  return dynamicDiscount;
+  for (final b in bundles) {
+    if (b.kategorie != item.kategorie) continue;
+    if (!b.leistungenLc.contains(partLc)) continue;
+
+    final bundlePrice = b.priceFor(item.zielgruppe);
+    if (bundlePrice == null) continue;
+
+    final others = b.leistungenLc.where((lc) => lc != partLc).toList();
+    final allOthersSelected = others.every((lc) => selectionMap.values.any((it) =>
+        it.kategorie == item.kategorie &&
+        it.zielgruppe == item.zielgruppe &&
+        it.leistung.toLowerCase() == lc));
+    if (!allOthersSelected) continue;
+
+    double singlesSum = 0.0;
+    for (final lc in b.leistungenLc) {
+      if (lc == partLc) {
+        singlesSum += item.preis!;
+      } else {
+        singlesSum += _singlePriceOfPart(
+          category: item.kategorie,
+          zielgruppe: item.zielgruppe,
+          partLc: lc,
+          selectionMap: selectionMap,
+          singleBaseIndex: singleBaseIndex,
+        );
+      }
+    }
+    if (bundlePrice >= singlesSum) continue;
+
+    double othersContribution = 0.0;
+    for (final lc in others) {
+      final otherKey = _keyFor(
+        zielgruppe: item.zielgruppe,
+        category: item.kategorie,
+        partLc: lc,
+      );
+      final selectedOther = selectionMap[otherKey];
+      if (selectedOther != null) {
+        final otherLocked = selectedOther.lockedDisplayPrice;
+        if (otherLocked != null &&
+            selectedOther.preis != null &&
+            otherLocked < selectedOther.preis!) {
+          othersContribution += otherLocked;
+          continue;
+        }
+        if (selectedOther.preis != null) {
+          othersContribution += selectedOther.preis!;
+          continue;
+        }
+      }
+
+      othersContribution += _singlePriceOfPart(
+        category: item.kategorie,
+        zielgruppe: item.zielgruppe,
+        partLc: lc,
+        selectionMap: selectionMap,
+        singleBaseIndex: singleBaseIndex,
+      );
+    }
+
+    final expectedRemainder =
+        (bundlePrice - othersContribution).clamp(0.0, double.infinity);
+    final isMatchingLocked = (expectedRemainder - locked).abs() <= tolerance;
+    if (isMatchingLocked && expectedRemainder < item.preis!) {
+      return locked;
+    }
+  }
+
+  return null;
 }
 
 // Vorschau-Preis, wenn dieses letzte Teil ein Bundle vervollständigt
@@ -1153,16 +1215,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       final item = selectionMap[key];
       if (item == null || item.lockedDisplayPrice == null) continue;
 
-      final dynamicDiscount = _currentDiscountedSingleDisplayPrice(
-        category: item.kategorie,
-        zielgruppe: item.zielgruppe,
-        partLc: item.leistung.toLowerCase(),
+      final validatedLocked = _validatedLockedDisplayPrice(
+        item: item,
         selectionMap: selectionMap,
         singleBaseIndex: singleBaseIndex,
         bundles: bundles,
       );
-      final hasDynamicDiscount =
-          dynamicDiscount != null && item.preis != null && dynamicDiscount < item.preis!;
 
       selectionMap[key] = _CartItem(
         kategorie: item.kategorie,
@@ -1172,7 +1230,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         zielgruppe: item.zielgruppe,
         varianteLabel: item.varianteLabel,
         selectedAt: item.selectedAt,
-        lockedDisplayPrice: hasDynamicDiscount ? dynamicDiscount : null,
+        lockedDisplayPrice: validatedLocked,
       );
     }
   }
