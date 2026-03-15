@@ -1143,7 +1143,51 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   }
   // ===========================================================================
 
-  void _toggleSelection(String key, _CartItem item) {
+  void _clearInvalidLockedPrices({
+    required Map<String, _CartItem> selectionMap,
+    required Map<String, Offer> singleBaseIndex,
+    required List<Offer> bundles,
+  }) {
+    final keys = selectionMap.keys.toList();
+    for (final key in keys) {
+      final item = selectionMap[key];
+      if (item == null || item.lockedDisplayPrice == null) continue;
+
+      final dynamicDiscount = _currentDiscountedSingleDisplayPrice(
+        category: item.kategorie,
+        zielgruppe: item.zielgruppe,
+        partLc: item.leistung.toLowerCase(),
+        selectionMap: selectionMap,
+        singleBaseIndex: singleBaseIndex,
+        bundles: bundles,
+      );
+      final shouldKeep =
+          dynamicDiscount != null &&
+          item.preis != null &&
+          dynamicDiscount < item.preis! &&
+          (dynamicDiscount - item.lockedDisplayPrice!).abs() < 0.01;
+
+      if (!shouldKeep) {
+        selectionMap[key] = _CartItem(
+          kategorie: item.kategorie,
+          leistung: item.leistung,
+          preis: item.preis,
+          dauer: item.dauer,
+          zielgruppe: item.zielgruppe,
+          varianteLabel: item.varianteLabel,
+          selectedAt: item.selectedAt,
+          lockedDisplayPrice: null,
+        );
+      }
+    }
+  }
+
+  void _toggleSelection(
+    String key,
+    _CartItem item, {
+    required Map<String, Offer> singleBaseIndex,
+    required List<Offer> bundles,
+  }) {
     final map = Map<String, _CartItem>.from(_selectedVN.value);
     final combos = Map<String, _ComboSelection>.from(_selectedCombosVN.value);
 
@@ -1171,6 +1215,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         removedPartLc: item.leistung.toLowerCase(),
       );
     }
+
+    _clearInvalidLockedPrices(
+      selectionMap: map,
+      singleBaseIndex: singleBaseIndex,
+      bundles: bundles,
+    );
 
     _selectedVN.value = map;
     _selectedCombosVN.value = combos;
@@ -4141,7 +4191,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     if (selectedThis) {
                                       final existing = selectedItem;
                                       if (existing != null) {
-                                        _toggleSelection(selKey, existing);
+                                        _toggleSelection(
+                                          selKey,
+                                          existing,
+                                          singleBaseIndex: singleBaseIndex,
+                                          bundles: bundles,
+                                        );
                                       }
                                       return;
                                     }
@@ -4432,6 +4487,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           selectedAt: ++_selectionTicker,
                                           lockedDisplayPrice: locked,
                                         ),
+                                        singleBaseIndex: singleBaseIndex,
+                                        bundles: bundles,
                                       );
                                     }
                                   },
