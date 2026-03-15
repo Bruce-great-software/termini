@@ -186,22 +186,15 @@ double _singlePriceOfPart({
   required Map<String, _CartItem> selectionMap,
   required Map<String, Offer> singleBaseIndex,
 }) {
-  // bereits gewähltes Item?
-  final it = selectionMap.values.firstWhere(
-        (e) =>
-    e.kategorie == category &&
-        e.leistung.toLowerCase() == partLc &&
-        e.zielgruppe == zielgruppe,
-    orElse: () => const _CartItem(
-      kategorie: '',
-      leistung: '',
-      preis: null,
-      dauer: null,
-      zielgruppe: '',
-      selectedAt: 0,
-    ),
+  final selectedKey = _keyFor(
+    zielgruppe: zielgruppe,
+    category: category,
+    partLc: partLc,
   );
-  if (it.kategorie.isNotEmpty && it.preis != null) return it.preis!;
+  final selectedItem = selectionMap[selectedKey];
+  if (selectedItem != null && selectedItem.preis != null) {
+    return selectedItem.preis!;
+  }
 
   final p = singleBaseIndex['$category|$partLc']?.priceFor(zielgruppe);
   return p ?? 0.0;
@@ -256,10 +249,11 @@ double? _lockedPriceForNewSelection({
     if (!b.leistungenLc.contains(newPartLc)) continue;
 
     final others = b.leistungenLc.where((lc) => lc != newPartLc).toList();
-    final allOthersSelected = others.every((lc) => selectionMap.values.any((it) =>
-    it.kategorie == category &&
-        it.zielgruppe == zielgruppe &&
-        it.leistung.toLowerCase() == lc));
+    final allOthersSelected = others.every(
+      (lc) => selectionMap.containsKey(
+        _keyFor(zielgruppe: zielgruppe, category: category, partLc: lc),
+      ),
+    );
     if (!allOthersSelected) continue;
 
     final bundlePrice = b.priceFor(zielgruppe);
@@ -349,10 +343,15 @@ double? _validatedLockedDisplayPrice({
     if (bundlePrice == null) continue;
 
     final others = b.leistungenLc.where((lc) => lc != partLc).toList();
-    final allOthersSelected = others.every((lc) => selectionMap.values.any((it) =>
-    it.kategorie == item.kategorie &&
-        it.zielgruppe == item.zielgruppe &&
-        it.leistung.toLowerCase() == lc));
+    final allOthersSelected = others.every(
+      (lc) => selectionMap.containsKey(
+        _keyFor(
+          zielgruppe: item.zielgruppe,
+          category: item.kategorie,
+          partLc: lc,
+        ),
+      ),
+    );
     if (!allOthersSelected) continue;
 
     double singlesSum = 0.0;
