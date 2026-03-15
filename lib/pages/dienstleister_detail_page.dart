@@ -207,6 +207,36 @@ double _singlePriceOfPart({
   return p ?? 0.0;
 }
 
+double _contributionPriceOfPart({
+  required String category,
+  required String zielgruppe,
+  required String partLc,
+  required Map<String, _CartItem> selectionMap,
+  required Map<String, Offer> singleBaseIndex,
+  required List<Offer> bundles,
+}) {
+  final key = _keyFor(zielgruppe: zielgruppe, category: category, partLc: partLc);
+  final selected = selectionMap[key];
+  if (selected != null) {
+    final locked = _validatedLockedDisplayPrice(
+      item: selected,
+      selectionMap: selectionMap,
+      singleBaseIndex: singleBaseIndex,
+      bundles: bundles,
+    );
+    if (locked != null) return locked;
+    if (selected.preis != null) return selected.preis!;
+  }
+
+  return _singlePriceOfPart(
+    category: category,
+    zielgruppe: zielgruppe,
+    partLc: partLc,
+    selectionMap: selectionMap,
+    singleBaseIndex: singleBaseIndex,
+  );
+}
+
 // Restbetrag (locked price) für neues Item, wenn dadurch Bundle greift
 double? _lockedPriceForNewSelection({
   required String category,
@@ -253,12 +283,13 @@ double? _lockedPriceForNewSelection({
 
     double othersContribution = 0.0;
     for (final lc in others) {
-      othersContribution += _singlePriceOfPart(
+      othersContribution += _contributionPriceOfPart(
         category: category,
         zielgruppe: zielgruppe,
         partLc: lc,
         selectionMap: selectionMap,
         singleBaseIndex: singleBaseIndex,
+        bundles: bundles,
       );
     }
 
@@ -344,12 +375,13 @@ double? _previewForLastMissingPart({
 
     double othersContribution = 0.0;
     for (final lc in others) {
-      othersContribution += _singlePriceOfPart(
+      othersContribution += _contributionPriceOfPart(
         category: category,
         zielgruppe: zielgruppe,
         partLc: lc,
         selectionMap: selectionMap,
         singleBaseIndex: singleBaseIndex,
+        bundles: bundles,
       );
     }
 
@@ -371,6 +403,7 @@ double? _previewForComboGroup({
   required Set<String> selectedPartsLc,
   required Map<String, _CartItem> selectionMap,
   required Map<String, Offer> singleBaseIndex,
+  required List<Offer> bundles,
   double? bundlePriceOverride,
 }) {
   if (!requiredBasePartsLc.every(selectedPartsLc.contains)) return null;
@@ -380,12 +413,13 @@ double? _previewForComboGroup({
 
   double baseContribution = 0.0;
   for (final baseLc in requiredBasePartsLc) {
-    baseContribution += _singlePriceOfPart(
+    baseContribution += _contributionPriceOfPart(
       category: category,
       zielgruppe: zielgruppe,
       partLc: baseLc,
       selectionMap: selectionMap,
       singleBaseIndex: singleBaseIndex,
+      bundles: bundles,
     );
   }
 
@@ -1194,6 +1228,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       selectedPartsLc: selectedPartsLc,
       selectionMap: map,
       singleBaseIndex: singleBaseIndex,
+      bundles: bundles,
       bundlePriceOverride: _bundlePriceForCombo(
         combo: combo,
         zielgruppe: zg,
@@ -4487,6 +4522,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 selectedPartsLc: selectedPartsLc,
                                 selectionMap: map,
                                 singleBaseIndex: singleBaseIndex,
+                                bundles: bundles,
                                 bundlePriceOverride: _bundlePriceForCombo(
                                   combo: group.bundle,
                                   zielgruppe: _zielgruppe,
