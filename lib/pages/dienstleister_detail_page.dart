@@ -1609,6 +1609,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             );
             final hasDiscount =
                 preview != null && basePrice != null && preview < basePrice;
+            final suggestionPrice = hasDiscount
+                ? preview
+                : (basePrice ?? preview);
             final displayName = _displayNameForPart(
               category: category,
               partLc: partLc,
@@ -1624,7 +1627,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   ? displayName
                   : '$category - $displayName',
               displayName: displayName,
-              price: hasDiscount ? preview : basePrice,
+              price: suggestionPrice,
               originalPrice: hasDiscount ? basePrice : null,
               duration: duration,
             );
@@ -2302,6 +2305,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                           .zielgruppe,
                                                     );
 
+                                                    final priceForSelection =
+                                                        suggestion.price ?? singlePrice;
+                                                    final durationForSelection =
+                                                        suggestion.duration ?? singleDuration;
+
                                                     final locked =
                                                     _lockedPriceForNewSelection(
                                                       category:
@@ -2320,7 +2328,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                       bundles:
                                                       bundles,
                                                       newPartSinglePrice:
-                                                      singlePrice,
+                                                      priceForSelection,
                                                     );
 
                                                     singlesMap[
@@ -2332,9 +2340,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                       suggestion
                                                           .displayName,
                                                       preis:
-                                                      singlePrice,
+                                                      priceForSelection,
                                                       dauer:
-                                                      singleDuration,
+                                                      durationForSelection,
                                                       zielgruppe:
                                                       suggestion
                                                           .zielgruppe,
