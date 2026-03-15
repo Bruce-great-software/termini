@@ -1581,6 +1581,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           final zielgruppe = ctx[0];
           final category = ctx[1];
           if (bundle.kategorie != category) continue;
+          if (!_hasZielgruppenData(bundle, zielgruppe)) continue;
 
           final selectedParts = context.value;
           final hasSelectedBundlePart =
