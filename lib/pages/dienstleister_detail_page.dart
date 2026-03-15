@@ -1483,6 +1483,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     var panelSingles = Map<String, _CartItem>.from(singles);
     var panelCombos = Map<String, _ComboSelection>.from(combos);
 
+    _clearInvalidLockedPrices(
+      selectionMap: panelSingles,
+      singleBaseIndex: singleBaseIndex,
+      bundles: bundles,
+    );
+
     _BookingSummaryEntry _singleEntry(String key, _CartItem item) {
       final lockedDiscount = _validatedLockedDisplayPrice(
         item: item,
@@ -1812,6 +1818,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                 }
                                               }
 
+                                              _clearInvalidLockedPrices(
+                                                selectionMap: singlesMap,
+                                                singleBaseIndex: singleBaseIndex,
+                                                bundles: bundles,
+                                              );
+
                                               _selectedVN.value = singlesMap;
                                               _selectedCombosVN.value =
                                                   combosMap;
@@ -2024,6 +2036,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                           );
                                                         }
                                                       }
+
+                                                      _clearInvalidLockedPrices(
+                                                        selectionMap: singlesMap,
+                                                        singleBaseIndex: singleBaseIndex,
+                                                        bundles: bundles,
+                                                      );
 
                                                       _selectedVN.value =
                                                           singlesMap;
@@ -2356,6 +2374,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                                         suggestion
                                                                             .partLc,
                                                                       ),
+                                                                );
+
+                                                                _clearInvalidLockedPrices(
+                                                                  selectionMap: singlesMap,
+                                                                  singleBaseIndex: singleBaseIndex,
+                                                                  bundles: bundles,
                                                                 );
 
                                                                 _selectedVN
