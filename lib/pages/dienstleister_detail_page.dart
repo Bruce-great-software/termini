@@ -1815,6 +1815,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           }
                                         }
 
+                                        _clearInvalidLockedPrices(
+                                          selectionMap: singlesMap,
+                                          singleBaseIndex: singleBaseIndex,
+                                          bundles: bundles,
+                                        );
+
                                         _selectedVN.value = singlesMap;
                                         _selectedCombosVN.value =
                                             combosMap;
@@ -2027,6 +2033,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                     );
                                                   }
                                                 }
+
+                                                _clearInvalidLockedPrices(
+                                                  selectionMap: singlesMap,
+                                                  singleBaseIndex: singleBaseIndex,
+                                                  bundles: bundles,
+                                                );
 
                                                 _selectedVN.value =
                                                     singlesMap;
@@ -2372,6 +2384,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                             suggestion
                                                                 .partLc,
                                                           ),
+                                                    );
+
+                                                    _clearInvalidLockedPrices(
+                                                      selectionMap: singlesMap,
+                                                      singleBaseIndex: singleBaseIndex,
+                                                      bundles: bundles,
                                                     );
 
                                                     _selectedVN
