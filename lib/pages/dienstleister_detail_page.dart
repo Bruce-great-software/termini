@@ -1183,6 +1183,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required List<String> partsLc,
     required Set<String> requiredBasePartsLc,
     required Map<String, Offer> singleBaseIndex,
+    required List<Offer> bundles,
   }) {
     final map = Map<String, _CartItem>.from(_selectedVN.value);
     final combos = Map<String, _ComboSelection>.from(_selectedCombosVN.value);
@@ -4579,6 +4580,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         partsLc: groupPartsLc,
                                         requiredBasePartsLc: group.requiredBaseLc,
                                         singleBaseIndex: singleBaseIndex,
+                                        bundles: bundles,
                                       );
                                     },
                                     icon: Icon(
