@@ -1587,6 +1587,84 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           bundle.leistungenLc.any(selectedParts.contains);
           if (!hasSelectedBundlePart) continue;
 
+          final missingIndexes = <int>[];
+          for (int i = 0; i < bundle.leistungenLc.length; i++) {
+            if (!selectedParts.contains(bundle.leistungenLc[i])) {
+              missingIndexes.add(i);
+            }
+          }
+
+          if (missingIndexes.length > 1) {
+            final groupSuggestionKey =
+                '$zielgruppe|$category|group:${bundle.id.toLowerCase()}';
+            if (!suggestionsByKey.containsKey(groupSuggestionKey)) {
+              final missingPartsLc =
+                  missingIndexes.map((i) => bundle.leistungenLc[i]).toList();
+              final missingDisplay = missingIndexes
+                  .map((i) => i < bundle.leistungen.length
+                      ? bundle.leistungen[i]
+                      : _displayNameForPart(
+                          category: category,
+                          partLc: bundle.leistungenLc[i],
+                        ))
+                  .toList();
+
+              final requiredBaseParts =
+                  bundle.leistungenLc.where(selectedParts.contains).toSet();
+
+              final preview = _previewForComboGroup(
+                combo: bundle,
+                category: category,
+                zielgruppe: zielgruppe,
+                requiredBasePartsLc: requiredBaseParts,
+                selectedPartsLc: selectedParts,
+                selectionMap: panelSingles,
+                singleBaseIndex: singleBaseIndex,
+                bundles: bundles,
+              );
+
+              double? originalPrice;
+              var hasAllOriginals = true;
+              var sumOriginal = 0.0;
+              for (final partLc in missingPartsLc) {
+                final p = singleBaseIndex['$category|$partLc']?.priceFor(zielgruppe);
+                if (p == null) {
+                  hasAllOriginals = false;
+                  break;
+                }
+                sumOriginal += p;
+              }
+              if (hasAllOriginals) originalPrice = sumOriginal;
+
+              final hasDiscount =
+                  preview != null && originalPrice != null && preview < originalPrice;
+              final suggestionPrice = hasDiscount
+                  ? preview
+                  : (originalPrice ?? preview);
+
+              final comboDisplayName = missingDisplay.join(' + ');
+
+              suggestionsByKey[groupSuggestionKey] = _BookingSummarySuggestion(
+                contextKey: groupSuggestionKey,
+                zielgruppe: zielgruppe,
+                category: category,
+                partLc: 'group:${bundle.id.toLowerCase()}',
+                title: category.trim().isEmpty
+                    ? comboDisplayName
+                    : '$category - $comboDisplayName',
+                displayName: comboDisplayName,
+                price: suggestionPrice,
+                originalPrice: hasDiscount ? originalPrice : null,
+                duration: _displayDurationFor(
+                  combo: bundle,
+                  zielgruppe: zielgruppe,
+                ),
+                canAdd: false,
+              );
+            }
+            continue;
+          }
+
           for (int i = 0; i < bundle.leistungenLc.length; i++) {
             final partLc = bundle.leistungenLc[i];
             if (selectedParts.contains(partLc)) continue;
@@ -1629,6 +1707,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               price: suggestionPrice,
               originalPrice: hasDiscount ? basePrice : null,
               duration: duration,
+              canAdd: true,
             );
           }
         }
@@ -2242,7 +2321,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                   ),
                                                   onPressed: suggestion
                                                       .price ==
-                                                      null
+                                                      null ||
+                                                      !suggestion.canAdd
                                                       ? null
                                                       : () {
                                                     if (_hasItemsFromOtherZielgruppe(
@@ -5067,6 +5147,7 @@ class _BookingSummarySuggestion {
   final double? price;
   final double? originalPrice;
   final int? duration;
+  final bool canAdd;
 
   const _BookingSummarySuggestion({
     required this.contextKey,
@@ -5078,6 +5159,7 @@ class _BookingSummarySuggestion {
     required this.price,
     this.originalPrice,
     this.duration,
+    this.canAdd = true,
   });
 }
 
