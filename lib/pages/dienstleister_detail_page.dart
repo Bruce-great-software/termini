@@ -186,22 +186,15 @@ double _singlePriceOfPart({
   required Map<String, _CartItem> selectionMap,
   required Map<String, Offer> singleBaseIndex,
 }) {
-  // bereits gewähltes Item?
-  final it = selectionMap.values.firstWhere(
-        (e) =>
-    e.kategorie == category &&
-        e.leistung.toLowerCase() == partLc &&
-        e.zielgruppe == zielgruppe,
-    orElse: () => const _CartItem(
-      kategorie: '',
-      leistung: '',
-      preis: null,
-      dauer: null,
-      zielgruppe: '',
-      selectedAt: 0,
-    ),
+  final selectedKey = _keyFor(
+    zielgruppe: zielgruppe,
+    category: category,
+    partLc: partLc,
   );
-  if (it.kategorie.isNotEmpty && it.preis != null) return it.preis!;
+  final selectedItem = selectionMap[selectedKey];
+  if (selectedItem != null && selectedItem.preis != null) {
+    return selectedItem.preis!;
+  }
 
   final p = singleBaseIndex['$category|$partLc']?.priceFor(zielgruppe);
   return p ?? 0.0;
@@ -256,10 +249,11 @@ double? _lockedPriceForNewSelection({
     if (!b.leistungenLc.contains(newPartLc)) continue;
 
     final others = b.leistungenLc.where((lc) => lc != newPartLc).toList();
-    final allOthersSelected = others.every((lc) => selectionMap.values.any((it) =>
-    it.kategorie == category &&
-        it.zielgruppe == zielgruppe &&
-        it.leistung.toLowerCase() == lc));
+    final allOthersSelected = others.every(
+      (lc) => selectionMap.containsKey(
+        _keyFor(zielgruppe: zielgruppe, category: category, partLc: lc),
+      ),
+    );
     if (!allOthersSelected) continue;
 
     final bundlePrice = b.priceFor(zielgruppe);
@@ -349,10 +343,15 @@ double? _validatedLockedDisplayPrice({
     if (bundlePrice == null) continue;
 
     final others = b.leistungenLc.where((lc) => lc != partLc).toList();
-    final allOthersSelected = others.every((lc) => selectionMap.values.any((it) =>
-    it.kategorie == item.kategorie &&
-        it.zielgruppe == item.zielgruppe &&
-        it.leistung.toLowerCase() == lc));
+    final allOthersSelected = others.every(
+      (lc) => selectionMap.containsKey(
+        _keyFor(
+          zielgruppe: item.zielgruppe,
+          category: item.kategorie,
+          partLc: lc,
+        ),
+      ),
+    );
     if (!allOthersSelected) continue;
 
     double singlesSum = 0.0;
@@ -448,8 +447,8 @@ double? _previewForLastMissingPart({
     }
 
     final remainder = (bundlePrice - othersContribution).clamp(0.0, double.infinity);
-    final singleOfThis = singleBaseIndex['$category|$partLc']?.priceFor(zielgruppe) ?? 0.0;
-    if (remainder < singleOfThis) {
+    final singleOfThis = singleBaseIndex['$category|$partLc']?.priceFor(zielgruppe);
+    if (singleOfThis == null || remainder < singleOfThis) {
       if (best == null || remainder < best!) best = remainder;
     }
   }
@@ -1581,11 +1580,87 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           final zielgruppe = ctx[0];
           final category = ctx[1];
           if (bundle.kategorie != category) continue;
+          if (!_hasZielgruppenData(bundle, zielgruppe)) continue;
 
           final selectedParts = context.value;
           final hasSelectedBundlePart =
           bundle.leistungenLc.any(selectedParts.contains);
           if (!hasSelectedBundlePart) continue;
+
+          final missingIndexes = <int>[];
+          for (int i = 0; i < bundle.leistungenLc.length; i++) {
+            if (!selectedParts.contains(bundle.leistungenLc[i])) {
+              missingIndexes.add(i);
+            }
+          }
+
+          if (missingIndexes.length > 1) {
+            final groupSuggestionKey =
+                '$zielgruppe|$category|group:${bundle.id.toLowerCase()}';
+            if (!suggestionsByKey.containsKey(groupSuggestionKey)) {
+              final missingPartsLc =
+                  missingIndexes.map((i) => bundle.leistungenLc[i]).toList();
+              final missingDisplay = missingIndexes
+                  .map((i) => i < bundle.leistungen.length
+                      ? bundle.leistungen[i]
+                      : _displayNameForPart(
+                          category: category,
+                          partLc: bundle.leistungenLc[i],
+                        ))
+                  .toList();
+
+              final requiredBaseParts =
+                  bundle.leistungenLc.where(selectedParts.contains).toSet();
+
+              final preview = _previewForComboGroup(
+                combo: bundle,
+                category: category,
+                zielgruppe: zielgruppe,
+                requiredBasePartsLc: requiredBaseParts,
+                selectedPartsLc: selectedParts,
+                selectionMap: panelSingles,
+                singleBaseIndex: singleBaseIndex,
+                bundles: bundles,
+              );
+
+              double? originalPrice;
+              var hasAllOriginals = true;
+              var sumOriginal = 0.0;
+              for (final partLc in missingPartsLc) {
+                final p = singleBaseIndex['$category|$partLc']?.priceFor(zielgruppe);
+                if (p == null) {
+                  hasAllOriginals = false;
+                  break;
+                }
+                sumOriginal += p;
+              }
+              if (hasAllOriginals) originalPrice = sumOriginal;
+
+              final hasDiscount =
+                  preview != null && originalPrice != null && preview < originalPrice;
+              final suggestionPrice = hasDiscount
+                  ? preview
+                  : (originalPrice ?? preview);
+
+              final comboDisplayName = missingDisplay.join(' + ');
+
+              suggestionsByKey[groupSuggestionKey] = _BookingSummarySuggestion(
+                contextKey: groupSuggestionKey,
+                zielgruppe: zielgruppe,
+                category: category,
+                partLc: 'group:${bundle.id.toLowerCase()}',
+                title: category.trim().isEmpty
+                    ? comboDisplayName
+                    : '$category - $comboDisplayName',
+                displayName: comboDisplayName,
+                price: suggestionPrice,
+                originalPrice: hasDiscount ? originalPrice : null,
+                duration: _displayDurationFor(bundle, zielgruppe),
+                canAdd: false,
+              );
+            }
+            continue;
+          }
 
           for (int i = 0; i < bundle.leistungenLc.length; i++) {
             final partLc = bundle.leistungenLc[i];
@@ -1608,6 +1683,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             );
             final hasDiscount =
                 preview != null && basePrice != null && preview < basePrice;
+            final suggestionPrice = hasDiscount
+                ? preview
+                : (basePrice ?? preview);
             final displayName = _displayNameForPart(
               category: category,
               partLc: partLc,
@@ -1623,9 +1701,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   ? displayName
                   : '$category - $displayName',
               displayName: displayName,
-              price: hasDiscount ? preview : basePrice,
+              price: suggestionPrice,
               originalPrice: hasDiscount ? basePrice : null,
               duration: duration,
+              canAdd: true,
             );
           }
         }
@@ -1811,6 +1890,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                             );
                                           }
                                         }
+
+                                        _clearInvalidLockedPrices(
+                                          selectionMap: singlesMap,
+                                          singleBaseIndex: singleBaseIndex,
+                                          bundles: bundles,
+                                        );
 
                                         _selectedVN.value = singlesMap;
                                         _selectedCombosVN.value =
@@ -2025,6 +2110,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                   }
                                                 }
 
+                                                _clearInvalidLockedPrices(
+                                                  selectionMap: singlesMap,
+                                                  singleBaseIndex: singleBaseIndex,
+                                                  bundles: bundles,
+                                                );
+
                                                 _selectedVN.value =
                                                     singlesMap;
                                                 _selectedCombosVN.value =
@@ -2227,7 +2318,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                   ),
                                                   onPressed: suggestion
                                                       .price ==
-                                                      null
+                                                      null ||
+                                                      !suggestion.canAdd
                                                       ? null
                                                       : () {
                                                     if (_hasItemsFromOtherZielgruppe(
@@ -2301,7 +2393,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                           .zielgruppe,
                                                     );
 
-                                                    final locked =
+                                                    final basePriceForSelection =
+                                                        singlePrice ?? suggestion.price;
+                                                    final durationForSelection =
+                                                        suggestion.duration ?? singleDuration;
+
+                                                    final computedLocked =
                                                     _lockedPriceForNewSelection(
                                                       category:
                                                       suggestion
@@ -2319,8 +2416,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                       bundles:
                                                       bundles,
                                                       newPartSinglePrice:
-                                                      singlePrice,
+                                                      basePriceForSelection,
                                                     );
+                                                    final locked =
+                                                        (suggestion.originalPrice != null &&
+                                                                suggestion.price != null &&
+                                                                basePriceForSelection != null &&
+                                                                suggestion.price! <
+                                                                    basePriceForSelection)
+                                                            ? suggestion.price
+                                                            : computedLocked;
 
                                                     singlesMap[
                                                     selectionKey] = _CartItem(
@@ -2331,9 +2436,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                       suggestion
                                                           .displayName,
                                                       preis:
-                                                      singlePrice,
+                                                      basePriceForSelection,
                                                       dauer:
-                                                      singleDuration,
+                                                      durationForSelection,
                                                       zielgruppe:
                                                       suggestion
                                                           .zielgruppe,
@@ -2356,6 +2461,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                             suggestion
                                                                 .partLc,
                                                           ),
+                                                    );
+
+                                                    _clearInvalidLockedPrices(
+                                                      selectionMap: singlesMap,
+                                                      singleBaseIndex: singleBaseIndex,
+                                                      bundles: bundles,
                                                     );
 
                                                     _selectedVN
@@ -4517,6 +4628,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           singleBaseIndex[
                                           '$kat|$partLc']
                                               ?.priceFor(_zielgruppe);
+                                      final previewPrice =
+                                      _previewForLastMissingPart(
+                                        category: kat,
+                                        zielgruppe: _zielgruppe,
+                                        partLc: partLc,
+                                        selectedPartsLc: selectedPartsLc,
+                                        selectionMap: currentMap,
+                                        singleBaseIndex: singleBaseIndex,
+                                        bundles: bundles,
+                                      );
+                                      final priceForSelection = isDerivedSingle
+                                          ? (previewPrice ?? singlePrice)
+                                          : (singlePrice ?? previewPrice);
 
                                       final locked =
                                       _lockedPriceForNewSelection(
@@ -4526,7 +4650,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         selectionMap: currentMap,
                                         singleBaseIndex: singleBaseIndex,
                                         bundles: bundles,
-                                        newPartSinglePrice: singlePrice,
+                                        newPartSinglePrice: priceForSelection,
                                       );
 
                                       _toggleSelection(
@@ -4534,8 +4658,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         _CartItem(
                                           kategorie: kat,
                                           leistung: partDisplay,
-                                          preis: singlePrice,
-                                          dauer: dauer,
+                                          preis: priceForSelection,
+                                          dauer: effectiveDuration,
                                           zielgruppe: _zielgruppe,
                                           selectedAt: ++_selectionTicker,
                                           lockedDisplayPrice: locked,
@@ -5020,6 +5144,7 @@ class _BookingSummarySuggestion {
   final double? price;
   final double? originalPrice;
   final int? duration;
+  final bool canAdd;
 
   const _BookingSummarySuggestion({
     required this.contextKey,
@@ -5031,6 +5156,7 @@ class _BookingSummarySuggestion {
     required this.price,
     this.originalPrice,
     this.duration,
+    this.canAdd = true,
   });
 }
 
