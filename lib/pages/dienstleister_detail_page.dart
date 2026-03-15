@@ -1671,7 +1671,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             .reduce((a, b) => a.selectedAt <= b.selectedAt ? a : b);
         final totalPrice = groupEntries.fold<double>(
           0.0,
-          (sum, entry) => sum + (entry.value.price ?? 0.0),
+          (sum, entry) => sum + (entry.value.preis ?? 0.0),
         );
 
         groupedEntries.add(
