@@ -1655,10 +1655,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 displayName: comboDisplayName,
                 price: suggestionPrice,
                 originalPrice: hasDiscount ? originalPrice : null,
-                duration: _displayDurationFor(
-                  combo: bundle,
-                  zielgruppe: zielgruppe,
-                ),
+                duration: _displayDurationFor(bundle, zielgruppe),
                 canAdd: false,
               );
             }
