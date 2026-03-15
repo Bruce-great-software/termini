@@ -448,8 +448,8 @@ double? _previewForLastMissingPart({
     }
 
     final remainder = (bundlePrice - othersContribution).clamp(0.0, double.infinity);
-    final singleOfThis = singleBaseIndex['$category|$partLc']?.priceFor(zielgruppe) ?? 0.0;
-    if (remainder < singleOfThis) {
+    final singleOfThis = singleBaseIndex['$category|$partLc']?.priceFor(zielgruppe);
+    if (singleOfThis == null || remainder < singleOfThis) {
       if (best == null || remainder < best!) best = remainder;
     }
   }
@@ -4518,6 +4518,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           singleBaseIndex[
                                           '$kat|$partLc']
                                               ?.priceFor(_zielgruppe);
+                                      final previewPrice =
+                                      _previewForLastMissingPart(
+                                        category: kat,
+                                        zielgruppe: _zielgruppe,
+                                        partLc: partLc,
+                                        selectedPartsLc: selectedPartsLc,
+                                        selectionMap: currentMap,
+                                        singleBaseIndex: singleBaseIndex,
+                                        bundles: bundles,
+                                      );
+                                      final priceForSelection =
+                                          singlePrice ?? previewPrice;
 
                                       final locked =
                                       _lockedPriceForNewSelection(
@@ -4527,7 +4539,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         selectionMap: currentMap,
                                         singleBaseIndex: singleBaseIndex,
                                         bundles: bundles,
-                                        newPartSinglePrice: singlePrice,
+                                        newPartSinglePrice: priceForSelection,
                                       );
 
                                       _toggleSelection(
@@ -4535,8 +4547,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         _CartItem(
                                           kategorie: kat,
                                           leistung: partDisplay,
-                                          preis: singlePrice,
-                                          dauer: dauer,
+                                          preis: priceForSelection,
+                                          dauer: effectiveDuration,
                                           zielgruppe: _zielgruppe,
                                           selectedAt: ++_selectionTicker,
                                           lockedDisplayPrice: locked,
