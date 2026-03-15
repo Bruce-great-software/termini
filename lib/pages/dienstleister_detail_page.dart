@@ -4528,8 +4528,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         singleBaseIndex: singleBaseIndex,
                                         bundles: bundles,
                                       );
-                                      final priceForSelection =
-                                          singlePrice ?? previewPrice;
+                                      final priceForSelection = isDerivedSingle
+                                          ? (previewPrice ?? singlePrice)
+                                          : (singlePrice ?? previewPrice);
 
                                       final locked =
                                       _lockedPriceForNewSelection(
