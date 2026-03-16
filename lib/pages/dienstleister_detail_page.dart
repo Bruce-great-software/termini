@@ -1495,9 +1495,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         selectionKey: key,
         isCombo: false,
         selectedAt: item.selectedAt,
-        title: item.kategorie.trim().isEmpty
-            ? item.leistung
-            : '${item.kategorie} - ${item.leistung}',
+        categoryLabel: item.kategorie,
+        title: item.leistung,
         subtitle: [item.varianteLabel]
             .where((e) => e != null && e.trim().isNotEmpty)
             .join(' • '),
@@ -1528,6 +1527,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         selectionKey: key,
         isCombo: true,
         selectedAt: selection.selectedAt,
+        categoryLabel: null,
         title: selection.bundle.leistungen.join(' + '),
         subtitle: [
           selection.bundle.kategorie,
@@ -1691,13 +1691,41 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             const SizedBox(height: 12),
                             itemBuilder: (_, i) {
                               final entry = entries[i];
-                              return Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  color: const Color(0xFFF7F8FB),
-                                ),
-                                child: Row(
+                              final categoryLabel = entry.categoryLabel?.trim();
+                              final showCategoryHeader =
+                                  categoryLabel != null &&
+                                  categoryLabel.isNotEmpty &&
+                                  (i == 0 ||
+                                      entries[i - 1].categoryLabel?.trim() !=
+                                          categoryLabel);
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (showCategoryHeader)
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
+                                      ),
+                                      color: Colors.black,
+                                      child: Text(
+                                        categoryLabel,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  if (showCategoryHeader)
+                                    const SizedBox(height: 6),
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      color: const Color(0xFFF7F8FB),
+                                    ),
+                                    child: Row(
                                   crossAxisAlignment:
                                   CrossAxisAlignment.start,
                                   children: [
@@ -1865,6 +1893,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     ),
                                   ],
                                 ),
+                                  ),
+                                ],
                               );
                             },
                           )
@@ -5039,6 +5069,7 @@ class _BookingSummaryEntry {
   final String selectionKey;
   final bool isCombo;
   final int selectedAt;
+  final String? categoryLabel;
   final String title;
   final String subtitle;
   final double? price;
@@ -5049,6 +5080,7 @@ class _BookingSummaryEntry {
     required this.selectionKey,
     required this.isCombo,
     required this.selectedAt,
+    this.categoryLabel,
     required this.title,
     required this.subtitle,
     required this.price,
