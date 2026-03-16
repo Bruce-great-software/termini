@@ -1503,9 +1503,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         selectionKey: key,
         isCombo: false,
         selectedAt: item.selectedAt,
-        title: item.kategorie.trim().isEmpty
-            ? item.leistung
-            : '${item.kategorie} - ${item.leistung}',
+        category: item.kategorie,
+        title: item.leistung,
         subtitle: [item.varianteLabel]
             .where((e) => e != null && e.trim().isNotEmpty)
             .join(' • '),
@@ -1540,9 +1539,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         selectionKey: key,
         isCombo: true,
         selectedAt: selection.selectedAt,
+        category: selection.bundle.kategorie,
         title: selection.titleOverride ?? selection.bundle.leistungen.join(' + '),
         subtitle: [
-          selection.bundle.kategorie,
           selection.varianteLabel ??
               _comboMethodLabelForDisplay(selection.bundle),
         ].where((e) => e != null && e.trim().isNotEmpty).join(' • '),
@@ -1771,6 +1770,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             const SizedBox(height: 12),
                             itemBuilder: (_, i) {
                               final entry = entries[i];
+                              final previousCategory = i > 0
+                                  ? entries[i - 1].category.trim().toLowerCase()
+                                  : '';
+                              final category = entry.category.trim();
+                              final showCategoryHeader =
+                                  category.isNotEmpty && category.toLowerCase() != previousCategory;
                               return Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
@@ -1786,6 +1791,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                         children: [
+                                          if (showCategoryHeader)
+                                            Padding(
+                                              padding: const EdgeInsets.only(bottom: 4),
+                                              child: Text(
+                                                category,
+                                                style: const TextStyle(
+                                                  color: Colors.black54,
+                                                  fontSize: 12.5,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ),
                                           Text(
                                             entry.title,
                                             style: const TextStyle(
@@ -1972,6 +1989,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     const SizedBox(height: 12),
                                     itemBuilder: (_, i) {
                                       final entry = entries[i];
+                                      final previousCategory = i > 0
+                                          ? entries[i - 1].category.trim().toLowerCase()
+                                          : '';
+                                      final category = entry.category.trim();
+                                      final showCategoryHeader =
+                                          category.isNotEmpty && category.toLowerCase() != previousCategory;
                                       return Container(
                                         padding:
                                         const EdgeInsets.all(12),
@@ -1991,6 +2014,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                 CrossAxisAlignment
                                                     .start,
                                                 children: [
+                                                  if (showCategoryHeader)
+                                                    Padding(
+                                                      padding: const EdgeInsets.only(bottom: 4),
+                                                      child: Text(
+                                                        category,
+                                                        style: const TextStyle(
+                                                          color: Colors.black54,
+                                                          fontSize: 12.5,
+                                                          fontWeight: FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                    ),
                                                   Text(
                                                     entry.title,
                                                     style: const TextStyle(
@@ -5210,6 +5245,7 @@ class _BookingSummaryEntry {
   final String selectionKey;
   final bool isCombo;
   final int selectedAt;
+  final String category;
   final String title;
   final String subtitle;
   final double? price;
@@ -5220,6 +5256,7 @@ class _BookingSummaryEntry {
     required this.selectionKey,
     required this.isCombo,
     required this.selectedAt,
+    required this.category,
     required this.title,
     required this.subtitle,
     required this.price,
