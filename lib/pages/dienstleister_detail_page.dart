@@ -1792,14 +1792,23 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         CrossAxisAlignment.start,
                                         children: [
                                           if (showCategoryHeader)
-                                            Padding(
-                                              padding: const EdgeInsets.only(bottom: 4),
+                                            Container(
+                                              width: double.infinity,
+                                              margin: const EdgeInsets.only(bottom: 8),
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 10,
+                                                vertical: 6,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: Colors.black,
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
                                               child: Text(
                                                 category,
                                                 style: const TextStyle(
-                                                  color: Colors.black54,
-                                                  fontSize: 12.5,
-                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.white,
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w700,
                                                 ),
                                               ),
                                             ),
@@ -2015,14 +2024,23 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                     .start,
                                                 children: [
                                                   if (showCategoryHeader)
-                                                    Padding(
-                                                      padding: const EdgeInsets.only(bottom: 4),
+                                                    Container(
+                                                      width: double.infinity,
+                                                      margin: const EdgeInsets.only(bottom: 8),
+                                                      padding: const EdgeInsets.symmetric(
+                                                        horizontal: 10,
+                                                        vertical: 6,
+                                                      ),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.black,
+                                                        borderRadius: BorderRadius.circular(8),
+                                                      ),
                                                       child: Text(
                                                         category,
                                                         style: const TextStyle(
-                                                          color: Colors.black54,
-                                                          fontSize: 12.5,
-                                                          fontWeight: FontWeight.w600,
+                                                          color: Colors.white,
+                                                          fontSize: 13,
+                                                          fontWeight: FontWeight.w700,
                                                         ),
                                                       ),
                                                     ),
