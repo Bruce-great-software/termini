@@ -166,9 +166,6 @@ class _ComboSelection {
   final double? preis;
   final int? dauer;
   final String? varianteLabel;
-  final String? titleOverride;
-  final List<String>? pricedPartsLcOverride;
-  final Set<String> requiredBasePartsLc;
 
   const _ComboSelection({
     required this.bundle,
@@ -177,9 +174,6 @@ class _ComboSelection {
     this.preis,
     this.dauer,
     this.varianteLabel,
-    this.titleOverride,
-    this.pricedPartsLcOverride,
-    this.requiredBasePartsLc = const <String>{},
   });
 }
 
@@ -570,16 +564,6 @@ String _comboSelectionKey({
   required Offer combo,
 }) {
   return '${zielgruppe.toLowerCase()}|${combo.kategorie.toLowerCase()}|${combo.id.toLowerCase()}';
-}
-
-String _comboGroupSuggestionSelectionKey({
-  required String zielgruppe,
-  required String category,
-  required Offer combo,
-  required List<String> partsLc,
-}) {
-  final normalizedParts = [...partsLc]..sort();
-  return '${zielgruppe.toLowerCase()}|${category.toLowerCase()}|group-inline|${combo.id.toLowerCase()}|${normalizedParts.join('+')}';
 }
 
 String _comboGroupKey(Offer combo) {
@@ -1315,16 +1299,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       return;
     }
 
-    final selectionKey = _comboGroupSuggestionSelectionKey(
-      zielgruppe: zg,
-      category: category,
-      combo: combo,
-      partsLc: partsLc,
+    final selectedAll = partsLc.every(
+          (lc) => map.containsKey(_keyFor(zielgruppe: zg, category: category, partLc: lc)),
     );
 
-    if (combos.containsKey(selectionKey)) {
-      combos.remove(selectionKey);
-      _selectedCombosVN.value = combos;
+    if (selectedAll) {
+      for (final partLc in partsLc) {
+        final key = _keyFor(zielgruppe: zg, category: category, partLc: partLc);
+        map.remove(key);
+        _removeDependentSelections(
+          selectionMap: map,
+          zielgruppe: zg,
+          category: category,
+          removedPartLc: partLc,
+        );
+      }
+      _selectedVN.value = map;
       return;
     }
 
@@ -1356,9 +1346,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     );
     if (remainder == null) return;
 
-    for (final partLc in partsLc) {
+    final perPartPrice =
+        (remainder ?? 0.0) / (partsLc.isEmpty ? 1 : partsLc.length);
+
+    for (int i = 0; i < partsLc.length; i++) {
+      final partLc = partsLc[i];
+      final partDisplay = partsDisplay[i];
       final key = _keyFor(zielgruppe: zg, category: category, partLc: partLc);
-      map.remove(key);
+      map[key] = _CartItem(
+        kategorie: category,
+        leistung: partDisplay,
+        preis: perPartPrice,
+        dauer: null,
+        zielgruppe: zg,
+        selectedAt: ++_selectionTicker,
+        lockedDisplayPrice: perPartPrice,
+      );
     }
 
     combos.removeWhere(
@@ -1366,17 +1369,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       comboSel.zielgruppe == zg &&
           comboSel.bundle.kategorie == category &&
           comboSel.bundle.leistungenLc.any(partsLc.contains),
-    );
-
-    combos[selectionKey] = _ComboSelection(
-      bundle: combo,
-      zielgruppe: zg,
-      selectedAt: ++_selectionTicker,
-      preis: remainder,
-      dauer: combo.durationFor(zg),
-      titleOverride: partsDisplay.join(' + '),
-      pricedPartsLcOverride: partsLc,
-      requiredBasePartsLc: requiredBasePartsLc,
     );
 
     _selectedVN.value = map;
@@ -1503,9 +1495,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         selectionKey: key,
         isCombo: false,
         selectedAt: item.selectedAt,
-        title: item.kategorie.trim().isEmpty
-            ? item.leistung
-            : '${item.kategorie} - ${item.leistung}',
+        categoryLabel: item.kategorie,
+        title: item.leistung,
         subtitle: [item.varianteLabel]
             .where((e) => e != null && e.trim().isNotEmpty)
             .join(' • '),
@@ -1517,11 +1508,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     _BookingSummaryEntry _comboEntry(String key, _ComboSelection selection) {
       final comboPrice = selection.preis;
-      final pricedParts = selection.pricedPartsLcOverride;
-      final pricePartsLc = (pricedParts != null && pricedParts.isNotEmpty)
-          ? pricedParts
-          : selection.bundle.leistungenLc;
-      final comboOriginal = pricePartsLc.fold<double>(
+      final comboOriginal = selection.bundle.leistungenLc.fold<double>(
         0.0,
             (sum, partLc) =>
         sum +
@@ -1540,7 +1527,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         selectionKey: key,
         isCombo: true,
         selectedAt: selection.selectedAt,
-        title: selection.titleOverride ?? selection.bundle.leistungen.join(' + '),
+        categoryLabel: null,
+        title: selection.bundle.leistungen.join(' + '),
         subtitle: [
           selection.bundle.kategorie,
           selection.varianteLabel ??
@@ -1595,21 +1583,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           if (!_hasZielgruppenData(bundle, zielgruppe)) continue;
 
           final selectedParts = context.value;
-          final selectedBaseParts =
-          bundle.leistungenLc.where(selectedParts.contains).toSet();
-          if (selectedBaseParts.isEmpty) continue;
+          final hasSelectedBundlePart =
+          bundle.leistungenLc.any(selectedParts.contains);
+          if (!hasSelectedBundlePart) continue;
 
-          final missingIndices = <int>[];
           for (int i = 0; i < bundle.leistungenLc.length; i++) {
-            if (!selectedParts.contains(bundle.leistungenLc[i])) {
-              missingIndices.add(i);
-            }
-          }
-          if (missingIndices.isEmpty) continue;
-
-          if (missingIndices.length == 1) {
-            final i = missingIndices.first;
             final partLc = bundle.leistungenLc[i];
+            if (selectedParts.contains(partLc)) continue;
 
             final suggestionKey = '$zielgruppe|$category|$partLc';
             if (suggestionsByKey.containsKey(suggestionKey)) continue;
@@ -1628,7 +1608,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             );
             final hasDiscount =
                 preview != null && basePrice != null && preview < basePrice;
-            final suggestionPrice = hasDiscount ? preview : (basePrice ?? preview);
+            final suggestionPrice = hasDiscount
+                ? preview
+                : (basePrice ?? preview);
             final displayName = _displayNameForPart(
               category: category,
               partLc: partLc,
@@ -1648,69 +1630,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               originalPrice: hasDiscount ? basePrice : null,
               duration: duration,
             );
-            continue;
           }
-
-          final missingLc = <String>[];
-          final missingDisplay = <String>[];
-          for (final i in missingIndices) {
-            final partLc = bundle.leistungenLc[i];
-            missingLc.add(partLc);
-            missingDisplay.add(
-              _displayNameForPart(
-                category: category,
-                partLc: partLc,
-                fallback: i < bundle.leistungen.length ? bundle.leistungen[i] : null,
-              ),
-            );
-          }
-
-          final suggestionKey =
-              '$zielgruppe|$category|group|${bundle.id}|${missingLc.join('+')}';
-          if (suggestionsByKey.containsKey(suggestionKey)) continue;
-
-          final preview = _previewForComboGroup(
-            combo: bundle,
-            category: category,
-            zielgruppe: zielgruppe,
-            requiredBasePartsLc: selectedBaseParts,
-            selectedPartsLc: selectedParts,
-            selectionMap: panelSingles,
-            singleBaseIndex: singleBaseIndex,
-            bundles: bundles,
-          );
-          if (preview == null) continue;
-
-          final originalSum = missingLc.fold<double>(
-            0.0,
-                (sum, partLc) =>
-            sum + _singlePriceOfPart(
-              category: category,
-              zielgruppe: zielgruppe,
-              partLc: partLc,
-              selectionMap: panelSingles,
-              singleBaseIndex: singleBaseIndex,
-            ),
-          );
-          final hasDiscount = originalSum > 0 && preview < originalSum;
-
-          suggestionsByKey[suggestionKey] = _BookingSummarySuggestion(
-            contextKey: suggestionKey,
-            zielgruppe: zielgruppe,
-            category: category,
-            partLc: missingLc.join('+'),
-            title: category.trim().isEmpty
-                ? missingDisplay.join(' + ')
-                : '$category - ${missingDisplay.join(' + ')}',
-            displayName: missingDisplay.join(' + '),
-            price: preview,
-            originalPrice: hasDiscount ? originalSum : null,
-            duration: bundle.durationFor(zielgruppe),
-            combo: bundle,
-            groupPartsDisplay: missingDisplay,
-            groupPartsLc: missingLc,
-            requiredBasePartsLc: selectedBaseParts,
-          );
         }
       }
 
@@ -1771,190 +1691,210 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             const SizedBox(height: 12),
                             itemBuilder: (_, i) {
                               final entry = entries[i];
-                              return Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  color: const Color(0xFFF7F8FB),
-                                ),
-                                child: Row(
-                                  crossAxisAlignment:
-                                  CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            entry.title,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                          if (entry.subtitle.isNotEmpty)
-                                            Padding(
-                                              padding:
-                                              const EdgeInsets.only(
-                                                top: 2,
-                                              ),
-                                              child: Text(
-                                                entry.subtitle,
-                                                style: const TextStyle(
-                                                  color: Colors.black54,
-                                                  fontSize: 12.5,
-                                                ),
-                                              ),
-                                            ),
-                                          if (entry.duration != null)
-                                            Padding(
-                                              padding:
-                                              const EdgeInsets.only(
-                                                top: 4,
-                                              ),
-                                              child: Text(
-                                                '${entry.duration} Min',
-                                                style: const TextStyle(
-                                                  fontSize: 12.5,
-                                                ),
-                                              ),
-                                            ),
-                                        ],
+                              final categoryLabel = entry.categoryLabel?.trim();
+                              final showCategoryHeader =
+                                  categoryLabel != null &&
+                                      categoryLabel.isNotEmpty &&
+                                      (i == 0 ||
+                                          entries[i - 1].categoryLabel?.trim() !=
+                                              categoryLabel);
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (showCategoryHeader)
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
+                                      ),
+                                      color: Colors.black,
+                                      child: Text(
+                                        categoryLabel,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                       ),
                                     ),
-                                    const SizedBox(width: 6),
-                                    Column(
+                                  if (showCategoryHeader)
+                                    const SizedBox(height: 6),
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      color: const Color(0xFFF7F8FB),
+                                    ),
+                                    child: Row(
                                       crossAxisAlignment:
-                                      CrossAxisAlignment.end,
+                                      CrossAxisAlignment.start,
                                       children: [
-                                        if (entry.originalPrice != null)
-                                          Text(
-                                            _formatEuro(
-                                              entry.originalPrice!,
-                                            ),
-                                            style: const TextStyle(
-                                              color: Colors.black45,
-                                              fontSize: 12.5,
-                                              fontWeight: FontWeight.w500,
-                                              decoration: TextDecoration
-                                                  .lineThrough,
-                                              decorationThickness: 2,
-                                            ),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                entry.title,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                              if (entry.subtitle.isNotEmpty)
+                                                Padding(
+                                                  padding:
+                                                  const EdgeInsets.only(
+                                                    top: 2,
+                                                  ),
+                                                  child: Text(
+                                                    entry.subtitle,
+                                                    style: const TextStyle(
+                                                      color: Colors.black54,
+                                                      fontSize: 12.5,
+                                                    ),
+                                                  ),
+                                                ),
+                                              if (entry.duration != null)
+                                                Padding(
+                                                  padding:
+                                                  const EdgeInsets.only(
+                                                    top: 4,
+                                                  ),
+                                                  child: Text(
+                                                    '${entry.duration} Min',
+                                                    style: const TextStyle(
+                                                      fontSize: 12.5,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
                                           ),
-                                        Text(
-                                          entry.price == null
-                                              ? '–'
-                                              : _formatEuro(entry.price!),
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            color: entry.originalPrice !=
-                                                null
-                                                ? Colors.green
-                                                : null,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Column(
+                                          crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                          children: [
+                                            if (entry.originalPrice != null)
+                                              Text(
+                                                _formatEuro(
+                                                  entry.originalPrice!,
+                                                ),
+                                                style: const TextStyle(
+                                                  color: Colors.black45,
+                                                  fontSize: 12.5,
+                                                  fontWeight: FontWeight.w500,
+                                                  decoration: TextDecoration
+                                                      .lineThrough,
+                                                  decorationThickness: 2,
+                                                ),
+                                              ),
+                                            Text(
+                                              entry.price == null
+                                                  ? '–'
+                                                  : _formatEuro(entry.price!),
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                color: entry.originalPrice !=
+                                                    null
+                                                    ? Colors.green
+                                                    : null,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        IconButton(
+                                          tooltip: 'Leistung entfernen',
+                                          icon: const Icon(
+                                            Icons.delete_outline,
+                                            size: 20,
                                           ),
+                                          onPressed: () {
+                                            final singlesMap =
+                                            Map<String, _CartItem>.from(
+                                              _selectedVN.value,
+                                            );
+                                            final combosMap =
+                                            Map<String, _ComboSelection>
+                                                .from(
+                                              _selectedCombosVN.value,
+                                            );
+
+                                            if (entry.isCombo) {
+                                              combosMap.remove(
+                                                entry.selectionKey,
+                                              );
+                                            } else {
+                                              final removedItem =
+                                              singlesMap.remove(
+                                                entry.selectionKey,
+                                              );
+                                              if (removedItem != null) {
+                                                _removeDependentSelections(
+                                                  selectionMap: singlesMap,
+                                                  zielgruppe:
+                                                  removedItem.zielgruppe,
+                                                  category:
+                                                  removedItem.kategorie,
+                                                  removedPartLc: removedItem
+                                                      .leistung
+                                                      .toLowerCase(),
+                                                );
+                                              }
+                                            }
+
+                                            _clearInvalidLockedPrices(
+                                              selectionMap: singlesMap,
+                                              singleBaseIndex: singleBaseIndex,
+                                              bundles: bundles,
+                                            );
+
+                                            _selectedVN.value = singlesMap;
+                                            _selectedCombosVN.value =
+                                                combosMap;
+                                            panelSingles = singlesMap;
+                                            panelCombos = combosMap;
+
+                                            entries = [
+                                              ...panelSingles.entries.map(
+                                                    (e) => _singleEntry(
+                                                  e.key,
+                                                  e.value,
+                                                ),
+                                              ),
+                                              ...panelCombos.entries.map(
+                                                    (e) => _comboEntry(
+                                                  e.key,
+                                                  e.value,
+                                                ),
+                                              ),
+                                            ]
+                                              ..sort(
+                                                    (a, b) => a.selectedAt
+                                                    .compareTo(b.selectedAt),
+                                              );
+                                            suggestions =
+                                                _buildSuggestions();
+
+                                            final totals = computeTotals(
+                                              singlesMap,
+                                              combosMap,
+                                            );
+                                            panelTotal = totals.optimized;
+                                            panelSavings = totals.savings;
+
+                                            if (entries.isEmpty) {
+                                              Navigator.of(ctx).pop();
+                                              return;
+                                            }
+
+                                            setSheetState(() {});
+                                          },
                                         ),
                                       ],
                                     ),
-                                    IconButton(
-                                      tooltip: 'Leistung entfernen',
-                                      icon: const Icon(
-                                        Icons.delete_outline,
-                                        size: 20,
-                                      ),
-                                      onPressed: () {
-                                        final singlesMap =
-                                        Map<String, _CartItem>.from(
-                                          _selectedVN.value,
-                                        );
-                                        final combosMap =
-                                        Map<String, _ComboSelection>
-                                            .from(
-                                          _selectedCombosVN.value,
-                                        );
-
-                                        if (entry.isCombo) {
-                                          combosMap.remove(
-                                            entry.selectionKey,
-                                          );
-                                        } else {
-                                          final removedItem =
-                                          singlesMap.remove(
-                                            entry.selectionKey,
-                                          );
-                                          if (removedItem != null) {
-                                            final removedPartLc =
-                                            removedItem.leistung.toLowerCase();
-                                            _removeDependentSelections(
-                                              selectionMap: singlesMap,
-                                              zielgruppe:
-                                              removedItem.zielgruppe,
-                                              category:
-                                              removedItem.kategorie,
-                                              removedPartLc: removedPartLc,
-                                            );
-                                            combosMap.removeWhere(
-                                                  (_, comboSel) =>
-                                              comboSel.zielgruppe ==
-                                                  removedItem.zielgruppe &&
-                                                  comboSel.bundle.kategorie ==
-                                                      removedItem.kategorie &&
-                                                  comboSel.requiredBasePartsLc.contains(
-                                                    removedPartLc,
-                                                  ),
-                                            );
-                                          }
-                                        }
-
-                                        _clearInvalidLockedPrices(
-                                          selectionMap: singlesMap,
-                                          singleBaseIndex: singleBaseIndex,
-                                          bundles: bundles,
-                                        );
-
-                                        _selectedVN.value = singlesMap;
-                                        _selectedCombosVN.value =
-                                            combosMap;
-                                        panelSingles = singlesMap;
-                                        panelCombos = combosMap;
-
-                                        entries = [
-                                          ...panelSingles.entries.map(
-                                                (e) => _singleEntry(
-                                              e.key,
-                                              e.value,
-                                            ),
-                                          ),
-                                          ...panelCombos.entries.map(
-                                                (e) => _comboEntry(
-                                              e.key,
-                                              e.value,
-                                            ),
-                                          ),
-                                        ]
-                                          ..sort(
-                                                (a, b) => a.selectedAt
-                                                .compareTo(b.selectedAt),
-                                          );
-                                        suggestions =
-                                            _buildSuggestions();
-
-                                        final totals = computeTotals(
-                                          singlesMap,
-                                          combosMap,
-                                        );
-                                        panelTotal = totals.optimized;
-                                        panelSavings = totals.savings;
-
-                                        if (entries.isEmpty) {
-                                          Navigator.of(ctx).pop();
-                                          return;
-                                        }
-
-                                        setSheetState(() {});
-                                      },
-                                    ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               );
                             },
                           )
@@ -2107,8 +2047,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                   );
                                                   if (removedItem !=
                                                       null) {
-                                                    final removedPartLc =
-                                                    removedItem.leistung.toLowerCase();
                                                     _removeDependentSelections(
                                                       selectionMap:
                                                       singlesMap,
@@ -2119,17 +2057,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                       removedItem
                                                           .kategorie,
                                                       removedPartLc:
-                                                      removedPartLc,
-                                                    );
-                                                    combosMap.removeWhere(
-                                                          (_, comboSel) =>
-                                                      comboSel.zielgruppe ==
-                                                          removedItem.zielgruppe &&
-                                                          comboSel.bundle.kategorie ==
-                                                              removedItem.kategorie &&
-                                                          comboSel.requiredBasePartsLc.contains(
-                                                            removedPartLc,
-                                                          ),
+                                                      removedItem
+                                                          .leistung
+                                                          .toLowerCase(),
                                                     );
                                                   }
                                                 }
@@ -2345,225 +2275,163 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                       null
                                                       ? null
                                                       : () {
-                                                    if (suggestion.isGroupSuggestion) {
-                                                      if (_hasItemsFromOtherZielgruppe(
-                                                        suggestion.zielgruppe,
-                                                      )) {
-                                                        final other = _selectedVN
-                                                            .value
-                                                            .values
-                                                            .isNotEmpty
-                                                            ? _selectedVN
-                                                            .value
-                                                            .values
-                                                            .first
-                                                            .zielgruppe
-                                                            : _selectedCombosVN
-                                                            .value
-                                                            .values
-                                                            .first
-                                                            .zielgruppe;
-                                                        _showWrongGroupSnack(other);
-                                                        return;
-                                                      }
-
-                                                      final singlesMap =
-                                                      Map<String, _CartItem>.from(
-                                                        _selectedVN.value,
+                                                    if (_hasItemsFromOtherZielgruppe(
+                                                      suggestion
+                                                          .zielgruppe,
+                                                    )) {
+                                                      final other = _selectedVN
+                                                          .value
+                                                          .values
+                                                          .isNotEmpty
+                                                          ? _selectedVN
+                                                          .value
+                                                          .values
+                                                          .first
+                                                          .zielgruppe
+                                                          : _selectedCombosVN
+                                                          .value
+                                                          .values
+                                                          .first
+                                                          .zielgruppe;
+                                                      _showWrongGroupSnack(
+                                                        other,
                                                       );
-                                                      final combosMap =
-                                                      Map<String, _ComboSelection>.from(
-                                                        _selectedCombosVN.value,
-                                                      );
-
-                                                      if (combosMap.containsKey(suggestion.contextKey)) {
-                                                        combosMap.remove(suggestion.contextKey);
-                                                      } else {
-                                                        for (final partLc in suggestion.groupPartsLc) {
-                                                          final singleKey = _keyFor(
-                                                            zielgruppe: suggestion.zielgruppe,
-                                                            category: suggestion.category,
-                                                            partLc: partLc,
-                                                          );
-                                                          singlesMap.remove(singleKey);
-                                                        }
-
-                                                        combosMap[suggestion.contextKey] = _ComboSelection(
-                                                          bundle: suggestion.combo!,
-                                                          zielgruppe: suggestion.zielgruppe,
-                                                          selectedAt: ++_selectionTicker,
-                                                          preis: suggestion.price,
-                                                          dauer: suggestion.duration,
-                                                          titleOverride: suggestion.displayName,
-                                                          pricedPartsLcOverride: suggestion.groupPartsLc,
-                                                          requiredBasePartsLc:
-                                                          suggestion.requiredBasePartsLc,
-                                                        );
-                                                      }
-
-                                                      _selectedVN.value = singlesMap;
-                                                      _selectedCombosVN.value = combosMap;
-                                                      panelSingles = singlesMap;
-                                                      panelCombos = combosMap;
-                                                    } else {
-                                                      if (_hasItemsFromOtherZielgruppe(
-                                                        suggestion
-                                                            .zielgruppe,
-                                                      )) {
-                                                        final other = _selectedVN
-                                                            .value
-                                                            .values
-                                                            .isNotEmpty
-                                                            ? _selectedVN
-                                                            .value
-                                                            .values
-                                                            .first
-                                                            .zielgruppe
-                                                            : _selectedCombosVN
-                                                            .value
-                                                            .values
-                                                            .first
-                                                            .zielgruppe;
-                                                        _showWrongGroupSnack(
-                                                          other,
-                                                        );
-                                                        return;
-                                                      }
-
-                                                      final singlesMap =
-                                                      Map<String,
-                                                          _CartItem>.from(
-                                                        _selectedVN
-                                                            .value,
-                                                      );
-                                                      final combosMap =
-                                                      Map<String,
-                                                          _ComboSelection>.from(
-                                                        _selectedCombosVN
-                                                            .value,
-                                                      );
-
-                                                      final selectionKey =
-                                                      _keyFor(
-                                                        zielgruppe:
-                                                        suggestion
-                                                            .zielgruppe,
-                                                        category:
-                                                        suggestion
-                                                            .category,
-                                                        partLc:
-                                                        suggestion
-                                                            .partLc,
-                                                      );
-                                                      if (singlesMap
-                                                          .containsKey(
-                                                        selectionKey,
-                                                      )) {
-                                                        return;
-                                                      }
-
-                                                      final baseOffer = singleBaseIndex[
-                                                      '${suggestion.category}|${suggestion.partLc}'];
-                                                      final singlePrice =
-                                                      baseOffer
-                                                          ?.priceFor(
-                                                        suggestion
-                                                            .zielgruppe,
-                                                      );
-                                                      final singleDuration =
-                                                      baseOffer
-                                                          ?.durationFor(
-                                                        suggestion
-                                                            .zielgruppe,
-                                                      );
-
-                                                      final basePriceForSelection =
-                                                          singlePrice ?? suggestion.price;
-                                                      final durationForSelection =
-                                                          suggestion.duration ?? singleDuration;
-
-                                                      final computedLocked =
-                                                      _lockedPriceForNewSelection(
-                                                        category:
-                                                        suggestion
-                                                            .category,
-                                                        zielgruppe:
-                                                        suggestion
-                                                            .zielgruppe,
-                                                        newPartLc:
-                                                        suggestion
-                                                            .partLc,
-                                                        selectionMap:
-                                                        singlesMap,
-                                                        singleBaseIndex:
-                                                        singleBaseIndex,
-                                                        bundles:
-                                                        bundles,
-                                                        newPartSinglePrice:
-                                                        basePriceForSelection,
-                                                      );
-                                                      final locked =
-                                                      (suggestion.originalPrice != null &&
-                                                          suggestion.price != null &&
-                                                          basePriceForSelection != null &&
-                                                          suggestion.price! <
-                                                              basePriceForSelection)
-                                                          ? suggestion.price
-                                                          : computedLocked;
-
-                                                      singlesMap[
-                                                      selectionKey] = _CartItem(
-                                                        kategorie:
-                                                        suggestion
-                                                            .category,
-                                                        leistung:
-                                                        suggestion
-                                                            .displayName,
-                                                        preis:
-                                                        basePriceForSelection,
-                                                        dauer:
-                                                        durationForSelection,
-                                                        zielgruppe:
-                                                        suggestion
-                                                            .zielgruppe,
-                                                        selectedAt:
-                                                        ++_selectionTicker,
-                                                        lockedDisplayPrice:
-                                                        locked,
-                                                      );
-
-                                                      combosMap.removeWhere(
-                                                            (_, combo) =>
-                                                        combo.zielgruppe ==
-                                                            suggestion
-                                                                .zielgruppe &&
-                                                            combo.bundle.kategorie ==
-                                                                suggestion
-                                                                    .category &&
-                                                            combo.bundle.leistungenLc
-                                                                .contains(
-                                                              suggestion
-                                                                  .partLc,
-                                                            ),
-                                                      );
-
-                                                      _clearInvalidLockedPrices(
-                                                        selectionMap: singlesMap,
-                                                        singleBaseIndex: singleBaseIndex,
-                                                        bundles: bundles,
-                                                      );
-
-                                                      _selectedVN
-                                                          .value =
-                                                          singlesMap;
-                                                      _selectedCombosVN
-                                                          .value =
-                                                          combosMap;
-                                                      panelSingles =
-                                                          singlesMap;
-                                                      panelCombos =
-                                                          combosMap;
+                                                      return;
                                                     }
+
+                                                    final singlesMap =
+                                                    Map<String,
+                                                        _CartItem>.from(
+                                                      _selectedVN
+                                                          .value,
+                                                    );
+                                                    final combosMap =
+                                                    Map<String,
+                                                        _ComboSelection>.from(
+                                                      _selectedCombosVN
+                                                          .value,
+                                                    );
+
+                                                    final selectionKey =
+                                                    _keyFor(
+                                                      zielgruppe:
+                                                      suggestion
+                                                          .zielgruppe,
+                                                      category:
+                                                      suggestion
+                                                          .category,
+                                                      partLc:
+                                                      suggestion
+                                                          .partLc,
+                                                    );
+                                                    if (singlesMap
+                                                        .containsKey(
+                                                      selectionKey,
+                                                    )) {
+                                                      return;
+                                                    }
+
+                                                    final baseOffer = singleBaseIndex[
+                                                    '${suggestion.category}|${suggestion.partLc}'];
+                                                    final singlePrice =
+                                                    baseOffer
+                                                        ?.priceFor(
+                                                      suggestion
+                                                          .zielgruppe,
+                                                    );
+                                                    final singleDuration =
+                                                    baseOffer
+                                                        ?.durationFor(
+                                                      suggestion
+                                                          .zielgruppe,
+                                                    );
+
+                                                    final basePriceForSelection =
+                                                        singlePrice ?? suggestion.price;
+                                                    final durationForSelection =
+                                                        suggestion.duration ?? singleDuration;
+
+                                                    final computedLocked =
+                                                    _lockedPriceForNewSelection(
+                                                      category:
+                                                      suggestion
+                                                          .category,
+                                                      zielgruppe:
+                                                      suggestion
+                                                          .zielgruppe,
+                                                      newPartLc:
+                                                      suggestion
+                                                          .partLc,
+                                                      selectionMap:
+                                                      singlesMap,
+                                                      singleBaseIndex:
+                                                      singleBaseIndex,
+                                                      bundles:
+                                                      bundles,
+                                                      newPartSinglePrice:
+                                                      basePriceForSelection,
+                                                    );
+                                                    final locked =
+                                                    (suggestion.originalPrice != null &&
+                                                        suggestion.price != null &&
+                                                        basePriceForSelection != null &&
+                                                        suggestion.price! <
+                                                            basePriceForSelection)
+                                                        ? suggestion.price
+                                                        : computedLocked;
+
+                                                    singlesMap[
+                                                    selectionKey] = _CartItem(
+                                                      kategorie:
+                                                      suggestion
+                                                          .category,
+                                                      leistung:
+                                                      suggestion
+                                                          .displayName,
+                                                      preis:
+                                                      basePriceForSelection,
+                                                      dauer:
+                                                      durationForSelection,
+                                                      zielgruppe:
+                                                      suggestion
+                                                          .zielgruppe,
+                                                      selectedAt:
+                                                      ++_selectionTicker,
+                                                      lockedDisplayPrice:
+                                                      locked,
+                                                    );
+
+                                                    combosMap.removeWhere(
+                                                          (_, combo) =>
+                                                      combo.zielgruppe ==
+                                                          suggestion
+                                                              .zielgruppe &&
+                                                          combo.bundle.kategorie ==
+                                                              suggestion
+                                                                  .category &&
+                                                          combo.bundle.leistungenLc
+                                                              .contains(
+                                                            suggestion
+                                                                .partLc,
+                                                          ),
+                                                    );
+
+                                                    _clearInvalidLockedPrices(
+                                                      selectionMap: singlesMap,
+                                                      singleBaseIndex: singleBaseIndex,
+                                                      bundles: bundles,
+                                                    );
+
+                                                    _selectedVN
+                                                        .value =
+                                                        singlesMap;
+                                                    _selectedCombosVN
+                                                        .value =
+                                                        combosMap;
+                                                    panelSingles =
+                                                        singlesMap;
+                                                    panelCombos =
+                                                        combosMap;
 
                                                     entries = [
                                                       ...panelSingles
@@ -2597,8 +2465,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                                                     final totals =
                                                     computeTotals(
-                                                      panelSingles,
-                                                      panelCombos,
+                                                      singlesMap,
+                                                      combosMap,
                                                     );
                                                     panelTotal =
                                                         totals
@@ -4820,103 +4688,94 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           child: ValueListenableBuilder<Map<String, _CartItem>>(
                             valueListenable: _selectedVN,
                             builder: (_, map, __) {
-                              return ValueListenableBuilder<Map<String, _ComboSelection>>(
-                                valueListenable: _selectedCombosVN,
-                                builder: (_, combosMap, __) {
-                                  final groupSelectionKey =
-                                  _comboGroupSuggestionSelectionKey(
-                                    zielgruppe: _zielgruppe,
-                                    category: kat,
-                                    combo: group.bundle,
-                                    partsLc: groupPartsLc,
-                                  );
-                                  final selectedGroupCombo =
-                                  combosMap[groupSelectionKey];
-                                  final selectedAll = selectedGroupCombo != null;
+                              final selectedPartsLc = map.values
+                                  .where((it) => it.kategorie == kat && it.zielgruppe == _zielgruppe)
+                                  .map((it) => it.leistung.toLowerCase())
+                                  .toSet();
+                              final selectedAll = groupPartsLc.every(selectedPartsLc.contains);
+                              final comboSizeKey = _selectedSizeKeyFromSelection(
+                                combo: group.bundle,
+                                category: kat,
+                                zielgruppe: _zielgruppe,
+                                requiredBasePartsLc: group.requiredBaseLc,
+                                selectionMap: map,
+                              );
+                              final previewPrice = selectedAll
+                                  ? null
+                                  : _previewForComboGroup(
+                                combo: group.bundle,
+                                category: kat,
+                                zielgruppe: _zielgruppe,
+                                requiredBasePartsLc: group.requiredBaseLc,
+                                selectedPartsLc: selectedPartsLc,
+                                selectionMap: map,
+                                singleBaseIndex: singleBaseIndex,
+                                bundles: bundles,
+                                bundlePriceOverride: _bundlePriceForCombo(
+                                  combo: group.bundle,
+                                  zielgruppe: _zielgruppe,
+                                  sizeKey: comboSizeKey,
+                                ),
+                              );
+                              final canAdd = previewPrice != null;
+                              final canInteract = selectedAll || canAdd;
 
-                                  final selectedPartsLc = map.values
-                                      .where((it) =>
-                                  it.kategorie == kat &&
-                                      it.zielgruppe == _zielgruppe)
-                                      .map((it) => it.leistung.toLowerCase())
-                                      .toSet();
+                              double displayPrice;
 
-                                  final comboSizeKey = _selectedSizeKeyFromSelection(
-                                    combo: group.bundle,
-                                    category: kat,
+                              if (selectedAll) {
+                                displayPrice = 0.0;
+                                for (final partLc in groupPartsLc) {
+                                  final key = _keyFor(
                                     zielgruppe: _zielgruppe,
-                                    requiredBasePartsLc: group.requiredBaseLc,
-                                    selectionMap: map,
+                                    category: kat,
+                                    partLc: partLc,
                                   );
-                                  final previewPrice = _previewForComboGroup(
-                                    combo: group.bundle,
-                                    category: kat,
-                                    zielgruppe: _zielgruppe,
-                                    requiredBasePartsLc: group.requiredBaseLc,
-                                    selectedPartsLc: selectedPartsLc,
-                                    selectionMap: map,
-                                    singleBaseIndex: singleBaseIndex,
-                                    bundles: bundles,
-                                    bundlePriceOverride: _bundlePriceForCombo(
-                                      combo: group.bundle,
-                                      zielgruppe: _zielgruppe,
-                                      sizeKey: comboSizeKey,
+                                  final item = map[key];
+                                  displayPrice += item?.lockedDisplayPrice ?? item?.preis ?? 0.0;
+                                }
+                              } else {
+                                displayPrice = previewPrice ?? 0.0;
+                              }
+
+
+                              final priceColor =
+                              (displayPrice != null && canAdd) ? Colors.green : Colors.black54;
+
+                              return Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    _preisText(displayPrice),
+                                    style: TextStyle(
+                                      color: priceColor,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
                                     ),
-                                  );
-                                  final canAdd = previewPrice != null;
-                                  final canInteract = selectedAll || canAdd;
-                                  final displayPrice = selectedAll
-                                      ? selectedGroupCombo?.preis
-                                      : previewPrice;
-
-                                  final priceColor = canAdd
-                                      ? Colors.green
-                                      : Colors.black54;
-
-                                  return Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
-                                    children: [
-                                      Text(
-                                        _preisText(displayPrice),
-                                        style: TextStyle(
-                                          color: priceColor,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      IconButton(
-                                        tooltip: selectedAll
-                                            ? 'Entfernen'
-                                            : (canAdd
-                                            ? 'Hinzufügen'
-                                            : 'Nur mit vorheriger Auswahl'),
-                                        onPressed: !canInteract
-                                            ? null
-                                            : () {
-                                          _toggleGroupSelection(
-                                            category: kat,
-                                            combo: group.bundle,
-                                            partsDisplay: groupPartsDisplay,
-                                            partsLc: groupPartsLc,
-                                            requiredBasePartsLc:
-                                            group.requiredBaseLc,
-                                            singleBaseIndex: singleBaseIndex,
-                                            bundles: bundles,
-                                          );
-                                        },
-                                        icon: Icon(
-                                          selectedAll
-                                              ? Icons.check_circle
-                                              : Icons.add_circle_outline,
-                                        ),
-                                        color: selectedAll
-                                            ? Colors.blueAccent
-                                            : null,
-                                      ),
-                                    ],
-                                  );
-                                },
+                                  ),
+                                  const SizedBox(width: 8),
+                                  IconButton(
+                                    tooltip: selectedAll
+                                        ? 'Entfernen'
+                                        : (canAdd ? 'Hinzufügen' : 'Nur mit vorheriger Auswahl'),
+                                    onPressed: !canInteract
+                                        ? null
+                                        : () {
+                                      _toggleGroupSelection(
+                                        category: kat,
+                                        combo: group.bundle,
+                                        partsDisplay: groupPartsDisplay,
+                                        partsLc: groupPartsLc,
+                                        requiredBasePartsLc: group.requiredBaseLc,
+                                        singleBaseIndex: singleBaseIndex,
+                                        bundles: bundles,
+                                      );
+                                    },
+                                    icon: Icon(
+                                      selectedAll ? Icons.check_circle : Icons.add_circle_outline,
+                                    ),
+                                    color: selectedAll ? Colors.blueAccent : null,
+                                  ),
+                                ],
                               );
                             },
                           ),
@@ -5210,6 +5069,7 @@ class _BookingSummaryEntry {
   final String selectionKey;
   final bool isCombo;
   final int selectedAt;
+  final String? categoryLabel;
   final String title;
   final String subtitle;
   final double? price;
@@ -5220,6 +5080,7 @@ class _BookingSummaryEntry {
     required this.selectionKey,
     required this.isCombo,
     required this.selectedAt,
+    this.categoryLabel,
     required this.title,
     required this.subtitle,
     required this.price,
@@ -5238,10 +5099,6 @@ class _BookingSummarySuggestion {
   final double? price;
   final double? originalPrice;
   final int? duration;
-  final Offer? combo;
-  final List<String> groupPartsDisplay;
-  final List<String> groupPartsLc;
-  final Set<String> requiredBasePartsLc;
 
   const _BookingSummarySuggestion({
     required this.contextKey,
@@ -5253,14 +5110,7 @@ class _BookingSummarySuggestion {
     required this.price,
     this.originalPrice,
     this.duration,
-    this.combo,
-    this.groupPartsDisplay = const <String>[],
-    this.groupPartsLc = const <String>[],
-    this.requiredBasePartsLc = const <String>{},
   });
-
-  bool get isGroupSuggestion =>
-      combo != null && groupPartsDisplay.isNotEmpty && groupPartsLc.isNotEmpty;
 }
 
 /// ---------------------------------------------------------------
