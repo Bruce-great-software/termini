@@ -1902,11 +1902,34 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             children: [
                               if (entries.isNotEmpty)
                                 SizedBox(
-                                  height: (entries.length * 102.0)
-                                      .clamp(102.0, 260.0)
-                                      .toDouble(),
+                                  height: (() {
+                                    final headerCount = entries
+                                        .asMap()
+                                        .entries
+                                        .where((entryItem) {
+                                          final index = entryItem.key;
+                                          final categoryLabel = entryItem
+                                              .value
+                                              .categoryLabel
+                                              ?.trim();
+                                          return categoryLabel != null &&
+                                              categoryLabel.isNotEmpty &&
+                                              (index == 0 ||
+                                                  entries[index - 1]
+                                                      .categoryLabel
+                                                      ?.trim() !=
+                                                      categoryLabel);
+                                        })
+                                        .length;
+                                    return ((entries.length * 102.0) +
+                                        (headerCount * 48.0))
+                                        .clamp(102.0, 320.0)
+                                        .toDouble();
+                                  })(),
                                   child: ListView.separated(
                                     padding: const EdgeInsets.all(16),
+                                    physics:
+                                    const NeverScrollableScrollPhysics(),
                                     itemCount: entries.length,
                                     separatorBuilder: (_, __) =>
                                     const SizedBox(height: 12),
