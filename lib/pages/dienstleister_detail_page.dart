@@ -1527,7 +1527,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         selectionKey: key,
         isCombo: true,
         selectedAt: selection.selectedAt,
-        categoryLabel: null,
+        categoryLabel: selection.bundle.kategorie,
         title: selection.bundle.leistungen.join(' + '),
         subtitle: [
           selection.bundle.kategorie,
