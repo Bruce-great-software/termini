@@ -1912,216 +1912,240 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     const SizedBox(height: 12),
                                     itemBuilder: (_, i) {
                                       final entry = entries[i];
-                                      return Container(
-                                        padding:
-                                        const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          borderRadius:
-                                          BorderRadius.circular(12),
-                                          color:
-                                          const Color(0xFFF7F8FB),
-                                        ),
-                                        child: Row(
-                                          crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                          children: [
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                CrossAxisAlignment
-                                                    .start,
-                                                children: [
-                                                  Text(
-                                                    entry.title,
-                                                    style: const TextStyle(
-                                                      fontWeight:
-                                                      FontWeight.w700,
-                                                    ),
-                                                  ),
-                                                  if (entry.subtitle
-                                                      .isNotEmpty)
-                                                    Padding(
-                                                      padding:
-                                                      const EdgeInsets
-                                                          .only(
-                                                        top: 2,
-                                                      ),
-                                                      child: Text(
-                                                        entry.subtitle,
-                                                        style:
-                                                        const TextStyle(
-                                                          color: Colors
-                                                              .black54,
-                                                          fontSize: 12.5,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  if (entry.duration !=
-                                                      null)
-                                                    Padding(
-                                                      padding:
-                                                      const EdgeInsets
-                                                          .only(
-                                                        top: 4,
-                                                      ),
-                                                      child: Text(
-                                                        '${entry.duration} Min',
-                                                        style:
-                                                        const TextStyle(
-                                                          fontSize: 12.5,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                ],
+                                      final categoryLabel =
+                                          entry.categoryLabel?.trim();
+                                      final showCategoryHeader =
+                                          categoryLabel != null &&
+                                              categoryLabel.isNotEmpty &&
+                                              (i == 0 ||
+                                                  entries[i - 1]
+                                                      .categoryLabel
+                                                      ?.trim() !=
+                                                      categoryLabel);
+                                      return Column(
+                                        crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                        children: [
+                                          if (showCategoryHeader)
+                                            Container(
+                                              width: double.infinity,
+                                              padding:
+                                              const EdgeInsets.symmetric(
+                                                horizontal: 12,
+                                                vertical: 10,
+                                              ),
+                                              color: Colors.black,
+                                              child: Text(
+                                                categoryLabel,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
                                               ),
                                             ),
-                                            const SizedBox(width: 6),
-                                            Column(
+                                          if (showCategoryHeader)
+                                            const SizedBox(height: 6),
+                                          Container(
+                                            padding:
+                                            const EdgeInsets.all(12),
+                                            decoration: BoxDecoration(
+                                              borderRadius:
+                                              BorderRadius.circular(12),
+                                              color: const Color(0xFFF7F8FB),
+                                            ),
+                                            child: Row(
                                               crossAxisAlignment:
-                                              CrossAxisAlignment.end,
+                                              CrossAxisAlignment.start,
                                               children: [
-                                                if (entry.originalPrice !=
-                                                    null)
-                                                  Text(
-                                                    _formatEuro(entry
-                                                        .originalPrice!),
-                                                    style:
-                                                    const TextStyle(
-                                                      color: Colors
-                                                          .black45,
-                                                      fontSize: 12.5,
-                                                      fontWeight:
-                                                      FontWeight.w500,
-                                                      decoration:
-                                                      TextDecoration
-                                                          .lineThrough,
-                                                      decorationThickness:
-                                                      2,
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text(
+                                                        entry.title,
+                                                        style: const TextStyle(
+                                                          fontWeight:
+                                                          FontWeight.w700,
+                                                        ),
+                                                      ),
+                                                      if (entry.subtitle
+                                                          .isNotEmpty)
+                                                        Padding(
+                                                          padding:
+                                                          const EdgeInsets.only(
+                                                            top: 2,
+                                                          ),
+                                                          child: Text(
+                                                            entry.subtitle,
+                                                            style:
+                                                            const TextStyle(
+                                                              color: Colors
+                                                                  .black54,
+                                                              fontSize: 12.5,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      if (entry.duration !=
+                                                          null)
+                                                        Padding(
+                                                          padding:
+                                                          const EdgeInsets.only(
+                                                            top: 4,
+                                                          ),
+                                                          child: Text(
+                                                            '${entry.duration} Min',
+                                                            style:
+                                                            const TextStyle(
+                                                              fontSize: 12.5,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Column(
+                                                  crossAxisAlignment:
+                                                  CrossAxisAlignment.end,
+                                                  children: [
+                                                    if (entry.originalPrice !=
+                                                        null)
+                                                      Text(
+                                                        _formatEuro(entry
+                                                            .originalPrice!),
+                                                        style: const TextStyle(
+                                                          color: Colors.black45,
+                                                          fontSize: 12.5,
+                                                          fontWeight:
+                                                          FontWeight.w500,
+                                                          decoration:
+                                                          TextDecoration
+                                                              .lineThrough,
+                                                          decorationThickness:
+                                                          2,
+                                                        ),
+                                                      ),
+                                                    Text(
+                                                      entry.price == null
+                                                          ? '–'
+                                                          : _formatEuro(
+                                                        entry.price!,
+                                                      ),
+                                                      style: TextStyle(
+                                                        fontWeight:
+                                                        FontWeight.w700,
+                                                        color: entry
+                                                            .originalPrice !=
+                                                            null
+                                                            ? Colors.green
+                                                            : null,
+                                                      ),
                                                     ),
+                                                  ],
+                                                ),
+                                                IconButton(
+                                                  tooltip:
+                                                  'Leistung entfernen',
+                                                  icon: const Icon(
+                                                    Icons.delete_outline,
+                                                    size: 20,
                                                   ),
-                                                Text(
-                                                  entry.price == null
-                                                      ? '–'
-                                                      : _formatEuro(
-                                                    entry.price!,
-                                                  ),
-                                                  style: TextStyle(
-                                                    fontWeight:
-                                                    FontWeight.w700,
-                                                    color: entry
-                                                        .originalPrice !=
-                                                        null
-                                                        ? Colors.green
-                                                        : null,
-                                                  ),
+                                                  onPressed: () {
+                                                    final singlesMap = Map<
+                                                        String,
+                                                        _CartItem>.from(
+                                                      _selectedVN.value,
+                                                    );
+                                                    final combosMap = Map<
+                                                        String,
+                                                        _ComboSelection>.from(
+                                                      _selectedCombosVN.value,
+                                                    );
+
+                                                    if (entry.isCombo) {
+                                                      combosMap.remove(
+                                                        entry.selectionKey,
+                                                      );
+                                                    } else {
+                                                      final removedItem =
+                                                      singlesMap.remove(
+                                                        entry.selectionKey,
+                                                      );
+                                                      if (removedItem != null) {
+                                                        _removeDependentSelections(
+                                                          selectionMap:
+                                                          singlesMap,
+                                                          zielgruppe:
+                                                          removedItem
+                                                              .zielgruppe,
+                                                          category:
+                                                          removedItem.kategorie,
+                                                          removedPartLc:
+                                                          removedItem.leistung
+                                                              .toLowerCase(),
+                                                        );
+                                                      }
+                                                    }
+
+                                                    _clearInvalidLockedPrices(
+                                                      selectionMap: singlesMap,
+                                                      singleBaseIndex:
+                                                      singleBaseIndex,
+                                                      bundles: bundles,
+                                                    );
+
+                                                    _selectedVN.value =
+                                                        singlesMap;
+                                                    _selectedCombosVN.value =
+                                                        combosMap;
+                                                    panelSingles = singlesMap;
+                                                    panelCombos = combosMap;
+
+                                                    entries = [
+                                                      ...panelSingles.entries.map(
+                                                            (e) => _singleEntry(
+                                                          e.key,
+                                                          e.value,
+                                                        ),
+                                                      ),
+                                                      ...panelCombos.entries.map(
+                                                            (e) => _comboEntry(
+                                                          e.key,
+                                                          e.value,
+                                                        ),
+                                                      ),
+                                                    ]
+                                                      ..sort(
+                                                            (a, b) => a.selectedAt
+                                                            .compareTo(
+                                                          b.selectedAt,
+                                                        ),
+                                                      );
+                                                    suggestions =
+                                                        _buildSuggestions();
+
+                                                    final totals = computeTotals(
+                                                      singlesMap,
+                                                      combosMap,
+                                                    );
+                                                    panelTotal =
+                                                        totals.optimized;
+                                                    panelSavings =
+                                                        totals.savings;
+
+                                                    if (entries.isEmpty) {
+                                                      Navigator.of(ctx).pop();
+                                                      return;
+                                                    }
+
+                                                    setSheetState(() {});
+                                                  },
                                                 ),
                                               ],
                                             ),
-                                            IconButton(
-                                              tooltip:
-                                              'Leistung entfernen',
-                                              icon: const Icon(
-                                                Icons.delete_outline,
-                                                size: 20,
-                                              ),
-                                              onPressed: () {
-                                                final singlesMap = Map<
-                                                    String,
-                                                    _CartItem>.from(
-                                                  _selectedVN.value,
-                                                );
-                                                final combosMap = Map<
-                                                    String,
-                                                    _ComboSelection>.from(
-                                                  _selectedCombosVN.value,
-                                                );
-
-                                                if (entry.isCombo) {
-                                                  combosMap.remove(
-                                                    entry.selectionKey,
-                                                  );
-                                                } else {
-                                                  final removedItem =
-                                                  singlesMap.remove(
-                                                    entry.selectionKey,
-                                                  );
-                                                  if (removedItem !=
-                                                      null) {
-                                                    _removeDependentSelections(
-                                                      selectionMap:
-                                                      singlesMap,
-                                                      zielgruppe:
-                                                      removedItem
-                                                          .zielgruppe,
-                                                      category:
-                                                      removedItem
-                                                          .kategorie,
-                                                      removedPartLc:
-                                                      removedItem
-                                                          .leistung
-                                                          .toLowerCase(),
-                                                    );
-                                                  }
-                                                }
-
-                                                _clearInvalidLockedPrices(
-                                                  selectionMap: singlesMap,
-                                                  singleBaseIndex: singleBaseIndex,
-                                                  bundles: bundles,
-                                                );
-
-                                                _selectedVN.value =
-                                                    singlesMap;
-                                                _selectedCombosVN.value =
-                                                    combosMap;
-                                                panelSingles = singlesMap;
-                                                panelCombos = combosMap;
-
-                                                entries = [
-                                                  ...panelSingles.entries
-                                                      .map(
-                                                        (e) => _singleEntry(
-                                                      e.key,
-                                                      e.value,
-                                                    ),
-                                                  ),
-                                                  ...panelCombos.entries
-                                                      .map(
-                                                        (e) => _comboEntry(
-                                                      e.key,
-                                                      e.value,
-                                                    ),
-                                                  ),
-                                                ]
-                                                  ..sort(
-                                                        (a, b) => a.selectedAt
-                                                        .compareTo(
-                                                      b.selectedAt,
-                                                    ),
-                                                  );
-                                                suggestions =
-                                                    _buildSuggestions();
-
-                                                final totals =
-                                                computeTotals(
-                                                  singlesMap,
-                                                  combosMap,
-                                                );
-                                                panelTotal =
-                                                    totals.optimized;
-                                                panelSavings =
-                                                    totals.savings;
-
-                                                if (entries.isEmpty) {
-                                                  Navigator.of(ctx).pop();
-                                                  return;
-                                                }
-
-                                                setSheetState(() {});
-                                              },
-                                            ),
-                                          ],
-                                        ),
+                                          ),
+                                        ],
                                       );
                                     },
                                   ),
