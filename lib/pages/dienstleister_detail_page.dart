@@ -166,6 +166,8 @@ class _ComboSelection {
   final double? preis;
   final int? dauer;
   final String? varianteLabel;
+  final List<String>? selectedPartsDisplay;
+  final List<String>? selectedPartsLcOverride;
 
   const _ComboSelection({
     required this.bundle,
@@ -174,7 +176,12 @@ class _ComboSelection {
     this.preis,
     this.dauer,
     this.varianteLabel,
+    this.selectedPartsDisplay,
+    this.selectedPartsLcOverride,
   });
+
+  List<String> get selectedPartsLc => selectedPartsLcOverride ?? bundle.leistungenLc;
+  List<String> get selectedTitles => selectedPartsDisplay ?? bundle.leistungen;
 }
 
 
@@ -1256,12 +1263,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             (_, combo) =>
         combo.zielgruppe == item.zielgruppe &&
             combo.bundle.kategorie == item.kategorie &&
-            combo.bundle.leistungenLc.contains(item.leistung.toLowerCase()),
+            combo.selectedPartsLc.contains(item.leistung.toLowerCase()),
       );
     } else {
       map.remove(key);
       _removeDependentSelections(
         selectionMap: map,
+        zielgruppe: item.zielgruppe,
+        category: item.kategorie,
+        removedPartLc: item.leistung.toLowerCase(),
+      );
+      _removeDependentComboSelections(
+        combosMap: combos,
         zielgruppe: item.zielgruppe,
         category: item.kategorie,
         removedPartLc: item.leistung.toLowerCase(),
@@ -1300,21 +1313,26 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     }
 
     final selectedAll = partsLc.every(
-          (lc) => map.containsKey(_keyFor(zielgruppe: zg, category: category, partLc: lc)),
+          (lc) => combos.values.any(
+            (comboSel) =>
+        comboSel.zielgruppe == zg &&
+            comboSel.bundle.kategorie == category &&
+            comboSel.selectedPartsLc.length == partsLc.length &&
+            comboSel.selectedPartsLc.contains(lc) &&
+            partsLc.every(comboSel.selectedPartsLc.contains),
+      ),
     );
 
     if (selectedAll) {
-      for (final partLc in partsLc) {
-        final key = _keyFor(zielgruppe: zg, category: category, partLc: partLc);
-        map.remove(key);
-        _removeDependentSelections(
-          selectionMap: map,
-          zielgruppe: zg,
-          category: category,
-          removedPartLc: partLc,
-        );
-      }
+      combos.removeWhere(
+            (_, comboSel) =>
+        comboSel.zielgruppe == zg &&
+            comboSel.bundle.kategorie == category &&
+            comboSel.selectedPartsLc.length == partsLc.length &&
+            partsLc.every(comboSel.selectedPartsLc.contains),
+      );
       _selectedVN.value = map;
+      _selectedCombosVN.value = combos;
       return;
     }
 
@@ -1346,29 +1364,21 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     );
     if (remainder == null) return;
 
-    final perPartPrice =
-        (remainder ?? 0.0) / (partsLc.isEmpty ? 1 : partsLc.length);
-
-    for (int i = 0; i < partsLc.length; i++) {
-      final partLc = partsLc[i];
-      final partDisplay = partsDisplay[i];
-      final key = _keyFor(zielgruppe: zg, category: category, partLc: partLc);
-      map[key] = _CartItem(
-        kategorie: category,
-        leistung: partDisplay,
-        preis: perPartPrice,
-        dauer: null,
-        zielgruppe: zg,
-        selectedAt: ++_selectionTicker,
-        lockedDisplayPrice: perPartPrice,
-      );
-    }
-
     combos.removeWhere(
           (_, comboSel) =>
       comboSel.zielgruppe == zg &&
           comboSel.bundle.kategorie == category &&
-          comboSel.bundle.leistungenLc.any(partsLc.contains),
+          comboSel.selectedPartsLc.any(partsLc.contains),
+    );
+
+    combos[_comboSelectionKey(zielgruppe: zg, combo: combo)] = _ComboSelection(
+      bundle: combo,
+      zielgruppe: zg,
+      selectedAt: ++_selectionTicker,
+      preis: remainder,
+      dauer: null,
+      selectedPartsDisplay: partsDisplay,
+      selectedPartsLcOverride: partsLc,
     );
 
     _selectedVN.value = map;
@@ -1405,6 +1415,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         return true;
       });
     }
+  }
+
+  void _removeDependentComboSelections({
+    required Map<String, _ComboSelection> combosMap,
+    required String zielgruppe,
+    required String category,
+    required String removedPartLc,
+  }) {
+    combosMap.removeWhere(
+          (_, comboSel) =>
+      comboSel.zielgruppe == zielgruppe &&
+          comboSel.bundle.kategorie == category &&
+          comboSel.selectedPartsLc.length != comboSel.bundle.leistungenLc.length &&
+          !comboSel.selectedPartsLc.contains(removedPartLc) &&
+          comboSel.bundle.leistungenLc.contains(removedPartLc),
+    );
   }
 
   /// Combo-Helper: (de)selektiert alle Einzel-Leistungen der Kombi
@@ -1459,6 +1485,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return '$s €';
   }
 
+  int _selectedServiceCount({
+    required Map<String, _CartItem> singles,
+    required Map<String, _ComboSelection> combos,
+  }) {
+    return singles.length +
+        combos.values.fold<int>(
+          0,
+              (sum, combo) => sum + combo.selectedPartsLc.length,
+        );
+  }
+
   String _preisText(double? p) {
     if (p == null) return '–';
     final s = p.toStringAsFixed(2).replaceAll('.', ',');
@@ -1508,7 +1545,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     _BookingSummaryEntry _comboEntry(String key, _ComboSelection selection) {
       final comboPrice = selection.preis;
-      final comboOriginal = selection.bundle.leistungenLc.fold<double>(
+      final comboOriginal = selection.selectedPartsLc.fold<double>(
         0.0,
             (sum, partLc) =>
         sum +
@@ -1528,9 +1565,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         isCombo: true,
         selectedAt: selection.selectedAt,
         categoryLabel: selection.bundle.kategorie,
-        title: selection.bundle.leistungen.join(' + '),
+        title: selection.selectedTitles.join(' + '),
         subtitle: [
-          selection.bundle.kategorie,
           selection.varianteLabel ??
               _comboMethodLabelForDisplay(selection.bundle),
         ].where((e) => e != null && e.trim().isNotEmpty).join(' • '),
@@ -1568,7 +1604,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       for (final combo in panelCombos.values) {
         final contextKey = '${combo.zielgruppe}|${combo.bundle.kategorie}';
         selectedPartsByContext.putIfAbsent(contextKey, () => <String>{})
-            .addAll(combo.bundle.leistungenLc);
+            .addAll(combo.selectedPartsLc);
       }
 
       final suggestionsByKey = <String, _BookingSummarySuggestion>{};
@@ -1586,6 +1622,69 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           final hasSelectedBundlePart =
           bundle.leistungenLc.any(selectedParts.contains);
           if (!hasSelectedBundlePart) continue;
+
+          final bundleBaseParts = bundle.leistungenLc
+              .where((partLc) => singleBaseIndex.containsKey('$category|$partLc'))
+              .toSet();
+          final missingPartIndexes = <int>[
+            for (int i = 0; i < bundle.leistungenLc.length; i++)
+              if (!selectedParts.contains(bundle.leistungenLc[i])) i,
+          ];
+
+          final canSuggestAsGroupedCombo =
+              missingPartIndexes.length > 1 &&
+                  bundleBaseParts.isNotEmpty &&
+                  bundleBaseParts.every(selectedParts.contains);
+
+          if (canSuggestAsGroupedCombo) {
+            final missingPartLcs = [
+              for (final index in missingPartIndexes) bundle.leistungenLc[index],
+            ];
+            final missingDisplayNames = [
+              for (final index in missingPartIndexes) bundle.leistungen[index],
+            ];
+            final suggestionKey =
+                '$zielgruppe|$category|combo|${missingPartLcs.join("+")}';
+            if (suggestionsByKey.containsKey(suggestionKey)) continue;
+
+            final comboPrice = _previewForComboGroup(
+              combo: bundle,
+              category: category,
+              zielgruppe: zielgruppe,
+              requiredBasePartsLc: bundleBaseParts,
+              selectedPartsLc: selectedParts,
+              selectionMap: panelSingles,
+              singleBaseIndex: singleBaseIndex,
+              bundles: bundles,
+            );
+            if (comboPrice == null) continue;
+
+            double comboOriginal = 0.0;
+            for (final partLc in missingPartLcs) {
+              comboOriginal += _singlePriceOfPart(
+                category: category,
+                zielgruppe: zielgruppe,
+                partLc: partLc,
+                selectionMap: panelSingles,
+                singleBaseIndex: singleBaseIndex,
+              );
+            }
+            final hasDiscount = comboOriginal > 0 && comboPrice < comboOriginal;
+
+            suggestionsByKey[suggestionKey] = _BookingSummarySuggestion(
+              contextKey: suggestionKey,
+              zielgruppe: zielgruppe,
+              category: category,
+              title: missingDisplayNames.join(' + '),
+              displayNames: missingDisplayNames,
+              partLcs: missingPartLcs,
+              price: comboPrice,
+              originalPrice: hasDiscount ? comboOriginal : null,
+              duration: null,
+              bundle: bundle,
+            );
+            continue;
+          }
 
           for (int i = 0; i < bundle.leistungenLc.length; i++) {
             final partLc = bundle.leistungenLc[i];
@@ -1621,11 +1720,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               contextKey: suggestionKey,
               zielgruppe: zielgruppe,
               category: category,
-              partLc: partLc,
               title: category.trim().isEmpty
                   ? displayName
                   : '$category - $displayName',
-              displayName: displayName,
+              displayNames: [displayName],
+              partLcs: [partLc],
               price: suggestionPrice,
               originalPrice: hasDiscount ? basePrice : null,
               duration: duration,
@@ -1674,7 +1773,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             style: TextStyle(fontWeight: FontWeight.w700),
                           ),
                           subtitle: Text(
-                            '${entries.length} Leistungen ausgewählt',
+                            '${_selectedServiceCount(singles: panelSingles, combos: panelCombos)} '
+                                'Leistungen ausgewählt',
                           ),
                           trailing: IconButton(
                             icon: const Icon(Icons.close),
@@ -1683,860 +1783,600 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         ),
                         const Divider(height: 1),
                         Expanded(
-                          child: suggestions.isEmpty
-                              ? ListView.separated(
+                          child: ListView(
                             padding: const EdgeInsets.all(16),
-                            itemCount: entries.length,
-                            separatorBuilder: (_, __) =>
-                            const SizedBox(height: 12),
-                            itemBuilder: (_, i) {
-                              final entry = entries[i];
-                              final categoryLabel = entry.categoryLabel?.trim();
-                              final showCategoryHeader =
-                                  categoryLabel != null &&
-                                      categoryLabel.isNotEmpty &&
-                                      (i == 0 ||
-                                          entries[i - 1].categoryLabel?.trim() !=
-                                              categoryLabel);
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (showCategoryHeader)
-                                    Container(
-                                      width: double.infinity,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 10,
-                                      ),
-                                      color: Colors.black,
-                                      child: Text(
-                                        categoryLabel,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ),
-                                  if (showCategoryHeader)
-                                    const SizedBox(height: 6),
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(12),
-                                      color: const Color(0xFFF7F8FB),
-                                    ),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                      CrossAxisAlignment.start,
+                            children: [
+                              for (var i = 0; i < entries.length; i++) ...[
+                                if (i > 0)
+                                  const SizedBox(height: 12),
+                                Builder(
+                                  builder: (_) {
+                                    final entry = entries[i];
+                                    final categoryLabel = entry.categoryLabel?.trim();
+                                    final showCategoryHeader =
+                                        categoryLabel != null &&
+                                            categoryLabel.isNotEmpty &&
+                                            (i == 0 ||
+                                                entries[i - 1].categoryLabel?.trim() !=
+                                                    categoryLabel);
+                                    return Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Expanded(
-                                          child: Column(
+                                        if (showCategoryHeader)
+                                          Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 10,
+                                            ),
+                                            color: Colors.black,
+                                            child: Text(
+                                              categoryLabel,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                        if (showCategoryHeader)
+                                          const SizedBox(height: 6),
+                                        Container(
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(12),
+                                            color: const Color(0xFFF7F8FB),
+                                          ),
+                                          child: Row(
                                             crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                             children: [
-                                              Text(
-                                                entry.title,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w700,
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      entry.title,
+                                                      style: const TextStyle(
+                                                        fontWeight: FontWeight.w700,
+                                                      ),
+                                                    ),
+                                                    if (entry.subtitle.isNotEmpty)
+                                                      Padding(
+                                                        padding:
+                                                        const EdgeInsets.only(
+                                                          top: 2,
+                                                        ),
+                                                        child: Text(
+                                                          entry.subtitle,
+                                                          style: const TextStyle(
+                                                            color: Colors.black54,
+                                                            fontSize: 12.5,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    if (entry.duration != null)
+                                                      Padding(
+                                                        padding:
+                                                        const EdgeInsets.only(
+                                                          top: 4,
+                                                        ),
+                                                        child: Text(
+                                                          '${entry.duration} Min',
+                                                          style: const TextStyle(
+                                                            fontSize: 12.5,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                  ],
                                                 ),
                                               ),
-                                              if (entry.subtitle.isNotEmpty)
-                                                Padding(
-                                                  padding:
-                                                  const EdgeInsets.only(
-                                                    top: 2,
-                                                  ),
-                                                  child: Text(
-                                                    entry.subtitle,
-                                                    style: const TextStyle(
-                                                      color: Colors.black54,
-                                                      fontSize: 12.5,
+                                              const SizedBox(width: 6),
+                                              Column(
+                                                crossAxisAlignment:
+                                                CrossAxisAlignment.end,
+                                                children: [
+                                                  if (entry.originalPrice != null)
+                                                    Text(
+                                                      _formatEuro(
+                                                        entry.originalPrice!,
+                                                      ),
+                                                      style: const TextStyle(
+                                                        color: Colors.black45,
+                                                        fontSize: 12.5,
+                                                        fontWeight:
+                                                        FontWeight.w500,
+                                                        decoration:
+                                                        TextDecoration
+                                                            .lineThrough,
+                                                        decorationThickness: 2,
+                                                      ),
+                                                    ),
+                                                  Text(
+                                                    entry.price == null
+                                                        ? '–'
+                                                        : _formatEuro(entry.price!),
+                                                    style: TextStyle(
+                                                      fontWeight:
+                                                      FontWeight.w700,
+                                                      color: entry.originalPrice !=
+                                                          null
+                                                          ? Colors.green
+                                                          : null,
                                                     ),
                                                   ),
+                                                ],
+                                              ),
+                                              IconButton(
+                                                tooltip: 'Leistung entfernen',
+                                                icon: const Icon(
+                                                  Icons.delete_outline,
+                                                  size: 20,
                                                 ),
-                                              if (entry.duration != null)
-                                                Padding(
-                                                  padding:
-                                                  const EdgeInsets.only(
-                                                    top: 4,
-                                                  ),
-                                                  child: Text(
-                                                    '${entry.duration} Min',
-                                                    style: const TextStyle(
-                                                      fontSize: 12.5,
+                                                onPressed: () {
+                                                  final singlesMap =
+                                                  Map<String, _CartItem>.from(
+                                                    _selectedVN.value,
+                                                  );
+                                                  final combosMap = Map<
+                                                      String,
+                                                      _ComboSelection>.from(
+                                                    _selectedCombosVN.value,
+                                                  );
+
+                                                  if (entry.isCombo) {
+                                                    combosMap.remove(
+                                                      entry.selectionKey,
+                                                    );
+                                                  } else {
+                                                    final removedItem =
+                                                    singlesMap.remove(
+                                                      entry.selectionKey,
+                                                    );
+                                                    if (removedItem != null) {
+                                                      _removeDependentSelections(
+                                                        selectionMap: singlesMap,
+                                                        zielgruppe:
+                                                        removedItem.zielgruppe,
+                                                        category:
+                                                        removedItem.kategorie,
+                                                        removedPartLc: removedItem
+                                                            .leistung
+                                                            .toLowerCase(),
+                                                      );
+                                                      _removeDependentComboSelections(
+                                                        combosMap: combosMap,
+                                                        zielgruppe:
+                                                        removedItem.zielgruppe,
+                                                        category:
+                                                        removedItem.kategorie,
+                                                        removedPartLc:
+                                                        removedItem.leistung
+                                                            .toLowerCase(),
+                                                      );
+                                                    }
+                                                  }
+
+                                                  _clearInvalidLockedPrices(
+                                                    selectionMap: singlesMap,
+                                                    singleBaseIndex:
+                                                    singleBaseIndex,
+                                                    bundles: bundles,
+                                                  );
+
+                                                  _selectedVN.value = singlesMap;
+                                                  _selectedCombosVN.value =
+                                                      combosMap;
+                                                  panelSingles = singlesMap;
+                                                  panelCombos = combosMap;
+
+                                                  entries = [
+                                                    ...panelSingles.entries.map(
+                                                          (e) => _singleEntry(
+                                                        e.key,
+                                                        e.value,
+                                                      ),
                                                     ),
-                                                  ),
-                                                ),
+                                                    ...panelCombos.entries.map(
+                                                          (e) => _comboEntry(
+                                                        e.key,
+                                                        e.value,
+                                                      ),
+                                                    ),
+                                                  ]
+                                                    ..sort(
+                                                          (a, b) => a.selectedAt
+                                                          .compareTo(
+                                                        b.selectedAt,
+                                                      ),
+                                                    );
+                                                  suggestions =
+                                                      _buildSuggestions();
+
+                                                  final totals = computeTotals(
+                                                    singlesMap,
+                                                    combosMap,
+                                                  );
+                                                  panelTotal = totals.optimized;
+                                                  panelSavings = totals.savings;
+
+                                                  if (entries.isEmpty) {
+                                                    Navigator.of(ctx).pop();
+                                                    return;
+                                                  }
+
+                                                  setSheetState(() {});
+                                                },
+                                              ),
                                             ],
                                           ),
                                         ),
-                                        const SizedBox(width: 6),
-                                        Column(
-                                          crossAxisAlignment:
-                                          CrossAxisAlignment.end,
-                                          children: [
-                                            if (entry.originalPrice != null)
-                                              Text(
-                                                _formatEuro(
-                                                  entry.originalPrice!,
-                                                ),
-                                                style: const TextStyle(
-                                                  color: Colors.black45,
-                                                  fontSize: 12.5,
-                                                  fontWeight: FontWeight.w500,
-                                                  decoration: TextDecoration
-                                                      .lineThrough,
-                                                  decorationThickness: 2,
-                                                ),
-                                              ),
-                                            Text(
-                                              entry.price == null
-                                                  ? '–'
-                                                  : _formatEuro(entry.price!),
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w700,
-                                                color: entry.originalPrice !=
-                                                    null
-                                                    ? Colors.green
-                                                    : null,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        IconButton(
-                                          tooltip: 'Leistung entfernen',
-                                          icon: const Icon(
-                                            Icons.delete_outline,
-                                            size: 20,
-                                          ),
-                                          onPressed: () {
-                                            final singlesMap =
-                                            Map<String, _CartItem>.from(
-                                              _selectedVN.value,
-                                            );
-                                            final combosMap =
-                                            Map<String, _ComboSelection>
-                                                .from(
-                                              _selectedCombosVN.value,
-                                            );
-
-                                            if (entry.isCombo) {
-                                              combosMap.remove(
-                                                entry.selectionKey,
-                                              );
-                                            } else {
-                                              final removedItem =
-                                              singlesMap.remove(
-                                                entry.selectionKey,
-                                              );
-                                              if (removedItem != null) {
-                                                _removeDependentSelections(
-                                                  selectionMap: singlesMap,
-                                                  zielgruppe:
-                                                  removedItem.zielgruppe,
-                                                  category:
-                                                  removedItem.kategorie,
-                                                  removedPartLc: removedItem
-                                                      .leistung
-                                                      .toLowerCase(),
-                                                );
-                                              }
-                                            }
-
-                                            _clearInvalidLockedPrices(
-                                              selectionMap: singlesMap,
-                                              singleBaseIndex: singleBaseIndex,
-                                              bundles: bundles,
-                                            );
-
-                                            _selectedVN.value = singlesMap;
-                                            _selectedCombosVN.value =
-                                                combosMap;
-                                            panelSingles = singlesMap;
-                                            panelCombos = combosMap;
-
-                                            entries = [
-                                              ...panelSingles.entries.map(
-                                                    (e) => _singleEntry(
-                                                  e.key,
-                                                  e.value,
-                                                ),
-                                              ),
-                                              ...panelCombos.entries.map(
-                                                    (e) => _comboEntry(
-                                                  e.key,
-                                                  e.value,
-                                                ),
-                                              ),
-                                            ]
-                                              ..sort(
-                                                    (a, b) => a.selectedAt
-                                                    .compareTo(b.selectedAt),
-                                              );
-                                            suggestions =
-                                                _buildSuggestions();
-
-                                            final totals = computeTotals(
-                                              singlesMap,
-                                              combosMap,
-                                            );
-                                            panelTotal = totals.optimized;
-                                            panelSavings = totals.savings;
-
-                                            if (entries.isEmpty) {
-                                              Navigator.of(ctx).pop();
-                                              return;
-                                            }
-
-                                            setSheetState(() {});
-                                          },
-                                        ),
                                       ],
-                                    ),
+                                    );
+                                  },
+                                ),
+                              ],
+                              if (suggestions.isNotEmpty) ...[
+                                if (entries.isNotEmpty)
+                                  const SizedBox(height: 20),
+                                const Text(
+                                  'Passend kombinierbar',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 14.5,
                                   ),
-                                ],
-                              );
-                            },
-                          )
-                              : Column(
-                            children: [
-                              if (entries.isNotEmpty)
-                                SizedBox(
-                                  height: (() {
-                                    final headerCount = entries
-                                        .asMap()
-                                        .entries
-                                        .where((entryItem) {
-                                      final index = entryItem.key;
-                                      final categoryLabel = entryItem
-                                          .value
-                                          .categoryLabel
-                                          ?.trim();
-                                      return categoryLabel != null &&
-                                          categoryLabel.isNotEmpty &&
-                                          (index == 0 ||
-                                              entries[index - 1]
-                                                  .categoryLabel
-                                                  ?.trim() !=
-                                                  categoryLabel);
-                                    })
-                                        .length;
-                                    return ((entries.length * 102.0) +
-                                        (headerCount * 48.0))
-                                        .clamp(102.0, 320.0)
-                                        .toDouble();
-                                  })(),
-                                  child: ListView.separated(
-                                    padding: const EdgeInsets.all(16),
-                                    physics:
-                                    const NeverScrollableScrollPhysics(),
-                                    itemCount: entries.length,
-                                    separatorBuilder: (_, __) =>
-                                    const SizedBox(height: 12),
-                                    itemBuilder: (_, i) {
-                                      final entry = entries[i];
-                                      final categoryLabel =
-                                      entry.categoryLabel?.trim();
-                                      final showCategoryHeader =
-                                          categoryLabel != null &&
-                                              categoryLabel.isNotEmpty &&
-                                              (i == 0 ||
-                                                  entries[i - 1]
-                                                      .categoryLabel
-                                                      ?.trim() !=
-                                                      categoryLabel);
-                                      return Column(
-                                        crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                        children: [
-                                          if (showCategoryHeader)
-                                            Container(
-                                              width: double.infinity,
-                                              padding:
-                                              const EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                                vertical: 10,
-                                              ),
-                                              color: Colors.black,
-                                              child: Text(
-                                                categoryLabel,
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.w700,
-                                                ),
-                                              ),
-                                            ),
-                                          if (showCategoryHeader)
-                                            const SizedBox(height: 6),
-                                          Container(
-                                            padding:
-                                            const EdgeInsets.all(12),
-                                            decoration: BoxDecoration(
-                                              borderRadius:
-                                              BorderRadius.circular(12),
-                                              color: const Color(0xFFF7F8FB),
-                                            ),
-                                            child: Row(
-                                              crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                              children: [
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                    children: [
-                                                      Text(
-                                                        entry.title,
-                                                        style: const TextStyle(
-                                                          fontWeight:
-                                                          FontWeight.w700,
-                                                        ),
-                                                      ),
-                                                      if (entry.subtitle
-                                                          .isNotEmpty)
-                                                        Padding(
-                                                          padding:
-                                                          const EdgeInsets.only(
-                                                            top: 2,
-                                                          ),
-                                                          child: Text(
-                                                            entry.subtitle,
-                                                            style:
-                                                            const TextStyle(
-                                                              color: Colors
-                                                                  .black54,
-                                                              fontSize: 12.5,
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      if (entry.duration !=
-                                                          null)
-                                                        Padding(
-                                                          padding:
-                                                          const EdgeInsets.only(
-                                                            top: 4,
-                                                          ),
-                                                          child: Text(
-                                                            '${entry.duration} Min',
-                                                            style:
-                                                            const TextStyle(
-                                                              fontSize: 12.5,
-                                                            ),
-                                                          ),
-                                                        ),
-                                                    ],
+                                ),
+                                const SizedBox(height: 8),
+                                for (var i = 0; i < suggestions.length; i++) ...[
+                                  if (i > 0)
+                                    const SizedBox(height: 10),
+                                  Builder(
+                                    builder: (_) {
+                                      final suggestion = suggestions[i];
+                                      return Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          borderRadius:
+                                          BorderRadius.circular(12),
+                                          color: const Color(0xFFF7F8FB),
+                                        ),
+                                        child: Row(
+                                          crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    suggestion.title,
+                                                    style: const TextStyle(
+                                                      fontWeight:
+                                                      FontWeight.w700,
+                                                    ),
                                                   ),
-                                                ),
-                                                const SizedBox(width: 6),
-                                                Column(
-                                                  crossAxisAlignment:
-                                                  CrossAxisAlignment.end,
-                                                  children: [
-                                                    if (entry.originalPrice !=
-                                                        null)
-                                                      Text(
-                                                        _formatEuro(entry
-                                                            .originalPrice!),
+                                                  if (suggestion.duration != null)
+                                                    Padding(
+                                                      padding:
+                                                      const EdgeInsets.only(
+                                                        top: 4,
+                                                      ),
+                                                      child: Text(
+                                                        '${suggestion.duration} Min',
                                                         style: const TextStyle(
-                                                          color: Colors.black45,
                                                           fontSize: 12.5,
-                                                          fontWeight:
-                                                          FontWeight.w500,
-                                                          decoration:
-                                                          TextDecoration
-                                                              .lineThrough,
-                                                          decorationThickness:
-                                                          2,
                                                         ),
-                                                      ),
-                                                    Text(
-                                                      entry.price == null
-                                                          ? '–'
-                                                          : _formatEuro(
-                                                        entry.price!,
-                                                      ),
-                                                      style: TextStyle(
-                                                        fontWeight:
-                                                        FontWeight.w700,
-                                                        color: entry
-                                                            .originalPrice !=
-                                                            null
-                                                            ? Colors.green
-                                                            : null,
                                                       ),
                                                     ),
-                                                  ],
-                                                ),
-                                                IconButton(
-                                                  tooltip:
-                                                  'Leistung entfernen',
-                                                  icon: const Icon(
-                                                    Icons.delete_outline,
-                                                    size: 20,
+                                                ],
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Column(
+                                              crossAxisAlignment:
+                                              CrossAxisAlignment.end,
+                                              children: [
+                                                if (suggestion.originalPrice !=
+                                                    null)
+                                                  Text(
+                                                    _formatEuro(
+                                                      suggestion.originalPrice!,
+                                                    ),
+                                                    style: const TextStyle(
+                                                      color: Colors.black45,
+                                                      fontSize: 12.5,
+                                                      fontWeight:
+                                                      FontWeight.w500,
+                                                      decoration:
+                                                      TextDecoration
+                                                          .lineThrough,
+                                                      decorationThickness: 2,
+                                                    ),
                                                   ),
-                                                  onPressed: () {
-                                                    final singlesMap = Map<
-                                                        String,
-                                                        _CartItem>.from(
-                                                      _selectedVN.value,
-                                                    );
-                                                    final combosMap = Map<
-                                                        String,
-                                                        _ComboSelection>.from(
-                                                      _selectedCombosVN.value,
-                                                    );
-
-                                                    if (entry.isCombo) {
-                                                      combosMap.remove(
-                                                        entry.selectionKey,
-                                                      );
-                                                    } else {
-                                                      final removedItem =
-                                                      singlesMap.remove(
-                                                        entry.selectionKey,
-                                                      );
-                                                      if (removedItem != null) {
-                                                        _removeDependentSelections(
-                                                          selectionMap:
-                                                          singlesMap,
-                                                          zielgruppe:
-                                                          removedItem
-                                                              .zielgruppe,
-                                                          category:
-                                                          removedItem.kategorie,
-                                                          removedPartLc:
-                                                          removedItem.leistung
-                                                              .toLowerCase(),
-                                                        );
-                                                      }
-                                                    }
-
-                                                    _clearInvalidLockedPrices(
-                                                      selectionMap: singlesMap,
-                                                      singleBaseIndex:
-                                                      singleBaseIndex,
-                                                      bundles: bundles,
-                                                    );
-
-                                                    _selectedVN.value =
-                                                        singlesMap;
-                                                    _selectedCombosVN.value =
-                                                        combosMap;
-                                                    panelSingles = singlesMap;
-                                                    panelCombos = combosMap;
-
-                                                    entries = [
-                                                      ...panelSingles.entries.map(
-                                                            (e) => _singleEntry(
-                                                          e.key,
-                                                          e.value,
-                                                        ),
-                                                      ),
-                                                      ...panelCombos.entries.map(
-                                                            (e) => _comboEntry(
-                                                          e.key,
-                                                          e.value,
-                                                        ),
-                                                      ),
-                                                    ]
-                                                      ..sort(
-                                                            (a, b) => a.selectedAt
-                                                            .compareTo(
-                                                          b.selectedAt,
-                                                        ),
-                                                      );
-                                                    suggestions =
-                                                        _buildSuggestions();
-
-                                                    final totals = computeTotals(
-                                                      singlesMap,
-                                                      combosMap,
-                                                    );
-                                                    panelTotal =
-                                                        totals.optimized;
-                                                    panelSavings =
-                                                        totals.savings;
-
-                                                    if (entries.isEmpty) {
-                                                      Navigator.of(ctx).pop();
-                                                      return;
-                                                    }
-
-                                                    setSheetState(() {});
-                                                  },
+                                                Text(
+                                                  suggestion.price == null
+                                                      ? '–'
+                                                      : _formatEuro(
+                                                    suggestion.price!,
+                                                  ),
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w700,
+                                                    color: suggestion
+                                                        .originalPrice !=
+                                                        null
+                                                        ? Colors.green
+                                                        : null,
+                                                  ),
                                                 ),
                                               ],
                                             ),
-                                          ),
-                                        ],
-                                      );
-                                    },
-                                  ),
-                                ),
-                              const Spacer(),
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  16,
-                                  0,
-                                  16,
-                                  12,
-                                ),
-                                child: Column(
-                                  crossAxisAlignment:
-                                  CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Passend kombinierbar',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 14.5,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    SizedBox(
-                                      height: (suggestions.length * 86.0)
-                                          .clamp(86.0, 220.0)
-                                          .toDouble(),
-                                      child: ListView.separated(
-                                        padding: EdgeInsets.zero,
-                                        itemCount: suggestions.length,
-                                        separatorBuilder: (_, __) =>
-                                        const SizedBox(height: 10),
-                                        itemBuilder: (_, i) {
-                                          final suggestion =
-                                          suggestions[i];
-                                          return Container(
-                                            padding:
-                                            const EdgeInsets.all(12),
-                                            decoration: BoxDecoration(
-                                              borderRadius:
-                                              BorderRadius.circular(
-                                                12,
+                                            IconButton(
+                                              tooltip: 'Leistung hinzufügen',
+                                              icon: const Icon(
+                                                Icons.add_circle_outline,
+                                                size: 20,
                                               ),
-                                              color: const Color(
-                                                0xFFF7F8FB,
-                                              ),
-                                            ),
-                                            child: Row(
-                                              crossAxisAlignment:
-                                              CrossAxisAlignment
-                                                  .start,
-                                              children: [
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment:
-                                                    CrossAxisAlignment
-                                                        .start,
-                                                    children: [
-                                                      Text(
-                                                        suggestion.title,
-                                                        style:
-                                                        const TextStyle(
-                                                          fontWeight:
-                                                          FontWeight
-                                                              .w700,
+                                              onPressed: suggestion.price == null
+                                                  ? null
+                                                  : () {
+                                                if (_hasItemsFromOtherZielgruppe(
+                                                  suggestion.zielgruppe,
+                                                )) {
+                                                  final other = _selectedVN
+                                                      .value
+                                                      .values
+                                                      .isNotEmpty
+                                                      ? _selectedVN
+                                                      .value
+                                                      .values
+                                                      .first
+                                                      .zielgruppe
+                                                      : _selectedCombosVN
+                                                      .value
+                                                      .values
+                                                      .first
+                                                      .zielgruppe;
+                                                  _showWrongGroupSnack(
+                                                    other,
+                                                  );
+                                                  return;
+                                                }
+
+                                                final singlesMap = Map<String,
+                                                    _CartItem>.from(
+                                                  _selectedVN.value,
+                                                );
+                                                final combosMap = Map<String,
+                                                    _ComboSelection>.from(
+                                                  _selectedCombosVN.value,
+                                                );
+
+                                                if (suggestion.isComboSuggestion) {
+                                                  final bundle = suggestion.bundle;
+                                                  if (bundle == null) return;
+
+                                                  combosMap.removeWhere(
+                                                        (_, comboSel) =>
+                                                    comboSel.zielgruppe ==
+                                                        suggestion.zielgruppe &&
+                                                        comboSel.bundle.kategorie ==
+                                                            suggestion.category &&
+                                                        comboSel.selectedPartsLc.any(
+                                                          suggestion.partLcs.contains,
                                                         ),
-                                                      ),
-                                                      if (suggestion
-                                                          .duration !=
-                                                          null)
-                                                        Padding(
-                                                          padding:
-                                                          const EdgeInsets
-                                                              .only(
-                                                            top: 4,
-                                                          ),
-                                                          child: Text(
-                                                            '${suggestion.duration} Min',
-                                                            style:
-                                                            const TextStyle(
-                                                              fontSize:
-                                                              12.5,
-                                                            ),
-                                                          ),
-                                                        ),
-                                                    ],
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 6),
-                                                Column(
-                                                  crossAxisAlignment:
-                                                  CrossAxisAlignment
-                                                      .end,
-                                                  children: [
-                                                    if (suggestion
-                                                        .originalPrice !=
-                                                        null)
-                                                      Text(
-                                                        _formatEuro(
-                                                          suggestion
-                                                              .originalPrice!,
-                                                        ),
-                                                        style:
-                                                        const TextStyle(
-                                                          color: Colors
-                                                              .black45,
-                                                          fontSize: 12.5,
-                                                          fontWeight:
-                                                          FontWeight
-                                                              .w500,
-                                                          decoration:
-                                                          TextDecoration
-                                                              .lineThrough,
-                                                          decorationThickness:
-                                                          2,
-                                                        ),
-                                                      ),
-                                                    Text(
-                                                      suggestion.price ==
-                                                          null
-                                                          ? '–'
-                                                          : _formatEuro(
-                                                        suggestion
-                                                            .price!,
-                                                      ),
-                                                      style: TextStyle(
-                                                        fontWeight:
-                                                        FontWeight
-                                                            .w700,
-                                                        color: suggestion
-                                                            .originalPrice !=
-                                                            null
-                                                            ? Colors
-                                                            .green
-                                                            : null,
+                                                  );
+
+                                                  combosMap[_comboSelectionKey(
+                                                    zielgruppe:
+                                                    suggestion.zielgruppe,
+                                                    combo: bundle,
+                                                  )] = _ComboSelection(
+                                                    bundle: bundle,
+                                                    zielgruppe:
+                                                    suggestion.zielgruppe,
+                                                    selectedAt:
+                                                    ++_selectionTicker,
+                                                    preis: suggestion.price,
+                                                    dauer: suggestion.duration,
+                                                    selectedPartsDisplay:
+                                                    suggestion.displayNames,
+                                                    selectedPartsLcOverride:
+                                                    suggestion.partLcs,
+                                                  );
+
+                                                  _selectedVN.value =
+                                                      singlesMap;
+                                                  _selectedCombosVN.value =
+                                                      combosMap;
+                                                  panelSingles = singlesMap;
+                                                  panelCombos = combosMap;
+
+                                                  entries = [
+                                                    ...panelSingles.entries.map(
+                                                          (e) => _singleEntry(
+                                                        e.key,
+                                                        e.value,
                                                       ),
                                                     ),
-                                                  ],
-                                                ),
-                                                IconButton(
-                                                  tooltip:
-                                                  'Leistung hinzufügen',
-                                                  icon: const Icon(
-                                                    Icons
-                                                        .add_circle_outline,
-                                                    size: 20,
-                                                  ),
-                                                  onPressed: suggestion
-                                                      .price ==
-                                                      null
-                                                      ? null
-                                                      : () {
-                                                    if (_hasItemsFromOtherZielgruppe(
-                                                      suggestion
-                                                          .zielgruppe,
-                                                    )) {
-                                                      final other = _selectedVN
-                                                          .value
-                                                          .values
-                                                          .isNotEmpty
-                                                          ? _selectedVN
-                                                          .value
-                                                          .values
-                                                          .first
-                                                          .zielgruppe
-                                                          : _selectedCombosVN
-                                                          .value
-                                                          .values
-                                                          .first
-                                                          .zielgruppe;
-                                                      _showWrongGroupSnack(
-                                                        other,
-                                                      );
-                                                      return;
-                                                    }
-
-                                                    final singlesMap =
-                                                    Map<String,
-                                                        _CartItem>.from(
-                                                      _selectedVN
-                                                          .value,
+                                                    ...panelCombos.entries.map(
+                                                          (e) => _comboEntry(
+                                                        e.key,
+                                                        e.value,
+                                                      ),
+                                                    ),
+                                                  ]
+                                                    ..sort(
+                                                          (a, b) => a.selectedAt
+                                                          .compareTo(
+                                                        b.selectedAt,
+                                                      ),
                                                     );
-                                                    final combosMap =
-                                                    Map<String,
-                                                        _ComboSelection>.from(
-                                                      _selectedCombosVN
-                                                          .value,
-                                                    );
+                                                  suggestions =
+                                                      _buildSuggestions();
 
-                                                    final selectionKey =
-                                                    _keyFor(
-                                                      zielgruppe:
-                                                      suggestion
-                                                          .zielgruppe,
-                                                      category:
-                                                      suggestion
-                                                          .category,
-                                                      partLc:
-                                                      suggestion
-                                                          .partLc,
-                                                    );
-                                                    if (singlesMap
-                                                        .containsKey(
-                                                      selectionKey,
-                                                    )) {
-                                                      return;
-                                                    }
+                                                  final totals = computeTotals(
+                                                    singlesMap,
+                                                    combosMap,
+                                                  );
+                                                  panelTotal =
+                                                      totals.optimized;
+                                                  panelSavings =
+                                                      totals.savings;
 
-                                                    final baseOffer = singleBaseIndex[
-                                                    '${suggestion.category}|${suggestion.partLc}'];
-                                                    final singlePrice =
-                                                    baseOffer
-                                                        ?.priceFor(
-                                                      suggestion
-                                                          .zielgruppe,
-                                                    );
-                                                    final singleDuration =
-                                                    baseOffer
-                                                        ?.durationFor(
-                                                      suggestion
-                                                          .zielgruppe,
-                                                    );
+                                                  setSheetState(() {});
+                                                  return;
+                                                }
 
-                                                    final basePriceForSelection =
-                                                        singlePrice ?? suggestion.price;
-                                                    final durationForSelection =
-                                                        suggestion.duration ?? singleDuration;
+                                                final selectionKey =
+                                                _keyFor(
+                                                  zielgruppe:
+                                                  suggestion.zielgruppe,
+                                                  category:
+                                                  suggestion.category,
+                                                  partLc: suggestion.partLc,
+                                                );
+                                                if (singlesMap
+                                                    .containsKey(
+                                                  selectionKey,
+                                                )) {
+                                                  return;
+                                                }
 
-                                                    final computedLocked =
-                                                    _lockedPriceForNewSelection(
-                                                      category:
-                                                      suggestion
-                                                          .category,
-                                                      zielgruppe:
-                                                      suggestion
-                                                          .zielgruppe,
-                                                      newPartLc:
-                                                      suggestion
-                                                          .partLc,
-                                                      selectionMap:
-                                                      singlesMap,
-                                                      singleBaseIndex:
-                                                      singleBaseIndex,
-                                                      bundles:
-                                                      bundles,
-                                                      newPartSinglePrice:
-                                                      basePriceForSelection,
-                                                    );
-                                                    final locked =
-                                                    (suggestion.originalPrice != null &&
-                                                        suggestion.price != null &&
-                                                        basePriceForSelection != null &&
-                                                        suggestion.price! <
-                                                            basePriceForSelection)
-                                                        ? suggestion.price
-                                                        : computedLocked;
+                                                final baseOffer =
+                                                singleBaseIndex[
+                                                '${suggestion.category}|${suggestion.partLc}'];
+                                                final singlePrice =
+                                                baseOffer?.priceFor(
+                                                  suggestion.zielgruppe,
+                                                );
+                                                final singleDuration =
+                                                baseOffer?.durationFor(
+                                                  suggestion.zielgruppe,
+                                                );
 
-                                                    singlesMap[
-                                                    selectionKey] = _CartItem(
+                                                final basePriceForSelection =
+                                                    singlePrice ??
+                                                        suggestion.price;
+                                                final durationForSelection =
+                                                    suggestion.duration ??
+                                                        singleDuration;
+
+                                                final computedLocked =
+                                                _lockedPriceForNewSelection(
+                                                  category:
+                                                  suggestion.category,
+                                                  zielgruppe:
+                                                  suggestion.zielgruppe,
+                                                  newPartLc:
+                                                  suggestion.partLc,
+                                                  selectionMap:
+                                                  singlesMap,
+                                                  singleBaseIndex:
+                                                  singleBaseIndex,
+                                                  bundles: bundles,
+                                                  newPartSinglePrice:
+                                                  basePriceForSelection,
+                                                );
+                                                final locked =
+                                                (suggestion.originalPrice !=
+                                                    null &&
+                                                    suggestion.price !=
+                                                        null &&
+                                                    basePriceForSelection !=
+                                                        null &&
+                                                    suggestion.price! <
+                                                        basePriceForSelection)
+                                                    ? suggestion.price
+                                                    : computedLocked;
+
+                                                singlesMap[selectionKey] =
+                                                    _CartItem(
                                                       kategorie:
-                                                      suggestion
-                                                          .category,
-                                                      leistung:
-                                                      suggestion
+                                                      suggestion.category,
+                                                      leistung: suggestion
                                                           .displayName,
                                                       preis:
                                                       basePriceForSelection,
                                                       dauer:
                                                       durationForSelection,
-                                                      zielgruppe:
-                                                      suggestion
+                                                      zielgruppe: suggestion
                                                           .zielgruppe,
                                                       selectedAt:
                                                       ++_selectionTicker,
-                                                      lockedDisplayPrice:
-                                                      locked,
+                                                      lockedDisplayPrice: locked,
                                                     );
 
-                                                    combosMap.removeWhere(
-                                                          (_, combo) =>
-                                                      combo.zielgruppe ==
+                                                combosMap.removeWhere(
+                                                      (_, combo) =>
+                                                  combo.zielgruppe ==
+                                                      suggestion
+                                                          .zielgruppe &&
+                                                      combo.bundle.kategorie ==
                                                           suggestion
-                                                              .zielgruppe &&
-                                                          combo.bundle.kategorie ==
-                                                              suggestion
-                                                                  .category &&
-                                                          combo.bundle.leistungenLc
-                                                              .contains(
-                                                            suggestion
-                                                                .partLc,
-                                                          ),
-                                                    );
-
-                                                    _clearInvalidLockedPrices(
-                                                      selectionMap: singlesMap,
-                                                      singleBaseIndex: singleBaseIndex,
-                                                      bundles: bundles,
-                                                    );
-
-                                                    _selectedVN
-                                                        .value =
-                                                        singlesMap;
-                                                    _selectedCombosVN
-                                                        .value =
-                                                        combosMap;
-                                                    panelSingles =
-                                                        singlesMap;
-                                                    panelCombos =
-                                                        combosMap;
-
-                                                    entries = [
-                                                      ...panelSingles
-                                                          .entries
-                                                          .map(
-                                                            (e) =>
-                                                            _singleEntry(
-                                                              e.key,
-                                                              e.value,
-                                                            ),
+                                                              .category &&
+                                                      combo.selectedPartsLc
+                                                          .contains(
+                                                        suggestion.partLc,
                                                       ),
-                                                      ...panelCombos
-                                                          .entries
-                                                          .map(
-                                                            (e) =>
-                                                            _comboEntry(
-                                                              e.key,
-                                                              e.value,
-                                                            ),
-                                                      ),
-                                                    ]
-                                                      ..sort(
-                                                            (a, b) => a
-                                                            .selectedAt
-                                                            .compareTo(
-                                                          b.selectedAt,
-                                                        ),
-                                                      );
-                                                    suggestions =
-                                                        _buildSuggestions();
+                                                );
 
-                                                    final totals =
-                                                    computeTotals(
-                                                      singlesMap,
-                                                      combosMap,
-                                                    );
-                                                    panelTotal =
-                                                        totals
-                                                            .optimized;
-                                                    panelSavings =
-                                                        totals
-                                                            .savings;
+                                                _clearInvalidLockedPrices(
+                                                  selectionMap: singlesMap,
+                                                  singleBaseIndex:
+                                                  singleBaseIndex,
+                                                  bundles: bundles,
+                                                );
 
-                                                    setSheetState(
-                                                          () {},
-                                                    );
-                                                  },
-                                                ),
-                                              ],
+                                                _selectedVN.value =
+                                                    singlesMap;
+                                                _selectedCombosVN.value =
+                                                    combosMap;
+                                                panelSingles = singlesMap;
+                                                panelCombos = combosMap;
+
+                                                entries = [
+                                                  ...panelSingles.entries.map(
+                                                        (e) => _singleEntry(
+                                                      e.key,
+                                                      e.value,
+                                                    ),
+                                                  ),
+                                                  ...panelCombos.entries.map(
+                                                        (e) => _comboEntry(
+                                                      e.key,
+                                                      e.value,
+                                                    ),
+                                                  ),
+                                                ]
+                                                  ..sort(
+                                                        (a, b) => a.selectedAt
+                                                        .compareTo(
+                                                      b.selectedAt,
+                                                    ),
+                                                  );
+                                                suggestions =
+                                                    _buildSuggestions();
+
+                                                final totals = computeTotals(
+                                                  singlesMap,
+                                                  combosMap,
+                                                );
+                                                panelTotal =
+                                                    totals.optimized;
+                                                panelSavings =
+                                                    totals.savings;
+
+                                                setSheetState(() {});
+                                              },
                                             ),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const Spacer(),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ],
                             ],
                           ),
                         ),
@@ -2959,7 +2799,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     (_, combo) =>
                                 combo.zielgruppe == zg &&
                                     combo.bundle.kategorie == category &&
-                                    combo.bundle.leistungenLc.contains(base.leistungenLc.first),
+                                    combo.selectedPartsLc.contains(base.leistungenLc.first),
                               );
 
                             _selectedVN.value = {
@@ -4413,7 +4253,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           (_, combo) =>
                                       combo.zielgruppe == _zielgruppe &&
                                           combo.bundle.kategorie == kat &&
-                                          combo.bundle.leistungenLc.contains(partLc),
+                                          combo.selectedPartsLc.contains(partLc),
                                     );
 
                                     _selectedVN.value = currentMap;
@@ -4732,14 +4572,28 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         ),
                         SizedBox(
                           width: kRightColWidth,
-                          child: ValueListenableBuilder<Map<String, _CartItem>>(
-                            valueListenable: _selectedVN,
-                            builder: (_, map, __) {
+                          child: AnimatedBuilder(
+                            animation: Listenable.merge([_selectedVN, _selectedCombosVN]),
+                            builder: (_, __) {
+                              final map = _selectedVN.value;
+                              final combos = _selectedCombosVN.value;
                               final selectedPartsLc = map.values
                                   .where((it) => it.kategorie == kat && it.zielgruppe == _zielgruppe)
                                   .map((it) => it.leistung.toLowerCase())
                                   .toSet();
-                              final selectedAll = groupPartsLc.every(selectedPartsLc.contains);
+                              _ComboSelection? selectedGroupCombo;
+                              for (final comboSel in combos.values) {
+                                if (comboSel.zielgruppe != _zielgruppe ||
+                                    comboSel.bundle.kategorie != kat ||
+                                    comboSel.selectedPartsLc.length != groupPartsLc.length) {
+                                  continue;
+                                }
+                                if (groupPartsLc.every(comboSel.selectedPartsLc.contains)) {
+                                  selectedGroupCombo = comboSel;
+                                  break;
+                                }
+                              }
+                              final selectedAll = selectedGroupCombo != null;
                               final comboSizeKey = _selectedSizeKeyFromSelection(
                                 combo: group.bundle,
                                 category: kat,
@@ -4770,16 +4624,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               double displayPrice;
 
                               if (selectedAll) {
-                                displayPrice = 0.0;
-                                for (final partLc in groupPartsLc) {
-                                  final key = _keyFor(
-                                    zielgruppe: _zielgruppe,
-                                    category: kat,
-                                    partLc: partLc,
-                                  );
-                                  final item = map[key];
-                                  displayPrice += item?.lockedDisplayPrice ?? item?.preis ?? 0.0;
-                                }
+                                displayPrice = selectedGroupCombo?.preis ?? 0.0;
                               } else {
                                 displayPrice = previewPrice ?? 0.0;
                               }
@@ -5057,7 +4902,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         : const _CartTotals(naive: 0.0, optimized: 0.0);
                     final total = hasSelection ? totals.optimized : 0.0;
                     final savings = hasSelection ? totals.savings : 0.0;
-                    final count = map.length + combos.length;
+                    final count = _selectedServiceCount(
+                      singles: map,
+                      combos: combos,
+                    );
 
                     return IgnorePointer(
                       ignoring: !hasSelection,
@@ -5140,24 +4988,30 @@ class _BookingSummarySuggestion {
   final String contextKey;
   final String zielgruppe;
   final String category;
-  final String partLc;
   final String title;
-  final String displayName;
+  final List<String> displayNames;
+  final List<String> partLcs;
   final double? price;
   final double? originalPrice;
   final int? duration;
+  final Offer? bundle;
 
   const _BookingSummarySuggestion({
     required this.contextKey,
     required this.zielgruppe,
     required this.category,
-    required this.partLc,
     required this.title,
-    required this.displayName,
+    required this.displayNames,
+    required this.partLcs,
     required this.price,
     this.originalPrice,
     this.duration,
+    this.bundle,
   });
+
+  bool get isComboSuggestion => bundle != null && partLcs.length > 1;
+  String get displayName => displayNames.join(' + ');
+  String get partLc => partLcs.first;
 }
 
 /// ---------------------------------------------------------------
