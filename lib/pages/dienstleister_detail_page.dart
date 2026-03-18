@@ -1623,6 +1623,69 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           bundle.leistungenLc.any(selectedParts.contains);
           if (!hasSelectedBundlePart) continue;
 
+          final bundleBaseParts = bundle.leistungenLc
+              .where((partLc) => singleBaseIndex.containsKey('$category|$partLc'))
+              .toSet();
+          final missingPartIndexes = <int>[
+            for (int i = 0; i < bundle.leistungenLc.length; i++)
+              if (!selectedParts.contains(bundle.leistungenLc[i])) i,
+          ];
+
+          final canSuggestAsGroupedCombo =
+              missingPartIndexes.length > 1 &&
+                  bundleBaseParts.isNotEmpty &&
+                  bundleBaseParts.every(selectedParts.contains);
+
+          if (canSuggestAsGroupedCombo) {
+            final missingPartLcs = [
+              for (final index in missingPartIndexes) bundle.leistungenLc[index],
+            ];
+            final missingDisplayNames = [
+              for (final index in missingPartIndexes) bundle.leistungen[index],
+            ];
+            final suggestionKey =
+                '$zielgruppe|$category|combo|${missingPartLcs.join("+")}';
+            if (suggestionsByKey.containsKey(suggestionKey)) continue;
+
+            final comboPrice = _previewForComboGroup(
+              combo: bundle,
+              category: category,
+              zielgruppe: zielgruppe,
+              requiredBasePartsLc: bundleBaseParts,
+              selectedPartsLc: selectedParts,
+              selectionMap: panelSingles,
+              singleBaseIndex: singleBaseIndex,
+              bundles: bundles,
+            );
+            if (comboPrice == null) continue;
+
+            double comboOriginal = 0.0;
+            for (final partLc in missingPartLcs) {
+              comboOriginal += _singlePriceOfPart(
+                category: category,
+                zielgruppe: zielgruppe,
+                partLc: partLc,
+                selectionMap: panelSingles,
+                singleBaseIndex: singleBaseIndex,
+              );
+            }
+            final hasDiscount = comboOriginal > 0 && comboPrice < comboOriginal;
+
+            suggestionsByKey[suggestionKey] = _BookingSummarySuggestion(
+              contextKey: suggestionKey,
+              zielgruppe: zielgruppe,
+              category: category,
+              title: missingDisplayNames.join(' + '),
+              displayNames: missingDisplayNames,
+              partLcs: missingPartLcs,
+              price: comboPrice,
+              originalPrice: hasDiscount ? comboOriginal : null,
+              duration: null,
+              bundle: bundle,
+            );
+            continue;
+          }
+
           for (int i = 0; i < bundle.leistungenLc.length; i++) {
             final partLc = bundle.leistungenLc[i];
             if (selectedParts.contains(partLc)) continue;
@@ -1657,11 +1720,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               contextKey: suggestionKey,
               zielgruppe: zielgruppe,
               category: category,
-              partLc: partLc,
               title: category.trim().isEmpty
                   ? displayName
                   : '$category - $displayName',
-              displayName: displayName,
+              displayNames: [displayName],
+              partLcs: [partLc],
               price: suggestionPrice,
               originalPrice: hasDiscount ? basePrice : null,
               duration: duration,
@@ -2088,6 +2151,82 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                           _ComboSelection>.from(
                                                         _selectedCombosVN.value,
                                                       );
+
+                                                      if (suggestion.isComboSuggestion) {
+                                                        final bundle = suggestion.bundle;
+                                                        if (bundle == null) return;
+
+                                                        combosMap.removeWhere(
+                                                          (_, comboSel) =>
+                                                              comboSel.zielgruppe ==
+                                                                  suggestion.zielgruppe &&
+                                                              comboSel.bundle.kategorie ==
+                                                                  suggestion.category &&
+                                                              comboSel.selectedPartsLc.any(
+                                                                suggestion.partLcs.contains,
+                                                              ),
+                                                        );
+
+                                                        combosMap[_comboSelectionKey(
+                                                          zielgruppe:
+                                                              suggestion.zielgruppe,
+                                                          combo: bundle,
+                                                        )] = _ComboSelection(
+                                                          bundle: bundle,
+                                                          zielgruppe:
+                                                              suggestion.zielgruppe,
+                                                          selectedAt:
+                                                              ++_selectionTicker,
+                                                          preis: suggestion.price,
+                                                          dauer: suggestion.duration,
+                                                          selectedPartsDisplay:
+                                                              suggestion.displayNames,
+                                                          selectedPartsLcOverride:
+                                                              suggestion.partLcs,
+                                                        );
+
+                                                        _selectedVN.value =
+                                                            singlesMap;
+                                                        _selectedCombosVN.value =
+                                                            combosMap;
+                                                        panelSingles = singlesMap;
+                                                        panelCombos = combosMap;
+
+                                                        entries = [
+                                                          ...panelSingles.entries.map(
+                                                            (e) => _singleEntry(
+                                                              e.key,
+                                                              e.value,
+                                                            ),
+                                                          ),
+                                                          ...panelCombos.entries.map(
+                                                            (e) => _comboEntry(
+                                                              e.key,
+                                                              e.value,
+                                                            ),
+                                                          ),
+                                                        ]
+                                                          ..sort(
+                                                            (a, b) => a.selectedAt
+                                                                .compareTo(
+                                                              b.selectedAt,
+                                                            ),
+                                                          );
+                                                        suggestions =
+                                                            _buildSuggestions();
+
+                                                        final totals = computeTotals(
+                                                          singlesMap,
+                                                          combosMap,
+                                                        );
+                                                        panelTotal =
+                                                            totals.optimized;
+                                                        panelSavings =
+                                                            totals.savings;
+
+                                                        setSheetState(() {});
+                                                        return;
+                                                      }
 
                                                       final selectionKey =
                                                           _keyFor(
@@ -4849,24 +4988,30 @@ class _BookingSummarySuggestion {
   final String contextKey;
   final String zielgruppe;
   final String category;
-  final String partLc;
   final String title;
-  final String displayName;
+  final List<String> displayNames;
+  final List<String> partLcs;
   final double? price;
   final double? originalPrice;
   final int? duration;
+  final Offer? bundle;
 
   const _BookingSummarySuggestion({
     required this.contextKey,
     required this.zielgruppe,
     required this.category,
-    required this.partLc,
     required this.title,
-    required this.displayName,
+    required this.displayNames,
+    required this.partLcs,
     required this.price,
     this.originalPrice,
     this.duration,
+    this.bundle,
   });
+
+  bool get isComboSuggestion => bundle != null && partLcs.length > 1;
+  String get displayName => displayNames.join(' + ');
+  String get partLc => partLcs.first;
 }
 
 /// ---------------------------------------------------------------
