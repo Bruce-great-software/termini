@@ -166,6 +166,8 @@ class _ComboSelection {
   final double? preis;
   final int? dauer;
   final String? varianteLabel;
+  final List<String>? selectedPartsDisplay;
+  final List<String>? selectedPartsLcOverride;
 
   const _ComboSelection({
     required this.bundle,
@@ -174,7 +176,12 @@ class _ComboSelection {
     this.preis,
     this.dauer,
     this.varianteLabel,
+    this.selectedPartsDisplay,
+    this.selectedPartsLcOverride,
   });
+
+  List<String> get selectedPartsLc => selectedPartsLcOverride ?? bundle.leistungenLc;
+  List<String> get selectedTitles => selectedPartsDisplay ?? bundle.leistungen;
 }
 
 
@@ -1256,12 +1263,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             (_, combo) =>
         combo.zielgruppe == item.zielgruppe &&
             combo.bundle.kategorie == item.kategorie &&
-            combo.bundle.leistungenLc.contains(item.leistung.toLowerCase()),
+            combo.selectedPartsLc.contains(item.leistung.toLowerCase()),
       );
     } else {
       map.remove(key);
       _removeDependentSelections(
         selectionMap: map,
+        zielgruppe: item.zielgruppe,
+        category: item.kategorie,
+        removedPartLc: item.leistung.toLowerCase(),
+      );
+      _removeDependentComboSelections(
+        combosMap: combos,
         zielgruppe: item.zielgruppe,
         category: item.kategorie,
         removedPartLc: item.leistung.toLowerCase(),
@@ -1300,21 +1313,26 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     }
 
     final selectedAll = partsLc.every(
-          (lc) => map.containsKey(_keyFor(zielgruppe: zg, category: category, partLc: lc)),
+          (lc) => combos.values.any(
+            (comboSel) =>
+                comboSel.zielgruppe == zg &&
+                comboSel.bundle.kategorie == category &&
+                comboSel.selectedPartsLc.length == partsLc.length &&
+                comboSel.selectedPartsLc.contains(lc) &&
+                partsLc.every(comboSel.selectedPartsLc.contains),
+          ),
     );
 
     if (selectedAll) {
-      for (final partLc in partsLc) {
-        final key = _keyFor(zielgruppe: zg, category: category, partLc: partLc);
-        map.remove(key);
-        _removeDependentSelections(
-          selectionMap: map,
-          zielgruppe: zg,
-          category: category,
-          removedPartLc: partLc,
-        );
-      }
+      combos.removeWhere(
+            (_, comboSel) =>
+        comboSel.zielgruppe == zg &&
+            comboSel.bundle.kategorie == category &&
+            comboSel.selectedPartsLc.length == partsLc.length &&
+            partsLc.every(comboSel.selectedPartsLc.contains),
+      );
       _selectedVN.value = map;
+      _selectedCombosVN.value = combos;
       return;
     }
 
@@ -1346,29 +1364,21 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     );
     if (remainder == null) return;
 
-    final perPartPrice =
-        (remainder ?? 0.0) / (partsLc.isEmpty ? 1 : partsLc.length);
-
-    for (int i = 0; i < partsLc.length; i++) {
-      final partLc = partsLc[i];
-      final partDisplay = partsDisplay[i];
-      final key = _keyFor(zielgruppe: zg, category: category, partLc: partLc);
-      map[key] = _CartItem(
-        kategorie: category,
-        leistung: partDisplay,
-        preis: perPartPrice,
-        dauer: null,
-        zielgruppe: zg,
-        selectedAt: ++_selectionTicker,
-        lockedDisplayPrice: perPartPrice,
-      );
-    }
-
     combos.removeWhere(
           (_, comboSel) =>
       comboSel.zielgruppe == zg &&
           comboSel.bundle.kategorie == category &&
-          comboSel.bundle.leistungenLc.any(partsLc.contains),
+          comboSel.selectedPartsLc.any(partsLc.contains),
+    );
+
+    combos[_comboSelectionKey(zielgruppe: zg, combo: combo)] = _ComboSelection(
+      bundle: combo,
+      zielgruppe: zg,
+      selectedAt: ++_selectionTicker,
+      preis: remainder,
+      dauer: null,
+      selectedPartsDisplay: partsDisplay,
+      selectedPartsLcOverride: partsLc,
     );
 
     _selectedVN.value = map;
@@ -1405,6 +1415,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         return true;
       });
     }
+  }
+
+  void _removeDependentComboSelections({
+    required Map<String, _ComboSelection> combosMap,
+    required String zielgruppe,
+    required String category,
+    required String removedPartLc,
+  }) {
+    combosMap.removeWhere(
+          (_, comboSel) =>
+      comboSel.zielgruppe == zielgruppe &&
+          comboSel.bundle.kategorie == category &&
+          comboSel.selectedPartsLc.length != comboSel.bundle.leistungenLc.length &&
+          !comboSel.selectedPartsLc.contains(removedPartLc) &&
+          comboSel.bundle.leistungenLc.contains(removedPartLc),
+    );
   }
 
   /// Combo-Helper: (de)selektiert alle Einzel-Leistungen der Kombi
@@ -1459,6 +1485,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return '$s €';
   }
 
+  int _selectedServiceCount({
+    required Map<String, _CartItem> singles,
+    required Map<String, _ComboSelection> combos,
+  }) {
+    return singles.length +
+        combos.values.fold<int>(
+          0,
+          (sum, combo) => sum + combo.selectedPartsLc.length,
+        );
+  }
+
   String _preisText(double? p) {
     if (p == null) return '–';
     final s = p.toStringAsFixed(2).replaceAll('.', ',');
@@ -1508,7 +1545,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     _BookingSummaryEntry _comboEntry(String key, _ComboSelection selection) {
       final comboPrice = selection.preis;
-      final comboOriginal = selection.bundle.leistungenLc.fold<double>(
+      final comboOriginal = selection.selectedPartsLc.fold<double>(
         0.0,
             (sum, partLc) =>
         sum +
@@ -1528,9 +1565,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         isCombo: true,
         selectedAt: selection.selectedAt,
         categoryLabel: selection.bundle.kategorie,
-        title: selection.bundle.leistungen.join(' + '),
+        title: selection.selectedTitles.join(' + '),
         subtitle: [
-          selection.bundle.kategorie,
           selection.varianteLabel ??
               _comboMethodLabelForDisplay(selection.bundle),
         ].where((e) => e != null && e.trim().isNotEmpty).join(' • '),
@@ -1568,7 +1604,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       for (final combo in panelCombos.values) {
         final contextKey = '${combo.zielgruppe}|${combo.bundle.kategorie}';
         selectedPartsByContext.putIfAbsent(contextKey, () => <String>{})
-            .addAll(combo.bundle.leistungenLc);
+            .addAll(combo.selectedPartsLc);
       }
 
       final suggestionsByKey = <String, _BookingSummarySuggestion>{};
@@ -1674,7 +1710,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             style: TextStyle(fontWeight: FontWeight.w700),
                           ),
                           subtitle: Text(
-                            '${entries.length} Leistungen ausgewählt',
+                            '${_selectedServiceCount(singles: panelSingles, combos: panelCombos)} '
+                            'Leistungen ausgewählt',
                           ),
                           trailing: IconButton(
                             icon: const Icon(Icons.close),
@@ -1843,6 +1880,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                         removedPartLc: removedItem
                                                             .leistung
                                                             .toLowerCase(),
+                                                      );
+                                                      _removeDependentComboSelections(
+                                                        combosMap: combosMap,
+                                                        zielgruppe:
+                                                            removedItem.zielgruppe,
+                                                        category:
+                                                            removedItem.kategorie,
+                                                        removedPartLc:
+                                                            removedItem.leistung
+                                                                .toLowerCase(),
                                                       );
                                                     }
                                                   }
@@ -2129,7 +2176,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                             combo.bundle.kategorie ==
                                                                 suggestion
                                                                     .category &&
-                                                            combo.bundle.leistungenLc
+                                                            combo.selectedPartsLc
                                                                 .contains(
                                                               suggestion.partLc,
                                                             ),
@@ -2613,7 +2660,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     (_, combo) =>
                                 combo.zielgruppe == zg &&
                                     combo.bundle.kategorie == category &&
-                                    combo.bundle.leistungenLc.contains(base.leistungenLc.first),
+                                    combo.selectedPartsLc.contains(base.leistungenLc.first),
                               );
 
                             _selectedVN.value = {
@@ -4067,7 +4114,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           (_, combo) =>
                                       combo.zielgruppe == _zielgruppe &&
                                           combo.bundle.kategorie == kat &&
-                                          combo.bundle.leistungenLc.contains(partLc),
+                                          combo.selectedPartsLc.contains(partLc),
                                     );
 
                                     _selectedVN.value = currentMap;
@@ -4386,14 +4433,28 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         ),
                         SizedBox(
                           width: kRightColWidth,
-                          child: ValueListenableBuilder<Map<String, _CartItem>>(
-                            valueListenable: _selectedVN,
-                            builder: (_, map, __) {
+                          child: AnimatedBuilder(
+                            animation: Listenable.merge([_selectedVN, _selectedCombosVN]),
+                            builder: (_, __) {
+                              final map = _selectedVN.value;
+                              final combos = _selectedCombosVN.value;
                               final selectedPartsLc = map.values
                                   .where((it) => it.kategorie == kat && it.zielgruppe == _zielgruppe)
                                   .map((it) => it.leistung.toLowerCase())
                                   .toSet();
-                              final selectedAll = groupPartsLc.every(selectedPartsLc.contains);
+                              _ComboSelection? selectedGroupCombo;
+                              for (final comboSel in combos.values) {
+                                if (comboSel.zielgruppe != _zielgruppe ||
+                                    comboSel.bundle.kategorie != kat ||
+                                    comboSel.selectedPartsLc.length != groupPartsLc.length) {
+                                  continue;
+                                }
+                                if (groupPartsLc.every(comboSel.selectedPartsLc.contains)) {
+                                  selectedGroupCombo = comboSel;
+                                  break;
+                                }
+                              }
+                              final selectedAll = selectedGroupCombo != null;
                               final comboSizeKey = _selectedSizeKeyFromSelection(
                                 combo: group.bundle,
                                 category: kat,
@@ -4424,16 +4485,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               double displayPrice;
 
                               if (selectedAll) {
-                                displayPrice = 0.0;
-                                for (final partLc in groupPartsLc) {
-                                  final key = _keyFor(
-                                    zielgruppe: _zielgruppe,
-                                    category: kat,
-                                    partLc: partLc,
-                                  );
-                                  final item = map[key];
-                                  displayPrice += item?.lockedDisplayPrice ?? item?.preis ?? 0.0;
-                                }
+                                displayPrice = selectedGroupCombo?.preis ?? 0.0;
                               } else {
                                 displayPrice = previewPrice ?? 0.0;
                               }
@@ -4711,7 +4763,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         : const _CartTotals(naive: 0.0, optimized: 0.0);
                     final total = hasSelection ? totals.optimized : 0.0;
                     final savings = hasSelection ? totals.savings : 0.0;
-                    final count = map.length + combos.length;
+                    final count = _selectedServiceCount(
+                      singles: map,
+                      combos: combos,
+                    );
 
                     return IgnorePointer(
                       ignoring: !hasSelection,
