@@ -1763,15 +1763,46 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             );
             if (comboPrice == null) continue;
 
-            double comboOriginal = 0.0;
-            for (final partLc in missingPartLcs) {
-              comboOriginal += _singlePriceOfPart(
-                category: category,
+            final missingPartsSet = missingPartLcs.toSet();
+            final matchingStandaloneCombo = bundles.where((offer) {
+              if (offer.kategorie != category) return false;
+              if (!_hasZielgruppenData(offer, zielgruppe)) return false;
+              if (offer.leistungenLc.length != missingPartLcs.length) return false;
+              return offer.leistungenLc.toSet().containsAll(missingPartsSet) &&
+                  missingPartsSet.containsAll(offer.leistungenLc);
+            }).fold<Offer?>(null, (best, offer) {
+              if (best == null) return offer;
+              final bestPrice = _bundlePriceForCombo(
+                combo: best,
                 zielgruppe: zielgruppe,
-                partLc: partLc,
-                selectionMap: panelSingles,
-                singleBaseIndex: singleBaseIndex,
               );
+              final offerPrice = _bundlePriceForCombo(
+                combo: offer,
+                zielgruppe: zielgruppe,
+              );
+              if (offerPrice == null) return best;
+              if (bestPrice == null || offerPrice < bestPrice) return offer;
+              return best;
+            });
+
+            double comboOriginal =
+                matchingStandaloneCombo != null
+                    ? (_bundlePriceForCombo(
+                          combo: matchingStandaloneCombo,
+                          zielgruppe: zielgruppe,
+                        ) ??
+                        0.0)
+                    : 0.0;
+            if (comboOriginal <= 0) {
+              for (final partLc in missingPartLcs) {
+                comboOriginal += _singlePriceOfPart(
+                  category: category,
+                  zielgruppe: zielgruppe,
+                  partLc: partLc,
+                  selectionMap: panelSingles,
+                  singleBaseIndex: singleBaseIndex,
+                );
+              }
             }
             final hasDiscount = comboOriginal > 0 && comboPrice < comboOriginal;
 
