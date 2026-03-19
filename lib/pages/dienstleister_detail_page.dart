@@ -4741,131 +4741,149 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                                if (effectiveDuration != null) ...[
-                                  buildDurationBadge(),
-                                  const SizedBox(width: 4),
-                                ],
-                                buildPriceText(),
-                                const SizedBox(width: 8),
-                                IconButton(
-                                  tooltip: selected
-                                      ? 'Entfernen'
-                                      : (!canAdd
-                                      ? 'Nur mit vorheriger Auswahl'
-                                      : (hasAnySizeOptions
-                                      ? 'Methode/Option wählen'
-                                      : 'Hinzufügen')),
-                                  onPressed: !canInteract
-                                      ? null
-                                      : () {
-                                    if (hasAnySizeOptions) {
-                                      if (selected) {
-                                        final newMap =
-                                        Map<String, _CartItem>.from(
-                                          _selectedVN.value,
-                                        );
-                                        newMap.remove(selKey);
-                                        _selectedVN.value = newMap;
-                                      } else {
-                                        final variantsForPart = <Offer>[];
-                                        for (final label in sortedLabels) {
-                                          final o = singleVariantIndex[
-                                          '$kat|$partLc|${label.toLowerCase()}'];
-                                          if (o != null &&
-                                              _hasZielgruppenData(
-                                                o,
-                                                _zielgruppe,
-                                              )) {
-                                            variantsForPart.add(o);
-                                          }
-                                        }
-                                        final combineRows =
-                                        _buildCombineRowsFor(kat, partLc);
-                                        _openVariantSheet(
-                                          base: offer,
-                                          category: kat,
-                                          variantOffersForPart:
-                                          variantsForPart,
-                                          singleBaseIndex: singleBaseIndex,
-                                          bundles: bundles,
-                                          combineRows: combineRows,
-                                        );
-                                      }
-                                    } else {
-                                      final currentMap =
-                                      Map<String, _CartItem>.from(
-                                        _selectedVN.value,
-                                      );
-
-                                      if (_hasItemsFromOtherZielgruppe(
-                                        _zielgruppe,
-                                      )) {
-                                        final other =
-                                        currentMap.values.isNotEmpty
-                                            ? currentMap
-                                            .values
-                                            .first
-                                            .zielgruppe
-                                            : _selectedCombosVN
-                                            .value
-                                            .values
-                                            .first
-                                            .zielgruppe;
-                                        _showWrongGroupSnack(other);
-                                        return;
-                                      }
-
-                                      final singlePrice = preis ??
-                                          singleBaseIndex[
-                                          '$kat|$partLc']
-                                              ?.priceFor(_zielgruppe);
-                                      final previewPrice =
-                                      _previewForLastMissingPartResolved(
-                                        category: kat,
-                                        zielgruppe: _zielgruppe,
-                                        partLc: partLc,
-                                        selectedPartsLc: selectedPartsLc,
-                                        selectionMap: currentMap,
-                                        singleBaseIndex: singleBaseIndex,
-                                        bundles: bundles,
-                                      );
-                                      final priceForSelection = isDerivedSingle
-                                          ? (previewPrice ?? singlePrice)
-                                          : (singlePrice ?? previewPrice);
-
-                                      final locked =
-                                      _lockedPriceForNewSelection(
-                                        category: kat,
-                                        zielgruppe: _zielgruppe,
-                                        newPartLc: partLc,
-                                        selectionMap: currentMap,
-                                        singleBaseIndex: singleBaseIndex,
-                                        bundles: bundles,
-                                        newPartSinglePrice: priceForSelection,
-                                      );
-
-                                      _toggleSelection(
-                                        selKey,
-                                        _CartItem(
-                                          kategorie: kat,
-                                          leistung: partDisplay,
-                                          preis: priceForSelection,
-                                          dauer: effectiveDuration,
-                                          zielgruppe: _zielgruppe,
-                                          selectedAt: ++_selectionTicker,
-                                          lockedDisplayPrice: locked,
-                                        ),
-                                        singleBaseIndex: singleBaseIndex,
-                                        bundles: bundles,
-                                      );
-                                    }
-                                  },
-                                  icon: Icon(
-                                    selected
-                                        ? Icons.check_circle
-                                        : Icons.add_circle_outline,
+                                SizedBox(
+                                  width: kDurColWidth,
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
+                                    child: effectiveDuration != null
+                                        ? buildDurationBadge()
+                                        : const SizedBox.shrink(),
                                   ),
-                                  color: selected ? Colors.blueAccent : null,
+                                ),
+                                SizedBox(
+                                  width: kRightColWidth,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Flexible(
+                                        child: Align(
+                                          alignment: Alignment.centerRight,
+                                          child: buildPriceText(),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      IconButton(
+                                        tooltip: selected
+                                            ? 'Entfernen'
+                                            : (!canAdd
+                                            ? 'Nur mit vorheriger Auswahl'
+                                            : (hasAnySizeOptions
+                                            ? 'Methode/Option wählen'
+                                            : 'Hinzufügen')),
+                                        onPressed: !canInteract
+                                            ? null
+                                            : () {
+                                          if (hasAnySizeOptions) {
+                                            if (selected) {
+                                              final newMap =
+                                              Map<String, _CartItem>.from(
+                                                _selectedVN.value,
+                                              );
+                                              newMap.remove(selKey);
+                                              _selectedVN.value = newMap;
+                                            } else {
+                                              final variantsForPart = <Offer>[];
+                                              for (final label in sortedLabels) {
+                                                final o = singleVariantIndex[
+                                                '$kat|$partLc|${label.toLowerCase()}'];
+                                                if (o != null &&
+                                                    _hasZielgruppenData(
+                                                      o,
+                                                      _zielgruppe,
+                                                    )) {
+                                                  variantsForPart.add(o);
+                                                }
+                                              }
+                                              final combineRows =
+                                              _buildCombineRowsFor(kat, partLc);
+                                              _openVariantSheet(
+                                                base: offer,
+                                                category: kat,
+                                                variantOffersForPart:
+                                                variantsForPart,
+                                                singleBaseIndex: singleBaseIndex,
+                                                bundles: bundles,
+                                                combineRows: combineRows,
+                                              );
+                                            }
+                                          } else {
+                                            final currentMap =
+                                            Map<String, _CartItem>.from(
+                                              _selectedVN.value,
+                                            );
+
+                                            if (_hasItemsFromOtherZielgruppe(
+                                              _zielgruppe,
+                                            )) {
+                                              final other =
+                                              currentMap.values.isNotEmpty
+                                                  ? currentMap
+                                                  .values
+                                                  .first
+                                                  .zielgruppe
+                                                  : _selectedCombosVN
+                                                  .value
+                                                  .values
+                                                  .first
+                                                  .zielgruppe;
+                                              _showWrongGroupSnack(other);
+                                              return;
+                                            }
+
+                                            final singlePrice = preis ??
+                                                singleBaseIndex[
+                                                '$kat|$partLc']
+                                                    ?.priceFor(_zielgruppe);
+                                            final previewPrice =
+                                            _previewForLastMissingPartResolved(
+                                              category: kat,
+                                              zielgruppe: _zielgruppe,
+                                              partLc: partLc,
+                                              selectedPartsLc: selectedPartsLc,
+                                              selectionMap: currentMap,
+                                              singleBaseIndex: singleBaseIndex,
+                                              bundles: bundles,
+                                            );
+                                            final priceForSelection = isDerivedSingle
+                                                ? (previewPrice ?? singlePrice)
+                                                : (singlePrice ?? previewPrice);
+
+                                            final locked =
+                                            _lockedPriceForNewSelection(
+                                              category: kat,
+                                              zielgruppe: _zielgruppe,
+                                              newPartLc: partLc,
+                                              selectionMap: currentMap,
+                                              singleBaseIndex: singleBaseIndex,
+                                              bundles: bundles,
+                                              newPartSinglePrice: priceForSelection,
+                                            );
+
+                                            _toggleSelection(
+                                              selKey,
+                                              _CartItem(
+                                                kategorie: kat,
+                                                leistung: partDisplay,
+                                                preis: priceForSelection,
+                                                dauer: effectiveDuration,
+                                                zielgruppe: _zielgruppe,
+                                                selectedAt: ++_selectionTicker,
+                                                lockedDisplayPrice: locked,
+                                              ),
+                                              singleBaseIndex: singleBaseIndex,
+                                              bundles: bundles,
+                                            );
+                                          }
+                                        },
+                                        icon: Icon(
+                                          selected
+                                              ? Icons.check_circle
+                                              : Icons.add_circle_outline,
+                                        ),
+                                        color: selected ? Colors.blueAccent : null,
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),
