@@ -2181,6 +2181,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                                                   _clearInvalidLockedPrices(
                                                     selectionMap: singlesMap,
+                                                    selectedCombos: combosMap,
                                                     singleBaseIndex:
                                                     singleBaseIndex,
                                                     bundles: bundles,
@@ -2569,6 +2570,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                                                 _clearInvalidLockedPrices(
                                                   selectionMap: singlesMap,
+                                                  selectedCombos: combosMap,
                                                   singleBaseIndex:
                                                   singleBaseIndex,
                                                   bundles: bundles,
