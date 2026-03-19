@@ -1772,6 +1772,39 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
       final suggestionsByKey = <String, _BookingSummarySuggestion>{};
 
+      bool shouldReplaceSuggestion(
+        _BookingSummarySuggestion current,
+        _BookingSummarySuggestion next,
+      ) {
+        final currentPrice = current.price;
+        final nextPrice = next.price;
+
+        if (currentPrice == null) return nextPrice != null;
+        if (nextPrice == null) return false;
+        if (nextPrice < currentPrice) return true;
+        if (nextPrice > currentPrice) return false;
+
+        final currentSavings =
+            current.originalPrice != null ? current.originalPrice! - currentPrice : 0.0;
+        final nextSavings =
+            next.originalPrice != null ? next.originalPrice! - nextPrice : 0.0;
+        if (nextSavings > currentSavings) return true;
+        if (nextSavings < currentSavings) return false;
+
+        if (current.originalPrice == null && next.originalPrice != null) {
+          return true;
+        }
+
+        return false;
+      }
+
+      void storeSuggestion(String key, _BookingSummarySuggestion suggestion) {
+        final current = suggestionsByKey[key];
+        if (current == null || shouldReplaceSuggestion(current, suggestion)) {
+          suggestionsByKey[key] = suggestion;
+        }
+      }
+
       for (final bundle in bundles) {
         for (final context in selectedPartsByContext.entries) {
           final ctx = context.key.split('|');
@@ -1808,8 +1841,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             ];
             final suggestionKey =
                 '$zielgruppe|$category|combo|${missingPartLcs.join("+")}';
-            if (suggestionsByKey.containsKey(suggestionKey)) continue;
-
             final comboPrice = _previewForComboGroup(
               combo: bundle,
               category: category,
@@ -1817,6 +1848,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               requiredBasePartsLc: bundleBaseParts,
               selectedPartsLc: selectedParts,
               selectionMap: panelSingles,
+              combosMap: panelCombos,
               singleBaseIndex: singleBaseIndex,
               bundles: bundles,
             );
@@ -1865,17 +1897,20 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             }
             final hasDiscount = comboOriginal > 0 && comboPrice < comboOriginal;
 
-            suggestionsByKey[suggestionKey] = _BookingSummarySuggestion(
-              contextKey: suggestionKey,
-              zielgruppe: zielgruppe,
-              category: category,
-              title: missingDisplayNames.join(' + '),
-              displayNames: missingDisplayNames,
-              partLcs: missingPartLcs,
-              price: comboPrice,
-              originalPrice: hasDiscount ? comboOriginal : null,
-              duration: null,
-              bundle: bundle,
+            storeSuggestion(
+              suggestionKey,
+              _BookingSummarySuggestion(
+                contextKey: suggestionKey,
+                zielgruppe: zielgruppe,
+                category: category,
+                title: missingDisplayNames.join(' + '),
+                displayNames: missingDisplayNames,
+                partLcs: missingPartLcs,
+                price: comboPrice,
+                originalPrice: hasDiscount ? comboOriginal : null,
+                duration: null,
+                bundle: bundle,
+              ),
             );
             continue;
           }
@@ -1885,8 +1920,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             if (selectedParts.contains(partLc)) continue;
 
             final suggestionKey = '$zielgruppe|$category|$partLc';
-            if (suggestionsByKey.containsKey(suggestionKey)) continue;
-
             final baseOffer = singleBaseIndex['$category|$partLc'];
             final basePrice = baseOffer?.priceFor(zielgruppe);
             final duration = baseOffer?.durationFor(zielgruppe);
@@ -1896,6 +1929,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               partLc: partLc,
               selectedPartsLc: selectedParts,
               selectionMap: panelSingles,
+              combosMap: panelCombos,
               singleBaseIndex: singleBaseIndex,
               bundles: bundles,
             );
@@ -1910,18 +1944,21 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               fallback: i < bundle.leistungen.length ? bundle.leistungen[i] : null,
             );
 
-            suggestionsByKey[suggestionKey] = _BookingSummarySuggestion(
-              contextKey: suggestionKey,
-              zielgruppe: zielgruppe,
-              category: category,
-              title: category.trim().isEmpty
-                  ? displayName
-                  : '$category - $displayName',
-              displayNames: [displayName],
-              partLcs: [partLc],
-              price: suggestionPrice,
-              originalPrice: hasDiscount ? basePrice : null,
-              duration: duration,
+            storeSuggestion(
+              suggestionKey,
+              _BookingSummarySuggestion(
+                contextKey: suggestionKey,
+                zielgruppe: zielgruppe,
+                category: category,
+                title: category.trim().isEmpty
+                    ? displayName
+                    : '$category - $displayName',
+                displayNames: [displayName],
+                partLcs: [partLc],
+                price: suggestionPrice,
+                originalPrice: hasDiscount ? basePrice : null,
+                duration: duration,
+              ),
             );
           }
         }
