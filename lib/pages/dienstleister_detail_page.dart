@@ -1760,7 +1760,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 singleBaseIndex: singleBaseIndex,
               );
             }
-            final hasDiscount = comboOriginal > 0 && comboPrice < comboOriginal;
+            double? comboOriginalPrice;
+            for (final candidate in bundles) {
+              if (candidate.kategorie != category ||
+                  !_hasZielgruppenData(candidate, zielgruppe) ||
+                  candidate.leistungenLc.length != missingPartLcs.length) {
+                continue;
+              }
+              if (!missingPartLcs.every(candidate.leistungenLc.contains)) continue;
+              final candidatePrice = candidate.priceFor(zielgruppe);
+              if (candidatePrice == null) continue;
+              comboOriginalPrice = candidatePrice;
+              break;
+            }
+            comboOriginalPrice ??= comboOriginal > 0 ? comboOriginal : null;
+            final hasDiscount = comboOriginalPrice != null &&
+                comboPrice < comboOriginalPrice;
 
             suggestionsByKey[suggestionKey] = _BookingSummarySuggestion(
               contextKey: suggestionKey,
@@ -1770,7 +1785,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               displayNames: missingDisplayNames,
               partLcs: missingPartLcs,
               price: comboPrice,
-              originalPrice: hasDiscount ? comboOriginal : null,
+              originalPrice: hasDiscount ? comboOriginalPrice : null,
               duration: null,
               bundle: bundle,
             );
@@ -4951,16 +4966,45 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       ),
                                       const SizedBox(width: 8),
                                     ],
-                                    Text(
-                                      _preisText(effectivePrice),
-                                      style: TextStyle(
-                                        color: previewPrice != null && !selected
-                                            ? Colors.green
-                                            : Colors.black54,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w500,
+                                    if (previewPrice != null &&
+                                        !selected &&
+                                        displayPreis != null &&
+                                        previewPrice < displayPreis)
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                        children: [
+                                          Text(
+                                            _preisText(displayPreis),
+                                            style: const TextStyle(
+                                              color: Colors.black45,
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.w500,
+                                              decoration: TextDecoration.lineThrough,
+                                              decorationThickness: 2,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            _preisText(effectivePrice),
+                                            style: const TextStyle(
+                                              color: Colors.green,
+                                              fontSize: 13.5,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    else
+                                      Text(
+                                        _preisText(effectivePrice),
+                                        style: TextStyle(
+                                          color: previewPrice != null && !selected
+                                              ? Colors.green
+                                              : Colors.black54,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                        ),
                                       ),
-                                    ),
                                     const SizedBox(width: 8),
                                     IconButton(
                                       tooltip:
