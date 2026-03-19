@@ -1086,7 +1086,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     if (labels.isNotEmpty) {
       return labels.first;
     }
-    return 'Kombi-Angebot';
+    return '';
   }
 
   String? _comboMethodLabelForDisplay(Offer combo) {
@@ -1155,12 +1155,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   List<_ComboMethodOption> _comboMethodOptionsFor(List<Offer> offers) {
     final Map<String, Offer> byLabel = {};
+    Offer? fallbackOffer;
     for (final combo in offers) {
       final label = _comboMethodLabelSingle(combo);
+      if (label.trim().isEmpty) {
+        if (fallbackOffer == null || _isBetterOfferForDisplay(combo, fallbackOffer, _zielgruppe)) {
+          fallbackOffer = combo;
+        }
+        continue;
+      }
       final existing = byLabel[label];
       if (existing == null || _isBetterOfferForDisplay(combo, existing, _zielgruppe)) {
         byLabel[label] = combo;
       }
+    }
+    if (byLabel.isEmpty && fallbackOffer != null) {
+      return [_ComboMethodOption(label: '', offer: fallbackOffer)];
     }
     final labels = byLabel.keys.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
@@ -4818,7 +4828,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             for (final group in comboGroups) {
               final methodOptions = _comboMethodOptionsFor(group.offers);
               if (methodOptions.isEmpty) continue;
-              final methodLabels = methodOptions.map((e) => e.label).toList();
+              final methodLabels = methodOptions
+                  .map((e) => e.label)
+                  .where((label) => label.trim().isNotEmpty)
+                  .toList();
 
               final displayPreis = _minDisplayPriceForCombos(group.offers, _zielgruppe);
               final displayDauer = _minDisplayDurationForCombos(group.offers, _zielgruppe);
