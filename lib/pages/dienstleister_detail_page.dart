@@ -2672,6 +2672,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required Offer base,
     required String category,
     required List<Offer> variantOffersForPart,
+    required Map<String, Offer> singleBaseIndex,
+    required List<Offer> bundles,
     List<_ComboRow> combineRows = const <_ComboRow>[],
     String? preselectVarLc,
   }) async {
@@ -4784,6 +4786,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           category: kat,
                                           variantOffersForPart:
                                           variantsForPart,
+                                          singleBaseIndex: singleBaseIndex,
+                                          bundles: bundles,
                                           combineRows: combineRows,
                                         );
                                       }
