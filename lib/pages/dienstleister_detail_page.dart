@@ -1251,10 +1251,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       return s;
     }
 
+    bool isDerivedSingle(Offer o) => o.id.startsWith('combo-extra:');
+
     final candidateScore = score(candidate);
     final existingScore = score(existing);
     if (candidateScore != existingScore) {
       return candidateScore > existingScore;
+    }
+
+    final candidateDerived = isDerivedSingle(candidate);
+    final existingDerived = isDerivedSingle(existing);
+    if (candidateDerived != existingDerived) {
+      return !candidateDerived;
     }
 
     final candidatePrice = _displayPriceFor(candidate, zg);
@@ -4099,7 +4107,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         Widget buildPriceText() {
                           double? newPrice;
                           double? preview;
-                          final comparePrice = effectivePrice ?? effectiveDisplayPreis;
+                          final compareOffer = isDerivedSingle
+                              ? (singleBaseIndex['$kat|$partLc'] ?? offer)
+                              : offer;
+                          final comparePrice = effectivePrice ??
+                              _displayPriceFor(compareOffer, _zielgruppe) ??
+                              effectiveDisplayPreis;
 
                           if (selected) {
                             final lockedDiscount = selectedItem == null
