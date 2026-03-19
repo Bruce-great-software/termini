@@ -1272,6 +1272,37 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return combo.priceFor(zielgruppe) ?? _minSizePriceFor(combo, zielgruppe);
   }
 
+  Offer? _bestStandaloneComboForParts({
+    required String category,
+    required String zielgruppe,
+    required List<String> partLcs,
+    required List<Offer> bundles,
+  }) {
+    final selectedParts = partLcs.toSet();
+
+    return bundles.where((offer) {
+      if (offer.kategorie != category) return false;
+      if (!_hasZielgruppenData(offer, zielgruppe)) return false;
+      if (offer.leistungenLc.length != partLcs.length) return false;
+      final offerParts = offer.leistungenLc.toSet();
+      return offerParts.containsAll(selectedParts) &&
+          selectedParts.containsAll(offerParts);
+    }).fold<Offer?>(null, (best, offer) {
+      if (best == null) return offer;
+      final bestPrice = _bundlePriceForCombo(
+        combo: best,
+        zielgruppe: zielgruppe,
+      );
+      final offerPrice = _bundlePriceForCombo(
+        combo: offer,
+        zielgruppe: zielgruppe,
+      );
+      if (offerPrice == null) return best;
+      if (bestPrice == null || offerPrice < bestPrice) return offer;
+      return best;
+    });
+  }
+
   int? _bundleDurationForCombo({
     required Offer combo,
     required String zielgruppe,
@@ -1408,6 +1439,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         zielgruppe: item.zielgruppe,
         category: item.kategorie,
         removedPartLc: item.leistung.toLowerCase(),
+        bundles: bundles,
       );
     }
 
@@ -1560,15 +1592,60 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required String zielgruppe,
     required String category,
     required String removedPartLc,
+    required List<Offer> bundles,
   }) {
-    combosMap.removeWhere(
-          (_, comboSel) =>
-      comboSel.zielgruppe == zielgruppe &&
+    final entries = combosMap.entries.toList();
+
+    for (final entry in entries) {
+      final comboSel = entry.value;
+      final isDependentPartialCombo =
+          comboSel.zielgruppe == zielgruppe &&
           comboSel.bundle.kategorie == category &&
           comboSel.selectedPartsLc.length != comboSel.bundle.leistungenLc.length &&
           !comboSel.selectedPartsLc.contains(removedPartLc) &&
-          comboSel.bundle.leistungenLc.contains(removedPartLc),
-    );
+          comboSel.bundle.leistungenLc.contains(removedPartLc);
+      if (!isDependentPartialCombo) continue;
+
+      combosMap.remove(entry.key);
+
+      final standaloneCombo = _bestStandaloneComboForParts(
+        category: category,
+        zielgruppe: zielgruppe,
+        partLcs: comboSel.selectedPartsLc,
+        bundles: bundles,
+      );
+      if (standaloneCombo == null) {
+        continue;
+      }
+
+      final standalonePrice = _bundlePriceForCombo(
+        combo: standaloneCombo,
+        zielgruppe: zielgruppe,
+      );
+      if (standalonePrice == null) {
+        continue;
+      }
+
+      combosMap[_comboSelectionKey(
+        zielgruppe: zielgruppe,
+        combo: standaloneCombo,
+      )] = _ComboSelection(
+        bundle: standaloneCombo,
+        zielgruppe: zielgruppe,
+        selectedAt: comboSel.selectedAt,
+        preis: standalonePrice,
+        dauer: comboSel.dauer ??
+            _bundleDurationForCombo(
+              combo: standaloneCombo,
+              zielgruppe: zielgruppe,
+            ),
+        varianteLabel:
+            comboSel.varianteLabel ?? _comboVariantLabel(bundle: standaloneCombo),
+        originalPrice: null,
+        selectedPartsDisplay: comboSel.selectedTitles,
+        selectedPartsLcOverride: comboSel.selectedPartsLc,
+      );
+    }
   }
 
   /// Combo-Helper: (de)selektiert alle Einzel-Leistungen der Kombi
@@ -2184,6 +2261,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                         removedPartLc:
                                                         removedItem.leistung
                                                             .toLowerCase(),
+                                                        bundles: bundles,
                                                       );
                                                     }
                                                   }
