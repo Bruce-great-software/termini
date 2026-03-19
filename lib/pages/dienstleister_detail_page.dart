@@ -4099,6 +4099,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         Widget buildPriceText() {
                           double? newPrice;
                           double? preview;
+                          final comparePrice = effectivePrice ?? effectiveDisplayPreis;
 
                           if (selected) {
                             final lockedDiscount = selectedItem == null
@@ -4110,8 +4111,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               bundles: bundles,
                             );
                             if (lockedDiscount != null &&
-                                effectivePrice != null &&
-                                lockedDiscount < effectivePrice) {
+                                comparePrice != null &&
+                                lockedDiscount < comparePrice) {
                               newPrice = lockedDiscount;
                             }
                           } else {
@@ -4124,18 +4125,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               singleBaseIndex: singleBaseIndex,
                               bundles: bundles,
                             );
-                            if (preview != null && effectivePrice != null && preview < effectivePrice) {
+                            if (preview != null && comparePrice != null && preview < comparePrice) {
                               newPrice = preview;
                             }
                           }
 
-                          if (newPrice != null) {
+                          if (newPrice != null && comparePrice != null) {
                             return Column(
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Text(
-                                  _preisText(effectivePrice),
+                                  _preisText(comparePrice),
                                   style: const TextStyle(
                                     color: Colors.black45,
                                     fontSize: 12.5,
@@ -4157,7 +4158,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             );
                           }
 
-                          if (preview != null && effectivePrice == null) {
+                          if (preview != null && comparePrice == null) {
                             return Text(
                               _preisText(preview),
                               style: const TextStyle(
@@ -4169,7 +4170,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           }
 
                           return Text(
-                            _preisText(effectivePrice),
+                            _preisText(comparePrice),
                             style: const TextStyle(
                               color: Colors.black54,
                               fontSize: 13,
