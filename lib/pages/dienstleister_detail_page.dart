@@ -1448,6 +1448,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       singleBaseIndex: singleBaseIndex,
       bundles: bundles,
     );
+    _refreshComboSelections(
+      selectionMap: map,
+      combosMap: combos,
+      singleBaseIndex: singleBaseIndex,
+      bundles: bundles,
+    );
 
     _selectedVN.value = map;
     _selectedCombosVN.value = combos;
@@ -1584,6 +1590,82 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         removedAny = true;
         return true;
       });
+    }
+  }
+
+
+  void _refreshComboSelections({
+    required Map<String, _CartItem> selectionMap,
+    required Map<String, _ComboSelection> combosMap,
+    required Map<String, Offer> singleBaseIndex,
+    required List<Offer> bundles,
+  }) {
+    final entries = combosMap.entries.toList();
+
+    for (final entry in entries) {
+      final selection = entry.value;
+      if (selection.selectedPartsLc.length != selection.bundle.leistungenLc.length) {
+        continue;
+      }
+
+      final standaloneCombo = _bestStandaloneComboForParts(
+        category: selection.bundle.kategorie,
+        zielgruppe: selection.zielgruppe,
+        partLcs: selection.selectedPartsLc,
+        bundles: bundles,
+      );
+      final targetCombo = standaloneCombo ?? selection.bundle;
+      final standalonePrice = _bundlePriceForCombo(
+        combo: targetCombo,
+        zielgruppe: selection.zielgruppe,
+      );
+      if (standalonePrice == null) continue;
+
+      final selectedParts = _selectedPartsForContext(
+        zielgruppe: selection.zielgruppe,
+        category: selection.bundle.kategorie,
+        selectionMap: selectionMap,
+        combosMap: combosMap,
+      );
+      final previewPrice = _previewForStandaloneComboOffer(
+        combo: targetCombo,
+        category: selection.bundle.kategorie,
+        zielgruppe: selection.zielgruppe,
+        selectedPartsLc: selectedParts,
+        selectionMap: selectionMap,
+        combosMap: combosMap,
+        singleBaseIndex: singleBaseIndex,
+        bundles: bundles,
+        comboPriceOverride: standalonePrice,
+      );
+      final effectivePrice =
+          previewPrice != null && previewPrice < standalonePrice
+              ? previewPrice
+              : standalonePrice;
+
+      final newKey = _comboSelectionKey(
+        zielgruppe: selection.zielgruppe,
+        combo: targetCombo,
+      );
+      if (newKey != entry.key) {
+        combosMap.remove(entry.key);
+      }
+      combosMap[newKey] = _ComboSelection(
+        bundle: targetCombo,
+        zielgruppe: selection.zielgruppe,
+        selectedAt: selection.selectedAt,
+        preis: effectivePrice,
+        dauer: selection.dauer ??
+            _bundleDurationForCombo(
+              combo: targetCombo,
+              zielgruppe: selection.zielgruppe,
+            ),
+        varianteLabel:
+            selection.varianteLabel ?? _comboVariantLabel(bundle: targetCombo),
+        originalPrice: effectivePrice < standalonePrice ? standalonePrice : null,
+        selectedPartsDisplay: selection.selectedTitles,
+        selectedPartsLcOverride: selection.selectedPartsLc,
+      );
     }
   }
 
@@ -2268,6 +2350,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                                                   _clearInvalidLockedPrices(
                                                     selectionMap: singlesMap,
+                                                    singleBaseIndex:
+                                                    singleBaseIndex,
+                                                    bundles: bundles,
+                                                  );
+                                                  _refreshComboSelections(
+                                                    selectionMap: singlesMap,
+                                                    combosMap: combosMap,
                                                     singleBaseIndex:
                                                     singleBaseIndex,
                                                     bundles: bundles,
