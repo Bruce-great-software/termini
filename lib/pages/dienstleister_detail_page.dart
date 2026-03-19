@@ -494,6 +494,83 @@ double? _previewForComboGroup({
   return (bundlePrice - baseContribution).clamp(0.0, double.infinity);
 }
 
+double? _previewForStandaloneComboOffer({
+  required Offer combo,
+  required String category,
+  required String zielgruppe,
+  required Set<String> selectedPartsLc,
+  required Map<String, _CartItem> selectionMap,
+  required Map<String, Offer> singleBaseIndex,
+  required List<Offer> bundles,
+  double? comboPriceOverride,
+}) {
+  final comboPrice = comboPriceOverride ?? combo.priceFor(zielgruppe);
+  double? best;
+
+  for (final bundle in bundles) {
+    if (bundle.kategorie != category) continue;
+    if (bundle.id == combo.id) continue;
+    if (!combo.leistungenLc.every(bundle.leistungenLc.contains)) continue;
+
+    final additionalParts = bundle.leistungenLc
+        .where((partLc) => !combo.leistungenLc.contains(partLc))
+        .toSet();
+    if (additionalParts.isEmpty) continue;
+    if (!additionalParts.every(selectedPartsLc.contains)) continue;
+
+    final bundlePrice = bundle.priceFor(zielgruppe);
+    if (bundlePrice == null) continue;
+
+    double baseContribution = 0.0;
+    for (final partLc in additionalParts) {
+      baseContribution += _contributionPriceOfPart(
+        category: category,
+        zielgruppe: zielgruppe,
+        partLc: partLc,
+        selectionMap: selectionMap,
+        singleBaseIndex: singleBaseIndex,
+        bundles: bundles,
+      );
+    }
+
+    final remainder = (bundlePrice - baseContribution).clamp(0.0, double.infinity);
+    if (comboPrice == null || remainder < comboPrice) {
+      best = best == null || remainder < best ? remainder : best;
+    }
+  }
+
+  return best;
+}
+
+double? _previewForStandaloneComboOffers({
+  required List<Offer> offers,
+  required String category,
+  required String zielgruppe,
+  required Set<String> selectedPartsLc,
+  required Map<String, _CartItem> selectionMap,
+  required Map<String, Offer> singleBaseIndex,
+  required List<Offer> bundles,
+}) {
+  double? best;
+
+  for (final offer in offers) {
+    final preview = _previewForStandaloneComboOffer(
+      combo: offer,
+      category: category,
+      zielgruppe: zielgruppe,
+      selectedPartsLc: selectedPartsLc,
+      selectionMap: selectionMap,
+      singleBaseIndex: singleBaseIndex,
+      bundles: bundles,
+      comboPriceOverride: offer.priceFor(zielgruppe),
+    );
+    if (preview == null) continue;
+    best = best == null || preview < best ? preview : best;
+  }
+
+  return best;
+}
+
 /// ---------------------------------------------------------------
 /// Methode-Option fürs BottomSheet
 /// ---------------------------------------------------------------
@@ -1009,7 +1086,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     if (labels.isNotEmpty) {
       return labels.first;
     }
-    return 'Kombi-Angebot';
+    return '';
   }
 
   String? _comboMethodLabelForDisplay(Offer combo) {
@@ -1078,12 +1155,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   List<_ComboMethodOption> _comboMethodOptionsFor(List<Offer> offers) {
     final Map<String, Offer> byLabel = {};
+    Offer? fallbackOffer;
     for (final combo in offers) {
       final label = _comboMethodLabelSingle(combo);
+      if (label.trim().isEmpty) {
+        if (fallbackOffer == null || _isBetterOfferForDisplay(combo, fallbackOffer, _zielgruppe)) {
+          fallbackOffer = combo;
+        }
+        continue;
+      }
       final existing = byLabel[label];
       if (existing == null || _isBetterOfferForDisplay(combo, existing, _zielgruppe)) {
         byLabel[label] = combo;
       }
+    }
+    if (byLabel.isEmpty && fallbackOffer != null) {
+      return [_ComboMethodOption(label: '', offer: fallbackOffer)];
     }
     final labels = byLabel.keys.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
@@ -1436,6 +1523,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   /// Combo-Helper: (de)selektiert alle Einzel-Leistungen der Kombi
   void _toggleCombo({
     required Offer combo,
+    double? priceOverride,
+    int? durationOverride,
+    String? varianteLabel,
   }) {
     final zg = _zielgruppe;
 
@@ -1465,14 +1555,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         final key = _keyFor(zielgruppe: zg, category: combo.kategorie, partLc: partLc);
         singles.remove(key);
       }
-      final comboPreis = combo.priceFor(zg);
-      final comboDauer = combo.durationFor(zg);
+      final comboPreis = priceOverride ?? combo.priceFor(zg);
+      final comboDauer = durationOverride ?? combo.durationFor(zg);
       combos[comboKey] = _ComboSelection(
         bundle: combo,
         zielgruppe: zg,
         selectedAt: ++_selectionTicker,
         preis: comboPreis,
         dauer: comboDauer,
+        varianteLabel: varianteLabel,
       );
     }
 
@@ -2155,6 +2246,26 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                 if (suggestion.isComboSuggestion) {
                                                   final bundle = suggestion.bundle;
                                                   if (bundle == null) return;
+                                                  Offer targetBundle = bundle;
+                                                  for (final candidate in bundles) {
+                                                    if (candidate.kategorie !=
+                                                        suggestion.category ||
+                                                        !_hasZielgruppenData(
+                                                          candidate,
+                                                          suggestion.zielgruppe,
+                                                        ) ||
+                                                        candidate.leistungenLc.length !=
+                                                            suggestion.partLcs.length) {
+                                                      continue;
+                                                    }
+                                                    if (!suggestion.partLcs.every(
+                                                      candidate.leistungenLc.contains,
+                                                    )) {
+                                                      continue;
+                                                    }
+                                                    targetBundle = candidate;
+                                                    break;
+                                                  }
 
                                                   combosMap.removeWhere(
                                                         (_, comboSel) =>
@@ -2170,9 +2281,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                   combosMap[_comboSelectionKey(
                                                     zielgruppe:
                                                     suggestion.zielgruppe,
-                                                    combo: bundle,
+                                                    combo: targetBundle,
                                                   )] = _ComboSelection(
-                                                    bundle: bundle,
+                                                    bundle: targetBundle,
                                                     zielgruppe:
                                                     suggestion.zielgruppe,
                                                     selectedAt:
@@ -2874,6 +2985,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   Future<void> _openComboMethodSheet({
     required List<Offer> combos,
+    required Map<String, Offer> singleBaseIndex,
+    required List<Offer> bundles,
   }) async {
     if (combos.isEmpty) return;
     final zg = _zielgruppe;
@@ -2937,6 +3050,21 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               priceForButton = selectedOffer.priceFor(zg);
               durationForButton = selectedOffer.durationFor(zg);
             }
+            final selectedPartsLc = _selectedVN.value.values
+                .where((it) => it.kategorie == category && it.zielgruppe == zg)
+                .map((it) => it.leistung.toLowerCase())
+                .toSet();
+            final previewPriceForButton = _previewForStandaloneComboOffer(
+              combo: selectedOffer,
+              category: category,
+              zielgruppe: zg,
+              selectedPartsLc: selectedPartsLc,
+              selectionMap: _selectedVN.value,
+              singleBaseIndex: singleBaseIndex,
+              bundles: bundles,
+              comboPriceOverride: priceForButton,
+            );
+            final effectivePriceForButton = previewPriceForButton ?? priceForButton;
 
             return SafeArea(
               top: false,
@@ -2960,7 +3088,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                     const SizedBox(height: 4),
                     Center(
                       child: Text(
-                        priceForButton != null ? _formatEuro(priceForButton!) : '–',
+                        effectivePriceForButton != null
+                            ? _formatEuro(effectivePriceForButton!)
+                            : '–',
                         textAlign: TextAlign.center,
                         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                       ),
@@ -2976,6 +3106,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       ...methodOptions.map((option) {
                         final optionPrice = _displayPriceFor(option.offer, zg);
                         final optionDuration = _displayDurationFor(option.offer, zg);
+                        final optionPreviewPrice = _previewForStandaloneComboOffer(
+                          combo: option.offer,
+                          category: category,
+                          zielgruppe: zg,
+                          selectedPartsLc: selectedPartsLc,
+                          selectionMap: _selectedVN.value,
+                          singleBaseIndex: singleBaseIndex,
+                          bundles: bundles,
+                          comboPriceOverride: optionPrice,
+                        );
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
                           leading: Radio<String>(
@@ -2991,7 +3131,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           ),
                           title: Text(option.label),
                           trailing: Text(
-                            '${_preisText(optionPrice)}${_dauerText(optionDuration)}',
+                            '${_preisText(optionPreviewPrice ?? optionPrice)}${_dauerText(optionDuration)}',
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                           onTap: () {
@@ -3014,6 +3154,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       ...sizeKeys.map((k) {
                         final p = _sizePrice(sizeMap, k);
                         final d = _sizeDuration(sizeMap, k);
+                        final previewPrice = _previewForStandaloneComboOffer(
+                          combo: selectedOffer,
+                          category: category,
+                          zielgruppe: zg,
+                          selectedPartsLc: selectedPartsLc,
+                          selectionMap: _selectedVN.value,
+                          singleBaseIndex: singleBaseIndex,
+                          bundles: bundles,
+                          comboPriceOverride: p,
+                        );
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
                           leading: Radio<String>(
@@ -3023,7 +3173,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           ),
                           title: Text(k),
                           trailing: Text(
-                            '${_preisText(p)}${_dauerText(d)}',
+                            '${_preisText(previewPrice ?? p)}${_dauerText(d)}',
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                           onTap: () => setSheetState(() => selectedSizeKey = k),
@@ -3106,7 +3256,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               bundle: selectedOffer,
                               zielgruppe: zg,
                               selectedAt: ++_selectionTicker,
-                              preis: priceForButton,
+                              preis: effectivePriceForButton,
                               dauer: durationForButton,
                               varianteLabel: _comboVariantLabel(
                                 method: selectedMethodLabel,
@@ -3135,7 +3285,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 ),
                               ),
                               Text(
-                                priceForButton == null ? '' : _formatEuro(priceForButton!),
+                                effectivePriceForButton == null
+                                    ? ''
+                                    : _formatEuro(effectivePriceForButton!),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w800,
@@ -3623,6 +3775,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               }
 
               if (missingParts.length <= 1) continue;
+
+              final hasStandaloneComboForMissingParts = list.any((otherCombo) {
+                if (identical(otherCombo, combo)) return false;
+                final otherHasBasePart =
+                otherCombo.leistungenLc.any(baseParts.contains);
+                if (otherHasBasePart) return false;
+                if (otherCombo.leistungenLc.length != missingParts.length) {
+                  return false;
+                }
+                return missingParts.every(otherCombo.leistungenLc.contains);
+              });
+              if (hasStandaloneComboForMissingParts) continue;
 
               final hasIndividual =
               missingParts.any((partLc) => derivedSinglesIndex.containsKey('$cat|$partLc'));
@@ -4688,12 +4852,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             for (final group in comboGroups) {
               final methodOptions = _comboMethodOptionsFor(group.offers);
               if (methodOptions.isEmpty) continue;
-              final methodLabels = methodOptions.map((e) => e.label).toList();
+              final methodLabels = methodOptions
+                  .map((e) => e.label)
+                  .where((label) => label.trim().isNotEmpty)
+                  .toList();
 
               final displayPreis = _minDisplayPriceForCombos(group.offers, _zielgruppe);
               final displayDauer = _minDisplayDurationForCombos(group.offers, _zielgruppe);
               final hasSizeOptionsBase =
               group.offers.any((offer) => _hasSizeOptions(offer, _zielgruppe));
+              final canSelectDirectly =
+                  methodOptions.length == 1 &&
+                      methodLabels.isEmpty &&
+                      !hasSizeOptionsBase;
 
               if (displayPreis == null && displayDauer == null && !hasSizeOptionsBase) continue;
 
@@ -4710,13 +4881,115 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          group.title,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          overflow: TextOverflow.ellipsis,
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                group.title,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            AnimatedBuilder(
+                              animation: Listenable.merge([_selectedVN, _selectedCombosVN]),
+                              builder: (_, __) {
+                                final map = _selectedCombosVN.value;
+                                _ComboSelection? selectedCombo;
+                                for (final comboSel in map.values) {
+                                  if (comboSel.zielgruppe == _zielgruppe &&
+                                      comboSel.bundle.kategorie == kat &&
+                                      _comboGroupKey(comboSel.bundle) == group.groupKey) {
+                                    selectedCombo = comboSel;
+                                    break;
+                                  }
+                                }
+                                final selected = selectedCombo != null;
+                                final selectedPartsLc = _selectedVN.value.values
+                                    .where((it) => it.kategorie == kat && it.zielgruppe == _zielgruppe)
+                                    .map((it) => it.leistung.toLowerCase())
+                                    .toSet();
+                                final previewPrice = selected
+                                    ? null
+                                    : _previewForStandaloneComboOffers(
+                                  offers: group.offers,
+                                  category: kat,
+                                  zielgruppe: _zielgruppe,
+                                  selectedPartsLc: selectedPartsLc,
+                                  selectionMap: _selectedVN.value,
+                                  singleBaseIndex: singleBaseIndex,
+                                  bundles: bundles,
+                                );
+                                final effectivePrice =
+                                    selectedCombo?.preis ?? previewPrice ?? displayPreis;
+                                final effectiveDuration = selectedCombo?.dauer ?? displayDauer;
+
+                                return Row(
+                                  children: [
+                                    if (effectiveDuration != null) ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF2F4F7),
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(color: Color(0xFFE5E7EB)),
+                                        ),
+                                        child: Text(
+                                          '$effectiveDuration Min',
+                                          style: const TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFF374151),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                    ],
+                                    Text(
+                                      _preisText(effectivePrice),
+                                      style: TextStyle(
+                                        color: previewPrice != null && !selected
+                                            ? Colors.green
+                                            : Colors.black54,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    IconButton(
+                                      tooltip:
+                                      selected ? 'Auswahl ändern' : 'Kombi hinzufügen',
+                                      onPressed: () {
+                                        if (canSelectDirectly) {
+                                          _toggleCombo(
+                                            combo: selectedCombo?.bundle ?? group.offers.first,
+                                            priceOverride: effectivePrice,
+                                            durationOverride: effectiveDuration,
+                                          );
+                                          return;
+                                        }
+                                        _openComboMethodSheet(
+                                          combos: group.offers,
+                                          singleBaseIndex: singleBaseIndex,
+                                          bundles: bundles,
+                                        );
+                                      },
+                                      icon: Icon(
+                                        selected ? Icons.check_circle : Icons.add_circle_outline,
+                                      ),
+                                      color: selected ? Colors.blueAccent : null,
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ],
                         ),
                         if (methodLabels.isNotEmpty) ...[
                           const SizedBox(height: 6),
@@ -4773,90 +5046,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             },
                           ),
                         ],
-                        const SizedBox(height: 4),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            const Spacer(),
-                            ValueListenableBuilder<Map<String, _ComboSelection>>(
-                              valueListenable: _selectedCombosVN,
-                              builder: (_, map, __) {
-                                _ComboSelection? selectedCombo;
-                                for (final comboSel in map.values) {
-                                  if (comboSel.zielgruppe == _zielgruppe &&
-                                      comboSel.bundle.kategorie == kat &&
-                                      _comboGroupKey(comboSel.bundle) == group.groupKey) {
-                                    selectedCombo = comboSel;
-                                    break;
-                                  }
-                                }
-                                final selected = selectedCombo != null;
-                                final effectivePrice = selectedCombo?.preis ?? displayPreis;
-                                final effectiveDuration = selectedCombo?.dauer ?? displayDauer;
-
-                                return Row(
-                                  children: [
-                                    if (effectiveDuration != null) ...[
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFF2F4F7),
-                                          borderRadius: BorderRadius.circular(20),
-                                          border: Border.all(color: Color(0xFFE5E7EB)),
-                                        ),
-                                        child: Text(
-                                          '$effectiveDuration Min',
-                                          style: const TextStyle(
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.w700,
-                                            color: Color(0xFF374151),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                    ],
-                                    Text(
-                                      _preisText(effectivePrice),
-                                      style: const TextStyle(
-                                        color: Colors.black54,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    IconButton(
-                                      tooltip:
-                                      selected ? 'Auswahl ändern' : 'Kombi hinzufügen',
-                                      onPressed: () {
-                                        if (selectedCombo != null) {
-                                          final combosMap = Map<String, _ComboSelection>.from(
-                                            _selectedCombosVN.value,
-                                          );
-                                          combosMap.remove(
-                                            _comboSelectionKey(
-                                              zielgruppe: _zielgruppe,
-                                              combo: selectedCombo!.bundle,
-                                            ),
-                                          );
-                                          _selectedCombosVN.value = combosMap;
-                                          return;
-                                        }
-                                        _openComboMethodSheet(combos: group.offers);
-                                      },
-                                      icon: Icon(
-                                        selected ? Icons.check_circle : Icons.add_circle_outline,
-                                      ),
-                                      color: selected ? Colors.blueAccent : null,
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
-                          ],
-                        ),
                       ],
                     ),
                   ),
