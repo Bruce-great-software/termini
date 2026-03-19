@@ -2246,6 +2246,26 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                       if (suggestion.isComboSuggestion) {
                                                         final bundle = suggestion.bundle;
                                                         if (bundle == null) return;
+                                                        Offer targetBundle = bundle;
+                                                        for (final candidate in bundles) {
+                                                          if (candidate.kategorie !=
+                                                                  suggestion.category ||
+                                                              !_hasZielgruppenData(
+                                                                candidate,
+                                                                suggestion.zielgruppe,
+                                                              ) ||
+                                                              candidate.leistungenLc.length !=
+                                                                  suggestion.partLcs.length) {
+                                                            continue;
+                                                          }
+                                                          if (!suggestion.partLcs.every(
+                                                            candidate.leistungenLc.contains,
+                                                          )) {
+                                                            continue;
+                                                          }
+                                                          targetBundle = candidate;
+                                                          break;
+                                                        }
 
                                                         combosMap.removeWhere(
                                                           (_, comboSel) =>
@@ -2261,9 +2281,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                         combosMap[_comboSelectionKey(
                                                           zielgruppe:
                                                               suggestion.zielgruppe,
-                                                          combo: bundle,
+                                                          combo: targetBundle,
                                                         )] = _ComboSelection(
-                                                          bundle: bundle,
+                                                          bundle: targetBundle,
                                                           zielgruppe:
                                                               suggestion.zielgruppe,
                                                           selectedAt:
