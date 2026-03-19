@@ -1251,10 +1251,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       return s;
     }
 
+    bool isDerivedSingle(Offer o) => o.id.startsWith('combo-extra:');
+
     final candidateScore = score(candidate);
     final existingScore = score(existing);
     if (candidateScore != existingScore) {
       return candidateScore > existingScore;
+    }
+
+    final candidateDerived = isDerivedSingle(candidate);
+    final existingDerived = isDerivedSingle(existing);
+    if (candidateDerived != existingDerived) {
+      return !candidateDerived;
     }
 
     final candidatePrice = _displayPriceFor(candidate, zg);
@@ -4099,6 +4107,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         Widget buildPriceText() {
                           double? newPrice;
                           double? preview;
+                          final compareOffer = isDerivedSingle
+                              ? (singleBaseIndex['$kat|$partLc'] ?? offer)
+                              : offer;
+                          final comparePrice = effectivePrice ??
+                              _displayPriceFor(compareOffer, _zielgruppe) ??
+                              effectiveDisplayPreis;
 
                           if (selected) {
                             final lockedDiscount = selectedItem == null
@@ -4110,8 +4124,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               bundles: bundles,
                             );
                             if (lockedDiscount != null &&
-                                effectivePrice != null &&
-                                lockedDiscount < effectivePrice) {
+                                comparePrice != null &&
+                                lockedDiscount < comparePrice) {
                               newPrice = lockedDiscount;
                             }
                           } else {
@@ -4124,18 +4138,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               singleBaseIndex: singleBaseIndex,
                               bundles: bundles,
                             );
-                            if (preview != null && effectivePrice != null && preview < effectivePrice) {
+                            if (preview != null && comparePrice != null && preview < comparePrice) {
                               newPrice = preview;
                             }
                           }
 
-                          if (newPrice != null) {
+                          if (newPrice != null && comparePrice != null) {
                             return Column(
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Text(
-                                  _preisText(effectivePrice),
+                                  _preisText(comparePrice),
                                   style: const TextStyle(
                                     color: Colors.black45,
                                     fontSize: 12.5,
@@ -4157,7 +4171,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             );
                           }
 
-                          if (preview != null && effectivePrice == null) {
+                          if (preview != null && comparePrice == null) {
                             return Text(
                               _preisText(preview),
                               style: const TextStyle(
@@ -4169,7 +4183,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           }
 
                           return Text(
-                            _preisText(effectivePrice),
+                            _preisText(comparePrice),
                             style: const TextStyle(
                               color: Colors.black54,
                               fontSize: 13,
