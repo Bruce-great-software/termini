@@ -3624,6 +3624,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
               if (missingParts.length <= 1) continue;
 
+              final hasStandaloneComboForMissingParts = list.any((otherCombo) {
+                if (identical(otherCombo, combo)) return false;
+                final otherHasBasePart =
+                    otherCombo.leistungenLc.any(baseParts.contains);
+                if (otherHasBasePart) return false;
+                if (otherCombo.leistungenLc.length != missingParts.length) {
+                  return false;
+                }
+                return missingParts.every(otherCombo.leistungenLc.contains);
+              });
+              if (hasStandaloneComboForMissingParts) continue;
+
               final hasIndividual =
               missingParts.any((partLc) => derivedSinglesIndex.containsKey('$cat|$partLc'));
               if (hasIndividual) continue;
