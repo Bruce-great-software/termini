@@ -1523,6 +1523,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   /// Combo-Helper: (de)selektiert alle Einzel-Leistungen der Kombi
   void _toggleCombo({
     required Offer combo,
+    double? priceOverride,
+    int? durationOverride,
+    String? varianteLabel,
   }) {
     final zg = _zielgruppe;
 
@@ -1552,14 +1555,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         final key = _keyFor(zielgruppe: zg, category: combo.kategorie, partLc: partLc);
         singles.remove(key);
       }
-      final comboPreis = combo.priceFor(zg);
-      final comboDauer = combo.durationFor(zg);
+      final comboPreis = priceOverride ?? combo.priceFor(zg);
+      final comboDauer = durationOverride ?? combo.durationFor(zg);
       combos[comboKey] = _ComboSelection(
         bundle: combo,
         zielgruppe: zg,
         selectedAt: ++_selectionTicker,
         preis: comboPreis,
         dauer: comboDauer,
+        varianteLabel: varianteLabel,
       );
     }
 
@@ -4837,6 +4841,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               final displayDauer = _minDisplayDurationForCombos(group.offers, _zielgruppe);
               final hasSizeOptionsBase =
               group.offers.any((offer) => _hasSizeOptions(offer, _zielgruppe));
+              final canSelectDirectly =
+                  methodOptions.length == 1 &&
+                      methodLabels.isEmpty &&
+                      !hasSizeOptionsBase;
 
               if (displayPreis == null && displayDauer == null && !hasSizeOptionsBase) continue;
 
@@ -4938,17 +4946,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       tooltip:
                                       selected ? 'Auswahl ändern' : 'Kombi hinzufügen',
                                       onPressed: () {
-                                        if (selectedCombo != null) {
-                                          final combosMap = Map<String, _ComboSelection>.from(
-                                            _selectedCombosVN.value,
+                                        if (canSelectDirectly) {
+                                          _toggleCombo(
+                                            combo: selectedCombo?.bundle ?? group.offers.first,
+                                            priceOverride: effectivePrice,
+                                            durationOverride: effectiveDuration,
                                           );
-                                          combosMap.remove(
-                                            _comboSelectionKey(
-                                              zielgruppe: _zielgruppe,
-                                              combo: selectedCombo!.bundle,
-                                            ),
-                                          );
-                                          _selectedCombosVN.value = combosMap;
                                           return;
                                         }
                                         _openComboMethodSheet(
