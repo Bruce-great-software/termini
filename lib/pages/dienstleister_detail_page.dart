@@ -192,6 +192,7 @@ double _singlePriceOfPart({
   required String partLc,
   required Map<String, _CartItem> selectionMap,
   required Map<String, Offer> singleBaseIndex,
+  String? preferredSizeKey,
 }) {
   final selectedKey = _keyFor(
     zielgruppe: zielgruppe,
@@ -203,8 +204,21 @@ double _singlePriceOfPart({
     return selectedItem.preis!;
   }
 
-  final p = singleBaseIndex['$category|$partLc']?.priceFor(zielgruppe);
-  return p ?? 0.0;
+  final offer = singleBaseIndex['$category|$partLc'];
+  if (offer != null) {
+    final sizeMap = _sizeMapForOffer(offer, zielgruppe);
+    if (preferredSizeKey != null && sizeMap.isNotEmpty) {
+      final sizedPrice = _sizePrice(sizeMap, preferredSizeKey);
+      if (sizedPrice != null) {
+        return sizedPrice;
+      }
+    }
+
+    final p = offer.priceFor(zielgruppe) ?? _minSizePriceFor(offer, zielgruppe);
+    return p ?? 0.0;
+  }
+
+  return 0.0;
 }
 
 double _contributionPriceOfPart({
@@ -1123,6 +1137,87 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       minDuration = (minDuration == null || d < minDuration) ? d : minDuration;
     }
     return minDuration;
+  }
+
+  String? _inferSelectedSizeKey({
+    required Offer offer,
+    required String category,
+    required String zielgruppe,
+    required Map<String, _CartItem> selectionMap,
+    Set<String> preferredPartLcs = const <String>{},
+  }) {
+    final sizeMap = _sizeMapForOffer(offer, zielgruppe);
+    if (sizeMap.isEmpty) return null;
+
+    final sizeKeys = _sortedSizeKeys(sizeMap.keys.map((e) => e.toString()));
+    if (sizeKeys.isEmpty) return null;
+
+    Iterable<_CartItem> candidates = selectionMap.values.where(
+      (item) => item.kategorie == category && item.zielgruppe == zielgruppe,
+    );
+    if (preferredPartLcs.isNotEmpty) {
+      candidates = candidates.where(
+        (item) => preferredPartLcs.contains(item.leistung.toLowerCase()),
+      );
+    }
+
+    for (final sizeKey in sizeKeys) {
+      final sizeKeyLc = sizeKey.toLowerCase();
+      for (final item in candidates) {
+        final label = item.varianteLabel?.toLowerCase();
+        if (label != null && label.contains(sizeKeyLc)) {
+          return sizeKey;
+        }
+      }
+    }
+    return null;
+  }
+
+  double? _originalSinglePriceForDisplay({
+    required Offer? offer,
+    required String category,
+    required String zielgruppe,
+    required String partLc,
+    required Map<String, _CartItem> selectionMap,
+    required Map<String, Offer> singleBaseIndex,
+    required double? currentPrice,
+    Set<String> preferredPartLcs = const <String>{},
+  }) {
+    final selectedKey = _keyFor(
+      zielgruppe: zielgruppe,
+      category: category,
+      partLc: partLc,
+    );
+    final selectedItem = selectionMap[selectedKey];
+    final selectedPrice = selectedItem?.preis;
+
+    final baseOffer = offer ?? singleBaseIndex['$category|$partLc'];
+    double? standalonePrice;
+    if (baseOffer != null) {
+      final inferredSizeKey = _inferSelectedSizeKey(
+        offer: baseOffer,
+        category: category,
+        zielgruppe: zielgruppe,
+        selectionMap: selectionMap,
+        preferredPartLcs: preferredPartLcs,
+      );
+      final sizeMap = _sizeMapForOffer(baseOffer, zielgruppe);
+      if (inferredSizeKey != null && sizeMap.isNotEmpty) {
+        standalonePrice = _sizePrice(sizeMap, inferredSizeKey);
+      }
+      standalonePrice ??= baseOffer.priceFor(zielgruppe) ?? _minSizePriceFor(baseOffer, zielgruppe);
+    }
+
+    if (standalonePrice != null && standalonePrice > 0) {
+      return standalonePrice;
+    }
+    if (selectedPrice != null && selectedPrice > 0) {
+      return selectedPrice;
+    }
+    if (currentPrice != null && currentPrice > 0) {
+      return currentPrice;
+    }
+    return null;
   }
 
   double? _displayPriceFor(Offer o, String zg) {
@@ -4099,20 +4194,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         Widget buildPriceText() {
                           double? discountedPrice;
                           double? preview;
-                          double? originalPrice = effectivePrice;
-
-                          if (originalPrice == null) {
-                            final fallbackOriginal = _singlePriceOfPart(
-                              category: kat,
-                              zielgruppe: _zielgruppe,
-                              partLc: partLc,
-                              selectionMap: map,
-                              singleBaseIndex: singleBaseIndex,
-                            );
-                            if (fallbackOriginal > 0) {
-                              originalPrice = fallbackOriginal;
-                            }
-                          }
+                          final originalPrice = _originalSinglePriceForDisplay(
+                            offer: offer,
+                            category: kat,
+                            zielgruppe: _zielgruppe,
+                            partLc: partLc,
+                            selectionMap: map,
+                            singleBaseIndex: singleBaseIndex,
+                            currentPrice: effectivePrice,
+                            preferredPartLcs: requiredParts,
+                          );
 
                           if (selected) {
                             final lockedDiscount = selectedItem == null
@@ -4229,20 +4320,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           Widget buildVariantPriceText() {
                             double? discountedPrice;
                             double? preview;
-                            double? originalPrice = variantEffectivePrice;
-
-                            if (originalPrice == null) {
-                              final fallbackOriginal = _singlePriceOfPart(
-                                category: kat,
-                                zielgruppe: _zielgruppe,
-                                partLc: partLc,
-                                selectionMap: map,
-                                singleBaseIndex: singleBaseIndex,
-                              );
-                              if (fallbackOriginal > 0) {
-                                originalPrice = fallbackOriginal;
-                              }
-                            }
+                            final originalPrice = _originalSinglePriceForDisplay(
+                              offer: variantOffer,
+                              category: kat,
+                              zielgruppe: _zielgruppe,
+                              partLc: partLc,
+                              selectionMap: map,
+                              singleBaseIndex: singleBaseIndex,
+                              currentPrice: variantEffectivePrice,
+                              preferredPartLcs: requiredParts,
+                            );
 
                             if (selectedThis) {
                               final lockedDiscount = selectedItem == null
@@ -4822,6 +4909,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   partLc: partLc,
                                   selectionMap: map,
                                   singleBaseIndex: singleBaseIndex,
+                                  preferredSizeKey: comboSizeKey,
                                 ),
                               );
                               final activePrice = selectedAll
