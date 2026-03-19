@@ -166,6 +166,7 @@ class _ComboSelection {
   final double? preis;
   final int? dauer;
   final String? varianteLabel;
+  final double? originalPrice;
   final List<String>? selectedPartsDisplay;
   final List<String>? selectedPartsLcOverride;
 
@@ -176,6 +177,7 @@ class _ComboSelection {
     this.preis,
     this.dauer,
     this.varianteLabel,
+    this.originalPrice,
     this.selectedPartsDisplay,
     this.selectedPartsLcOverride,
   });
@@ -1428,6 +1430,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         .map((it) => it.leistung.toLowerCase())
         .toSet();
 
+    final bundleOriginalPrice = _bundlePriceForCombo(
+      combo: combo,
+      zielgruppe: zg,
+      sizeKey: _selectedSizeKeyFromSelection(
+        combo: combo,
+        category: category,
+        zielgruppe: zg,
+        requiredBasePartsLc: requiredBasePartsLc,
+        selectionMap: map,
+      ),
+    );
     final remainder = _previewForComboGroup(
       combo: combo,
       category: category,
@@ -1437,17 +1450,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       selectionMap: map,
       singleBaseIndex: singleBaseIndex,
       bundles: bundles,
-      bundlePriceOverride: _bundlePriceForCombo(
-        combo: combo,
-        zielgruppe: zg,
-        sizeKey: _selectedSizeKeyFromSelection(
-          combo: combo,
-          category: category,
-          zielgruppe: zg,
-          requiredBasePartsLc: requiredBasePartsLc,
-          selectionMap: map,
-        ),
-      ),
+      bundlePriceOverride: bundleOriginalPrice,
     );
     if (remainder == null) return;
 
@@ -1464,6 +1467,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       selectedAt: ++_selectionTicker,
       preis: remainder,
       dauer: null,
+      originalPrice:
+      bundleOriginalPrice != null && remainder < bundleOriginalPrice
+          ? bundleOriginalPrice
+          : null,
       selectedPartsDisplay: partsDisplay,
       selectedPartsLcOverride: partsLc,
     );
@@ -1556,6 +1563,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         singles.remove(key);
       }
       final comboPreis = priceOverride ?? combo.priceFor(zg);
+      final comboOriginal = _bundlePriceForCombo(combo: combo, zielgruppe: zg);
       final comboDauer = durationOverride ?? combo.durationFor(zg);
       combos[comboKey] = _ComboSelection(
         bundle: combo,
@@ -1564,6 +1572,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         preis: comboPreis,
         dauer: comboDauer,
         varianteLabel: varianteLabel,
+        originalPrice:
+        comboOriginal != null && comboPreis != null && comboPreis < comboOriginal
+            ? comboOriginal
+            : null,
       );
     }
 
@@ -1636,18 +1648,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     _BookingSummaryEntry _comboEntry(String key, _ComboSelection selection) {
       final comboPrice = selection.preis;
-      final comboOriginal = selection.selectedPartsLc.fold<double>(
-        0.0,
-            (sum, partLc) =>
-        sum +
-            _singlePriceOfPart(
-              category: selection.bundle.kategorie,
-              zielgruppe: selection.zielgruppe,
-              partLc: partLc,
-              selectionMap: panelSingles,
-              singleBaseIndex: singleBaseIndex,
-            ),
-      );
+      final comboOriginal = selection.originalPrice ??
+          selection.selectedPartsLc.fold<double>(
+            0.0,
+                (sum, partLc) =>
+            sum +
+                _singlePriceOfPart(
+                  category: selection.bundle.kategorie,
+                  zielgruppe: selection.zielgruppe,
+                  partLc: partLc,
+                  selectionMap: panelSingles,
+                  singleBaseIndex: singleBaseIndex,
+                ),
+          );
       final hasDiscount =
           comboPrice != null && comboOriginal > 0 && comboOriginal > comboPrice;
 
@@ -2290,6 +2303,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                     ++_selectionTicker,
                                                     preis: suggestion.price,
                                                     dauer: suggestion.duration,
+                                                    originalPrice:
+                                                    suggestion.originalPrice,
                                                     selectedPartsDisplay:
                                                     suggestion.displayNames,
                                                     selectedPartsLcOverride:
@@ -3258,6 +3273,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               selectedAt: ++_selectionTicker,
                               preis: effectivePriceForButton,
                               dauer: durationForButton,
+                              originalPrice:
+                              priceForButton != null &&
+                                  effectivePriceForButton != null &&
+                                  effectivePriceForButton < priceForButton
+                                  ? priceForButton
+                                  : null,
                               varianteLabel: _comboVariantLabel(
                                 method: selectedMethodLabel,
                                 size: selectedSizeKey,
@@ -3491,6 +3512,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               selectedAt: ++_selectionTicker,
                               preis: priceForButton,
                               dauer: durationForButton,
+                              originalPrice: null,
                               varianteLabel: _comboVariantLabel(
                                 method: selectedMethod,
                                 size: selectedSizeKey,
