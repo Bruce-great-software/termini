@@ -4927,6 +4927,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     selectedCombo?.preis ?? previewPrice ?? displayPreis;
                                 final effectiveDuration = selectedCombo?.dauer ?? displayDauer;
 
+                                final hasPreviewDiscount =
+                                    previewPrice != null &&
+                                    !selected &&
+                                    displayPreis != null &&
+                                    previewPrice < displayPreis;
+
                                 return Row(
                                   children: [
                                     if (effectiveDuration != null) ...[
@@ -4951,15 +4957,31 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       ),
                                       const SizedBox(width: 8),
                                     ],
-                                    Text(
-                                      _preisText(effectivePrice),
-                                      style: TextStyle(
-                                        color: previewPrice != null && !selected
-                                            ? Colors.green
-                                            : Colors.black54,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w500,
-                                      ),
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        if (hasPreviewDiscount)
+                                          Text(
+                                            _preisText(displayPreis),
+                                            style: const TextStyle(
+                                              color: Colors.black45,
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.w500,
+                                              decoration: TextDecoration.lineThrough,
+                                              decorationThickness: 2,
+                                            ),
+                                          ),
+                                        Text(
+                                          _preisText(effectivePrice),
+                                          style: TextStyle(
+                                            color: previewPrice != null && !selected
+                                                ? Colors.green
+                                                : Colors.black54,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                     const SizedBox(width: 8),
                                     IconButton(
