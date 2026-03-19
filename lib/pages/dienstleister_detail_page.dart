@@ -192,6 +192,7 @@ double _singlePriceOfPart({
   required String partLc,
   required Map<String, _CartItem> selectionMap,
   required Map<String, Offer> singleBaseIndex,
+  String? preferredSizeKey,
 }) {
   final selectedKey = _keyFor(
     zielgruppe: zielgruppe,
@@ -203,8 +204,21 @@ double _singlePriceOfPart({
     return selectedItem.preis!;
   }
 
-  final p = singleBaseIndex['$category|$partLc']?.priceFor(zielgruppe);
-  return p ?? 0.0;
+  final offer = singleBaseIndex['$category|$partLc'];
+  if (offer != null) {
+    final sizeMap = _sizeMapForOffer(offer, zielgruppe);
+    if (preferredSizeKey != null && sizeMap.isNotEmpty) {
+      final sizedPrice = _sizePrice(sizeMap, preferredSizeKey);
+      if (sizedPrice != null) {
+        return sizedPrice;
+      }
+    }
+
+    final p = offer.priceFor(zielgruppe) ?? _minSizePriceFor(offer, zielgruppe);
+    return p ?? 0.0;
+  }
+
+  return 0.0;
 }
 
 double _contributionPriceOfPart({
@@ -1123,6 +1137,87 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       minDuration = (minDuration == null || d < minDuration) ? d : minDuration;
     }
     return minDuration;
+  }
+
+  String? _inferSelectedSizeKey({
+    required Offer offer,
+    required String category,
+    required String zielgruppe,
+    required Map<String, _CartItem> selectionMap,
+    Set<String> preferredPartLcs = const <String>{},
+  }) {
+    final sizeMap = _sizeMapForOffer(offer, zielgruppe);
+    if (sizeMap.isEmpty) return null;
+
+    final sizeKeys = _sortedSizeKeys(sizeMap.keys.map((e) => e.toString()));
+    if (sizeKeys.isEmpty) return null;
+
+    Iterable<_CartItem> candidates = selectionMap.values.where(
+      (item) => item.kategorie == category && item.zielgruppe == zielgruppe,
+    );
+    if (preferredPartLcs.isNotEmpty) {
+      candidates = candidates.where(
+        (item) => preferredPartLcs.contains(item.leistung.toLowerCase()),
+      );
+    }
+
+    for (final sizeKey in sizeKeys) {
+      final sizeKeyLc = sizeKey.toLowerCase();
+      for (final item in candidates) {
+        final label = item.varianteLabel?.toLowerCase();
+        if (label != null && label.contains(sizeKeyLc)) {
+          return sizeKey;
+        }
+      }
+    }
+    return null;
+  }
+
+  double? _originalSinglePriceForDisplay({
+    required Offer? offer,
+    required String category,
+    required String zielgruppe,
+    required String partLc,
+    required Map<String, _CartItem> selectionMap,
+    required Map<String, Offer> singleBaseIndex,
+    required double? currentPrice,
+    Set<String> preferredPartLcs = const <String>{},
+  }) {
+    final selectedKey = _keyFor(
+      zielgruppe: zielgruppe,
+      category: category,
+      partLc: partLc,
+    );
+    final selectedItem = selectionMap[selectedKey];
+    final selectedPrice = selectedItem?.preis;
+
+    final baseOffer = offer ?? singleBaseIndex['$category|$partLc'];
+    double? standalonePrice;
+    if (baseOffer != null) {
+      final inferredSizeKey = _inferSelectedSizeKey(
+        offer: baseOffer,
+        category: category,
+        zielgruppe: zielgruppe,
+        selectionMap: selectionMap,
+        preferredPartLcs: preferredPartLcs,
+      );
+      final sizeMap = _sizeMapForOffer(baseOffer, zielgruppe);
+      if (inferredSizeKey != null && sizeMap.isNotEmpty) {
+        standalonePrice = _sizePrice(sizeMap, inferredSizeKey);
+      }
+      standalonePrice ??= baseOffer.priceFor(zielgruppe) ?? _minSizePriceFor(baseOffer, zielgruppe);
+    }
+
+    if (standalonePrice != null && standalonePrice > 0) {
+      return standalonePrice;
+    }
+    if (selectedPrice != null && selectedPrice > 0) {
+      return selectedPrice;
+    }
+    if (currentPrice != null && currentPrice > 0) {
+      return currentPrice;
+    }
+    return null;
   }
 
   double? _displayPriceFor(Offer o, String zg) {
@@ -4097,8 +4192,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         }
 
                         Widget buildPriceText() {
-                          double? newPrice;
+                          double? discountedPrice;
                           double? preview;
+                          final originalPrice = _originalSinglePriceForDisplay(
+                            offer: offer,
+                            category: kat,
+                            zielgruppe: _zielgruppe,
+                            partLc: partLc,
+                            selectionMap: map,
+                            singleBaseIndex: singleBaseIndex,
+                            currentPrice: effectivePrice,
+                            preferredPartLcs: requiredParts,
+                          );
 
                           if (selected) {
                             final lockedDiscount = selectedItem == null
@@ -4110,9 +4215,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               bundles: bundles,
                             );
                             if (lockedDiscount != null &&
-                                effectivePrice != null &&
-                                lockedDiscount < effectivePrice) {
-                              newPrice = lockedDiscount;
+                                originalPrice != null &&
+                                lockedDiscount < originalPrice) {
+                              discountedPrice = lockedDiscount;
                             }
                           } else {
                             preview = _previewForLastMissingPart(
@@ -4124,18 +4229,20 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               singleBaseIndex: singleBaseIndex,
                               bundles: bundles,
                             );
-                            if (preview != null && effectivePrice != null && preview < effectivePrice) {
-                              newPrice = preview;
+                            if (preview != null &&
+                                originalPrice != null &&
+                                preview < originalPrice) {
+                              discountedPrice = preview;
                             }
                           }
 
-                          if (newPrice != null) {
+                          if (discountedPrice != null && originalPrice != null) {
                             return Column(
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Text(
-                                  _preisText(effectivePrice),
+                                  _preisText(originalPrice),
                                   style: const TextStyle(
                                     color: Colors.black45,
                                     fontSize: 12.5,
@@ -4146,7 +4253,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  _preisText(newPrice),
+                                  _preisText(discountedPrice),
                                   style: const TextStyle(
                                     color: Colors.green,
                                     fontSize: 13.5,
@@ -4157,7 +4264,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             );
                           }
 
-                          if (preview != null && effectivePrice == null) {
+                          if (preview != null && originalPrice == null) {
                             return Text(
                               _preisText(preview),
                               style: const TextStyle(
@@ -4169,7 +4276,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           }
 
                           return Text(
-                            _preisText(effectivePrice),
+                            _preisText(originalPrice),
                             style: const TextStyle(
                               color: Colors.black54,
                               fontSize: 13,
@@ -4211,8 +4318,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               : variantBasePrice;
 
                           Widget buildVariantPriceText() {
-                            double? newPrice;
+                            double? discountedPrice;
                             double? preview;
+                            final originalPrice = _originalSinglePriceForDisplay(
+                              offer: variantOffer,
+                              category: kat,
+                              zielgruppe: _zielgruppe,
+                              partLc: partLc,
+                              selectionMap: map,
+                              singleBaseIndex: singleBaseIndex,
+                              currentPrice: variantEffectivePrice,
+                              preferredPartLcs: requiredParts,
+                            );
 
                             if (selectedThis) {
                               final lockedDiscount = selectedItem == null
@@ -4224,9 +4341,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 bundles: bundles,
                               );
                               if (lockedDiscount != null &&
-                                  variantEffectivePrice != null &&
-                                  lockedDiscount < variantEffectivePrice) {
-                                newPrice = lockedDiscount;
+                                  originalPrice != null &&
+                                  lockedDiscount < originalPrice) {
+                                discountedPrice = lockedDiscount;
                               }
                             } else {
                               preview = _previewForLastMissingPart(
@@ -4239,19 +4356,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 bundles: bundles,
                               );
                               if (preview != null &&
-                                  variantEffectivePrice != null &&
-                                  preview < variantEffectivePrice) {
-                                newPrice = preview;
+                                  originalPrice != null &&
+                                  preview < originalPrice) {
+                                discountedPrice = preview;
                               }
                             }
 
-                            if (newPrice != null) {
+                            if (discountedPrice != null && originalPrice != null) {
                               return Column(
                                 mainAxisSize: MainAxisSize.min,
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
                                   Text(
-                                    _preisText(variantEffectivePrice),
+                                    _preisText(originalPrice),
                                     style: const TextStyle(
                                       color: Colors.black45,
                                       fontSize: 12.5,
@@ -4262,7 +4379,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    _preisText(newPrice),
+                                    _preisText(discountedPrice),
                                     style: const TextStyle(
                                       color: Colors.green,
                                       fontSize: 13.5,
@@ -4273,7 +4390,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               );
                             }
 
-                            if (preview != null && variantEffectivePrice == null) {
+                            if (preview != null && originalPrice == null) {
                               return Text(
                                 _preisText(preview),
                                 style: const TextStyle(
@@ -4285,7 +4402,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             }
 
                             return Text(
-                              _preisText(variantEffectivePrice),
+                              _preisText(originalPrice),
                               style: const TextStyle(
                                 color: Colors.black54,
                                 fontSize: 12.5,
@@ -4784,30 +4901,62 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               );
                               final canAdd = previewPrice != null;
                               final canInteract = selectedAll || canAdd;
-
-                              double displayPrice;
-
-                              if (selectedAll) {
-                                displayPrice = selectedGroupCombo?.preis ?? 0.0;
-                              } else {
-                                displayPrice = previewPrice ?? 0.0;
-                              }
-
-
-                              final priceColor =
-                              (displayPrice != null && canAdd) ? Colors.green : Colors.black54;
+                              final originalGroupPrice = groupPartsLc.fold<double>(
+                                0.0,
+                                (sum, partLc) => sum + _singlePriceOfPart(
+                                  category: kat,
+                                  zielgruppe: _zielgruppe,
+                                  partLc: partLc,
+                                  selectionMap: map,
+                                  singleBaseIndex: singleBaseIndex,
+                                  preferredSizeKey: comboSizeKey,
+                                ),
+                              );
+                              final activePrice = selectedAll
+                                  ? selectedGroupCombo?.preis
+                                  : previewPrice;
+                              final hasDiscount = activePrice != null &&
+                                  originalGroupPrice > 0 &&
+                                  activePrice < originalGroupPrice;
 
                               return Row(
                                 mainAxisAlignment: MainAxisAlignment.end,
                                 children: [
-                                  Text(
-                                    _preisText(displayPrice),
-                                    style: TextStyle(
-                                      color: priceColor,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
+                                  if (hasDiscount)
+                                    Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          _preisText(originalGroupPrice),
+                                          style: const TextStyle(
+                                            color: Colors.black45,
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w500,
+                                            decoration: TextDecoration.lineThrough,
+                                            decorationThickness: 2,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          _preisText(activePrice),
+                                          style: const TextStyle(
+                                            color: Colors.green,
+                                            fontSize: 13.5,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ],
+                                    )
+                                  else
+                                    Text(
+                                      _preisText(activePrice),
+                                      style: TextStyle(
+                                        color: canAdd ? Colors.green : Colors.black54,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
-                                  ),
                                   const SizedBox(width: 8),
                                   IconButton(
                                     tooltip: selectedAll
