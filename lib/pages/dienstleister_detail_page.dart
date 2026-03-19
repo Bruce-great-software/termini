@@ -239,12 +239,63 @@ double _contributionPriceOfPart({
   );
 }
 
+Set<String> _selectedPartsForContext({
+  required String category,
+  required String zielgruppe,
+  required Map<String, _CartItem> selectionMap,
+  required Map<String, _ComboSelection> selectedCombos,
+}) {
+  return {
+    ...selectionMap.values
+        .where((it) => it.kategorie == category && it.zielgruppe == zielgruppe)
+        .map((it) => it.leistung.toLowerCase()),
+    ...selectedCombos.values
+        .where(
+          (combo) =>
+              combo.bundle.kategorie == category && combo.zielgruppe == zielgruppe,
+        )
+        .expand((combo) => combo.selectedPartsLc),
+  };
+}
+
+double? _exactComboContributionForParts({
+  required String category,
+  required String zielgruppe,
+  required List<String> partLcs,
+  required Map<String, _ComboSelection> selectedCombos,
+}) {
+  if (partLcs.isEmpty) return null;
+
+  final targetParts = partLcs.toSet();
+  double? bestPrice;
+
+  for (final combo in selectedCombos.values) {
+    if (combo.bundle.kategorie != category || combo.zielgruppe != zielgruppe) {
+      continue;
+    }
+    if (combo.preis == null) continue;
+
+    final comboParts = combo.selectedPartsLc.toSet();
+    if (comboParts.length != targetParts.length) continue;
+    if (!comboParts.containsAll(targetParts) || !targetParts.containsAll(comboParts)) {
+      continue;
+    }
+
+    if (bestPrice == null || combo.preis! < bestPrice) {
+      bestPrice = combo.preis!;
+    }
+  }
+
+  return bestPrice;
+}
+
 // Restbetrag (locked price) für neues Item, wenn dadurch Bundle greift
 double? _lockedPriceForNewSelection({
   required String category,
   required String zielgruppe,
   required String newPartLc,
   required Map<String, _CartItem> selectionMap,
+  Map<String, _ComboSelection> selectedCombos = const {},
   required Map<String, Offer> singleBaseIndex,
   required List<Offer> bundles,
   required double? newPartSinglePrice,
@@ -258,21 +309,27 @@ double? _lockedPriceForNewSelection({
     if (!b.leistungenLc.contains(newPartLc)) continue;
 
     final others = b.leistungenLc.where((lc) => lc != newPartLc).toList();
-    final allOthersSelected = others.every(
-          (lc) => selectionMap.containsKey(
-        _keyFor(zielgruppe: zielgruppe, category: category, partLc: lc),
-      ),
+    final selectedPartsLc = _selectedPartsForContext(
+      category: category,
+      zielgruppe: zielgruppe,
+      selectionMap: selectionMap,
+      selectedCombos: selectedCombos,
     );
+    final allOthersSelected = others.every(selectedPartsLc.contains);
     if (!allOthersSelected) continue;
 
     final bundlePrice = b.priceFor(zielgruppe);
     if (bundlePrice == null) continue;
 
-    double singlesSum = 0.0;
-    for (final lc in b.leistungenLc) {
-      if (lc == newPartLc) {
-        singlesSum += newPartSinglePrice;
-      } else {
+    final comboContribution = _exactComboContributionForParts(
+      category: category,
+      zielgruppe: zielgruppe,
+      partLcs: others,
+      selectedCombos: selectedCombos,
+    );
+    double singlesSum = newPartSinglePrice + (comboContribution ?? 0.0);
+    if (comboContribution == null) {
+      for (final lc in others) {
         singlesSum += _singlePriceOfPart(
           category: category,
           zielgruppe: zielgruppe,
@@ -284,16 +341,18 @@ double? _lockedPriceForNewSelection({
     }
     if (bundlePrice >= singlesSum) continue;
 
-    double othersContribution = 0.0;
-    for (final lc in others) {
-      othersContribution += _contributionPriceOfPart(
-        category: category,
-        zielgruppe: zielgruppe,
-        partLc: lc,
-        selectionMap: selectionMap,
-        singleBaseIndex: singleBaseIndex,
-        bundles: bundles,
-      );
+    double othersContribution = comboContribution ?? 0.0;
+    if (comboContribution == null) {
+      for (final lc in others) {
+        othersContribution += _contributionPriceOfPart(
+          category: category,
+          zielgruppe: zielgruppe,
+          partLc: lc,
+          selectionMap: selectionMap,
+          singleBaseIndex: singleBaseIndex,
+          bundles: bundles,
+        );
+      }
     }
 
     final remainder = (bundlePrice - othersContribution).clamp(0.0, double.infinity);
@@ -335,6 +394,7 @@ double? _currentDiscountedSingleDisplayPrice({
 double? _validatedLockedDisplayPrice({
   required _CartItem item,
   required Map<String, _CartItem> selectionMap,
+  Map<String, _ComboSelection> selectedCombos = const {},
   required Map<String, Offer> singleBaseIndex,
   required List<Offer> bundles,
 }) {
@@ -352,22 +412,24 @@ double? _validatedLockedDisplayPrice({
     if (bundlePrice == null) continue;
 
     final others = b.leistungenLc.where((lc) => lc != partLc).toList();
-    final allOthersSelected = others.every(
-          (lc) => selectionMap.containsKey(
-        _keyFor(
-          zielgruppe: item.zielgruppe,
-          category: item.kategorie,
-          partLc: lc,
-        ),
-      ),
+    final selectedPartsLc = _selectedPartsForContext(
+      category: item.kategorie,
+      zielgruppe: item.zielgruppe,
+      selectionMap: selectionMap,
+      selectedCombos: selectedCombos,
     );
+    final allOthersSelected = others.every(selectedPartsLc.contains);
     if (!allOthersSelected) continue;
 
-    double singlesSum = 0.0;
-    for (final lc in b.leistungenLc) {
-      if (lc == partLc) {
-        singlesSum += item.preis!;
-      } else {
+    final comboContribution = _exactComboContributionForParts(
+      category: item.kategorie,
+      zielgruppe: item.zielgruppe,
+      partLcs: others,
+      selectedCombos: selectedCombos,
+    );
+    double singlesSum = item.preis! + (comboContribution ?? 0.0);
+    if (comboContribution == null) {
+      for (final lc in others) {
         singlesSum += _singlePriceOfPart(
           category: item.kategorie,
           zielgruppe: item.zielgruppe,
@@ -379,35 +441,37 @@ double? _validatedLockedDisplayPrice({
     }
     if (bundlePrice >= singlesSum) continue;
 
-    double othersContribution = 0.0;
-    for (final lc in others) {
-      final otherKey = _keyFor(
-        zielgruppe: item.zielgruppe,
-        category: item.kategorie,
-        partLc: lc,
-      );
-      final selectedOther = selectionMap[otherKey];
-      if (selectedOther != null) {
-        final otherLocked = selectedOther.lockedDisplayPrice;
-        if (otherLocked != null &&
-            selectedOther.preis != null &&
-            otherLocked < selectedOther.preis!) {
-          othersContribution += otherLocked;
-          continue;
+    double othersContribution = comboContribution ?? 0.0;
+    if (comboContribution == null) {
+      for (final lc in others) {
+        final otherKey = _keyFor(
+          zielgruppe: item.zielgruppe,
+          category: item.kategorie,
+          partLc: lc,
+        );
+        final selectedOther = selectionMap[otherKey];
+        if (selectedOther != null) {
+          final otherLocked = selectedOther.lockedDisplayPrice;
+          if (otherLocked != null &&
+              selectedOther.preis != null &&
+              otherLocked < selectedOther.preis!) {
+            othersContribution += otherLocked;
+            continue;
+          }
+          if (selectedOther.preis != null) {
+            othersContribution += selectedOther.preis!;
+            continue;
+          }
         }
-        if (selectedOther.preis != null) {
-          othersContribution += selectedOther.preis!;
-          continue;
-        }
-      }
 
-      othersContribution += _singlePriceOfPart(
-        category: item.kategorie,
-        zielgruppe: item.zielgruppe,
-        partLc: lc,
-        selectionMap: selectionMap,
-        singleBaseIndex: singleBaseIndex,
-      );
+        othersContribution += _singlePriceOfPart(
+          category: item.kategorie,
+          zielgruppe: item.zielgruppe,
+          partLc: lc,
+          selectionMap: selectionMap,
+          singleBaseIndex: singleBaseIndex,
+        );
+      }
     }
 
     final expectedRemainder =
@@ -428,6 +492,7 @@ double? _previewForLastMissingPart({
   required String partLc,
   required Set<String> selectedPartsLc,
   required Map<String, _CartItem> selectionMap,
+  Map<String, _ComboSelection> selectedCombos = const {},
   required Map<String, Offer> singleBaseIndex,
   required List<Offer> bundles,
 }) {
@@ -438,21 +503,38 @@ double? _previewForLastMissingPart({
     if (!b.leistungenLc.contains(partLc)) continue;
 
     final others = b.leistungenLc.where((lc) => lc != partLc).toList();
-    if (!others.every(selectedPartsLc.contains)) continue;
+    final allSelectedPartsLc = {
+      ...selectedPartsLc,
+      ..._selectedPartsForContext(
+        category: category,
+        zielgruppe: zielgruppe,
+        selectionMap: selectionMap,
+        selectedCombos: selectedCombos,
+      ),
+    };
+    if (!others.every(allSelectedPartsLc.contains)) continue;
 
     final bundlePrice = b.priceFor(zielgruppe);
     if (bundlePrice == null) continue;
 
-    double othersContribution = 0.0;
-    for (final lc in others) {
-      othersContribution += _contributionPriceOfPart(
-        category: category,
-        zielgruppe: zielgruppe,
-        partLc: lc,
-        selectionMap: selectionMap,
-        singleBaseIndex: singleBaseIndex,
-        bundles: bundles,
-      );
+    final comboContribution = _exactComboContributionForParts(
+      category: category,
+      zielgruppe: zielgruppe,
+      partLcs: others,
+      selectedCombos: selectedCombos,
+    );
+    double othersContribution = comboContribution ?? 0.0;
+    if (comboContribution == null) {
+      for (final lc in others) {
+        othersContribution += _contributionPriceOfPart(
+          category: category,
+          zielgruppe: zielgruppe,
+          partLc: lc,
+          selectionMap: selectionMap,
+          singleBaseIndex: singleBaseIndex,
+          bundles: bundles,
+        );
+      }
     }
 
     final remainder = (bundlePrice - othersContribution).clamp(0.0, double.infinity);
@@ -1302,6 +1384,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   void _clearInvalidLockedPrices({
     required Map<String, _CartItem> selectionMap,
+    required Map<String, _ComboSelection> selectedCombos,
     required Map<String, Offer> singleBaseIndex,
     required List<Offer> bundles,
   }) {
@@ -1313,6 +1396,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       final validatedLocked = _validatedLockedDisplayPrice(
         item: item,
         selectionMap: selectionMap,
+        selectedCombos: selectedCombos,
         singleBaseIndex: singleBaseIndex,
         bundles: bundles,
       );
@@ -1372,6 +1456,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     _clearInvalidLockedPrices(
       selectionMap: map,
+      selectedCombos: combos,
       singleBaseIndex: singleBaseIndex,
       bundles: bundles,
     );
@@ -1626,6 +1711,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       final lockedDiscount = _validatedLockedDisplayPrice(
         item: item,
         selectionMap: panelSingles,
+        selectedCombos: panelCombos,
         singleBaseIndex: singleBaseIndex,
         bundles: bundles,
       );
@@ -1837,6 +1923,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               partLc: partLc,
               selectedPartsLc: selectedParts,
               selectionMap: panelSingles,
+              selectedCombos: panelCombos,
               singleBaseIndex: singleBaseIndex,
               bundles: bundles,
             );
@@ -2429,6 +2516,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                   suggestion.partLc,
                                                   selectionMap:
                                                   singlesMap,
+                                                  selectedCombos:
+                                                  combosMap,
                                                   singleBaseIndex:
                                                   singleBaseIndex,
                                                   bundles: bundles,
@@ -4084,9 +4173,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         bottom: BorderSide(color: Color(0xFFE5E5E5)),
                       ),
                     ),
-                    child: ValueListenableBuilder<Map<String, _CartItem>>(
-                      valueListenable: _selectedVN,
-                      builder: (_, map, __) {
+                    child: AnimatedBuilder(
+                      animation: Listenable.merge([_selectedVN, _selectedCombosVN]),
+                      builder: (_, __) {
+                        final map = _selectedVN.value;
+                        final selectedCombos = _selectedCombosVN.value;
                         List<_ComboRow> _buildCombineRowsFor(String category, String partLc) {
                           final combos = combosByCategoryDisplay[category] ?? const <Offer>[];
                           final rows = <_ComboRow>[];
@@ -4115,10 +4206,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         final selectedItem = map[selKey];
                         final selected = map.containsKey(selKey);
 
-                        final selectedPartsLc = map.values
-                            .where((it) => it.kategorie == kat && it.zielgruppe == _zielgruppe)
-                            .map((it) => it.leistung.toLowerCase())
-                            .toSet();
+                        final selectedPartsLc = _selectedPartsForContext(
+                          category: kat,
+                          zielgruppe: _zielgruppe,
+                          selectionMap: map,
+                          selectedCombos: selectedCombos,
+                        );
 
                         final canAdd = !isDependent ||
                             requiredSets.any((req) => req.every(selectedPartsLc.contains));
@@ -4159,6 +4252,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 : _validatedLockedDisplayPrice(
                               item: selectedItem,
                               selectionMap: map,
+                              selectedCombos: selectedCombos,
                               singleBaseIndex: singleBaseIndex,
                               bundles: bundles,
                             );
@@ -4174,6 +4268,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               partLc: partLc,
                               selectedPartsLc: selectedPartsLc,
                               selectionMap: map,
+                              selectedCombos: selectedCombos,
                               singleBaseIndex: singleBaseIndex,
                               bundles: bundles,
                             );
@@ -4273,6 +4368,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   : _validatedLockedDisplayPrice(
                                 item: selectedItem,
                                 selectionMap: map,
+                                selectedCombos: selectedCombos,
                                 singleBaseIndex: singleBaseIndex,
                                 bundles: bundles,
                               );
@@ -4288,6 +4384,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 partLc: partLc,
                                 selectedPartsLc: selectedPartsLc,
                                 selectionMap: map,
+                                selectedCombos: selectedCombos,
                                 singleBaseIndex: singleBaseIndex,
                                 bundles: bundles,
                               );
@@ -4450,6 +4547,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       zielgruppe: _zielgruppe,
                                       newPartLc: partLc,
                                       selectionMap: currentMap,
+                                      selectedCombos: combosMap,
                                       singleBaseIndex: singleBaseIndex,
                                       bundles: bundles,
                                       newPartSinglePrice: variantBasePrice,
@@ -4692,6 +4790,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         partLc: partLc,
                                         selectedPartsLc: selectedPartsLc,
                                         selectionMap: currentMap,
+                                        selectedCombos: _selectedCombosVN.value,
                                         singleBaseIndex: singleBaseIndex,
                                         bundles: bundles,
                                       );
@@ -4705,6 +4804,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         zielgruppe: _zielgruppe,
                                         newPartLc: partLc,
                                         selectionMap: currentMap,
+                                        selectedCombos: _selectedCombosVN.value,
                                         singleBaseIndex: singleBaseIndex,
                                         bundles: bundles,
                                         newPartSinglePrice: priceForSelection,
