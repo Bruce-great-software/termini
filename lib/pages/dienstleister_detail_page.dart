@@ -1667,13 +1667,28 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     var panelCombos = Map<String, _ComboSelection>.from(combos);
 
     _BookingSummaryEntry _singleEntry(String key, _CartItem item) {
+      final partLc = item.leistung.toLowerCase();
       final lockedDiscount = _validatedLockedDisplayPrice(
         item: item,
         selectionMap: panelSingles,
+        combosMap: panelCombos,
         singleBaseIndex: singleBaseIndex,
         bundles: bundles,
       );
-      final hasDiscount = lockedDiscount != null;
+      final dynamicDiscount = _currentDiscountedSingleDisplayPrice(
+        category: item.kategorie,
+        zielgruppe: item.zielgruppe,
+        partLc: partLc,
+        selectionMap: panelSingles,
+        combosMap: panelCombos,
+        singleBaseIndex: singleBaseIndex,
+        bundles: bundles,
+      );
+      final effectiveDiscount = lockedDiscount ?? dynamicDiscount;
+      final hasDiscount =
+          effectiveDiscount != null &&
+          item.preis != null &&
+          effectiveDiscount < item.preis!;
 
       return _BookingSummaryEntry(
         selectionKey: key,
@@ -1684,7 +1699,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         subtitle: [item.varianteLabel]
             .where((e) => e != null && e.trim().isNotEmpty)
             .join(' • '),
-        price: hasDiscount ? lockedDiscount : item.preis,
+        price: hasDiscount ? effectiveDiscount : item.preis,
         originalPrice: hasDiscount ? item.preis : null,
         duration: item.dauer,
       );
