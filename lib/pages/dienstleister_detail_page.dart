@@ -4853,74 +4853,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          group.title,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (methodLabels.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          ValueListenableBuilder<Map<String, _ComboSelection>>(
-                            valueListenable: _selectedCombosVN,
-                            builder: (_, map, __) {
-                              String? selectedMethodLabel;
-                              for (final comboSel in map.values) {
-                                if (comboSel.zielgruppe == _zielgruppe &&
-                                    comboSel.bundle.kategorie == kat &&
-                                    _comboGroupKey(comboSel.bundle) == group.groupKey) {
-                                  selectedMethodLabel = _comboMethodLabelSingle(comboSel.bundle);
-                                  break;
-                                }
-                              }
-                              return SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: Row(
-                                  children: [
-                                    for (final label in methodLabels)
-                                      Padding(
-                                        padding: const EdgeInsets.only(right: 6),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 4,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: label == selectedMethodLabel
-                                                ? const Color(0xFF34C759)
-                                                : Colors.white,
-                                            borderRadius: BorderRadius.circular(6),
-                                            border: Border.all(
-                                              color: label == selectedMethodLabel
-                                                  ? const Color(0xFF34C759)
-                                                  : const Color(0xFFBDBDBD),
-                                            ),
-                                          ),
-                                          child: Text(
-                                            label,
-                                            style: TextStyle(
-                                              fontSize: 12.5,
-                                              fontWeight: FontWeight.w600,
-                                              color: label == selectedMethodLabel
-                                                  ? Colors.white
-                                                  : Colors.black54,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ],
-                        const SizedBox(height: 4),
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            const Spacer(),
+                            Expanded(
+                              child: Text(
+                                group.title,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                             AnimatedBuilder(
                               animation: Listenable.merge([_selectedVN, _selectedCombosVN]),
                               builder: (_, __) {
@@ -5023,6 +4968,61 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             ),
                           ],
                         ),
+                        if (methodLabels.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          ValueListenableBuilder<Map<String, _ComboSelection>>(
+                            valueListenable: _selectedCombosVN,
+                            builder: (_, map, __) {
+                              String? selectedMethodLabel;
+                              for (final comboSel in map.values) {
+                                if (comboSel.zielgruppe == _zielgruppe &&
+                                    comboSel.bundle.kategorie == kat &&
+                                    _comboGroupKey(comboSel.bundle) == group.groupKey) {
+                                  selectedMethodLabel = _comboMethodLabelSingle(comboSel.bundle);
+                                  break;
+                                }
+                              }
+                              return SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    for (final label in methodLabels)
+                                      Padding(
+                                        padding: const EdgeInsets.only(right: 6),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: label == selectedMethodLabel
+                                                ? const Color(0xFF34C759)
+                                                : Colors.white,
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(
+                                              color: label == selectedMethodLabel
+                                                  ? const Color(0xFF34C759)
+                                                  : const Color(0xFFBDBDBD),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            label,
+                                            style: TextStyle(
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.w600,
+                                              color: label == selectedMethodLabel
+                                                  ? Colors.white
+                                                  : Colors.black54,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ],
                       ],
                     ),
                   ),
