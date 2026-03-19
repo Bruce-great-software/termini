@@ -420,7 +420,7 @@ double? _validatedLockedDisplayPrice({
 }
 
 // Vorschau-Preis, wenn dieses letzte Teil ein Bundle vervollständigt
-double? _previewForLastMissingPart({
+double? _previewForLastMissingPartResolved({
   required String category,
   required String zielgruppe,
   required String partLc,
@@ -1229,6 +1229,113 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return combo.priceFor(zielgruppe) ?? _minSizePriceFor(combo, zielgruppe);
   }
 
+  double? _previewForLastMissingPartResolved({
+    required String category,
+    required String zielgruppe,
+    required String partLc,
+    required Set<String> selectedPartsLc,
+    required Map<String, _CartItem> selectionMap,
+    required Map<String, Offer> singleBaseIndex,
+    required List<Offer> bundles,
+    String? preferredSizeKey,
+  }) {
+    double? best;
+
+    for (final bundle in bundles) {
+      if (bundle.kategorie != category) continue;
+      if (!bundle.leistungenLc.contains(partLc)) continue;
+
+      final otherParts = bundle.leistungenLc.where((lc) => lc != partLc).toList();
+      if (!otherParts.every(selectedPartsLc.contains)) continue;
+
+      final resolvedSizeKey = preferredSizeKey ??
+          _selectedSizeKeyFromSelection(
+            combo: bundle,
+            category: category,
+            zielgruppe: zielgruppe,
+            requiredBasePartsLc: otherParts.toSet(),
+            selectionMap: selectionMap,
+          );
+      final bundlePrice = _bundlePriceForCombo(
+        combo: bundle,
+        zielgruppe: zielgruppe,
+        sizeKey: resolvedSizeKey,
+      );
+      if (bundlePrice == null) continue;
+
+      double othersContribution = 0.0;
+      for (final otherPartLc in otherParts) {
+        othersContribution += _contributionPriceOfPart(
+          category: category,
+          zielgruppe: zielgruppe,
+          partLc: otherPartLc,
+          selectionMap: selectionMap,
+          singleBaseIndex: singleBaseIndex,
+          bundles: bundles,
+        );
+      }
+
+      final remainder = (bundlePrice - othersContribution).clamp(0.0, double.infinity);
+      final singleOfThis = singleBaseIndex['$category|$partLc']?.priceFor(zielgruppe);
+      if (singleOfThis == null || remainder < singleOfThis) {
+        if (best == null || remainder < best) best = remainder;
+      }
+    }
+
+    return best;
+  }
+
+  Widget _buildPriceLabel({
+    required double? basePrice,
+    double? discountedPrice,
+    CrossAxisAlignment crossAxisAlignment = CrossAxisAlignment.end,
+    double baseFontSize = 13,
+    double discountedFontSize = 13.5,
+  }) {
+    final hasDiscount =
+        discountedPrice != null && basePrice != null && discountedPrice < basePrice;
+
+    if (hasDiscount) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: crossAxisAlignment,
+        children: [
+          Text(
+            _preisText(basePrice),
+            style: TextStyle(
+              color: Colors.black45,
+              fontSize: baseFontSize - 0.5,
+              fontWeight: FontWeight.w500,
+              decoration: TextDecoration.lineThrough,
+              decorationThickness: 2,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            _preisText(discountedPrice),
+            style: TextStyle(
+              color: Colors.green,
+              fontSize: discountedFontSize,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      );
+    }
+
+    final displayPrice = discountedPrice ?? basePrice;
+    final isDiscountOnly = discountedPrice != null && basePrice == null;
+
+    return Text(
+      _preisText(displayPrice),
+      style: TextStyle(
+        color: isDiscountOnly ? Colors.green : Colors.black54,
+        fontSize: isDiscountOnly ? discountedFontSize : baseFontSize,
+        fontWeight: isDiscountOnly ? FontWeight.w800 : FontWeight.w500,
+      ),
+    );
+  }
+
   int? _bundleDurationForCombo({
     required Offer combo,
     required String zielgruppe,
@@ -1787,7 +1894,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             final baseOffer = singleBaseIndex['$category|$partLc'];
             final basePrice = baseOffer?.priceFor(zielgruppe);
             final duration = baseOffer?.durationFor(zielgruppe);
-            final preview = _previewForLastMissingPart(
+            final preview = _previewForLastMissingPartResolved(
               category: category,
               zielgruppe: zielgruppe,
               partLc: partLc,
@@ -2579,7 +2686,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     final options = <_VariantOption>[];
     final byLabel = <String, Offer>{};
     for (final v in variantOffersForPart) {
-      final hasZg = _hasZielgruppenData(v, zg);
       if (v.varianten.isEmpty) continue;
       final label = v.varianten.first.trim();
       if (label.isEmpty) continue;
@@ -2631,6 +2737,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               builder: (ctx2, setSheetState) {
                 final Offer chosenOffer =
                 (selectedVarLc == null) ? base : (variantsByLc[selectedVarLc] ?? base);
+                final currentSingles = Map<String, _CartItem>.from(_selectedVN.value)
+                  ..remove(key);
+                final selectedPartsBeforeAdd = currentSingles.values
+                    .where((it) => it.kategorie == category && it.zielgruppe == zg)
+                    .map((it) => it.leistung.toLowerCase())
+                    .toSet();
 
                 final sizeMap = _sizeMapForOffer(chosenOffer, zg);
                 final sizeKeys = _sortedSizeKeys(sizeMap.keys.map((e) => e.toString()));
@@ -2645,6 +2757,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   priceForButton = chosenOffer.priceFor(zg);
                   durationForButton = chosenOffer.durationFor(zg);
                 }
+                final previewPriceForButton = _previewForLastMissingPartResolved(
+                  category: category,
+                  zielgruppe: zg,
+                  partLc: partLc,
+                  selectedPartsLc: selectedPartsBeforeAdd,
+                  selectionMap: currentSingles,
+                  singleBaseIndex: singleBaseIndex,
+                  bundles: bundles,
+                  preferredSizeKey: selectedSizeKey,
+                );
+                final effectivePriceForButton =
+                    previewPriceForButton ?? priceForButton;
 
                 // Methodenliste (mit optionaler "Standard"-Zeile oben)
                 final List<Widget> methodTiles = [];
@@ -2679,9 +2803,24 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         title: const Text('Standard',
                             style: TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: (basePreis != null || base.durationFor(zg) != null)
-                            ? Text(
-                          '${_preisText(basePreis)}${_dauerText(base.durationFor(zg))}',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                            ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildPriceLabel(
+                              basePrice: basePreis,
+                              discountedPrice: selectedVarLc == null &&
+                                  previewPriceForButton != null &&
+                                  (basePreis == null || previewPriceForButton < basePreis)
+                                  ? previewPriceForButton
+                                  : null,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                            ),
+                            if (base.durationFor(zg) != null)
+                              Text(
+                                _dauerText(base.durationFor(zg)),
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                          ],
                         )
                             : null,
                       ),
@@ -2695,6 +2834,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   final o = opt.offer;
                   final preis = o.priceFor(zg);
                   final dauer = o.durationFor(zg);
+                  final previewPreis = _previewForLastMissingPartResolved(
+                    category: category,
+                    zielgruppe: zg,
+                    partLc: partLc,
+                    selectedPartsLc: selectedPartsBeforeAdd,
+                    selectionMap: currentSingles,
+                    singleBaseIndex: singleBaseIndex,
+                    bundles: bundles,
+                  );
 
                   methodTiles.add(
                     ListTile(
@@ -2713,9 +2861,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         },
                       ),
                       title: Text(opt.label, overflow: TextOverflow.ellipsis),
-                      trailing: Text(
-                        '${_preisText(preis)}${_dauerText(dauer)}',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildPriceLabel(
+                            basePrice: preis,
+                            discountedPrice: previewPreis != null &&
+                                (preis == null || previewPreis < preis)
+                                ? previewPreis
+                                : null,
+                          ),
+                          if (dauer != null) Text(_dauerText(dauer)),
+                        ],
                       ),
                       onTap: () {
                         setSheetState(() {
@@ -2746,10 +2903,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                     ),
                     const SizedBox(height: 4),
                     Center(
-                      child: Text(
-                        priceForButton != null ? _formatEuro(priceForButton!) : '–',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                      child: _buildPriceLabel(
+                        basePrice: priceForButton,
+                        discountedPrice: previewPriceForButton != null &&
+                            (priceForButton == null || previewPriceForButton < priceForButton)
+                            ? previewPriceForButton
+                            : null,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        baseFontSize: 20,
+                        discountedFontSize: 20,
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -2771,6 +2933,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       ...sizeKeys.map((k) {
                         final p = _sizePrice(sizeMap, k);
                         final d = _sizeDuration(sizeMap, k);
+                        final previewPrice = _previewForLastMissingPartResolved(
+                          category: category,
+                          zielgruppe: zg,
+                          partLc: partLc,
+                          selectedPartsLc: selectedPartsBeforeAdd,
+                          selectionMap: currentSingles,
+                          singleBaseIndex: singleBaseIndex,
+                          bundles: bundles,
+                          preferredSizeKey: k,
+                        );
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
                           leading: Radio<String>(
@@ -2779,9 +2951,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             onChanged: (val) => setSheetState(() => selectedSizeKey = val),
                           ),
                           title: Text(k),
-                          trailing: Text(
-                            '${_preisText(p)}${_dauerText(d)}',
-                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildPriceLabel(
+                                basePrice: p,
+                                discountedPrice: previewPrice != null &&
+                                    (p == null || previewPrice < p)
+                                    ? previewPrice
+                                    : null,
+                              ),
+                              if (d != null) Text(_dauerText(d)),
+                            ],
                           ),
                           onTap: () => setSheetState(() => selectedSizeKey = k),
                         );
@@ -2805,7 +2986,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         Builder(
                           builder: (_) {
                             final row = combineRows[i];
-                            final bundlePrice = _bundlePriceForCombo(
+                            final bundleFullPrice = _bundlePriceForCombo(
                               combo: row.bundle,
                               zielgruppe: zg,
                               sizeKey: selectedSizeKey,
@@ -2814,6 +2995,28 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               combo: row.bundle,
                               zielgruppe: zg,
                               sizeKey: selectedSizeKey,
+                            );
+                            final previewBundlePrice = _previewForComboGroup(
+                              combo: row.bundle,
+                              category: category,
+                              zielgruppe: zg,
+                              requiredBasePartsLc: {partLc},
+                              selectedPartsLc: {...selectedPartsBeforeAdd, partLc},
+                              selectionMap: {
+                                ...currentSingles,
+                                key: _CartItem(
+                                  kategorie: category,
+                                  leistung: partDisplay,
+                                  preis: priceForButton,
+                                  dauer: durationForButton,
+                                  zielgruppe: zg,
+                                  varianteLabel: selectedSizeKey,
+                                  selectedAt: 0,
+                                ),
+                              },
+                              singleBaseIndex: singleBaseIndex,
+                              bundles: bundles,
+                              bundlePriceOverride: bundleFullPrice,
                             );
                             final label = row.extrasDisplay.join('  &  ');
                             final checked = selectedComboIdx.contains(i);
@@ -2840,9 +3043,24 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     ),
                                   ),
                                   const SizedBox(width: 12),
-                                  Text(
-                                    '${_preisText(bundlePrice)}${_dauerText(bundleDur)}',
-                                    style: const TextStyle(fontWeight: FontWeight.w600),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _buildPriceLabel(
+                                        basePrice: row.extrasLc.fold<double>(
+                                          0.0,
+                                          (sum, extraLc) => sum + _singlePriceOfPart(
+                                            category: category,
+                                            zielgruppe: zg,
+                                            partLc: extraLc,
+                                            selectionMap: currentSingles,
+                                            singleBaseIndex: singleBaseIndex,
+                                          ),
+                                        ),
+                                        discountedPrice: previewBundlePrice,
+                                      ),
+                                      if (bundleDur != null) Text(_dauerText(bundleDur)),
+                                    ],
                                   ),
                                 ],
                               ),
@@ -2887,12 +3105,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                           ),
                           onPressed: () {
-                            final Offer chosen =
-                            selectedVarLc == null ? base : (variantsByLc[selectedVarLc] ?? base);
-
-                            double? finalPrice = priceForButton;
-                            int? finalDuration = durationForButton;
-
                             final map = Map<String, _CartItem>.from(_selectedVN.value);
 
                             if (_hasItemsFromOtherZielgruppe(zg)) {
@@ -2912,8 +3124,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     combo.bundle.kategorie == category &&
                                     combo.selectedPartsLc.contains(base.leistungenLc.first),
                               );
-
-                            _selectedVN.value = {
+                            final lockedPrice = previewPriceForButton != null &&
+                                priceForButton != null &&
+                                previewPriceForButton < priceForButton
+                                ? previewPriceForButton
+                                : null;
+                            final nextSingles = {
                               ...map,
                               _keyFor(
                                 zielgruppe: zg,
@@ -2922,10 +3138,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               ): _CartItem(
                                 kategorie: category,
                                 leistung: base.leistungen.first,
-                                preis: finalPrice,
-                                dauer: finalDuration,
+                                preis: priceForButton,
+                                dauer: durationForButton,
                                 zielgruppe: zg,
-                                // Hinweis: KEIN "Standard"-Label mehr im Warenkorb
                                 varianteLabel: () {
                                   final method =
                                   (selectedVarLc != null) ? labelsByLc[selectedVarLc] : null;
@@ -2936,12 +3151,65 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   return null;
                                 }(),
                                 selectedAt: ++_selectionTicker,
-                                lockedDisplayPrice: null,
+                                lockedDisplayPrice: lockedPrice,
                               ),
                             };
+
+                            for (final index in selectedComboIdx) {
+                              if (index < 0 || index >= combineRows.length) continue;
+                              final row = combineRows[index];
+                              for (final extraLc in row.extrasLc) {
+                                nextSingles.remove(
+                                  _keyFor(
+                                    zielgruppe: zg,
+                                    category: category,
+                                    partLc: extraLc,
+                                  ),
+                                );
+                              }
+                              updatedCombos.removeWhere(
+                                    (_, comboSel) =>
+                                comboSel.zielgruppe == zg &&
+                                    comboSel.bundle.kategorie == category &&
+                                    comboSel.selectedPartsLc.any(row.extrasLc.contains),
+                              );
+
+                              final comboPrice = _previewForComboGroup(
+                                combo: row.bundle,
+                                category: category,
+                                zielgruppe: zg,
+                                requiredBasePartsLc: {partLc},
+                                selectedPartsLc: {...nextSingles.values
+                                    .where((it) => it.kategorie == category && it.zielgruppe == zg)
+                                    .map((it) => it.leistung.toLowerCase()),},
+                                selectionMap: nextSingles,
+                                singleBaseIndex: singleBaseIndex,
+                                bundles: bundles,
+                                bundlePriceOverride: _bundlePriceForCombo(
+                                  combo: row.bundle,
+                                  zielgruppe: zg,
+                                  sizeKey: selectedSizeKey,
+                                ),
+                              );
+                              if (comboPrice == null) continue;
+
+                              updatedCombos[_comboSelectionKey(
+                                zielgruppe: zg,
+                                combo: row.bundle,
+                              )] = _ComboSelection(
+                                bundle: row.bundle,
+                                zielgruppe: zg,
+                                selectedAt: ++_selectionTicker,
+                                preis: comboPrice,
+                                dauer: null,
+                                selectedPartsDisplay: row.extrasDisplay,
+                                selectedPartsLcOverride: row.extrasLc,
+                              );
+                            }
+
+                            _selectedVN.value = nextSingles;
                             _selectedCombosVN.value = updatedCombos;
 
-                            // ggf. noch Kombi-Extras hinzufügen (unverändert)
                             Navigator.pop(ctx);
                           },
                           child: Row(
@@ -2961,7 +3229,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 ),
                               ),
                               Text(
-                                priceForButton == null ? '' : _formatEuro(priceForButton!),
+                                effectivePriceForButton == null
+                                    ? ''
+                                    : _formatEuro(effectivePriceForButton),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w800,
@@ -4097,8 +4367,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         }
 
                         Widget buildPriceText() {
-                          double? newPrice;
-                          double? preview;
+                          double? discountedPrice;
 
                           if (selected) {
                             final lockedDiscount = selectedItem == null
@@ -4112,10 +4381,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             if (lockedDiscount != null &&
                                 effectivePrice != null &&
                                 lockedDiscount < effectivePrice) {
-                              newPrice = lockedDiscount;
+                              discountedPrice = lockedDiscount;
                             }
                           } else {
-                            preview = _previewForLastMissingPart(
+                            final preview = _previewForLastMissingPartResolved(
                               category: kat,
                               zielgruppe: _zielgruppe,
                               partLc: partLc,
@@ -4124,57 +4393,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               singleBaseIndex: singleBaseIndex,
                               bundles: bundles,
                             );
-                            if (preview != null && effectivePrice != null && preview < effectivePrice) {
-                              newPrice = preview;
+                            if (preview != null &&
+                                (effectivePrice == null || preview < effectivePrice)) {
+                              discountedPrice = preview;
                             }
                           }
 
-                          if (newPrice != null) {
-                            return Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  _preisText(effectivePrice),
-                                  style: const TextStyle(
-                                    color: Colors.black45,
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w500,
-                                    decoration: TextDecoration.lineThrough,
-                                    decorationThickness: 2,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  _preisText(newPrice),
-                                  style: const TextStyle(
-                                    color: Colors.green,
-                                    fontSize: 13.5,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ],
-                            );
-                          }
-
-                          if (preview != null && effectivePrice == null) {
-                            return Text(
-                              _preisText(preview),
-                              style: const TextStyle(
-                                color: Colors.green,
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            );
-                          }
-
-                          return Text(
-                            _preisText(effectivePrice),
-                            style: const TextStyle(
-                              color: Colors.black54,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
+                          return _buildPriceLabel(
+                            basePrice: effectivePrice,
+                            discountedPrice: discountedPrice,
                           );
                         }
 
@@ -4211,8 +4438,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               : variantBasePrice;
 
                           Widget buildVariantPriceText() {
-                            double? newPrice;
-                            double? preview;
+                            double? discountedPrice;
 
                             if (selectedThis) {
                               final lockedDiscount = selectedItem == null
@@ -4226,10 +4452,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               if (lockedDiscount != null &&
                                   variantEffectivePrice != null &&
                                   lockedDiscount < variantEffectivePrice) {
-                                newPrice = lockedDiscount;
+                                discountedPrice = lockedDiscount;
                               }
                             } else {
-                              preview = _previewForLastMissingPart(
+                              final preview = _previewForLastMissingPartResolved(
                                 category: kat,
                                 zielgruppe: _zielgruppe,
                                 partLc: partLc,
@@ -4239,58 +4465,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 bundles: bundles,
                               );
                               if (preview != null &&
-                                  variantEffectivePrice != null &&
-                                  preview < variantEffectivePrice) {
-                                newPrice = preview;
+                                  (variantEffectivePrice == null || preview < variantEffectivePrice)) {
+                                discountedPrice = preview;
                               }
                             }
 
-                            if (newPrice != null) {
-                              return Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    _preisText(variantEffectivePrice),
-                                    style: const TextStyle(
-                                      color: Colors.black45,
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w500,
-                                      decoration: TextDecoration.lineThrough,
-                                      decorationThickness: 2,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _preisText(newPrice),
-                                    style: const TextStyle(
-                                      color: Colors.green,
-                                      fontSize: 13.5,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ],
-                              );
-                            }
-
-                            if (preview != null && variantEffectivePrice == null) {
-                              return Text(
-                                _preisText(preview),
-                                style: const TextStyle(
-                                  color: Colors.green,
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              );
-                            }
-
-                            return Text(
-                              _preisText(variantEffectivePrice),
-                              style: const TextStyle(
-                                color: Colors.black54,
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w500,
-                              ),
+                            return _buildPriceLabel(
+                              basePrice: variantEffectivePrice,
+                              discountedPrice: discountedPrice,
+                              baseFontSize: 12.5,
                             );
                           }
 
@@ -4633,7 +4816,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           '$kat|$partLc']
                                               ?.priceFor(_zielgruppe);
                                       final previewPrice =
-                                      _previewForLastMissingPart(
+                                      _previewForLastMissingPartResolved(
                                         category: kat,
                                         zielgruppe: _zielgruppe,
                                         partLc: partLc,
