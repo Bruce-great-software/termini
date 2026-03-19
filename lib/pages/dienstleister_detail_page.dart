@@ -4927,11 +4927,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     selectedCombo?.preis ?? previewPrice ?? displayPreis;
                                 final effectiveDuration = selectedCombo?.dauer ?? displayDauer;
 
-                                final hasPreviewDiscount =
-                                    previewPrice != null &&
-                                    !selected &&
+                                final hasDiscountedComboPrice =
                                     displayPreis != null &&
-                                    previewPrice < displayPreis;
+                                    effectivePrice != null &&
+                                    effectivePrice < displayPreis;
 
                                 return Row(
                                   children: [
@@ -4960,7 +4959,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     Column(
                                       crossAxisAlignment: CrossAxisAlignment.end,
                                       children: [
-                                        if (hasPreviewDiscount)
+                                        if (hasDiscountedComboPrice)
                                           Text(
                                             _preisText(displayPreis),
                                             style: const TextStyle(
@@ -4974,7 +4973,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         Text(
                                           _preisText(effectivePrice),
                                           style: TextStyle(
-                                            color: previewPrice != null && !selected
+                                            color: hasDiscountedComboPrice
                                                 ? Colors.green
                                                 : Colors.black54,
                                             fontSize: 13,
