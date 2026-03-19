@@ -1272,6 +1272,37 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return combo.priceFor(zielgruppe) ?? _minSizePriceFor(combo, zielgruppe);
   }
 
+  Offer? _bestStandaloneComboForParts({
+    required String category,
+    required String zielgruppe,
+    required List<String> partLcs,
+    required List<Offer> bundles,
+  }) {
+    final selectedParts = partLcs.toSet();
+
+    return bundles.where((offer) {
+      if (offer.kategorie != category) return false;
+      if (!_hasZielgruppenData(offer, zielgruppe)) return false;
+      if (offer.leistungenLc.length != partLcs.length) return false;
+      final offerParts = offer.leistungenLc.toSet();
+      return offerParts.containsAll(selectedParts) &&
+          selectedParts.containsAll(offerParts);
+    }).fold<Offer?>(null, (best, offer) {
+      if (best == null) return offer;
+      final bestPrice = _bundlePriceForCombo(
+        combo: best,
+        zielgruppe: zielgruppe,
+      );
+      final offerPrice = _bundlePriceForCombo(
+        combo: offer,
+        zielgruppe: zielgruppe,
+      );
+      if (offerPrice == null) return best;
+      if (bestPrice == null || offerPrice < bestPrice) return offer;
+      return best;
+    });
+  }
+
   int? _bundleDurationForCombo({
     required Offer combo,
     required String zielgruppe,
@@ -1408,11 +1439,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         zielgruppe: item.zielgruppe,
         category: item.kategorie,
         removedPartLc: item.leistung.toLowerCase(),
+        bundles: bundles,
       );
     }
 
     _clearInvalidLockedPrices(
       selectionMap: map,
+      singleBaseIndex: singleBaseIndex,
+      bundles: bundles,
+    );
+    _refreshComboSelections(
+      selectionMap: map,
+      combosMap: combos,
       singleBaseIndex: singleBaseIndex,
       bundles: bundles,
     );
@@ -1555,20 +1593,141 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     }
   }
 
+
+  void _refreshComboSelections({
+    required Map<String, _CartItem> selectionMap,
+    required Map<String, _ComboSelection> combosMap,
+    required Map<String, Offer> singleBaseIndex,
+    required List<Offer> bundles,
+  }) {
+    final entries = combosMap.entries.toList();
+
+    for (final entry in entries) {
+      final selection = entry.value;
+      if (selection.selectedPartsLc.length != selection.bundle.leistungenLc.length) {
+        continue;
+      }
+
+      final standaloneCombo = _bestStandaloneComboForParts(
+        category: selection.bundle.kategorie,
+        zielgruppe: selection.zielgruppe,
+        partLcs: selection.selectedPartsLc,
+        bundles: bundles,
+      );
+      final targetCombo = standaloneCombo ?? selection.bundle;
+      final standalonePrice = _bundlePriceForCombo(
+        combo: targetCombo,
+        zielgruppe: selection.zielgruppe,
+      );
+      if (standalonePrice == null) continue;
+
+      final selectedParts = _selectedPartsForContext(
+        zielgruppe: selection.zielgruppe,
+        category: selection.bundle.kategorie,
+        selectionMap: selectionMap,
+        combosMap: combosMap,
+      );
+      final previewPrice = _previewForStandaloneComboOffer(
+        combo: targetCombo,
+        category: selection.bundle.kategorie,
+        zielgruppe: selection.zielgruppe,
+        selectedPartsLc: selectedParts,
+        selectionMap: selectionMap,
+        combosMap: combosMap,
+        singleBaseIndex: singleBaseIndex,
+        bundles: bundles,
+        comboPriceOverride: standalonePrice,
+      );
+      final effectivePrice =
+      previewPrice != null && previewPrice < standalonePrice
+          ? previewPrice
+          : standalonePrice;
+
+      final newKey = _comboSelectionKey(
+        zielgruppe: selection.zielgruppe,
+        combo: targetCombo,
+      );
+      if (newKey != entry.key) {
+        combosMap.remove(entry.key);
+      }
+      combosMap[newKey] = _ComboSelection(
+        bundle: targetCombo,
+        zielgruppe: selection.zielgruppe,
+        selectedAt: selection.selectedAt,
+        preis: effectivePrice,
+        dauer: selection.dauer ??
+            _bundleDurationForCombo(
+              combo: targetCombo,
+              zielgruppe: selection.zielgruppe,
+            ),
+        varianteLabel: selection.varianteLabel ??
+            _comboVariantLabel(method: _comboMethodLabelSingle(targetCombo)),
+        originalPrice: effectivePrice < standalonePrice ? standalonePrice : null,
+        selectedPartsDisplay: selection.selectedTitles,
+        selectedPartsLcOverride: selection.selectedPartsLc,
+      );
+    }
+  }
+
   void _removeDependentComboSelections({
     required Map<String, _ComboSelection> combosMap,
     required String zielgruppe,
     required String category,
     required String removedPartLc,
+    required List<Offer> bundles,
   }) {
-    combosMap.removeWhere(
-          (_, comboSel) =>
-      comboSel.zielgruppe == zielgruppe &&
-          comboSel.bundle.kategorie == category &&
-          comboSel.selectedPartsLc.length != comboSel.bundle.leistungenLc.length &&
-          !comboSel.selectedPartsLc.contains(removedPartLc) &&
-          comboSel.bundle.leistungenLc.contains(removedPartLc),
-    );
+    final entries = combosMap.entries.toList();
+
+    for (final entry in entries) {
+      final comboSel = entry.value;
+      final isDependentPartialCombo =
+          comboSel.zielgruppe == zielgruppe &&
+              comboSel.bundle.kategorie == category &&
+              comboSel.selectedPartsLc.length != comboSel.bundle.leistungenLc.length &&
+              !comboSel.selectedPartsLc.contains(removedPartLc) &&
+              comboSel.bundle.leistungenLc.contains(removedPartLc);
+      if (!isDependentPartialCombo) continue;
+
+      combosMap.remove(entry.key);
+
+      final standaloneCombo = _bestStandaloneComboForParts(
+        category: category,
+        zielgruppe: zielgruppe,
+        partLcs: comboSel.selectedPartsLc,
+        bundles: bundles,
+      );
+      if (standaloneCombo == null) {
+        continue;
+      }
+
+      final standalonePrice = _bundlePriceForCombo(
+        combo: standaloneCombo,
+        zielgruppe: zielgruppe,
+      );
+      if (standalonePrice == null) {
+        continue;
+      }
+
+      combosMap[_comboSelectionKey(
+        zielgruppe: zielgruppe,
+        combo: standaloneCombo,
+      )] = _ComboSelection(
+        bundle: standaloneCombo,
+        zielgruppe: zielgruppe,
+        selectedAt: comboSel.selectedAt,
+        preis: standalonePrice,
+        dauer: comboSel.dauer ??
+            _bundleDurationForCombo(
+              combo: standaloneCombo,
+              zielgruppe: zielgruppe,
+            ),
+        varianteLabel: comboSel.varianteLabel ??
+            _comboVariantLabel(method: _comboMethodLabelSingle(standaloneCombo)),
+        originalPrice: null,
+        selectedPartsDisplay: comboSel.selectedTitles,
+        selectedPartsLcOverride: comboSel.selectedPartsLc,
+      );
+    }
   }
 
   /// Combo-Helper: (de)selektiert alle Einzel-Leistungen der Kombi
@@ -1667,13 +1826,28 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     var panelCombos = Map<String, _ComboSelection>.from(combos);
 
     _BookingSummaryEntry _singleEntry(String key, _CartItem item) {
+      final partLc = item.leistung.toLowerCase();
       final lockedDiscount = _validatedLockedDisplayPrice(
         item: item,
         selectionMap: panelSingles,
+        combosMap: panelCombos,
         singleBaseIndex: singleBaseIndex,
         bundles: bundles,
       );
-      final hasDiscount = lockedDiscount != null;
+      final dynamicDiscount = _currentDiscountedSingleDisplayPrice(
+        category: item.kategorie,
+        zielgruppe: item.zielgruppe,
+        partLc: partLc,
+        selectionMap: panelSingles,
+        combosMap: panelCombos,
+        singleBaseIndex: singleBaseIndex,
+        bundles: bundles,
+      );
+      final effectiveDiscount = lockedDiscount ?? dynamicDiscount;
+      final hasDiscount =
+          effectiveDiscount != null &&
+              item.preis != null &&
+              effectiveDiscount < item.preis!;
 
       return _BookingSummaryEntry(
         selectionKey: key,
@@ -1684,7 +1858,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         subtitle: [item.varianteLabel]
             .where((e) => e != null && e.trim().isNotEmpty)
             .join(' • '),
-        price: hasDiscount ? lockedDiscount : item.preis,
+        price: hasDiscount ? effectiveDiscount : item.preis,
         originalPrice: hasDiscount ? item.preis : null,
         duration: item.dauer,
       );
@@ -1757,6 +1931,39 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
       final suggestionsByKey = <String, _BookingSummarySuggestion>{};
 
+      bool shouldReplaceSuggestion(
+          _BookingSummarySuggestion current,
+          _BookingSummarySuggestion next,
+          ) {
+        final currentPrice = current.price;
+        final nextPrice = next.price;
+
+        if (currentPrice == null) return nextPrice != null;
+        if (nextPrice == null) return false;
+        if (nextPrice < currentPrice) return true;
+        if (nextPrice > currentPrice) return false;
+
+        final currentSavings =
+        current.originalPrice != null ? current.originalPrice! - currentPrice : 0.0;
+        final nextSavings =
+        next.originalPrice != null ? next.originalPrice! - nextPrice : 0.0;
+        if (nextSavings > currentSavings) return true;
+        if (nextSavings < currentSavings) return false;
+
+        if (current.originalPrice == null && next.originalPrice != null) {
+          return true;
+        }
+
+        return false;
+      }
+
+      void storeSuggestion(String key, _BookingSummarySuggestion suggestion) {
+        final current = suggestionsByKey[key];
+        if (current == null || shouldReplaceSuggestion(current, suggestion)) {
+          suggestionsByKey[key] = suggestion;
+        }
+      }
+
       for (final bundle in bundles) {
         for (final context in selectedPartsByContext.entries) {
           final ctx = context.key.split('|');
@@ -1793,8 +2000,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             ];
             final suggestionKey =
                 '$zielgruppe|$category|combo|${missingPartLcs.join("+")}';
-            if (suggestionsByKey.containsKey(suggestionKey)) continue;
-
             final comboPrice = _previewForComboGroup(
               combo: bundle,
               category: category,
@@ -1802,6 +2007,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               requiredBasePartsLc: bundleBaseParts,
               selectedPartsLc: selectedParts,
               selectionMap: panelSingles,
+              combosMap: panelCombos,
               singleBaseIndex: singleBaseIndex,
               bundles: bundles,
             );
@@ -1850,17 +2056,20 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             }
             final hasDiscount = comboOriginal > 0 && comboPrice < comboOriginal;
 
-            suggestionsByKey[suggestionKey] = _BookingSummarySuggestion(
-              contextKey: suggestionKey,
-              zielgruppe: zielgruppe,
-              category: category,
-              title: missingDisplayNames.join(' + '),
-              displayNames: missingDisplayNames,
-              partLcs: missingPartLcs,
-              price: comboPrice,
-              originalPrice: hasDiscount ? comboOriginal : null,
-              duration: null,
-              bundle: bundle,
+            storeSuggestion(
+              suggestionKey,
+              _BookingSummarySuggestion(
+                contextKey: suggestionKey,
+                zielgruppe: zielgruppe,
+                category: category,
+                title: missingDisplayNames.join(' + '),
+                displayNames: missingDisplayNames,
+                partLcs: missingPartLcs,
+                price: comboPrice,
+                originalPrice: hasDiscount ? comboOriginal : null,
+                duration: null,
+                bundle: bundle,
+              ),
             );
             continue;
           }
@@ -1870,8 +2079,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             if (selectedParts.contains(partLc)) continue;
 
             final suggestionKey = '$zielgruppe|$category|$partLc';
-            if (suggestionsByKey.containsKey(suggestionKey)) continue;
-
             final baseOffer = singleBaseIndex['$category|$partLc'];
             final basePrice = baseOffer?.priceFor(zielgruppe);
             final duration = baseOffer?.durationFor(zielgruppe);
@@ -1881,6 +2088,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               partLc: partLc,
               selectedPartsLc: selectedParts,
               selectionMap: panelSingles,
+              combosMap: panelCombos,
               singleBaseIndex: singleBaseIndex,
               bundles: bundles,
             );
@@ -1895,18 +2103,21 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               fallback: i < bundle.leistungen.length ? bundle.leistungen[i] : null,
             );
 
-            suggestionsByKey[suggestionKey] = _BookingSummarySuggestion(
-              contextKey: suggestionKey,
-              zielgruppe: zielgruppe,
-              category: category,
-              title: category.trim().isEmpty
-                  ? displayName
-                  : '$category - $displayName',
-              displayNames: [displayName],
-              partLcs: [partLc],
-              price: suggestionPrice,
-              originalPrice: hasDiscount ? basePrice : null,
-              duration: duration,
+            storeSuggestion(
+              suggestionKey,
+              _BookingSummarySuggestion(
+                contextKey: suggestionKey,
+                zielgruppe: zielgruppe,
+                category: category,
+                title: category.trim().isEmpty
+                    ? displayName
+                    : '$category - $displayName',
+                displayNames: [displayName],
+                partLcs: [partLc],
+                price: suggestionPrice,
+                originalPrice: hasDiscount ? basePrice : null,
+                duration: duration,
+              ),
             );
           }
         }
@@ -2132,12 +2343,20 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                         removedPartLc:
                                                         removedItem.leistung
                                                             .toLowerCase(),
+                                                        bundles: bundles,
                                                       );
                                                     }
                                                   }
 
                                                   _clearInvalidLockedPrices(
                                                     selectionMap: singlesMap,
+                                                    singleBaseIndex:
+                                                    singleBaseIndex,
+                                                    bundles: bundles,
+                                                  );
+                                                  _refreshComboSelections(
+                                                    selectionMap: singlesMap,
+                                                    combosMap: combosMap,
                                                     singleBaseIndex:
                                                     singleBaseIndex,
                                                     bundles: bundles,
