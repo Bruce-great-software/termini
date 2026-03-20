@@ -22,6 +22,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
 
   String? _selectedDocId;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _angeboteStream;
+  String? _savingZielgruppeKey;
 
   @override
   void initState() {
@@ -121,6 +122,57 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
     return '$kategorie – ${leistungen.join(' & ')}';
   }
 
+  Future<void> _updateZielgruppeValues({
+    required String docId,
+    required String titel,
+    required String zielgruppe,
+    required Map<String, dynamic> zielgruppenWerte,
+    required String preisText,
+    required String dauerText,
+  }) async {
+    final preis = _toDouble(preisText);
+    final dauer = _toInt(dauerText);
+    final update = <String, dynamic>{
+      'zielgruppen.$zielgruppe.preis':
+          preis == null ? FieldValue.delete() : preis,
+      'zielgruppen.$zielgruppe.dauer':
+          dauer == null ? FieldValue.delete() : dauer,
+    };
+
+    final hasVarianten = zielgruppenWerte['varianten'] is Map &&
+        (zielgruppenWerte['varianten'] as Map).isNotEmpty;
+    if (preis == null && dauer == null && !hasVarianten) {
+      update['zielgruppen.$zielgruppe'] = FieldValue.delete();
+    }
+
+    final savingKey = '$docId::$zielgruppe';
+    setState(() => _savingZielgruppeKey = savingKey);
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('angebote')
+          .doc(docId)
+          .update(update);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('„$titel“ für $zielgruppe gespeichert.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Preis und Dauer für $zielgruppe konnten nicht gespeichert werden.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _savingZielgruppeKey = null);
+      }
+    }
+  }
+
   Widget _buildHeaderListView(List<Widget> children) {
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
@@ -150,8 +202,6 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
     for (final entry in zielgruppen.entries) {
       if (entry.value is! Map) continue;
       final values = Map<String, dynamic>.from(entry.value);
-      final preis = _preisText(_toDouble(values['preis']));
-      final dauer = _toInt(values['dauer']);
       final varianten = <String>[];
 
       if (values['varianten'] is Map) {
@@ -170,11 +220,8 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
       blocks.add(
         _DetailBlock(
           title: entry.key,
-          lines: [
-            'Preis: $preis',
-            'Dauer: ${dauer == null ? '–' : '$dauer Min'}',
-            ...varianten,
-          ],
+          values: values,
+          variantLines: varianten,
         ),
       );
     }
@@ -187,15 +234,16 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
     final kategorie = (data['kategorie'] as String?)?.trim() ?? 'Ohne Kategorie';
     final leistungen = (data['leistungen'] is List)
         ? List<String>.from(data['leistungen'])
-        .where((entry) => entry.trim().isNotEmpty)
-        .toList()
+            .where((entry) => entry.trim().isNotEmpty)
+            .toList()
         : <String>[];
     final methoden = (data['varianten'] is List)
         ? List<String>.from(data['varianten'])
-        .where((entry) => entry.trim().isNotEmpty)
-        .toList()
+            .where((entry) => entry.trim().isNotEmpty)
+            .toList()
         : <String>[];
     final zielgruppenBlocks = _detailBlocksForZielgruppen(data);
+    final hasEditableZielgruppen = zielgruppenBlocks.isNotEmpty;
 
     return Material(
       color: Colors.white,
@@ -259,10 +307,10 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
                           children: leistungen
                               .map(
                                 (entry) => Chip(
-                              label: Text(entry),
-                              backgroundColor: const Color(0xFFF3F4F8),
-                            ),
-                          )
+                                  label: Text(entry),
+                                  backgroundColor: const Color(0xFFF3F4F8),
+                                ),
+                              )
                               .toList(),
                         ),
                       ),
@@ -275,57 +323,56 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
                           children: methoden
                               .map(
                                 (entry) => Chip(
-                              label: Text(entry),
-                              backgroundColor: const Color(0xFFEFF4FF),
-                            ),
-                          )
+                                  label: Text(entry),
+                                  backgroundColor: const Color(0xFFEFF4FF),
+                                ),
+                              )
                               .toList(),
                         ),
                       ),
                     if (zielgruppenBlocks.isNotEmpty)
                       _DetailSection(
-                        title: 'Zielgruppen',
+                        title: hasEditableZielgruppen
+                            ? 'Zielgruppen (Preis & Dauer bearbeitbar)'
+                            : 'Zielgruppen',
                         child: Column(
                           children: zielgruppenBlocks
                               .map(
                                 (block) => Container(
-                              width: double.infinity,
-                              margin: const EdgeInsets.only(bottom: 12),
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF8F9FB),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: const Color(0xFFE6E9F0),
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8F9FB),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: const Color(0xFFE6E9F0),
+                                    ),
+                                  ),
+                                  child: _EditableZielgruppeCard(
+                                    key: ValueKey(
+                                      '${selection.docId}-${block.title}-${block.values['preis']}-${block.values['dauer']}',
+                                    ),
+                                    title: block.title,
+                                    initialPreis: _toDouble(block.values['preis']),
+                                    initialDauer: _toInt(block.values['dauer']),
+                                    variantLines: block.variantLines,
+                                    isSaving:
+                                        _savingZielgruppeKey ==
+                                        '${selection.docId}::${block.title}',
+                                    onSave:
+                                        (preisText, dauerText) =>
+                                            _updateZielgruppeValues(
+                                              docId: selection.docId,
+                                              titel: selection.titel,
+                                              zielgruppe: block.title,
+                                              zielgruppenWerte: block.values,
+                                              preisText: preisText,
+                                              dauerText: dauerText,
+                                            ),
+                                  ),
                                 ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment:
-                                CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    block.title,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  ...block.lines.map(
-                                        (line) => Padding(
-                                      padding:
-                                      const EdgeInsets.only(bottom: 4),
-                                      child: Text(
-                                        line,
-                                        style: const TextStyle(
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          )
+                              )
                               .toList(),
                         ),
                       ),
@@ -354,13 +401,13 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
           width: drawerVisible ? _desktopDrawerWidth : 0,
           child: drawerVisible
               ? DecoratedBox(
-            decoration: const BoxDecoration(
-              border: Border(
-                left: BorderSide(color: Color(0xFFE5E5E5)),
-              ),
-            ),
-            child: _buildDesktopDrawer(selection!),
-          )
+                  decoration: const BoxDecoration(
+                    border: Border(
+                      left: BorderSide(color: Color(0xFFE5E5E5)),
+                    ),
+                  ),
+                  child: _buildDesktopDrawer(selection!),
+                )
               : const SizedBox.shrink(),
         ),
       ],
@@ -433,8 +480,10 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
         for (final kategorie in kategorien) {
           final docs = grouped[kategorie]!
             ..sort((a, b) {
-              final at = (a.data()['titel'] as String?) ?? _fallbackTitel(a.data());
-              final bt = (b.data()['titel'] as String?) ?? _fallbackTitel(b.data());
+              final at =
+                  (a.data()['titel'] as String?) ?? _fallbackTitel(a.data());
+              final bt =
+                  (b.data()['titel'] as String?) ?? _fallbackTitel(b.data());
               return at.toLowerCase().compareTo(bt.toLowerCase());
             });
 
@@ -656,11 +705,157 @@ class _DetailSection extends StatelessWidget {
 class _DetailBlock {
   const _DetailBlock({
     required this.title,
-    required this.lines,
+    required this.values,
+    required this.variantLines,
   });
 
   final String title;
-  final List<String> lines;
+  final Map<String, dynamic> values;
+  final List<String> variantLines;
+}
+
+class _EditableZielgruppeCard extends StatefulWidget {
+  const _EditableZielgruppeCard({
+    super.key,
+    required this.title,
+    required this.initialPreis,
+    required this.initialDauer,
+    required this.variantLines,
+    required this.isSaving,
+    required this.onSave,
+  });
+
+  final String title;
+  final double? initialPreis;
+  final int? initialDauer;
+  final List<String> variantLines;
+  final bool isSaving;
+  final Future<void> Function(String preisText, String dauerText) onSave;
+
+  @override
+  State<_EditableZielgruppeCard> createState() =>
+      _EditableZielgruppeCardState();
+}
+
+class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
+  late final TextEditingController _preisController;
+  late final TextEditingController _dauerController;
+
+  @override
+  void initState() {
+    super.initState();
+    _preisController = TextEditingController();
+    _dauerController = TextEditingController();
+    _syncControllers();
+  }
+
+  @override
+  void didUpdateWidget(covariant _EditableZielgruppeCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialPreis != widget.initialPreis ||
+        oldWidget.initialDauer != widget.initialDauer) {
+      _syncControllers();
+    }
+  }
+
+  void _syncControllers() {
+    final preis = widget.initialPreis;
+    if (preis == null) {
+      _preisController.text = '';
+    } else {
+      final hasDecimals = preis % 1 != 0;
+      _preisController.text =
+          (hasDecimals ? preis.toStringAsFixed(2) : preis.toStringAsFixed(0))
+              .replaceAll('.', ',');
+    }
+    _dauerController.text = widget.initialDauer?.toString() ?? '';
+  }
+
+  @override
+  void dispose() {
+    _preisController.dispose();
+    _dauerController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                widget.title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: widget.isSaving
+                  ? null
+                  : () => widget.onSave(
+                        _preisController.text,
+                        _dauerController.text,
+                      ),
+              icon: widget.isSaving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save_outlined, size: 18),
+              label: const Text('Speichern'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _preisController,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Preis',
+            suffixText: '€',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _dauerController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Dauer',
+            suffixText: 'Min',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        if (widget.variantLines.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          const Text(
+            'Varianten',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...widget.variantLines.map(
+            (line) => Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                line,
+                style: const TextStyle(color: Colors.black87),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 class _SelectedLeistung {
