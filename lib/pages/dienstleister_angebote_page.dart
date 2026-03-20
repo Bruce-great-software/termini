@@ -800,6 +800,14 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
   late final TextEditingController _preisController;
   late final TextEditingController _dauerController;
 
+  Future<void> _save() {
+    if (widget.isSaving) return Future.value();
+    return widget.onSave(
+      _preisController.text,
+      _dauerController.text,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -852,21 +860,33 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
                 ),
               ),
             ),
-            FilledButton.tonalIcon(
-              onPressed: widget.isSaving
-                  ? null
-                  : () => widget.onSave(
-                _preisController.text,
-                _dauerController.text,
+            Material(
+              color: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+                side: BorderSide(color: Colors.grey.shade300),
               ),
-              icon: widget.isSaving
-                  ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-                  : const Icon(Icons.save_outlined, size: 18),
-              label: const Text('Speichern'),
+              child: InkWell(
+                onTap: widget.isSaving ? null : _save,
+                borderRadius: BorderRadius.circular(18),
+                child: SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: Center(
+                    child: widget.isSaving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(
+                            Icons.check,
+                            size: 32,
+                            color: Color(0xFF24C552),
+                          ),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
@@ -874,6 +894,8 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
         TextField(
           controller: _preisController,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _save(),
           decoration: const InputDecoration(
             labelText: 'Preis',
             suffixText: '€',
@@ -885,6 +907,8 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
         TextField(
           controller: _dauerController,
           keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _save(),
           decoration: const InputDecoration(
             labelText: 'Dauer',
             suffixText: 'Min',
