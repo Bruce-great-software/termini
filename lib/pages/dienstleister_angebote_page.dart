@@ -129,6 +129,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
     required Map<String, dynamic> zielgruppenWerte,
     required String preisText,
     required String dauerText,
+    required Map<String, Map<String, String>> variantenTexte,
   }) async {
     final preis = _toDouble(preisText);
     final dauer = _toInt(dauerText);
@@ -139,9 +140,44 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
           dauer == null ? FieldValue.delete() : dauer,
     };
 
-    final hasVarianten = zielgruppenWerte['varianten'] is Map &&
-        (zielgruppenWerte['varianten'] as Map).isNotEmpty;
-    if (preis == null && dauer == null && !hasVarianten) {
+    final existingVarianten = zielgruppenWerte['varianten'] is Map
+        ? Map<String, dynamic>.from(zielgruppenWerte['varianten'] as Map)
+        : <String, dynamic>{};
+    var hasAnyVariantenValue = false;
+
+    final variantenNamen = <String>{
+      ...existingVarianten.keys,
+      ...variantenTexte.keys,
+    }.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    for (final variantenName in variantenNamen) {
+      final variantPfad = 'zielgruppen.$zielgruppe.varianten.$variantenName';
+      final varianteTexte = variantenTexte[variantenName];
+      final variantenPreis = _toDouble(varianteTexte?['preis']);
+      final variantenDauer = _toInt(varianteTexte?['dauer']);
+
+      if (variantenPreis == null && variantenDauer == null) {
+        update[variantPfad] = FieldValue.delete();
+        continue;
+      }
+
+      hasAnyVariantenValue = true;
+      update['$variantPfad.preis'] =
+          variantenPreis == null ? FieldValue.delete() : variantenPreis;
+      update['$variantPfad.dauer'] =
+          variantenDauer == null ? FieldValue.delete() : variantenDauer;
+    }
+
+    if (!hasAnyVariantenValue) {
+      update.removeWhere(
+        (key, _) => key.startsWith('zielgruppen.$zielgruppe.varianten.'),
+      );
+      update['zielgruppen.$zielgruppe.varianten'] = FieldValue.delete();
+    }
+
+    if (preis == null && dauer == null && !hasAnyVariantenValue) {
+      update.removeWhere((key, _) => key.startsWith('zielgruppen.$zielgruppe.'));
       update['zielgruppen.$zielgruppe'] = FieldValue.delete();
     }
 
@@ -162,7 +198,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Preis und Dauer für $zielgruppe konnten nicht gespeichert werden.',
+            'Preis- und Dauerwerte für $zielgruppe konnten nicht gespeichert werden.',
           ),
         ),
       );
@@ -202,18 +238,13 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
     for (final entry in zielgruppen.entries) {
       if (entry.value is! Map) continue;
       final values = Map<String, dynamic>.from(entry.value);
-      final varianten = <String>[];
+      final variantenMap = <String, Map<String, dynamic>>{};
 
       if (values['varianten'] is Map) {
-        final variantenMap = Map<String, dynamic>.from(values['varianten']);
-        for (final variante in variantenMap.entries) {
+        final rawVariantenMap = Map<String, dynamic>.from(values['varianten']);
+        for (final variante in rawVariantenMap.entries) {
           if (variante.value is! Map) continue;
-          final varianteValues = Map<String, dynamic>.from(variante.value);
-          final variantePreis = _preisText(_toDouble(varianteValues['preis']));
-          final varianteDauer = _toInt(varianteValues['dauer']);
-          varianten.add(
-            '${variante.key}: $variantePreis${varianteDauer == null ? '' : ' • ${varianteDauer} Min'}',
-          );
+          variantenMap[variante.key] = Map<String, dynamic>.from(variante.value);
         }
       }
 
@@ -221,7 +252,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
         _DetailBlock(
           title: entry.key,
           values: values,
-          variantLines: varianten,
+          variantValues: variantenMap,
         ),
       );
     }
@@ -351,17 +382,21 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
                                   ),
                                   child: _EditableZielgruppeCard(
                                     key: ValueKey(
-                                      '${selection.docId}-${block.title}-${block.values['preis']}-${block.values['dauer']}',
+                                      '${selection.docId}-${block.title}-${block.values.toString()}-${block.variantValues.toString()}',
                                     ),
                                     title: block.title,
                                     initialPreis: _toDouble(block.values['preis']),
                                     initialDauer: _toInt(block.values['dauer']),
-                                    variantLines: block.variantLines,
+                                    initialVarianten: block.variantValues,
                                     isSaving:
                                         _savingZielgruppeKey ==
                                         '${selection.docId}::${block.title}',
                                     onSave:
-                                        (preisText, dauerText) =>
+                                        (
+                                          preisText,
+                                          dauerText,
+                                          variantenTexte,
+                                        ) =>
                                             _updateZielgruppeValues(
                                               docId: selection.docId,
                                               titel: selection.titel,
@@ -369,6 +404,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
                                               zielgruppenWerte: block.values,
                                               preisText: preisText,
                                               dauerText: dauerText,
+                                              variantenTexte: variantenTexte,
                                             ),
                                   ),
                                 ),
@@ -706,12 +742,12 @@ class _DetailBlock {
   const _DetailBlock({
     required this.title,
     required this.values,
-    required this.variantLines,
+    required this.variantValues,
   });
 
   final String title;
   final Map<String, dynamic> values;
-  final List<String> variantLines;
+  final Map<String, Map<String, dynamic>> variantValues;
 }
 
 class _EditableZielgruppeCard extends StatefulWidget {
@@ -720,7 +756,7 @@ class _EditableZielgruppeCard extends StatefulWidget {
     required this.title,
     required this.initialPreis,
     required this.initialDauer,
-    required this.variantLines,
+    required this.initialVarianten,
     required this.isSaving,
     required this.onSave,
   });
@@ -728,9 +764,13 @@ class _EditableZielgruppeCard extends StatefulWidget {
   final String title;
   final double? initialPreis;
   final int? initialDauer;
-  final List<String> variantLines;
+  final Map<String, Map<String, dynamic>> initialVarianten;
   final bool isSaving;
-  final Future<void> Function(String preisText, String dauerText) onSave;
+  final Future<void> Function(
+    String preisText,
+    String dauerText,
+    Map<String, Map<String, String>> variantenTexte,
+  ) onSave;
 
   @override
   State<_EditableZielgruppeCard> createState() =>
@@ -740,46 +780,108 @@ class _EditableZielgruppeCard extends StatefulWidget {
 class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
   late final TextEditingController _preisController;
   late final TextEditingController _dauerController;
+  final Map<String, TextEditingController> _variantenPreisController = {};
+  final Map<String, TextEditingController> _variantenDauerController = {};
 
   @override
   void initState() {
     super.initState();
     _preisController = TextEditingController();
     _dauerController = TextEditingController();
-    _syncControllers();
+    _syncControllers(resetVarianten: true);
   }
 
   @override
   void didUpdateWidget(covariant _EditableZielgruppeCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.initialPreis != widget.initialPreis ||
-        oldWidget.initialDauer != widget.initialDauer) {
-      _syncControllers();
+        oldWidget.initialDauer != widget.initialDauer ||
+        oldWidget.initialVarianten.toString() !=
+            widget.initialVarianten.toString()) {
+      _syncControllers(resetVarianten: true);
     }
   }
 
-  void _syncControllers() {
-    final preis = widget.initialPreis;
-    if (preis == null) {
-      _preisController.text = '';
-    } else {
-      final hasDecimals = preis % 1 != 0;
-      _preisController.text =
-          (hasDecimals ? preis.toStringAsFixed(2) : preis.toStringAsFixed(0))
-              .replaceAll('.', ',');
-    }
+  String _formatPriceInput(double? preis) {
+    if (preis == null) return '';
+    final hasDecimals = preis % 1 != 0;
+    return (hasDecimals ? preis.toStringAsFixed(2) : preis.toStringAsFixed(0))
+        .replaceAll('.', ',');
+  }
+
+  void _syncControllers({required bool resetVarianten}) {
+    _preisController.text = _formatPriceInput(widget.initialPreis);
     _dauerController.text = widget.initialDauer?.toString() ?? '';
+
+    if (!resetVarianten) {
+      return;
+    }
+
+    for (final controller in _variantenPreisController.values) {
+      controller.dispose();
+    }
+    for (final controller in _variantenDauerController.values) {
+      controller.dispose();
+    }
+    _variantenPreisController.clear();
+    _variantenDauerController.clear();
+
+    final variantenNamen = widget.initialVarianten.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    for (final variantenName in variantenNamen) {
+      final variantValues = widget.initialVarianten[variantenName] ?? const {};
+      _variantenPreisController[variantenName] = TextEditingController(
+        text: _formatPriceInput(
+          variantValues['preis'] is num
+              ? (variantValues['preis'] as num).toDouble()
+              : null,
+        ),
+      );
+      _variantenDauerController[variantenName] = TextEditingController(
+        text: variantValues['dauer'] is num
+            ? (variantValues['dauer'] as num).toInt().toString()
+            : '',
+      );
+    }
+  }
+
+  Map<String, Map<String, String>> _collectVariantTexts() {
+    final result = <String, Map<String, String>>{};
+    final variantenNamen = <String>{
+      ..._variantenPreisController.keys,
+      ..._variantenDauerController.keys,
+    }.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    for (final variantenName in variantenNamen) {
+      result[variantenName] = {
+        'preis': _variantenPreisController[variantenName]?.text ?? '',
+        'dauer': _variantenDauerController[variantenName]?.text ?? '',
+      };
+    }
+
+    return result;
   }
 
   @override
   void dispose() {
     _preisController.dispose();
     _dauerController.dispose();
+    for (final controller in _variantenPreisController.values) {
+      controller.dispose();
+    }
+    for (final controller in _variantenDauerController.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final variantenNamen = widget.initialVarianten.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -799,6 +901,7 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
                   : () => widget.onSave(
                         _preisController.text,
                         _dauerController.text,
+                        _collectVariantTexts(),
                       ),
               icon: widget.isSaving
                   ? const SizedBox(
@@ -833,7 +936,7 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
             isDense: true,
           ),
         ),
-        if (widget.variantLines.isNotEmpty) ...[
+        if (widget.initialVarianten.isNotEmpty) ...[
           const SizedBox(height: 12),
           const Text(
             'Varianten',
@@ -843,12 +946,44 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
             ),
           ),
           const SizedBox(height: 8),
-          ...widget.variantLines.map(
-            (line) => Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text(
-                line,
-                style: const TextStyle(color: Colors.black87),
+          ...variantenNamen.map(
+            (variantenName) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    variantenName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _variantenPreisController[variantenName],
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Preis',
+                      suffixText: '€',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _variantenDauerController[variantenName],
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Dauer',
+                      suffixText: 'Min',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
