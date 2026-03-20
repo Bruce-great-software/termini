@@ -13,13 +13,27 @@ class DienstleisterAngebotePage extends StatefulWidget {
   final bool showScaffold;
 
   @override
-  State<DienstleisterAngebotePage> createState() => _DienstleisterAngebotePageState();
+  State<DienstleisterAngebotePage> createState() =>
+      _DienstleisterAngebotePageState();
 }
 
 class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
   static const double _desktopDrawerWidth = 380;
 
   String? _selectedDocId;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _angeboteStream;
+
+  @override
+  void initState() {
+    super.initState();
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      _angeboteStream = FirebaseFirestore.instance
+          .collection('angebote')
+          .where('dienstleisterId', isEqualTo: uid)
+          .snapshots();
+    }
+  }
 
   double? _toDouble(dynamic value) {
     if (value == null) return null;
@@ -286,7 +300,8 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
                                 ),
                               ),
                               child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                                crossAxisAlignment:
+                                CrossAxisAlignment.start,
                                 children: [
                                   Text(
                                     block.title,
@@ -364,10 +379,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
     final isDesktopLayout = MediaQuery.sizeOf(context).width >= 1100;
 
     final content = StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('angebote')
-          .where('dienstleisterId', isEqualTo: uid)
-          .snapshots(),
+      stream: _angeboteStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
