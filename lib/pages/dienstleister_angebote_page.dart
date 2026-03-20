@@ -924,6 +924,11 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
       controller: controller,
       keyboardType: keyboardType,
       onChanged: (_) => setState(() {}),
+      onSubmitted: (_) {
+        if (!isDirty) return;
+        FocusScope.of(context).unfocus();
+        _saveCurrentValues(fieldKey);
+      },
       decoration: InputDecoration(
         labelText: labelText,
         suffixText: suffixText,
