@@ -328,25 +328,47 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
     required Widget listContent,
     required _SelectedLeistung? selection,
   }) {
-    final drawerVisible = selection != null;
-
     return Row(
       children: [
-        Expanded(child: listContent),
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOutCubic,
-          width: drawerVisible ? _desktopDrawerWidth : 0,
-          child: drawerVisible
-              ? DecoratedBox(
-                  decoration: const BoxDecoration(
-                    border: Border(
-                      left: BorderSide(color: Color(0xFFE5E5E5)),
+        Expanded(
+          child: RepaintBoundary(child: listContent),
+        ),
+        SizedBox(
+          width: _desktopDrawerWidth,
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(
+                left: BorderSide(color: Color(0xFFE5E5E5)),
+              ),
+            ),
+            child: RepaintBoundary(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) {
+                  final offsetAnimation = Tween<Offset>(
+                    begin: const Offset(0.08, 0),
+                    end: Offset.zero,
+                  ).animate(animation);
+                  return FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: offsetAnimation,
+                      child: child,
                     ),
-                  ),
-                  child: _buildDesktopDrawer(selection!),
-                )
-              : const SizedBox.shrink(),
+                  );
+                },
+                child: selection == null
+                    ? const _DesktopDrawerPlaceholder()
+                    : KeyedSubtree(
+                        key: ValueKey(selection.docId),
+                        child: _buildDesktopDrawer(selection),
+                      ),
+              ),
+            ),
+          ),
         ),
       ],
     );
@@ -603,6 +625,28 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
               onTap: () => Navigator.pop(sheetContext),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+
+class _DesktopDrawerPlaceholder extends StatelessWidget {
+  const _DesktopDrawerPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Text(
+          'Wähle links eine Leistung aus, um die Details anzuzeigen.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.black54,
+            fontSize: 15,
+          ),
         ),
       ),
     );
