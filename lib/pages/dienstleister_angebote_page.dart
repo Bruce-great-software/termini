@@ -131,20 +131,49 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
     required Map<String, dynamic> zielgruppenWerte,
     required String preisText,
     required String dauerText,
+    required Map<String, _VariantInputValues> variantValues,
   }) async {
     final preis = _toDouble(preisText);
     final dauer = _toInt(dauerText);
-    final update = <String, dynamic>{
-      'zielgruppen.$zielgruppe.preis':
-      preis == null ? FieldValue.delete() : preis,
-      'zielgruppen.$zielgruppe.dauer':
-      dauer == null ? FieldValue.delete() : dauer,
-    };
+    final existingVarianten = zielgruppenWerte['varianten'] is Map
+        ? Map<String, dynamic>.from(zielgruppenWerte['varianten'])
+        : <String, dynamic>{};
+    final remainingVariantenKeys = existingVarianten.keys.toSet()
+      ..addAll(variantValues.keys);
 
-    final hasVarianten = zielgruppenWerte['varianten'] is Map &&
-        (zielgruppenWerte['varianten'] as Map).isNotEmpty;
-    if (preis == null && dauer == null && !hasVarianten) {
+    final hasRemainingVarianten = remainingVariantenKeys.any((key) {
+      if (variantValues.containsKey(key)) {
+        final values = variantValues[key]!;
+        return _toDouble(values.preisText) != null ||
+            _toInt(values.dauerText) != null;
+      }
+      final raw = existingVarianten[key];
+      if (raw is! Map) return false;
+      return _toDouble(raw['preis']) != null || _toInt(raw['dauer']) != null;
+    });
+
+    final update = <String, dynamic>{};
+    if (preis == null && dauer == null && !hasRemainingVarianten) {
       update['zielgruppen.$zielgruppe'] = FieldValue.delete();
+    } else {
+      update['zielgruppen.$zielgruppe.preis'] =
+          preis == null ? FieldValue.delete() : preis;
+      update['zielgruppen.$zielgruppe.dauer'] =
+          dauer == null ? FieldValue.delete() : dauer;
+
+      for (final entry in variantValues.entries) {
+        final variantPreis = _toDouble(entry.value.preisText);
+        final variantDauer = _toInt(entry.value.dauerText);
+        final variantPath = 'zielgruppen.$zielgruppe.varianten.${entry.key}';
+        if (variantPreis == null && variantDauer == null) {
+          update[variantPath] = FieldValue.delete();
+          continue;
+        }
+        update['$variantPath.preis'] =
+            variantPreis == null ? FieldValue.delete() : variantPreis;
+        update['$variantPath.dauer'] =
+            variantDauer == null ? FieldValue.delete() : variantDauer;
+      }
     }
 
     final savingKey = '$docId::$zielgruppe';
@@ -246,17 +275,20 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
     for (final entry in zielgruppen.entries) {
       if (entry.value is! Map) continue;
       final values = Map<String, dynamic>.from(entry.value);
-      final varianten = <String>[];
+      final varianten = <_VariantDetail>[];
 
       if (values['varianten'] is Map) {
         final variantenMap = Map<String, dynamic>.from(values['varianten']);
         for (final variante in variantenMap.entries) {
           if (variante.value is! Map) continue;
           final varianteValues = Map<String, dynamic>.from(variante.value);
-          final variantePreis = _preisText(_toDouble(varianteValues['preis']));
           final varianteDauer = _toInt(varianteValues['dauer']);
           varianten.add(
-            '${variante.key}: $variantePreis${varianteDauer == null ? '' : ' • ${varianteDauer} Min'}',
+            _VariantDetail(
+              label: variante.key,
+              preis: _toDouble(varianteValues['preis']),
+              dauer: _toInt(varianteValues['dauer']),
+            ),
           );
         }
       }
@@ -265,7 +297,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
         _DetailBlock(
           title: entry.key,
           values: values,
-          variantLines: varianten,
+          variantDetails: varianten,
         ),
       );
     }
@@ -400,12 +432,12 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
                                 title: block.title,
                                 initialPreis: _toDouble(block.values['preis']),
                                 initialDauer: _toInt(block.values['dauer']),
-                                variantLines: block.variantLines,
+                                variantDetails: block.variantDetails,
                                 isSaving:
                                 _savingZielgruppeKey ==
                                     '${selection.docId}::${block.title}',
                                 onSave:
-                                    (preisText, dauerText) =>
+                                    (preisText, dauerText, variantValues) =>
                                     _updateZielgruppeValues(
                                       docId: selection.docId,
                                       titel: selection.titel,
@@ -413,6 +445,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
                                       zielgruppenWerte: block.values,
                                       preisText: preisText,
                                       dauerText: dauerText,
+                                      variantValues: variantValues,
                                     ),
                               ),
                             ),
@@ -765,12 +798,34 @@ class _DetailBlock {
   const _DetailBlock({
     required this.title,
     required this.values,
-    required this.variantLines,
+    required this.variantDetails,
   });
 
   final String title;
   final Map<String, dynamic> values;
-  final List<String> variantLines;
+  final List<_VariantDetail> variantDetails;
+}
+
+class _VariantDetail {
+  const _VariantDetail({
+    required this.label,
+    required this.preis,
+    required this.dauer,
+  });
+
+  final String label;
+  final double? preis;
+  final int? dauer;
+}
+
+class _VariantInputValues {
+  const _VariantInputValues({
+    required this.preisText,
+    required this.dauerText,
+  });
+
+  final String preisText;
+  final String dauerText;
 }
 
 class _EditableZielgruppeCard extends StatefulWidget {
@@ -779,7 +834,7 @@ class _EditableZielgruppeCard extends StatefulWidget {
     required this.title,
     required this.initialPreis,
     required this.initialDauer,
-    required this.variantLines,
+    required this.variantDetails,
     required this.isSaving,
     required this.onSave,
   });
@@ -787,9 +842,13 @@ class _EditableZielgruppeCard extends StatefulWidget {
   final String title;
   final double? initialPreis;
   final int? initialDauer;
-  final List<String> variantLines;
+  final List<_VariantDetail> variantDetails;
   final bool isSaving;
-  final Future<void> Function(String preisText, String dauerText) onSave;
+  final Future<void> Function(
+    String preisText,
+    String dauerText,
+    Map<String, _VariantInputValues> variantValues,
+  ) onSave;
 
   @override
   State<_EditableZielgruppeCard> createState() =>
@@ -799,6 +858,8 @@ class _EditableZielgruppeCard extends StatefulWidget {
 class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
   late final TextEditingController _preisController;
   late final TextEditingController _dauerController;
+  final Map<String, TextEditingController> _variantenPreisController = {};
+  final Map<String, TextEditingController> _variantenDauerController = {};
 
   String _preisTextForValue(double? preis) {
     if (preis == null) return '';
@@ -815,11 +876,29 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
   bool get _hasDauerChanged =>
       _dauerController.text.trim() != _dauerTextForValue(widget.initialDauer);
 
+  bool get _hasVariantChanged => widget.variantDetails.any((detail) {
+    return _variantenPreisController[detail.label]?.text.trim() !=
+            _preisTextForValue(detail.preis) ||
+        _variantenDauerController[detail.label]?.text.trim() !=
+            _dauerTextForValue(detail.dauer);
+  });
+
+  bool get _hasChanges =>
+      _hasPreisChanged || _hasDauerChanged || _hasVariantChanged;
+
   Future<void> _save() {
     if (widget.isSaving) return Future.value();
+    final variantValues = <String, _VariantInputValues>{
+      for (final detail in widget.variantDetails)
+        detail.label: _VariantInputValues(
+          preisText: _variantenPreisController[detail.label]?.text ?? '',
+          dauerText: _variantenDauerController[detail.label]?.text ?? '',
+        ),
+    };
     return widget.onSave(
       _preisController.text,
       _dauerController.text,
+      variantValues,
     );
   }
 
@@ -828,40 +907,65 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
     setState(() {});
   }
 
-  Widget _buildSaveAction({required bool visible}) {
-    if (!visible) return const SizedBox.shrink();
+  Widget _buildSaveAction() {
+    if (!_hasChanges) return const SizedBox.shrink();
 
     return Padding(
-      padding: const EdgeInsets.only(left: 10),
-      child: Material(
-        color: Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-          side: BorderSide(color: Colors.grey.shade300),
-        ),
-        child: InkWell(
-          onTap: widget.isSaving ? null : _save,
-          borderRadius: BorderRadius.circular(18),
-          child: SizedBox(
-            width: 44,
-            height: 44,
-            child: Center(
-              child: widget.isSaving
-                  ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-                  : const Icon(
-                Icons.check,
-                size: 32,
-                color: Color(0xFF24C552),
-              ),
-            ),
-          ),
+      padding: const EdgeInsets.only(top: 16),
+      child: SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: widget.isSaving ? null : _save,
+          icon: widget.isSaving
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.check),
+          label: Text(widget.isSaving ? 'Speichert…' : 'Änderungen speichern'),
         ),
       ),
     );
+  }
+
+  void _syncVariantControllers() {
+    final labels = widget.variantDetails.map((detail) => detail.label).toSet();
+
+    for (final detail in widget.variantDetails) {
+      final preisController = _variantenPreisController.putIfAbsent(
+        detail.label,
+        () {
+          final controller = TextEditingController();
+          controller.addListener(_handleChanged);
+          return controller;
+        },
+      );
+      final dauerController = _variantenDauerController.putIfAbsent(
+        detail.label,
+        () {
+          final controller = TextEditingController();
+          controller.addListener(_handleChanged);
+          return controller;
+        },
+      );
+      preisController.text = _preisTextForValue(detail.preis);
+      dauerController.text = _dauerTextForValue(detail.dauer);
+    }
+
+    final removedPreis = _variantenPreisController.keys
+        .where((label) => !labels.contains(label))
+        .toList();
+    for (final label in removedPreis) {
+      _variantenPreisController.remove(label)?.dispose();
+    }
+
+    final removedDauer = _variantenDauerController.keys
+        .where((label) => !labels.contains(label))
+        .toList();
+    for (final label in removedDauer) {
+      _variantenDauerController.remove(label)?.dispose();
+    }
   }
 
   @override
@@ -878,14 +982,34 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
   void didUpdateWidget(covariant _EditableZielgruppeCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.initialPreis != widget.initialPreis ||
-        oldWidget.initialDauer != widget.initialDauer) {
+        oldWidget.initialDauer != widget.initialDauer ||
+        oldWidget.variantDetails.length != widget.variantDetails.length ||
+        !_sameVariantValues(oldWidget.variantDetails, widget.variantDetails)) {
       _syncControllers();
     }
+  }
+
+  bool _sameVariantValues(
+    List<_VariantDetail> oldDetails,
+    List<_VariantDetail> newDetails,
+  ) {
+    if (oldDetails.length != newDetails.length) return false;
+    for (var i = 0; i < oldDetails.length; i++) {
+      final oldDetail = oldDetails[i];
+      final newDetail = newDetails[i];
+      if (oldDetail.label != newDetail.label ||
+          oldDetail.preis != newDetail.preis ||
+          oldDetail.dauer != newDetail.dauer) {
+        return false;
+      }
+    }
+    return true;
   }
 
   void _syncControllers() {
     _preisController.text = _preisTextForValue(widget.initialPreis);
     _dauerController.text = _dauerTextForValue(widget.initialDauer);
+    _syncVariantControllers();
   }
 
   @override
@@ -894,7 +1018,33 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
     _dauerController.removeListener(_handleChanged);
     _preisController.dispose();
     _dauerController.dispose();
+    for (final controller in _variantenPreisController.values) {
+      controller.dispose();
+    }
+    for (final controller in _variantenDauerController.values) {
+      controller.dispose();
+    }
     super.dispose();
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required String suffix,
+    required TextInputType keyboardType,
+  }) {
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      textInputAction: TextInputAction.done,
+      onSubmitted: (_) => _save(),
+      decoration: InputDecoration(
+        labelText: label,
+        suffixText: suffix,
+        border: const OutlineInputBorder(),
+        isDense: true,
+      ),
+    );
   }
 
   @override
@@ -909,50 +1059,21 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
           ),
         ),
         const SizedBox(height: 12),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _preisController,
-                keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-                textInputAction: TextInputAction.done,
-                onSubmitted: (_) => _save(),
-                decoration: const InputDecoration(
-                  labelText: 'Preis',
-                  suffixText: '€',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-              ),
-            ),
-            _buildSaveAction(visible: _hasPreisChanged),
-          ],
+        _buildTextField(
+          controller: _preisController,
+          label: 'Preis',
+          suffix: '€',
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
         ),
         const SizedBox(height: 12),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _dauerController,
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.done,
-                onSubmitted: (_) => _save(),
-                decoration: const InputDecoration(
-                  labelText: 'Dauer',
-                  suffixText: 'Min',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-              ),
-            ),
-            _buildSaveAction(visible: _hasDauerChanged),
-          ],
+        _buildTextField(
+          controller: _dauerController,
+          label: 'Dauer',
+          suffix: 'Min',
+          keyboardType: TextInputType.number,
         ),
-        if (widget.variantLines.isNotEmpty) ...[
-          const SizedBox(height: 12),
+        if (widget.variantDetails.isNotEmpty) ...[
+          const SizedBox(height: 16),
           const Text(
             'Varianten',
             style: TextStyle(
@@ -961,16 +1082,37 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
             ),
           ),
           const SizedBox(height: 8),
-          ...widget.variantLines.map(
-                (line) => Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text(
-                line,
-                style: const TextStyle(color: Colors.black87),
+          ...widget.variantDetails.map(
+            (detail) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    detail.label,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildTextField(
+                    controller: _variantenPreisController[detail.label]!,
+                    label: 'Preis',
+                    suffix: '€',
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildTextField(
+                    controller: _variantenDauerController[detail.label]!,
+                    label: 'Dauer',
+                    suffix: 'Min',
+                    keyboardType: TextInputType.number,
+                  ),
+                ],
               ),
             ),
           ),
         ],
+        _buildSaveAction(),
       ],
     );
   }
