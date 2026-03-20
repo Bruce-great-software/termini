@@ -330,28 +330,23 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
   }) {
     final drawerVisible = selection != null;
 
-    return Stack(
+    return Row(
       children: [
-        listContent,
-        if (drawerVisible)
-          Positioned.fill(
-            child: GestureDetector(
-              onTap: () => setState(() => _selectedDocId = null),
-              child: Container(color: Colors.black.withOpacity(0.04)),
-            ),
-          ),
-        AnimatedPositioned(
+        Expanded(child: listContent),
+        AnimatedContainer(
           duration: const Duration(milliseconds: 260),
           curve: Curves.easeOutCubic,
-          top: 0,
-          bottom: 0,
-          right: drawerVisible ? 0 : -_desktopDrawerWidth,
-          child: SizedBox(
-            width: _desktopDrawerWidth,
-            child: selection == null
-                ? const SizedBox.shrink()
-                : _buildDesktopDrawer(selection),
-          ),
+          width: drawerVisible ? _desktopDrawerWidth : 0,
+          child: drawerVisible
+              ? DecoratedBox(
+                  decoration: const BoxDecoration(
+                    border: Border(
+                      left: BorderSide(color: Color(0xFFE5E5E5)),
+                    ),
+                  ),
+                  child: _buildDesktopDrawer(selection!),
+                )
+              : const SizedBox.shrink(),
         ),
       ],
     );
