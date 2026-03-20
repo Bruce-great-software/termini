@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -23,9 +25,12 @@ class DienstleisterMainPage extends StatefulWidget {
 
 class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   static const double _desktopSidebarWidth = 188;
+  static const double _desktopLeistungenDrawerWidth = 380;
+  static const double _leistungenContentHorizontalPadding = 32;
 
   int _selectedIndex = 0;
   String? dienstleisterName;
+  bool _isLeistungenDetailPanelOpen = false;
 
   @override
   void initState() {
@@ -59,7 +64,59 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   }
 
   void _onTabTapped(int index) {
-    setState(() => _selectedIndex = index);
+    setState(() {
+      _selectedIndex = index;
+      if (index != 2) {
+        _isLeistungenDetailPanelOpen = false;
+      }
+    });
+  }
+
+  void _onLeistungenDetailPanelChanged(bool isOpen) {
+    if (_isLeistungenDetailPanelOpen == isOpen) return;
+    setState(() => _isLeistungenDetailPanelOpen = isOpen);
+  }
+
+  Widget _buildLeistungenActionBar(bool isDesktopLayout, double maxWidth) {
+    final availableWidth =
+        maxWidth - (isDesktopLayout ? _desktopSidebarWidth : 0);
+    final detailPanelWidth = isDesktopLayout && _isLeistungenDetailPanelOpen
+        ? _desktopLeistungenDrawerWidth
+        : 0;
+    final targetWidth =
+        availableWidth - detailPanelWidth - _leistungenContentHorizontalPadding;
+    final fabWidth = math.max(0.0, math.min(targetWidth, availableWidth));
+
+    return SizedBox(
+      width: fabWidth,
+      child: Material(
+        color: Colors.blueAccent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () {
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (_) => const LeistungErstellenDialog(),
+            );
+          },
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Center(
+              child: Text(
+                'Leistungen erstellen',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _logout() async {
@@ -89,7 +146,10 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     final pages = [
       _buildHomePage(),
       const Center(child: Text('Kalender kommt bald!')),
-      const DienstleisterAngebotePage(showScaffold: false),
+      DienstleisterAngebotePage(
+        showScaffold: false,
+        onDesktopDrawerVisibilityChanged: _onLeistungenDetailPanelChanged,
+      ),
       _buildProfilPage(),
     ];
 
@@ -123,18 +183,12 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             ],
           ),
           floatingActionButton: _selectedIndex == 2
-              ? FloatingActionButton.extended(
-            onPressed: () {
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                builder: (_) => const LeistungErstellenDialog(),
-              );
-            },
-            icon: const Icon(Icons.add),
-            label: const Text('Leistungen erstellen'),
-          )
+              ? _buildLeistungenActionBar(
+                  isDesktopLayout,
+                  constraints.maxWidth,
+                )
               : null,
+          floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
           bottomNavigationBar: BottomNavigationBar(
             type: BottomNavigationBarType.fixed,
             currentIndex: _selectedIndex,
