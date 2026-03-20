@@ -8,9 +8,11 @@ class DienstleisterAngebotePage extends StatefulWidget {
   const DienstleisterAngebotePage({
     super.key,
     this.showScaffold = true,
+    this.onDesktopDrawerVisibilityChanged,
   });
 
   final bool showScaffold;
+  final ValueChanged<bool>? onDesktopDrawerVisibilityChanged;
 
   @override
   State<DienstleisterAngebotePage> createState() =>
@@ -23,6 +25,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
   String? _selectedDocId;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _angeboteStream;
   String? _savingZielgruppeKey;
+  bool? _lastReportedDesktopDrawerVisibility;
 
   @override
   void initState() {
@@ -57,6 +60,22 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
       return normalized.isEmpty ? null : int.tryParse(normalized);
     }
     return null;
+  }
+
+  void _reportDesktopDrawerVisibility({
+    required bool isDesktopLayout,
+    required bool isDrawerVisible,
+  }) {
+    final shouldReportVisible = isDesktopLayout && isDrawerVisible;
+    if (_lastReportedDesktopDrawerVisibility == shouldReportVisible) {
+      return;
+    }
+
+    _lastReportedDesktopDrawerVisibility = shouldReportVisible;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.onDesktopDrawerVisibilityChanged?.call(shouldReportVisible);
+    });
   }
 
   (double?, int?) _minPreisUndDauer(Map<String, dynamic> data) {
@@ -433,6 +452,10 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
         }
 
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          _reportDesktopDrawerVisibility(
+            isDesktopLayout: isDesktopLayout,
+            isDrawerVisible: false,
+          );
           return _buildHeaderListView(
             const [
               SizedBox(height: 32),
@@ -583,6 +606,12 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
         }
 
         final listContent = _buildHeaderListView(children);
+        final isDrawerVisible = selectedLeistung != null;
+        _reportDesktopDrawerVisibility(
+          isDesktopLayout: isDesktopLayout,
+          isDrawerVisible: isDrawerVisible,
+        );
+
         if (!isDesktopLayout) {
           return listContent;
         }
