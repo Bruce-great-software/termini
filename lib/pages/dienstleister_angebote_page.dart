@@ -4,13 +4,22 @@ import 'package:flutter/material.dart';
 
 import '../widgets/leistung_erstellen_dialog.dart';
 
-class DienstleisterAngebotePage extends StatelessWidget {
+class DienstleisterAngebotePage extends StatefulWidget {
   const DienstleisterAngebotePage({
     super.key,
     this.showScaffold = true,
   });
 
   final bool showScaffold;
+
+  @override
+  State<DienstleisterAngebotePage> createState() => _DienstleisterAngebotePageState();
+}
+
+class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
+  static const double _desktopDrawerWidth = 380;
+
+  String? _selectedDocId;
 
   double? _toDouble(dynamic value) {
     if (value == null) return null;
@@ -118,14 +127,246 @@ class DienstleisterAngebotePage extends StatelessWidget {
     );
   }
 
+  List<_DetailBlock> _detailBlocksForZielgruppen(Map<String, dynamic> data) {
+    if (data['zielgruppen'] is! Map) return const [];
+
+    final zielgruppen = Map<String, dynamic>.from(data['zielgruppen']);
+    final blocks = <_DetailBlock>[];
+
+    for (final entry in zielgruppen.entries) {
+      if (entry.value is! Map) continue;
+      final values = Map<String, dynamic>.from(entry.value);
+      final preis = _preisText(_toDouble(values['preis']));
+      final dauer = _toInt(values['dauer']);
+      final varianten = <String>[];
+
+      if (values['varianten'] is Map) {
+        final variantenMap = Map<String, dynamic>.from(values['varianten']);
+        for (final variante in variantenMap.entries) {
+          if (variante.value is! Map) continue;
+          final varianteValues = Map<String, dynamic>.from(variante.value);
+          final variantePreis = _preisText(_toDouble(varianteValues['preis']));
+          final varianteDauer = _toInt(varianteValues['dauer']);
+          varianten.add(
+            '${variante.key}: $variantePreis${varianteDauer == null ? '' : ' • ${varianteDauer} Min'}',
+          );
+        }
+      }
+
+      blocks.add(
+        _DetailBlock(
+          title: entry.key,
+          lines: [
+            'Preis: $preis',
+            'Dauer: ${dauer == null ? '–' : '$dauer Min'}',
+            ...varianten,
+          ],
+        ),
+      );
+    }
+
+    return blocks;
+  }
+
+  Widget _buildDesktopDrawer(_SelectedLeistung selection) {
+    final data = selection.data;
+    final kategorie = (data['kategorie'] as String?)?.trim() ?? 'Ohne Kategorie';
+    final leistungen = (data['leistungen'] is List)
+        ? List<String>.from(data['leistungen'])
+            .where((entry) => entry.trim().isNotEmpty)
+            .toList()
+        : <String>[];
+    final methoden = (data['varianten'] is List)
+        ? List<String>.from(data['varianten'])
+            .where((entry) => entry.trim().isNotEmpty)
+            .toList()
+        : <String>[];
+    final zielgruppenBlocks = _detailBlocksForZielgruppen(data);
+
+    return Material(
+      color: Colors.white,
+      elevation: 14,
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          selection.titel,
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          selection.subtitle,
+                          style: const TextStyle(
+                            color: Colors.black54,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Schließen',
+                    onPressed: () => setState(() => _selectedDocId = null),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _DetailSection(
+                      title: 'Kategorie',
+                      child: Text(kategorie),
+                    ),
+                    if (leistungen.isNotEmpty)
+                      _DetailSection(
+                        title: 'Leistungen',
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: leistungen
+                              .map(
+                                (entry) => Chip(
+                                  label: Text(entry),
+                                  backgroundColor: const Color(0xFFF3F4F8),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+                    if (methoden.isNotEmpty)
+                      _DetailSection(
+                        title: 'Varianten',
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: methoden
+                              .map(
+                                (entry) => Chip(
+                                  label: Text(entry),
+                                  backgroundColor: const Color(0xFFEFF4FF),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+                    if (zielgruppenBlocks.isNotEmpty)
+                      _DetailSection(
+                        title: 'Zielgruppen',
+                        child: Column(
+                          children: zielgruppenBlocks
+                              .map(
+                                (block) => Container(
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8F9FB),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: const Color(0xFFE6E9F0),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        block.title,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      ...block.lines.map(
+                                        (line) => Padding(
+                                          padding:
+                                              const EdgeInsets.only(bottom: 4),
+                                          child: Text(
+                                            line,
+                                            style: const TextStyle(
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopContent({
+    required Widget listContent,
+    required _SelectedLeistung? selection,
+  }) {
+    final drawerVisible = selection != null;
+
+    return Stack(
+      children: [
+        listContent,
+        if (drawerVisible)
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: () => setState(() => _selectedDocId = null),
+              child: Container(color: Colors.black.withOpacity(0.04)),
+            ),
+          ),
+        AnimatedPositioned(
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          top: 0,
+          bottom: 0,
+          right: drawerVisible ? 0 : -_desktopDrawerWidth,
+          child: SizedBox(
+            width: _desktopDrawerWidth,
+            child: selection == null
+                ? const SizedBox.shrink()
+                : _buildDesktopDrawer(selection),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
       const fallback = Center(child: Text('Nicht eingeloggt'));
-      if (!showScaffold) return fallback;
+      if (!widget.showScaffold) return fallback;
       return const Scaffold(body: Center(child: Text('Nicht eingeloggt')));
     }
+
+    final isDesktopLayout = MediaQuery.sizeOf(context).width >= 1100;
 
     final content = StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
@@ -147,6 +388,8 @@ class DienstleisterAngebotePage extends StatelessWidget {
         }
 
         final grouped = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+        _SelectedLeistung? selectedLeistung;
+
         for (final doc in snapshot.data!.docs) {
           final data = doc.data();
           final kategorie = (data['kategorie'] as String?)?.trim();
@@ -154,6 +397,25 @@ class DienstleisterAngebotePage extends StatelessWidget {
               ? 'Sonstiges'
               : kategorie;
           grouped.putIfAbsent(key, () => []).add(doc);
+
+          if (_selectedDocId == doc.id) {
+            final titel = (data['titel'] as String?) ?? _fallbackTitel(data);
+            final (minPreis, minDauer) = _minPreisUndDauer(data);
+            selectedLeistung = _SelectedLeistung(
+              docId: doc.id,
+              titel: titel,
+              subtitle: '${_preisText(minPreis)}${_dauerText(minDauer)}',
+              data: data,
+            );
+          }
+        }
+
+        if (_selectedDocId != null && selectedLeistung == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() => _selectedDocId = null);
+            }
+          });
         }
 
         final kategorien = grouped.keys.toList()
@@ -196,51 +458,65 @@ class DienstleisterAngebotePage extends StatelessWidget {
             final titel = (data['titel'] as String?) ?? _fallbackTitel(data);
             final (minPreis, minDauer) = _minPreisUndDauer(data);
             final subtitle = '${_preisText(minPreis)}${_dauerText(minDauer)}';
+            final isSelected = doc.id == _selectedDocId;
 
             children.add(
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: const BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(color: Color(0xFFE5E5E5)),
+                child: Material(
+                  color: isSelected
+                      ? const Color(0xFFF5F8FF)
+                      : Colors.transparent,
+                  child: InkWell(
+                    onTap: isDesktopLayout
+                        ? () => setState(() => _selectedDocId = doc.id)
+                        : null,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: const BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(color: Color(0xFFE5E5E5)),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  titel,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  subtitle,
+                                  style: const TextStyle(
+                                    color: Colors.black54,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.more_vert,
+                              color: Colors.black38,
+                            ),
+                            onPressed: () => _showMehrSheetForDoc(
+                              context: context,
+                              docId: doc.id,
+                              data: data,
+                              titel: titel,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              titel,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              subtitle,
-                              style: const TextStyle(
-                                color: Colors.black54,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.more_vert, color: Colors.black38),
-                        onPressed: () => _showMehrSheetForDoc(
-                          context: context,
-                          docId: doc.id,
-                          data: data,
-                          titel: titel,
-                        ),
-                      ),
-                    ],
                   ),
                 ),
               ),
@@ -250,11 +526,19 @@ class DienstleisterAngebotePage extends StatelessWidget {
           children.add(const SizedBox(height: 8));
         }
 
-        return _buildHeaderListView(children);
+        final listContent = _buildHeaderListView(children);
+        if (!isDesktopLayout) {
+          return listContent;
+        }
+
+        return _buildDesktopContent(
+          listContent: listContent,
+          selection: selectedLeistung,
+        );
       },
     );
 
-    if (!showScaffold) {
+    if (!widget.showScaffold) {
       return content;
     }
 
@@ -309,6 +593,9 @@ class DienstleisterAngebotePage extends StatelessWidget {
                     .doc(docId)
                     .delete();
                 if (context.mounted) {
+                  if (_selectedDocId == docId) {
+                    setState(() => _selectedDocId = null);
+                  }
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('„$titel“ gelöscht')),
                   );
@@ -325,4 +612,60 @@ class DienstleisterAngebotePage extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DetailSection extends StatelessWidget {
+  const _DetailSection({
+    required this.title,
+    required this.child,
+  });
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: Colors.black54,
+            ),
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailBlock {
+  const _DetailBlock({
+    required this.title,
+    required this.lines,
+  });
+
+  final String title;
+  final List<String> lines;
+}
+
+class _SelectedLeistung {
+  const _SelectedLeistung({
+    required this.docId,
+    required this.titel,
+    required this.subtitle,
+    required this.data,
+  });
+
+  final String docId;
+  final String titel;
+  final String subtitle;
+  final Map<String, dynamic> data;
 }
