@@ -65,30 +65,33 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   Widget _buildLeistungenErstellenButton({
     required BuildContext context,
     required bool isDesktopLayout,
+    required double maxWidth,
   }) {
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    final width = isDesktopLayout
-        ? 360.0
-        : (screenWidth - 32).clamp(220.0, 520.0).toDouble();
+    final leftInset = isDesktopLayout ? _desktopSidebarWidth + 16 : 16.0;
+    final rightInset = 16.0;
+    final width = (maxWidth - leftInset - rightInset).clamp(220.0, double.infinity);
 
-    return SizedBox(
-      width: width,
-      child: ElevatedButton.icon(
-        onPressed: () {
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (_) => const LeistungErstellenDialog(),
-          );
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('Leistungen erstellen'),
-        style: ElevatedButton.styleFrom(
-          elevation: 4,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-          alignment: Alignment.centerLeft,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
+    return Padding(
+      padding: EdgeInsets.only(left: leftInset, right: rightInset),
+      child: SizedBox(
+        width: width.toDouble(),
+        child: ElevatedButton.icon(
+          onPressed: () {
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (_) => const LeistungErstellenDialog(),
+            );
+          },
+          icon: const Icon(Icons.add),
+          label: const Text('Leistungen erstellen'),
+          style: ElevatedButton.styleFrom(
+            elevation: 4,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+            alignment: Alignment.centerLeft,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
           ),
         ),
       ),
@@ -159,6 +162,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
               ? _buildLeistungenErstellenButton(
                   context: context,
                   isDesktopLayout: isDesktopLayout,
+                  maxWidth: constraints.maxWidth,
                 )
               : null,
           floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
