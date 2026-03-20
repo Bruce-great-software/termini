@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import '../widgets/leistung_erstellen_dialog.dart';
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_angebote_page.dart';
 import 'dienstleister_edit_page.dart';
@@ -122,19 +121,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
               Expanded(child: pages[_selectedIndex]),
             ],
           ),
-          floatingActionButton: _selectedIndex == 2
-              ? FloatingActionButton.extended(
-            onPressed: () {
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                builder: (_) => const LeistungErstellenDialog(),
-              );
-            },
-            icon: const Icon(Icons.add),
-            label: const Text('Leistungen erstellen'),
-          )
-              : null,
           bottomNavigationBar: BottomNavigationBar(
             type: BottomNavigationBarType.fixed,
             currentIndex: _selectedIndex,
