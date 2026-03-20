@@ -800,11 +800,77 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
   late final TextEditingController _preisController;
   late final TextEditingController _dauerController;
 
+  String _preisTextForValue(double? preis) {
+    if (preis == null) return '';
+    final hasDecimals = preis % 1 != 0;
+    return (hasDecimals ? preis.toStringAsFixed(2) : preis.toStringAsFixed(0))
+        .replaceAll('.', ',');
+  }
+
+  String _dauerTextForValue(int? dauer) => dauer?.toString() ?? '';
+
+  bool get _hasPreisChanged =>
+      _preisController.text.trim() != _preisTextForValue(widget.initialPreis);
+
+  bool get _hasDauerChanged =>
+      _dauerController.text.trim() != _dauerTextForValue(widget.initialDauer);
+
+  Future<void> _save() {
+    if (widget.isSaving) return Future.value();
+    return widget.onSave(
+      _preisController.text,
+      _dauerController.text,
+    );
+  }
+
+  void _handleChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Widget _buildSaveAction({required bool visible}) {
+    if (!visible) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 10),
+      child: Material(
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: Colors.grey.shade300),
+        ),
+        child: InkWell(
+          onTap: widget.isSaving ? null : _save,
+          borderRadius: BorderRadius.circular(18),
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Center(
+              child: widget.isSaving
+                  ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+                  : const Icon(
+                Icons.check,
+                size: 32,
+                color: Color(0xFF24C552),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
     _preisController = TextEditingController();
     _dauerController = TextEditingController();
+    _preisController.addListener(_handleChanged);
+    _dauerController.addListener(_handleChanged);
     _syncControllers();
   }
 
@@ -818,20 +884,14 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
   }
 
   void _syncControllers() {
-    final preis = widget.initialPreis;
-    if (preis == null) {
-      _preisController.text = '';
-    } else {
-      final hasDecimals = preis % 1 != 0;
-      _preisController.text =
-          (hasDecimals ? preis.toStringAsFixed(2) : preis.toStringAsFixed(0))
-              .replaceAll('.', ',');
-    }
-    _dauerController.text = widget.initialDauer?.toString() ?? '';
+    _preisController.text = _preisTextForValue(widget.initialPreis);
+    _dauerController.text = _dauerTextForValue(widget.initialDauer);
   }
 
   @override
   void dispose() {
+    _preisController.removeListener(_handleChanged);
+    _dauerController.removeListener(_handleChanged);
     _preisController.dispose();
     _dauerController.dispose();
     super.dispose();
@@ -842,55 +902,54 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Text(
+          widget.title,
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 12),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Text(
-                widget.title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
+              child: TextField(
+                controller: _preisController,
+                keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _save(),
+                decoration: const InputDecoration(
+                  labelText: 'Preis',
+                  suffixText: '€',
+                  border: OutlineInputBorder(),
+                  isDense: true,
                 ),
               ),
             ),
-            FilledButton.tonalIcon(
-              onPressed: widget.isSaving
-                  ? null
-                  : () => widget.onSave(
-                _preisController.text,
-                _dauerController.text,
-              ),
-              icon: widget.isSaving
-                  ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-                  : const Icon(Icons.save_outlined, size: 18),
-              label: const Text('Speichern'),
-            ),
+            _buildSaveAction(visible: _hasPreisChanged),
           ],
         ),
         const SizedBox(height: 12),
-        TextField(
-          controller: _preisController,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(
-            labelText: 'Preis',
-            suffixText: '€',
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _dauerController,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Dauer',
-            suffixText: 'Min',
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _dauerController,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _save(),
+                decoration: const InputDecoration(
+                  labelText: 'Dauer',
+                  suffixText: 'Min',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ),
+            _buildSaveAction(visible: _hasDauerChanged),
+          ],
         ),
         if (widget.variantLines.isNotEmpty) ...[
           const SizedBox(height: 12),
