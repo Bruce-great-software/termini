@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import '../widgets/leistung_erstellen_dialog.dart';
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_angebote_page.dart';
 import 'dienstleister_edit_page.dart';
@@ -122,51 +121,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
               Expanded(child: pages[_selectedIndex]),
             ],
           ),
-          floatingActionButton: _selectedIndex == 2
-              ? Padding(
-                  padding: EdgeInsets.only(
-                    left: isDesktopLayout
-                        ? _desktopSidebarWidth + 16
-                        : 16,
-                    right: 16,
-                    bottom: 8,
-                  ),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: Material(
-                      color: Colors.blueAccent,
-                      borderRadius: BorderRadius.circular(8),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(8),
-                        onTap: () {
-                          showDialog(
-                            context: context,
-                            barrierDismissible: false,
-                            builder: (_) => const LeistungErstellenDialog(),
-                          );
-                        },
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                          child: Text(
-                            'Leistungen erstellen',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                )
-              : null,
-          floatingActionButtonLocation:
-              FloatingActionButtonLocation.centerFloat,
           bottomNavigationBar: BottomNavigationBar(
             type: BottomNavigationBarType.fixed,
             currentIndex: _selectedIndex,

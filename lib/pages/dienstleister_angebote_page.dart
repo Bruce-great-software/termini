@@ -19,6 +19,8 @@ class DienstleisterAngebotePage extends StatefulWidget {
 
 class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
   static const double _desktopDrawerWidth = 380;
+  static const double _createButtonBottomSpacing = 16;
+  static const double _createButtonReservedHeight = 88;
 
   String? _selectedDocId;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _angeboteStream;
@@ -175,7 +177,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
 
   Widget _buildHeaderListView(List<Widget> children) {
     return ListView(
-      padding: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.only(bottom: _createButtonReservedHeight),
       children: [
         const SizedBox(height: 16),
         const Center(
@@ -190,6 +192,48 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
         const SizedBox(height: 14),
         ...children,
       ],
+    );
+  }
+
+  Widget _buildCreateLeistungButton({required double rightInset}) {
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: rightInset,
+          bottom: _createButtonBottomSpacing,
+        ),
+        child: SizedBox(
+          width: double.infinity,
+          child: Material(
+            color: Colors.blueAccent,
+            borderRadius: BorderRadius.circular(8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () {
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (_) => const LeistungErstellenDialog(),
+                );
+              },
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Text(
+                  'Leistungen erstellen',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -433,10 +477,17 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
         }
 
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return _buildHeaderListView(
+          final emptyContent = _buildHeaderListView(
             const [
               SizedBox(height: 32),
               Center(child: Text('Noch keine Leistungen erstellt.')),
+            ],
+          );
+
+          return Stack(
+            children: [
+              Positioned.fill(child: emptyContent),
+              _buildCreateLeistungButton(rightInset: 16),
             ],
           );
         }
@@ -583,13 +634,21 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
         }
 
         final listContent = _buildHeaderListView(children);
-        if (!isDesktopLayout) {
-          return listContent;
-        }
+        final drawerVisible = isDesktopLayout && selectedLeistung != null;
+        final contentView = isDesktopLayout
+            ? _buildDesktopContent(
+                listContent: listContent,
+                selection: selectedLeistung,
+              )
+            : listContent;
 
-        return _buildDesktopContent(
-          listContent: listContent,
-          selection: selectedLeistung,
+        return Stack(
+          children: [
+            Positioned.fill(child: contentView),
+            _buildCreateLeistungButton(
+              rightInset: drawerVisible ? _desktopDrawerWidth + 16 : 16,
+            ),
+          ],
         );
       },
     );
