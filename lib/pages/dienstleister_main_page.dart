@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+
+import '../widgets/leistung_erstellen_dialog.dart';
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_angebote_page.dart';
 import 'dienstleister_edit_page.dart';
-import '../widgets/leistung_erstellen_dialog.dart';
 
 class DienstleisterMainPage extends StatefulWidget {
   final String branche;
@@ -21,6 +22,8 @@ class DienstleisterMainPage extends StatefulWidget {
 }
 
 class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
+  static const double _desktopSidebarWidth = 188;
+
   int _selectedIndex = 0;
   String? dienstleisterName;
 
@@ -65,7 +68,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const AlleDienstleisterPage()),
-            (route) => false,
+        (route) => false,
       );
     }
   }
@@ -86,57 +89,80 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     final pages = [
       _buildHomePage(),
       const Center(child: Text('Kalender kommt bald!')),
-      const DienstleisterAngebotePage(),
+      const DienstleisterAngebotePage(showScaffold: false),
       _buildProfilPage(),
     ];
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          _selectedIndex == 0
-              ? "Hallo, ${dienstleisterName ?? '...'}"
-              : _selectedIndex == 1
-              ? 'Kalender'
-              : _selectedIndex == 2
-              ? 'Leistungen'
-              : 'Profil',
-        ),
-      ),
-      body: pages[_selectedIndex],
-      floatingActionButton: _selectedIndex == 2
-          ? FloatingActionButton.extended(
-        onPressed: () {
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (_) => const LeistungErstellenDialog(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isDesktopLayout = constraints.maxWidth >= 900;
 
-          );
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('Leistungen erstellen'),
-      )
-          : null,
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        currentIndex: _selectedIndex,
-        onTap: _onTabTapped,
-        selectedItemColor: Colors.deepOrange,
-        unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Kalender'),
-          BottomNavigationBarItem(icon: Icon(Icons.design_services), label: 'Leistungen'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profil'),
-        ],
-      ),
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(
+              _selectedIndex == 0
+                  ? 'Hallo, ${dienstleisterName ?? '...'}'
+                  : _selectedIndex == 1
+                      ? 'Kalender'
+                      : _selectedIndex == 2
+                          ? 'Leistungen'
+                          : 'Profil',
+            ),
+            centerTitle: true,
+          ),
+          body: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (isDesktopLayout)
+                _DesktopSidebar(
+                  width: _desktopSidebarWidth,
+                  isLeistungenSelected: _selectedIndex == 2,
+                  onTap: () => _onTabTapped(2),
+                ),
+              Expanded(child: pages[_selectedIndex]),
+            ],
+          ),
+          floatingActionButton: _selectedIndex == 2
+              ? FloatingActionButton.extended(
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (_) => const LeistungErstellenDialog(),
+                    );
+                  },
+                  icon: const Icon(Icons.add),
+                  label: const Text('Leistungen erstellen'),
+                )
+              : null,
+          bottomNavigationBar: BottomNavigationBar(
+            type: BottomNavigationBarType.fixed,
+            currentIndex: _selectedIndex,
+            onTap: _onTabTapped,
+            selectedItemColor: Colors.deepOrange,
+            unselectedItemColor: Colors.grey,
+            items: const [
+              BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.calendar_today),
+                label: 'Kalender',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.design_services),
+                label: 'Leistungen',
+              ),
+              BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profil'),
+            ],
+          ),
+        );
+      },
     );
   }
 
   Widget _buildHomePage() {
     return Center(
       child: Text(
-        "Willkommen zurück, ${dienstleisterName ?? 'Dienstleister'}!",
+        'Willkommen zurück, ${dienstleisterName ?? 'Dienstleister'}!',
         style: const TextStyle(fontSize: 20),
       ),
     );
@@ -219,7 +245,9 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => DienstleisterEditPageEditPage(userId: user?.uid ?? ''),
+                  builder: (_) => DienstleisterEditPageEditPage(
+                    userId: user?.uid ?? '',
+                  ),
                 ),
               );
             },
@@ -230,6 +258,81 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             onPressed: _logout,
             child: const Text('Abmelden'),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopSidebar extends StatelessWidget {
+  const _DesktopSidebar({
+    required this.width,
+    required this.isLeistungenSelected,
+    required this.onTap,
+  });
+
+  final double width;
+  final bool isLeistungenSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedColor = Theme.of(context).colorScheme.primary;
+
+    return Container(
+      width: width,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          right: BorderSide(color: Color(0xFFE6E6E6)),
+        ),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 14),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Material(
+              color: isLeistungenSelected
+                  ? const Color(0xFFF4F4F4)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: onTap,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.home_outlined,
+                        size: 18,
+                        color: isLeistungenSelected
+                            ? selectedColor
+                            : Colors.grey.shade600,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Leistungen',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey.shade900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Divider(height: 1, color: Color(0xFFEFEFEF)),
         ],
       ),
     );
