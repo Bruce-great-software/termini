@@ -1,32 +1,45 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 
-// NEU: Dialog importieren
 import '../widgets/leistung_erstellen_dialog.dart';
 
+class DienstleisterAngebotePage extends StatefulWidget {
+  const DienstleisterAngebotePage({
+    super.key,
+    this.showScaffold = true,
+  });
 
-class DienstleisterAngebotePage extends StatelessWidget {
-  const DienstleisterAngebotePage({super.key});
+  final bool showScaffold;
 
-  // ------------------ Helfer ------------------
-  double? _toDouble(dynamic v) {
-    if (v == null) return null;
-    if (v is num) return v.toDouble();
-    if (v is String) {
-      final s = v.replaceAll(RegExp(r'[^0-9,.\-]'), '').replaceAll(',', '.');
-      return s.isEmpty ? null : double.tryParse(s);
+  @override
+  State<DienstleisterAngebotePage> createState() => _DienstleisterAngebotePageState();
+}
+
+class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
+  static const double _desktopDrawerWidth = 380;
+
+  String? _selectedDocId;
+
+  double? _toDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      final normalized = value
+          .replaceAll(RegExp(r'[^0-9,.-]'), '')
+          .replaceAll(',', '.');
+      return normalized.isEmpty ? null : double.tryParse(normalized);
     }
     return null;
   }
 
-  int? _toInt(dynamic v) {
-    if (v == null) return null;
-    if (v is int) return v;
-    if (v is num) return v.toInt();
-    if (v is String) {
-      final s = v.replaceAll(RegExp(r'[^0-9\-]'), '');
-      return s.isEmpty ? null : int.tryParse(s);
+  int? _toInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) {
+      final normalized = value.replaceAll(RegExp(r'[^0-9-]'), '');
+      return normalized.isEmpty ? null : int.tryParse(normalized);
     }
     return null;
   }
@@ -36,202 +49,527 @@ class DienstleisterAngebotePage extends StatelessWidget {
     int? dauer = _toInt(data['dauer']);
 
     if (data['zielgruppen'] is Map) {
-      final zg = Map<String, dynamic>.from(data['zielgruppen']);
+      final zielgruppen = Map<String, dynamic>.from(data['zielgruppen']);
       final preise = <double>[];
       final dauern = <int>[];
-      for (final entry in zg.values) {
-        if (entry is Map) {
-          final p = _toDouble(entry['preis']);
-          final d = _toInt(entry['dauer']);
-          if (p != null) preise.add(p);
-          if (d != null) dauern.add(d);
-          if (entry['varianten'] is Map) {
-            final varianten = Map<String, dynamic>.from(entry['varianten']);
-            for (final variante in varianten.values) {
-              if (variante is Map) {
-                final vp = _toDouble(variante['preis']);
-                final vd = _toInt(variante['dauer']);
-                if (vp != null) preise.add(vp);
-                if (vd != null) dauern.add(vd);
-              }
-            }
-          }
+
+      for (final entry in zielgruppen.values) {
+        if (entry is! Map) continue;
+
+        final entryPreis = _toDouble(entry['preis']);
+        final entryDauer = _toInt(entry['dauer']);
+        if (entryPreis != null) preise.add(entryPreis);
+        if (entryDauer != null) dauern.add(entryDauer);
+
+        if (entry['varianten'] is! Map) continue;
+
+        final varianten = Map<String, dynamic>.from(entry['varianten']);
+        for (final variante in varianten.values) {
+          if (variante is! Map) continue;
+          final variantenPreis = _toDouble(variante['preis']);
+          final variantenDauer = _toInt(variante['dauer']);
+          if (variantenPreis != null) preise.add(variantenPreis);
+          if (variantenDauer != null) dauern.add(variantenDauer);
         }
       }
+
       if (preise.isNotEmpty) {
-        final minP = preise.reduce((a, b) => a < b ? a : b);
-        preis = (preis == null) ? minP : (minP < preis ? minP : preis);
+        final minPreis = preise.reduce((a, b) => a < b ? a : b);
+        preis = preis == null ? minPreis : (minPreis < preis ? minPreis : preis);
       }
+
       if (dauern.isNotEmpty) {
-        final minD = dauern.reduce((a, b) => a < b ? a : b);
-        dauer = (dauer == null) ? minD : (minD < dauer ? minD : dauer);
+        final minDauer = dauern.reduce((a, b) => a < b ? a : b);
+        dauer = dauer == null ? minDauer : (minDauer < dauer ? minDauer : dauer);
       }
     }
+
     return (preis, dauer);
   }
 
-  String _preisText(double? p) {
-    if (p == null) return '–';
-    final s = p.toStringAsFixed(2).replaceAll('.', ',');
-    return 'ab $s €';
+  String _preisText(double? preis) {
+    if (preis == null) return '–';
+    final formatted = preis.toStringAsFixed(2).replaceAll('.', ',');
+    return 'ab $formatted €';
   }
 
-  String _dauerText(int? d) => d == null ? '' : ' • ${d.toString()} Min';
+  String _dauerText(int? dauer) => dauer == null ? '' : ' • $dauer Min';
 
   String _fallbackTitel(Map<String, dynamic> data) {
-    final kat = (data['kategorie'] as String?)?.trim() ?? 'Sonstiges';
-    final ls = (data['leistungen'] is List)
+    final kategorie = (data['kategorie'] as String?)?.trim() ?? 'Sonstiges';
+    final leistungen = (data['leistungen'] is List)
         ? List<String>.from(data['leistungen'])
-        .where((e) => e.trim().isNotEmpty)
-        .toList()
+            .where((entry) => entry.trim().isNotEmpty)
+            .toList()
         : <String>[];
-    if (ls.isEmpty) return kat;
-    return '$kat – ${ls.join(' & ')}';
+
+    if (leistungen.isEmpty) return kategorie;
+    return '$kategorie – ${leistungen.join(' & ')}';
   }
 
-  // ------------------ UI ------------------
-  @override
-  Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) {
-      return const Scaffold(body: Center(child: Text('Nicht eingeloggt')));
+  Widget _buildHeaderListView(List<Widget> children) {
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        const SizedBox(height: 16),
+        const Center(
+          child: Text(
+            'Meine Leistungen',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        ...children,
+      ],
+    );
+  }
+
+  List<_DetailBlock> _detailBlocksForZielgruppen(Map<String, dynamic> data) {
+    if (data['zielgruppen'] is! Map) return const [];
+
+    final zielgruppen = Map<String, dynamic>.from(data['zielgruppen']);
+    final blocks = <_DetailBlock>[];
+
+    for (final entry in zielgruppen.entries) {
+      if (entry.value is! Map) continue;
+      final values = Map<String, dynamic>.from(entry.value);
+      final preis = _preisText(_toDouble(values['preis']));
+      final dauer = _toInt(values['dauer']);
+      final varianten = <String>[];
+
+      if (values['varianten'] is Map) {
+        final variantenMap = Map<String, dynamic>.from(values['varianten']);
+        for (final variante in variantenMap.entries) {
+          if (variante.value is! Map) continue;
+          final varianteValues = Map<String, dynamic>.from(variante.value);
+          final variantePreis = _preisText(_toDouble(varianteValues['preis']));
+          final varianteDauer = _toInt(varianteValues['dauer']);
+          varianten.add(
+            '${variante.key}: $variantePreis${varianteDauer == null ? '' : ' • ${varianteDauer} Min'}',
+          );
+        }
+      }
+
+      blocks.add(
+        _DetailBlock(
+          title: entry.key,
+          lines: [
+            'Preis: $preis',
+            'Dauer: ${dauer == null ? '–' : '$dauer Min'}',
+            ...varianten,
+          ],
+        ),
+      );
     }
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Meine Leistungen'), centerTitle: true),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection('angebote')
-            .where('dienstleisterId', isEqualTo: uid)
-            .snapshots(),
-        builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (!snap.hasData || snap.data!.docs.isEmpty) {
-            return const Center(child: Text('Noch keine Leistungen erstellt.'));
-          }
+    return blocks;
+  }
 
-          // Gruppieren nach Kategorie
-          final grouped =
-          <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
-          for (final doc in snap.data!.docs) {
-            final data = doc.data();
-            final kat = (data['kategorie'] as String?)?.trim();
-            final key = (kat == null || kat.isEmpty) ? 'Sonstiges' : kat;
-            grouped.putIfAbsent(key, () => []).add(doc);
-          }
+  Widget _buildDesktopDrawer(_SelectedLeistung selection) {
+    final data = selection.data;
+    final kategorie = (data['kategorie'] as String?)?.trim() ?? 'Ohne Kategorie';
+    final leistungen = (data['leistungen'] is List)
+        ? List<String>.from(data['leistungen'])
+            .where((entry) => entry.trim().isNotEmpty)
+            .toList()
+        : <String>[];
+    final methoden = (data['varianten'] is List)
+        ? List<String>.from(data['varianten'])
+            .where((entry) => entry.trim().isNotEmpty)
+            .toList()
+        : <String>[];
+    final zielgruppenBlocks = _detailBlocksForZielgruppen(data);
 
-          final kategorien = grouped.keys.toList()
-            ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-
-          final children = <Widget>[];
-
-          for (final kat in kategorien) {
-            final docs = grouped[kat]!..sort((a, b) {
-              final at =
-                  (a.data()['titel'] as String?) ?? _fallbackTitel(a.data());
-              final bt =
-                  (b.data()['titel'] as String?) ?? _fallbackTitel(b.data());
-              return at.toLowerCase().compareTo(bt.toLowerCase());
-            });
-
-            // Kategorienbalken
-            children.add(
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Container(
-                  width: double.infinity,
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.blueAccent,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    kat,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-              ),
-            );
-
-            // Einträge
-            for (final doc in docs) {
-              final data = doc.data();
-              final titel =
-                  (data['titel'] as String?) ?? _fallbackTitel(data);
-              final (minPreis, minDauer) = _minPreisUndDauer(data);
-              final subtitle =
-                  '${_preisText(minPreis)}${_dauerText(minDauer)}';
-
-              children.add(
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: const BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(color: Color(0xFFE5E5E5)),
-                      ),
-                    ),
-                    child: Row(
+    return Material(
+      color: Colors.white,
+      elevation: 14,
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Titel + Subtitel
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                titel,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                subtitle,
-                                style: const TextStyle(
-                                    color: Colors.black54, fontSize: 13),
-                              ),
-                            ],
+                        Text(
+                          selection.titel,
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
-                        // „…“ -> Bottom Sheet
-                        IconButton(
-                          icon: const Icon(Icons.more_vert, color: Colors.black38),
-                          onPressed: () => _showMehrSheetForDoc(
-                            context: context,
-                            docId: doc.id,
-                            data: data,
-                            titel: titel,
+                        const SizedBox(height: 8),
+                        Text(
+                          selection.subtitle,
+                          style: const TextStyle(
+                            color: Colors.black54,
+                            fontSize: 14,
                           ),
                         ),
                       ],
                     ),
                   ),
+                  IconButton(
+                    tooltip: 'Schließen',
+                    onPressed: () => setState(() => _selectedDocId = null),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _DetailSection(
+                      title: 'Kategorie',
+                      child: Text(kategorie),
+                    ),
+                    if (leistungen.isNotEmpty)
+                      _DetailSection(
+                        title: 'Leistungen',
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: leistungen
+                              .map(
+                                (entry) => Chip(
+                                  label: Text(entry),
+                                  backgroundColor: const Color(0xFFF3F4F8),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+                    if (methoden.isNotEmpty)
+                      _DetailSection(
+                        title: 'Varianten',
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: methoden
+                              .map(
+                                (entry) => Chip(
+                                  label: Text(entry),
+                                  backgroundColor: const Color(0xFFEFF4FF),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+                    if (zielgruppenBlocks.isNotEmpty)
+                      _DetailSection(
+                        title: 'Zielgruppen',
+                        child: Column(
+                          children: zielgruppenBlocks
+                              .map(
+                                (block) => Container(
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8F9FB),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: const Color(0xFFE6E9F0),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        block.title,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      ...block.lines.map(
+                                        (line) => Padding(
+                                          padding:
+                                              const EdgeInsets.only(bottom: 4),
+                                          child: Text(
+                                            line,
+                                            style: const TextStyle(
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+                  ],
                 ),
-              );
-            }
-
-            children.add(const SizedBox(height: 8));
-          }
-
-          return ListView(
-            padding: const EdgeInsets.only(bottom: 24),
-            children: children,
-          );
-        },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  // ----- Bottom Sheet für einen Doc -----
+  Widget _buildDesktopContent({
+    required Widget listContent,
+    required _SelectedLeistung? selection,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: RepaintBoundary(child: listContent),
+        ),
+        SizedBox(
+          width: _desktopDrawerWidth,
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(
+                left: BorderSide(color: Color(0xFFE5E5E5)),
+              ),
+            ),
+            child: RepaintBoundary(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeOut,
+                layoutBuilder: (currentChild, previousChildren) {
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ...previousChildren,
+                      if (currentChild != null) currentChild,
+                    ],
+                  );
+                },
+                transitionBuilder: (child, animation) {
+                  return FadeTransition(
+                    opacity: animation,
+                    child: child,
+                  );
+                },
+                child: selection == null
+                    ? const _DesktopDrawerPlaceholder()
+                    : KeyedSubtree(
+                        key: ValueKey(selection.docId),
+                        child: _buildDesktopDrawer(selection),
+                      ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      const fallback = Center(child: Text('Nicht eingeloggt'));
+      if (!widget.showScaffold) return fallback;
+      return const Scaffold(body: Center(child: Text('Nicht eingeloggt')));
+    }
+
+    final isDesktopLayout = MediaQuery.sizeOf(context).width >= 1100;
+
+    final content = StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('angebote')
+          .where('dienstleisterId', isEqualTo: uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return _buildHeaderListView(
+            const [
+              SizedBox(height: 32),
+              Center(child: Text('Noch keine Leistungen erstellt.')),
+            ],
+          );
+        }
+
+        final grouped = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+        _SelectedLeistung? selectedLeistung;
+
+        for (final doc in snapshot.data!.docs) {
+          final data = doc.data();
+          final kategorie = (data['kategorie'] as String?)?.trim();
+          final key = (kategorie == null || kategorie.isEmpty)
+              ? 'Sonstiges'
+              : kategorie;
+          grouped.putIfAbsent(key, () => []).add(doc);
+
+          if (_selectedDocId == doc.id) {
+            final titel = (data['titel'] as String?) ?? _fallbackTitel(data);
+            final (minPreis, minDauer) = _minPreisUndDauer(data);
+            selectedLeistung = _SelectedLeistung(
+              docId: doc.id,
+              titel: titel,
+              subtitle: '${_preisText(minPreis)}${_dauerText(minDauer)}',
+              data: data,
+            );
+          }
+        }
+
+        if (_selectedDocId != null && selectedLeistung == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() => _selectedDocId = null);
+            }
+          });
+        }
+
+        final kategorien = grouped.keys.toList()
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+        final children = <Widget>[];
+
+        for (final kategorie in kategorien) {
+          final docs = grouped[kategorie]!
+            ..sort((a, b) {
+              final at = (a.data()['titel'] as String?) ?? _fallbackTitel(a.data());
+              final bt = (b.data()['titel'] as String?) ?? _fallbackTitel(b.data());
+              return at.toLowerCase().compareTo(bt.toLowerCase());
+            });
+
+          children.add(
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.blueAccent,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  kategorie,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ),
+          );
+
+          for (final doc in docs) {
+            final data = doc.data();
+            final titel = (data['titel'] as String?) ?? _fallbackTitel(data);
+            final (minPreis, minDauer) = _minPreisUndDauer(data);
+            final subtitle = '${_preisText(minPreis)}${_dauerText(minDauer)}';
+            final isSelected = doc.id == _selectedDocId;
+
+            children.add(
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Material(
+                  color: isSelected
+                      ? const Color(0xFFF5F8FF)
+                      : Colors.transparent,
+                  child: InkWell(
+                    onTap: isDesktopLayout
+                        ? () => setState(() => _selectedDocId = doc.id)
+                        : null,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: const BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(color: Color(0xFFE5E5E5)),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  titel,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  subtitle,
+                                  style: const TextStyle(
+                                    color: Colors.black54,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.more_vert,
+                              color: Colors.black38,
+                            ),
+                            onPressed: () => _showMehrSheetForDoc(
+                              context: context,
+                              docId: doc.id,
+                              data: data,
+                              titel: titel,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+
+          children.add(const SizedBox(height: 8));
+        }
+
+        final listContent = _buildHeaderListView(children);
+        if (!isDesktopLayout) {
+          return listContent;
+        }
+
+        return _buildDesktopContent(
+          listContent: listContent,
+          selection: selectedLeistung,
+        );
+      },
+    );
+
+    if (!widget.showScaffold) {
+      return content;
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Meine Leistungen'),
+        centerTitle: true,
+      ),
+      body: content,
+    );
+  }
+
   void _showMehrSheetForDoc({
     required BuildContext context,
     required String docId,
@@ -243,14 +581,14 @@ class DienstleisterAngebotePage extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (ctx) => SafeArea(
+      builder: (sheetContext) => SafeArea(
         child: Wrap(
           children: [
             ListTile(
               leading: const Icon(Icons.edit),
               title: const Text('Bearbeiten'),
               onTap: () async {
-                Navigator.pop(ctx); // Sheet zu
+                Navigator.pop(sheetContext);
                 await showDialog(
                   context: context,
                   barrierDismissible: false,
@@ -263,15 +601,20 @@ class DienstleisterAngebotePage extends StatelessWidget {
             ),
             ListTile(
               leading: const Icon(Icons.delete, color: Colors.red),
-              title: const Text('Löschen',
-                  style: TextStyle(color: Colors.red)),
+              title: const Text(
+                'Löschen',
+                style: TextStyle(color: Colors.red),
+              ),
               onTap: () async {
-                Navigator.pop(ctx); // Sheet zu
+                Navigator.pop(sheetContext);
                 await FirebaseFirestore.instance
                     .collection('angebote')
                     .doc(docId)
                     .delete();
                 if (context.mounted) {
+                  if (_selectedDocId == docId) {
+                    setState(() => _selectedDocId = null);
+                  }
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('„$titel“ gelöscht')),
                   );
@@ -281,11 +624,89 @@ class DienstleisterAngebotePage extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.close),
               title: const Text('Abbrechen'),
-              onTap: () => Navigator.pop(ctx),
+              onTap: () => Navigator.pop(sheetContext),
             ),
           ],
         ),
       ),
     );
   }
+}
+
+
+class _DesktopDrawerPlaceholder extends StatelessWidget {
+  const _DesktopDrawerPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Text(
+          'Wähle links eine Leistung aus, um die Details anzuzeigen.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.black54,
+            fontSize: 15,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailSection extends StatelessWidget {
+  const _DetailSection({
+    required this.title,
+    required this.child,
+  });
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: Colors.black54,
+            ),
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailBlock {
+  const _DetailBlock({
+    required this.title,
+    required this.lines,
+  });
+
+  final String title;
+  final List<String> lines;
+}
+
+class _SelectedLeistung {
+  const _SelectedLeistung({
+    required this.docId,
+    required this.titel,
+    required this.subtitle,
+    required this.data,
+  });
+
+  final String docId;
+  final String titel;
+  final String subtitle;
+  final Map<String, dynamic> data;
 }
