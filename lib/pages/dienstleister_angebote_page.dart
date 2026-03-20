@@ -13,13 +13,27 @@ class DienstleisterAngebotePage extends StatefulWidget {
   final bool showScaffold;
 
   @override
-  State<DienstleisterAngebotePage> createState() => _DienstleisterAngebotePageState();
+  State<DienstleisterAngebotePage> createState() =>
+      _DienstleisterAngebotePageState();
 }
 
 class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
   static const double _desktopDrawerWidth = 380;
 
   String? _selectedDocId;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _angeboteStream;
+
+  @override
+  void initState() {
+    super.initState();
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      _angeboteStream = FirebaseFirestore.instance
+          .collection('angebote')
+          .where('dienstleisterId', isEqualTo: uid)
+          .snapshots();
+    }
+  }
 
   double? _toDouble(dynamic value) {
     if (value == null) return null;
@@ -245,10 +259,10 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
                           children: leistungen
                               .map(
                                 (entry) => Chip(
-                              label: Text(entry),
-                              backgroundColor: const Color(0xFFF3F4F8),
-                            ),
-                          )
+                                  label: Text(entry),
+                                  backgroundColor: const Color(0xFFF3F4F8),
+                                ),
+                              )
                               .toList(),
                         ),
                       ),
@@ -261,10 +275,10 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
                           children: methoden
                               .map(
                                 (entry) => Chip(
-                              label: Text(entry),
-                              backgroundColor: const Color(0xFFEFF4FF),
-                            ),
-                          )
+                                  label: Text(entry),
+                                  backgroundColor: const Color(0xFFEFF4FF),
+                                ),
+                              )
                               .toList(),
                         ),
                       ),
@@ -275,42 +289,43 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
                           children: zielgruppenBlocks
                               .map(
                                 (block) => Container(
-                              width: double.infinity,
-                              margin: const EdgeInsets.only(bottom: 12),
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF8F9FB),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: const Color(0xFFE6E9F0),
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    block.title,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8F9FB),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: const Color(0xFFE6E9F0),
                                     ),
                                   ),
-                                  const SizedBox(height: 8),
-                                  ...block.lines.map(
-                                        (line) => Padding(
-                                      padding:
-                                      const EdgeInsets.only(bottom: 4),
-                                      child: Text(
-                                        line,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        block.title,
                                         style: const TextStyle(
-                                          color: Colors.black87,
+                                          fontWeight: FontWeight.w700,
                                         ),
                                       ),
-                                    ),
+                                      const SizedBox(height: 8),
+                                      ...block.lines.map(
+                                        (line) => Padding(
+                                          padding:
+                                              const EdgeInsets.only(bottom: 4),
+                                          child: Text(
+                                            line,
+                                            style: const TextStyle(
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                            ),
-                          )
+                                ),
+                              )
                               .toList(),
                         ),
                       ),
@@ -339,13 +354,13 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
           width: drawerVisible ? _desktopDrawerWidth : 0,
           child: drawerVisible
               ? DecoratedBox(
-            decoration: const BoxDecoration(
-              border: Border(
-                left: BorderSide(color: Color(0xFFE5E5E5)),
-              ),
-            ),
-            child: _buildDesktopDrawer(selection!),
-          )
+                  decoration: const BoxDecoration(
+                    border: Border(
+                      left: BorderSide(color: Color(0xFFE5E5E5)),
+                    ),
+                  ),
+                  child: _buildDesktopDrawer(selection!),
+                )
               : const SizedBox.shrink(),
         ),
       ],
@@ -364,10 +379,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
     final isDesktopLayout = MediaQuery.sizeOf(context).width >= 1100;
 
     final content = StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('angebote')
-          .where('dienstleisterId', isEqualTo: uid)
-          .snapshots(),
+      stream: _angeboteStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
