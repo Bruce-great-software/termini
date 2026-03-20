@@ -175,6 +175,56 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
     }
   }
 
+  Future<void> _updateVariantenValues({
+    required String docId,
+    required String titel,
+    required String zielgruppe,
+    required String variante,
+    required String preisText,
+    required String dauerText,
+  }) async {
+    final preis = _toDouble(preisText);
+    final dauer = _toInt(dauerText);
+    final variantPath = 'zielgruppen.$zielgruppe.varianten.$variante';
+    final update = <String, dynamic>{
+      '$variantPath.preis': preis == null ? FieldValue.delete() : preis,
+      '$variantPath.dauer': dauer == null ? FieldValue.delete() : dauer,
+    };
+
+    if (preis == null && dauer == null) {
+      update[variantPath] = FieldValue.delete();
+    }
+
+    final savingKey = '$docId::$zielgruppe::$variante';
+    setState(() => _savingZielgruppeKey = savingKey);
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('angebote')
+          .doc(docId)
+          .update(update);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('„$titel“ – $zielgruppe / $variante gespeichert.'),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Preis und Dauer für $zielgruppe / $variante konnten nicht gespeichert werden.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _savingZielgruppeKey = null);
+      }
+    }
+  }
+
   Widget _buildHeaderListView(List<Widget> children) {
     return ListView(
       padding: const EdgeInsets.only(bottom: _createButtonReservedHeight),
@@ -246,17 +296,17 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
     for (final entry in zielgruppen.entries) {
       if (entry.value is! Map) continue;
       final values = Map<String, dynamic>.from(entry.value);
-      final varianten = <String>[];
+      final varianten = <_VarianteBlock>[];
 
       if (values['varianten'] is Map) {
         final variantenMap = Map<String, dynamic>.from(values['varianten']);
         for (final variante in variantenMap.entries) {
           if (variante.value is! Map) continue;
-          final varianteValues = Map<String, dynamic>.from(variante.value);
-          final variantePreis = _preisText(_toDouble(varianteValues['preis']));
-          final varianteDauer = _toInt(varianteValues['dauer']);
           varianten.add(
-            '${variante.key}: $variantePreis${varianteDauer == null ? '' : ' • ${varianteDauer} Min'}',
+            _VarianteBlock(
+              title: variante.key,
+              values: Map<String, dynamic>.from(variante.value),
+            ),
           );
         }
       }
@@ -265,7 +315,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
         _DetailBlock(
           title: entry.key,
           values: values,
-          variantLines: varianten,
+          varianten: varianten,
         ),
       );
     }
@@ -395,22 +445,34 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
                               ),
                               child: _EditableZielgruppeCard(
                                 key: ValueKey(
-                                  '${selection.docId}-${block.title}-${block.values['preis']}-${block.values['dauer']}',
+                                  '${selection.docId}-${block.title}-${block.values['preis']}-${block.values['dauer']}-${block.varianten.length}',
                                 ),
                                 title: block.title,
                                 initialPreis: _toDouble(block.values['preis']),
                                 initialDauer: _toInt(block.values['dauer']),
-                                variantLines: block.variantLines,
+                                varianten: block.varianten,
                                 isSaving:
                                 _savingZielgruppeKey ==
                                     '${selection.docId}::${block.title}',
-                                onSave:
-                                    (preisText, dauerText) =>
+                                onSave: (preisText, dauerText) =>
                                     _updateZielgruppeValues(
                                       docId: selection.docId,
                                       titel: selection.titel,
                                       zielgruppe: block.title,
                                       zielgruppenWerte: block.values,
+                                      preisText: preisText,
+                                      dauerText: dauerText,
+                                    ),
+                                isVariantSaving: (variantenTitel) =>
+                                _savingZielgruppeKey ==
+                                    '${selection.docId}::${block.title}::$variantenTitel',
+                                onVariantSave:
+                                    (variantenTitel, preisText, dauerText) =>
+                                    _updateVariantenValues(
+                                      docId: selection.docId,
+                                      titel: selection.titel,
+                                      zielgruppe: block.title,
+                                      variante: variantenTitel,
                                       preisText: preisText,
                                       dauerText: dauerText,
                                     ),
@@ -761,42 +823,48 @@ class _DetailSection extends StatelessWidget {
   }
 }
 
-class _DetailBlock {
-  const _DetailBlock({
+class _VarianteBlock {
+  const _VarianteBlock({
     required this.title,
     required this.values,
-    required this.variantLines,
   });
 
   final String title;
   final Map<String, dynamic> values;
-  final List<String> variantLines;
 }
 
-class _EditableZielgruppeCard extends StatefulWidget {
-  const _EditableZielgruppeCard({
-    super.key,
+class _DetailBlock {
+  const _DetailBlock({
     required this.title,
+    required this.values,
+    required this.varianten,
+  });
+
+  final String title;
+  final Map<String, dynamic> values;
+  final List<_VarianteBlock> varianten;
+}
+
+class _EditablePreisDauerFields extends StatefulWidget {
+  const _EditablePreisDauerFields({
+    super.key,
     required this.initialPreis,
     required this.initialDauer,
-    required this.variantLines,
     required this.isSaving,
     required this.onSave,
   });
 
-  final String title;
   final double? initialPreis;
   final int? initialDauer;
-  final List<String> variantLines;
   final bool isSaving;
   final Future<void> Function(String preisText, String dauerText) onSave;
 
   @override
-  State<_EditableZielgruppeCard> createState() =>
-      _EditableZielgruppeCardState();
+  State<_EditablePreisDauerFields> createState() =>
+      _EditablePreisDauerFieldsState();
 }
 
-class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
+class _EditablePreisDauerFieldsState extends State<_EditablePreisDauerFields> {
   late final TextEditingController _preisController;
   late final TextEditingController _dauerController;
 
@@ -875,7 +943,7 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
   }
 
   @override
-  void didUpdateWidget(covariant _EditableZielgruppeCard oldWidget) {
+  void didUpdateWidget(covariant _EditablePreisDauerFields oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.initialPreis != widget.initialPreis ||
         oldWidget.initialDauer != widget.initialDauer) {
@@ -900,15 +968,7 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          widget.title,
-          style: const TextStyle(
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 12),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -951,8 +1011,57 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
             _buildSaveAction(visible: _hasDauerChanged),
           ],
         ),
-        if (widget.variantLines.isNotEmpty) ...[
-          const SizedBox(height: 12),
+      ],
+    );
+  }
+}
+
+class _EditableZielgruppeCard extends StatelessWidget {
+  const _EditableZielgruppeCard({
+    super.key,
+    required this.title,
+    required this.initialPreis,
+    required this.initialDauer,
+    required this.varianten,
+    required this.isSaving,
+    required this.onSave,
+    required this.isVariantSaving,
+    required this.onVariantSave,
+  });
+
+  final String title;
+  final double? initialPreis;
+  final int? initialDauer;
+  final List<_VarianteBlock> varianten;
+  final bool isSaving;
+  final Future<void> Function(String preisText, String dauerText) onSave;
+  final bool Function(String variantenTitel) isVariantSaving;
+  final Future<void> Function(
+      String variantenTitel,
+      String preisText,
+      String dauerText,
+      ) onVariantSave;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 12),
+        _EditablePreisDauerFields(
+          initialPreis: initialPreis,
+          initialDauer: initialDauer,
+          isSaving: isSaving,
+          onSave: onSave,
+        ),
+        if (varianten.isNotEmpty) ...[
+          const SizedBox(height: 14),
           const Text(
             'Varianten',
             style: TextStyle(
@@ -960,13 +1069,39 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
               color: Colors.black87,
             ),
           ),
-          const SizedBox(height: 8),
-          ...widget.variantLines.map(
-                (line) => Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text(
-                line,
-                style: const TextStyle(color: Colors.black87),
+          const SizedBox(height: 10),
+          ...varianten.map(
+                (variante) => Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    variante.title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _EditablePreisDauerFields(
+                    key: ValueKey(
+                      '$title-${variante.title}-${variante.values['preis']}-${variante.values['dauer']}',
+                    ),
+                    initialPreis: variante.values['preis'] is num
+                        ? (variante.values['preis'] as num).toDouble()
+                        : null,
+                    initialDauer: variante.values['dauer'] is num
+                        ? (variante.values['dauer'] as num).toInt()
+                        : null,
+                    isSaving: isVariantSaving(variante.title),
+                    onSave: (preisText, dauerText) => onVariantSave(
+                      variante.title,
+                      preisText,
+                      dauerText,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
