@@ -62,6 +62,39 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     setState(() => _selectedIndex = index);
   }
 
+  Widget _buildLeistungenErstellenButton({
+    required BuildContext context,
+    required bool isDesktopLayout,
+  }) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final width = isDesktopLayout
+        ? 360.0
+        : (screenWidth - 32).clamp(220.0, 520.0).toDouble();
+
+    return SizedBox(
+      width: width,
+      child: ElevatedButton.icon(
+        onPressed: () {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => const LeistungErstellenDialog(),
+          );
+        },
+        icon: const Icon(Icons.add),
+        label: const Text('Leistungen erstellen'),
+        style: ElevatedButton.styleFrom(
+          elevation: 4,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+          alignment: Alignment.centerLeft,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _logout() async {
     await FirebaseAuth.instance.signOut();
     if (context.mounted) {
@@ -123,18 +156,12 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             ],
           ),
           floatingActionButton: _selectedIndex == 2
-              ? FloatingActionButton.extended(
-            onPressed: () {
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                builder: (_) => const LeistungErstellenDialog(),
-              );
-            },
-            icon: const Icon(Icons.add),
-            label: const Text('Leistungen erstellen'),
-          )
+              ? _buildLeistungenErstellenButton(
+                  context: context,
+                  isDesktopLayout: isDesktopLayout,
+                )
               : null,
+          floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
           bottomNavigationBar: BottomNavigationBar(
             type: BottomNavigationBarType.fixed,
             currentIndex: _selectedIndex,
