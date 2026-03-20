@@ -22,7 +22,6 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
 
   String? _selectedDocId;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _angeboteStream;
-  String? _savingZielgruppeKey;
 
   @override
   void initState() {
@@ -181,9 +180,6 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
       update['zielgruppen.$zielgruppe'] = FieldValue.delete();
     }
 
-    final savingKey = '$docId::$zielgruppe';
-    setState(() => _savingZielgruppeKey = savingKey);
-
     try {
       await FirebaseFirestore.instance
           .collection('angebote')
@@ -202,10 +198,6 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
           ),
         ),
       );
-    } finally {
-      if (mounted) {
-        setState(() => _savingZielgruppeKey = null);
-      }
     }
   }
 
@@ -388,9 +380,6 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
                                     initialPreis: _toDouble(block.values['preis']),
                                     initialDauer: _toInt(block.values['dauer']),
                                     initialVarianten: block.variantValues,
-                                    isSaving:
-                                        _savingZielgruppeKey ==
-                                        '${selection.docId}::${block.title}',
                                     onSave:
                                         (
                                           preisText,
@@ -757,7 +746,6 @@ class _EditableZielgruppeCard extends StatefulWidget {
     required this.initialPreis,
     required this.initialDauer,
     required this.initialVarianten,
-    required this.isSaving,
     required this.onSave,
   });
 
@@ -765,7 +753,6 @@ class _EditableZielgruppeCard extends StatefulWidget {
   final double? initialPreis;
   final int? initialDauer;
   final Map<String, Map<String, dynamic>> initialVarianten;
-  final bool isSaving;
   final Future<void> Function(
     String preisText,
     String dauerText,
@@ -782,6 +769,7 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
   late final TextEditingController _dauerController;
   final Map<String, TextEditingController> _variantenPreisController = {};
   final Map<String, TextEditingController> _variantenDauerController = {};
+  String? _savingFieldKey;
 
   @override
   void initState() {
@@ -807,6 +795,20 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
     final hasDecimals = preis % 1 != 0;
     return (hasDecimals ? preis.toStringAsFixed(2) : preis.toStringAsFixed(0))
         .replaceAll('.', ',');
+  }
+
+  String _initialPreisText() => _formatPriceInput(widget.initialPreis);
+
+  String _initialDauerText() => widget.initialDauer?.toString() ?? '';
+
+  String _initialVariantenPreisText(String variantenName) {
+    final value = widget.initialVarianten[variantenName]?['preis'];
+    return value is num ? _formatPriceInput(value.toDouble()) : '';
+  }
+
+  String _initialVariantenDauerText(String variantenName) {
+    final value = widget.initialVarianten[variantenName]?['dauer'];
+    return value is num ? value.toInt().toString() : '';
   }
 
   void _syncControllers({required bool resetVarianten}) {
@@ -864,6 +866,77 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
     return result;
   }
 
+  Future<void> _saveCurrentValues(String fieldKey) async {
+    setState(() => _savingFieldKey = fieldKey);
+    try {
+      await widget.onSave(
+        _preisController.text,
+        _dauerController.text,
+        _collectVariantTexts(),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _savingFieldKey = null);
+      }
+    }
+  }
+
+  Widget? _buildSaveIcon({
+    required String fieldKey,
+    required bool isDirty,
+  }) {
+    if (_savingFieldKey == fieldKey) {
+      return const Padding(
+        padding: EdgeInsets.all(12),
+        child: SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
+    if (!isDirty) {
+      return null;
+    }
+
+    return IconButton(
+      tooltip: 'Änderung speichern',
+      onPressed: () => _saveCurrentValues(fieldKey),
+      icon: const Icon(
+        Icons.check_circle,
+        color: Colors.green,
+      ),
+    );
+  }
+
+  Widget _buildEditableField({
+    required TextEditingController controller,
+    required String labelText,
+    required String suffixText,
+    required TextInputType keyboardType,
+    required String fieldKey,
+    required String initialValue,
+  }) {
+    final isDirty = controller.text != initialValue;
+
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      onChanged: (_) => setState(() {}),
+      decoration: InputDecoration(
+        labelText: labelText,
+        suffixText: suffixText,
+        border: const OutlineInputBorder(),
+        isDense: true,
+        suffixIcon: _buildSaveIcon(
+          fieldKey: fieldKey,
+          isDirty: isDirty,
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _preisController.dispose();
@@ -885,56 +958,29 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                widget.title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            FilledButton.tonalIcon(
-              onPressed: widget.isSaving
-                  ? null
-                  : () => widget.onSave(
-                        _preisController.text,
-                        _dauerController.text,
-                        _collectVariantTexts(),
-                      ),
-              icon: widget.isSaving
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.save_outlined, size: 18),
-              label: const Text('Speichern'),
-            ),
-          ],
+        Text(
+          widget.title,
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+          ),
         ),
         const SizedBox(height: 12),
-        TextField(
+        _buildEditableField(
           controller: _preisController,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(
-            labelText: 'Preis',
-            suffixText: '€',
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
+          labelText: 'Preis',
+          suffixText: '€',
+          fieldKey: 'basis_preis',
+          initialValue: _initialPreisText(),
         ),
         const SizedBox(height: 12),
-        TextField(
+        _buildEditableField(
           controller: _dauerController,
           keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Dauer',
-            suffixText: 'Min',
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
+          labelText: 'Dauer',
+          suffixText: 'Min',
+          fieldKey: 'basis_dauer',
+          initialValue: _initialDauerText(),
         ),
         if (widget.initialVarianten.isNotEmpty) ...[
           const SizedBox(height: 12),
@@ -960,28 +1006,24 @@ class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  TextField(
-                    controller: _variantenPreisController[variantenName],
+                  _buildEditableField(
+                    controller: _variantenPreisController[variantenName]!,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
-                    decoration: const InputDecoration(
-                      labelText: 'Preis',
-                      suffixText: '€',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
+                    labelText: 'Preis',
+                    suffixText: '€',
+                    fieldKey: 'variante_${variantenName}_preis',
+                    initialValue: _initialVariantenPreisText(variantenName),
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: _variantenDauerController[variantenName],
+                  _buildEditableField(
+                    controller: _variantenDauerController[variantenName]!,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Dauer',
-                      suffixText: 'Min',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
+                    labelText: 'Dauer',
+                    suffixText: 'Min',
+                    fieldKey: 'variante_${variantenName}_dauer',
+                    initialValue: _initialVariantenDauerText(variantenName),
                   ),
                 ],
               ),
