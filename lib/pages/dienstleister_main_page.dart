@@ -77,7 +77,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     setState(() => _isLeistungenDetailPanelOpen = isOpen);
   }
 
-  Widget _buildLeistungenFab(bool isDesktopLayout, double maxWidth) {
+  Widget _buildLeistungenActionBar(bool isDesktopLayout, double maxWidth) {
     final availableWidth =
         maxWidth - (isDesktopLayout ? _desktopSidebarWidth : 0);
     final detailPanelWidth = isDesktopLayout && _isLeistungenDetailPanelOpen
@@ -89,16 +89,32 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
 
     return SizedBox(
       width: fabWidth,
-      child: FloatingActionButton.extended(
-        onPressed: () {
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (_) => const LeistungErstellenDialog(),
-          );
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('Leistungen erstellen'),
+      child: Material(
+        color: Colors.blueAccent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () {
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (_) => const LeistungErstellenDialog(),
+            );
+          },
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Center(
+              child: Text(
+                'Leistungen erstellen',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -167,7 +183,10 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             ],
           ),
           floatingActionButton: _selectedIndex == 2
-              ? _buildLeistungenFab(isDesktopLayout, constraints.maxWidth)
+              ? _buildLeistungenActionBar(
+                  isDesktopLayout,
+                  constraints.maxWidth,
+                )
               : null,
           floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
           bottomNavigationBar: BottomNavigationBar(
