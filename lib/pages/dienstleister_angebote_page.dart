@@ -175,7 +175,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
 
   Widget _buildHeaderListView(List<Widget> children) {
     return ListView(
-      padding: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.only(bottom: 104),
       children: [
         const SizedBox(height: 16),
         const Center(

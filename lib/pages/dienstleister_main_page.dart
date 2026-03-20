@@ -119,22 +119,30 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                   isLeistungenSelected: _selectedIndex == 2,
                   onTap: () => _onTabTapped(2),
                 ),
-              Expanded(child: pages[_selectedIndex]),
+              Expanded(
+                child: Stack(
+                  children: [
+                    Positioned.fill(child: pages[_selectedIndex]),
+                    if (_selectedIndex == 2)
+                      Positioned(
+                        left: 16,
+                        right: 16,
+                        bottom: 16,
+                        child: _CreateLeistungButton(
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              barrierDismissible: false,
+                              builder: (_) => const LeistungErstellenDialog(),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ],
           ),
-          floatingActionButton: _selectedIndex == 2
-              ? FloatingActionButton.extended(
-            onPressed: () {
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                builder: (_) => const LeistungErstellenDialog(),
-              );
-            },
-            icon: const Icon(Icons.add),
-            label: const Text('Leistungen erstellen'),
-          )
-              : null,
           bottomNavigationBar: BottomNavigationBar(
             type: BottomNavigationBarType.fixed,
             currentIndex: _selectedIndex,
@@ -259,6 +267,59 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             child: const Text('Abmelden'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _CreateLeistungButton extends StatelessWidget {
+  const _CreateLeistungButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: const Color(0xFFF1EEF9).withOpacity(0.96),
+      borderRadius: BorderRadius.circular(18),
+      elevation: 0,
+      shadowColor: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFD8D2EB)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x26000000),
+                blurRadius: 18,
+                offset: Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.add, size: 20, color: colorScheme.primary),
+              const SizedBox(width: 10),
+              Text(
+                'Leistungen erstellen',
+                style: TextStyle(
+                  color: colorScheme.primary,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
