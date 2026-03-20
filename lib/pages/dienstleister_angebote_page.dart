@@ -8,9 +8,11 @@ class DienstleisterAngebotePage extends StatefulWidget {
   const DienstleisterAngebotePage({
     super.key,
     this.showScaffold = true,
+    this.onDesktopDrawerVisibilityChanged,
   });
 
   final bool showScaffold;
+  final ValueChanged<bool>? onDesktopDrawerVisibilityChanged;
 
   @override
   State<DienstleisterAngebotePage> createState() =>
@@ -22,6 +24,17 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
 
   String? _selectedDocId;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _angeboteStream;
+  bool? _lastReportedDrawerVisible;
+
+  void _reportDrawerVisibility(bool isVisible) {
+    if (_lastReportedDrawerVisible == isVisible) return;
+    _lastReportedDrawerVisible = isVisible;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.onDesktopDrawerVisibilityChanged?.call(isVisible);
+    });
+  }
 
   @override
   void initState() {
@@ -121,6 +134,86 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
     return '$kategorie – ${leistungen.join(' & ')}';
   }
 
+  Future<void> _updateZielgruppeValues({
+    required String docId,
+    required String titel,
+    required String zielgruppe,
+    required Map<String, dynamic> zielgruppenWerte,
+    required String preisText,
+    required String dauerText,
+    required Map<String, Map<String, String>> variantenTexte,
+  }) async {
+    final preis = _toDouble(preisText);
+    final dauer = _toInt(dauerText);
+    final update = <String, dynamic>{
+      'zielgruppen.$zielgruppe.preis':
+          preis == null ? FieldValue.delete() : preis,
+      'zielgruppen.$zielgruppe.dauer':
+          dauer == null ? FieldValue.delete() : dauer,
+    };
+
+    final existingVarianten = zielgruppenWerte['varianten'] is Map
+        ? Map<String, dynamic>.from(zielgruppenWerte['varianten'] as Map)
+        : <String, dynamic>{};
+    var hasAnyVariantenValue = false;
+
+    final variantenNamen = <String>{
+      ...existingVarianten.keys,
+      ...variantenTexte.keys,
+    }.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    for (final variantenName in variantenNamen) {
+      final variantPfad = 'zielgruppen.$zielgruppe.varianten.$variantenName';
+      final varianteTexte = variantenTexte[variantenName];
+      final variantenPreis = _toDouble(varianteTexte?['preis']);
+      final variantenDauer = _toInt(varianteTexte?['dauer']);
+
+      if (variantenPreis == null && variantenDauer == null) {
+        update[variantPfad] = FieldValue.delete();
+        continue;
+      }
+
+      hasAnyVariantenValue = true;
+      update['$variantPfad.preis'] =
+          variantenPreis == null ? FieldValue.delete() : variantenPreis;
+      update['$variantPfad.dauer'] =
+          variantenDauer == null ? FieldValue.delete() : variantenDauer;
+    }
+
+    if (!hasAnyVariantenValue) {
+      update.removeWhere(
+        (key, _) => key.startsWith('zielgruppen.$zielgruppe.varianten.'),
+      );
+      update['zielgruppen.$zielgruppe.varianten'] = FieldValue.delete();
+    }
+
+    if (preis == null && dauer == null && !hasAnyVariantenValue) {
+      update.removeWhere((key, _) => key.startsWith('zielgruppen.$zielgruppe.'));
+      update['zielgruppen.$zielgruppe'] = FieldValue.delete();
+    }
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('angebote')
+          .doc(docId)
+          .update(update);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('„$titel“ für $zielgruppe gespeichert.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Preis- und Dauerwerte für $zielgruppe konnten nicht gespeichert werden.',
+          ),
+        ),
+      );
+    }
+  }
+
   Widget _buildHeaderListView(List<Widget> children) {
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
@@ -150,31 +243,21 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
     for (final entry in zielgruppen.entries) {
       if (entry.value is! Map) continue;
       final values = Map<String, dynamic>.from(entry.value);
-      final preis = _preisText(_toDouble(values['preis']));
-      final dauer = _toInt(values['dauer']);
-      final varianten = <String>[];
+      final variantenMap = <String, Map<String, dynamic>>{};
 
       if (values['varianten'] is Map) {
-        final variantenMap = Map<String, dynamic>.from(values['varianten']);
-        for (final variante in variantenMap.entries) {
+        final rawVariantenMap = Map<String, dynamic>.from(values['varianten']);
+        for (final variante in rawVariantenMap.entries) {
           if (variante.value is! Map) continue;
-          final varianteValues = Map<String, dynamic>.from(variante.value);
-          final variantePreis = _preisText(_toDouble(varianteValues['preis']));
-          final varianteDauer = _toInt(varianteValues['dauer']);
-          varianten.add(
-            '${variante.key}: $variantePreis${varianteDauer == null ? '' : ' • ${varianteDauer} Min'}',
-          );
+          variantenMap[variante.key] = Map<String, dynamic>.from(variante.value);
         }
       }
 
       blocks.add(
         _DetailBlock(
           title: entry.key,
-          lines: [
-            'Preis: $preis',
-            'Dauer: ${dauer == null ? '–' : '$dauer Min'}',
-            ...varianten,
-          ],
+          values: values,
+          variantValues: variantenMap,
         ),
       );
     }
@@ -187,15 +270,16 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
     final kategorie = (data['kategorie'] as String?)?.trim() ?? 'Ohne Kategorie';
     final leistungen = (data['leistungen'] is List)
         ? List<String>.from(data['leistungen'])
-        .where((entry) => entry.trim().isNotEmpty)
-        .toList()
+            .where((entry) => entry.trim().isNotEmpty)
+            .toList()
         : <String>[];
     final methoden = (data['varianten'] is List)
         ? List<String>.from(data['varianten'])
-        .where((entry) => entry.trim().isNotEmpty)
-        .toList()
+            .where((entry) => entry.trim().isNotEmpty)
+            .toList()
         : <String>[];
     final zielgruppenBlocks = _detailBlocksForZielgruppen(data);
+    final hasEditableZielgruppen = zielgruppenBlocks.isNotEmpty;
 
     return Material(
       color: Colors.white,
@@ -259,10 +343,10 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
                           children: leistungen
                               .map(
                                 (entry) => Chip(
-                              label: Text(entry),
-                              backgroundColor: const Color(0xFFF3F4F8),
-                            ),
-                          )
+                                  label: Text(entry),
+                                  backgroundColor: const Color(0xFFF3F4F8),
+                                ),
+                              )
                               .toList(),
                         ),
                       ),
@@ -275,57 +359,58 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
                           children: methoden
                               .map(
                                 (entry) => Chip(
-                              label: Text(entry),
-                              backgroundColor: const Color(0xFFEFF4FF),
-                            ),
-                          )
+                                  label: Text(entry),
+                                  backgroundColor: const Color(0xFFEFF4FF),
+                                ),
+                              )
                               .toList(),
                         ),
                       ),
                     if (zielgruppenBlocks.isNotEmpty)
                       _DetailSection(
-                        title: 'Zielgruppen',
+                        title: hasEditableZielgruppen
+                            ? 'Zielgruppen (Preis & Dauer bearbeitbar)'
+                            : 'Zielgruppen',
                         child: Column(
                           children: zielgruppenBlocks
                               .map(
                                 (block) => Container(
-                              width: double.infinity,
-                              margin: const EdgeInsets.only(bottom: 12),
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF8F9FB),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: const Color(0xFFE6E9F0),
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8F9FB),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: const Color(0xFFE6E9F0),
+                                    ),
+                                  ),
+                                  child: _EditableZielgruppeCard(
+                                    key: ValueKey(
+                                      '${selection.docId}-${block.title}-${block.values.toString()}-${block.variantValues.toString()}',
+                                    ),
+                                    title: block.title,
+                                    initialPreis: _toDouble(block.values['preis']),
+                                    initialDauer: _toInt(block.values['dauer']),
+                                    initialVarianten: block.variantValues,
+                                    onSave:
+                                        (
+                                          preisText,
+                                          dauerText,
+                                          variantenTexte,
+                                        ) =>
+                                            _updateZielgruppeValues(
+                                              docId: selection.docId,
+                                              titel: selection.titel,
+                                              zielgruppe: block.title,
+                                              zielgruppenWerte: block.values,
+                                              preisText: preisText,
+                                              dauerText: dauerText,
+                                              variantenTexte: variantenTexte,
+                                            ),
+                                  ),
                                 ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment:
-                                CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    block.title,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  ...block.lines.map(
-                                        (line) => Padding(
-                                      padding:
-                                      const EdgeInsets.only(bottom: 4),
-                                      child: Text(
-                                        line,
-                                        style: const TextStyle(
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          )
+                              )
                               .toList(),
                         ),
                       ),
@@ -354,13 +439,13 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
           width: drawerVisible ? _desktopDrawerWidth : 0,
           child: drawerVisible
               ? DecoratedBox(
-            decoration: const BoxDecoration(
-              border: Border(
-                left: BorderSide(color: Color(0xFFE5E5E5)),
-              ),
-            ),
-            child: _buildDesktopDrawer(selection!),
-          )
+                  decoration: const BoxDecoration(
+                    border: Border(
+                      left: BorderSide(color: Color(0xFFE5E5E5)),
+                    ),
+                  ),
+                  child: _buildDesktopDrawer(selection!),
+                )
               : const SizedBox.shrink(),
         ),
       ],
@@ -433,8 +518,10 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
         for (final kategorie in kategorien) {
           final docs = grouped[kategorie]!
             ..sort((a, b) {
-              final at = (a.data()['titel'] as String?) ?? _fallbackTitel(a.data());
-              final bt = (b.data()['titel'] as String?) ?? _fallbackTitel(b.data());
+              final at =
+                  (a.data()['titel'] as String?) ?? _fallbackTitel(a.data());
+              final bt =
+                  (b.data()['titel'] as String?) ?? _fallbackTitel(b.data());
               return at.toLowerCase().compareTo(bt.toLowerCase());
             });
 
@@ -534,6 +621,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
         }
 
         final listContent = _buildHeaderListView(children);
+        _reportDrawerVisibility(isDesktopLayout && selectedLeistung != null);
         if (!isDesktopLayout) {
           return listContent;
         }
@@ -656,11 +744,314 @@ class _DetailSection extends StatelessWidget {
 class _DetailBlock {
   const _DetailBlock({
     required this.title,
-    required this.lines,
+    required this.values,
+    required this.variantValues,
   });
 
   final String title;
-  final List<String> lines;
+  final Map<String, dynamic> values;
+  final Map<String, Map<String, dynamic>> variantValues;
+}
+
+class _EditableZielgruppeCard extends StatefulWidget {
+  const _EditableZielgruppeCard({
+    super.key,
+    required this.title,
+    required this.initialPreis,
+    required this.initialDauer,
+    required this.initialVarianten,
+    required this.onSave,
+  });
+
+  final String title;
+  final double? initialPreis;
+  final int? initialDauer;
+  final Map<String, Map<String, dynamic>> initialVarianten;
+  final Future<void> Function(
+    String preisText,
+    String dauerText,
+    Map<String, Map<String, String>> variantenTexte,
+  ) onSave;
+
+  @override
+  State<_EditableZielgruppeCard> createState() =>
+      _EditableZielgruppeCardState();
+}
+
+class _EditableZielgruppeCardState extends State<_EditableZielgruppeCard> {
+  late final TextEditingController _preisController;
+  late final TextEditingController _dauerController;
+  final Map<String, TextEditingController> _variantenPreisController = {};
+  final Map<String, TextEditingController> _variantenDauerController = {};
+  String? _savingFieldKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _preisController = TextEditingController();
+    _dauerController = TextEditingController();
+    _syncControllers(resetVarianten: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _EditableZielgruppeCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialPreis != widget.initialPreis ||
+        oldWidget.initialDauer != widget.initialDauer ||
+        oldWidget.initialVarianten.toString() !=
+            widget.initialVarianten.toString()) {
+      _syncControllers(resetVarianten: true);
+    }
+  }
+
+  String _formatPriceInput(double? preis) {
+    if (preis == null) return '';
+    final hasDecimals = preis % 1 != 0;
+    return (hasDecimals ? preis.toStringAsFixed(2) : preis.toStringAsFixed(0))
+        .replaceAll('.', ',');
+  }
+
+  String _initialPreisText() => _formatPriceInput(widget.initialPreis);
+
+  String _initialDauerText() => widget.initialDauer?.toString() ?? '';
+
+  String _initialVariantenPreisText(String variantenName) {
+    final value = widget.initialVarianten[variantenName]?['preis'];
+    return value is num ? _formatPriceInput(value.toDouble()) : '';
+  }
+
+  String _initialVariantenDauerText(String variantenName) {
+    final value = widget.initialVarianten[variantenName]?['dauer'];
+    return value is num ? value.toInt().toString() : '';
+  }
+
+  void _syncControllers({required bool resetVarianten}) {
+    _preisController.text = _formatPriceInput(widget.initialPreis);
+    _dauerController.text = widget.initialDauer?.toString() ?? '';
+
+    if (!resetVarianten) {
+      return;
+    }
+
+    for (final controller in _variantenPreisController.values) {
+      controller.dispose();
+    }
+    for (final controller in _variantenDauerController.values) {
+      controller.dispose();
+    }
+    _variantenPreisController.clear();
+    _variantenDauerController.clear();
+
+    final variantenNamen = widget.initialVarianten.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    for (final variantenName in variantenNamen) {
+      final variantValues = widget.initialVarianten[variantenName] ?? const {};
+      _variantenPreisController[variantenName] = TextEditingController(
+        text: _formatPriceInput(
+          variantValues['preis'] is num
+              ? (variantValues['preis'] as num).toDouble()
+              : null,
+        ),
+      );
+      _variantenDauerController[variantenName] = TextEditingController(
+        text: variantValues['dauer'] is num
+            ? (variantValues['dauer'] as num).toInt().toString()
+            : '',
+      );
+    }
+  }
+
+  Map<String, Map<String, String>> _collectVariantTexts() {
+    final result = <String, Map<String, String>>{};
+    final variantenNamen = <String>{
+      ..._variantenPreisController.keys,
+      ..._variantenDauerController.keys,
+    }.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    for (final variantenName in variantenNamen) {
+      result[variantenName] = {
+        'preis': _variantenPreisController[variantenName]?.text ?? '',
+        'dauer': _variantenDauerController[variantenName]?.text ?? '',
+      };
+    }
+
+    return result;
+  }
+
+  Future<void> _saveCurrentValues(String fieldKey) async {
+    setState(() => _savingFieldKey = fieldKey);
+    try {
+      await widget.onSave(
+        _preisController.text,
+        _dauerController.text,
+        _collectVariantTexts(),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _savingFieldKey = null);
+      }
+    }
+  }
+
+  Widget? _buildSaveIcon({
+    required String fieldKey,
+    required bool isDirty,
+  }) {
+    if (_savingFieldKey == fieldKey) {
+      return const Padding(
+        padding: EdgeInsets.all(12),
+        child: SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
+    if (!isDirty) {
+      return null;
+    }
+
+    return IconButton(
+      tooltip: 'Änderung speichern',
+      onPressed: () => _saveCurrentValues(fieldKey),
+      icon: const Icon(
+        Icons.check_circle,
+        color: Colors.green,
+      ),
+    );
+  }
+
+  Widget _buildEditableField({
+    required TextEditingController controller,
+    required String labelText,
+    required String suffixText,
+    required TextInputType keyboardType,
+    required String fieldKey,
+    required String initialValue,
+  }) {
+    final isDirty = controller.text != initialValue;
+
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      onChanged: (_) => setState(() {}),
+      onSubmitted: (_) {
+        if (!isDirty) return;
+        FocusScope.of(context).unfocus();
+        _saveCurrentValues(fieldKey);
+      },
+      decoration: InputDecoration(
+        labelText: labelText,
+        suffixText: suffixText,
+        border: const OutlineInputBorder(),
+        isDense: true,
+        suffixIcon: _buildSaveIcon(
+          fieldKey: fieldKey,
+          isDirty: isDirty,
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _preisController.dispose();
+    _dauerController.dispose();
+    for (final controller in _variantenPreisController.values) {
+      controller.dispose();
+    }
+    for (final controller in _variantenDauerController.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final variantenNamen = widget.initialVarianten.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          widget.title,
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 12),
+        _buildEditableField(
+          controller: _preisController,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          labelText: 'Preis',
+          suffixText: '€',
+          fieldKey: 'basis_preis',
+          initialValue: _initialPreisText(),
+        ),
+        const SizedBox(height: 12),
+        _buildEditableField(
+          controller: _dauerController,
+          keyboardType: TextInputType.number,
+          labelText: 'Dauer',
+          suffixText: 'Min',
+          fieldKey: 'basis_dauer',
+          initialValue: _initialDauerText(),
+        ),
+        if (widget.initialVarianten.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          const Text(
+            'Varianten',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...variantenNamen.map(
+            (variantenName) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    variantenName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildEditableField(
+                    controller: _variantenPreisController[variantenName]!,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    labelText: 'Preis',
+                    suffixText: '€',
+                    fieldKey: 'variante_${variantenName}_preis',
+                    initialValue: _initialVariantenPreisText(variantenName),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildEditableField(
+                    controller: _variantenDauerController[variantenName]!,
+                    keyboardType: TextInputType.number,
+                    labelText: 'Dauer',
+                    suffixText: 'Min',
+                    fieldKey: 'variante_${variantenName}_dauer',
+                    initialValue: _initialVariantenDauerText(variantenName),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 class _SelectedLeistung {
