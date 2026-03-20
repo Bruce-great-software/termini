@@ -330,23 +330,39 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
   }) {
     final drawerVisible = selection != null;
 
-    return Row(
+    return Stack(
       children: [
-        Expanded(child: listContent),
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOutCubic,
-          width: drawerVisible ? _desktopDrawerWidth : 0,
-          child: drawerVisible
-              ? DecoratedBox(
-            decoration: const BoxDecoration(
-              border: Border(
-                left: BorderSide(color: Color(0xFFE5E5E5)),
+        Positioned.fill(child: listContent),
+        Positioned(
+          top: 0,
+          right: 0,
+          bottom: 0,
+          child: IgnorePointer(
+            ignoring: !drawerVisible,
+            child: AnimatedSlide(
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              offset: drawerVisible ? Offset.zero : const Offset(1, 0),
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                opacity: drawerVisible ? 1 : 0,
+                child: SizedBox(
+                  width: _desktopDrawerWidth,
+                  child: selection == null
+                      ? const SizedBox.shrink()
+                      : DecoratedBox(
+                          decoration: const BoxDecoration(
+                            border: Border(
+                              left: BorderSide(color: Color(0xFFE5E5E5)),
+                            ),
+                          ),
+                          child: _buildDesktopDrawer(selection),
+                        ),
+                ),
               ),
             ),
-            child: _buildDesktopDrawer(selection!),
-          )
-              : const SizedBox.shrink(),
+          ),
         ),
       ],
     );
