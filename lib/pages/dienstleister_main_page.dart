@@ -23,9 +23,11 @@ class DienstleisterMainPage extends StatefulWidget {
 
 class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   static const double _desktopSidebarWidth = 188;
+  static const double _angeboteDesktopDrawerWidth = 380;
 
   int _selectedIndex = 0;
   String? dienstleisterName;
+  bool _angeboteDrawerVisible = false;
 
   @override
   void initState() {
@@ -68,14 +70,19 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     required double maxWidth,
   }) {
     final leftInset = isDesktopLayout ? _desktopSidebarWidth + 16 : 16.0;
-    final rightInset = 16.0;
-    final width = (maxWidth - leftInset - rightInset).clamp(220.0, double.infinity);
+    final drawerInset =
+        isDesktopLayout && _angeboteDrawerVisible ? _angeboteDesktopDrawerWidth : 0.0;
+    final rightInset = 16.0 + drawerInset;
+    final width = (maxWidth - leftInset - rightInset).clamp(
+      220.0,
+      double.infinity,
+    );
 
     return Padding(
       padding: EdgeInsets.only(left: leftInset, right: rightInset),
       child: SizedBox(
         width: width.toDouble(),
-        child: ElevatedButton.icon(
+        child: FilledButton.icon(
           onPressed: () {
             showDialog(
               context: context,
@@ -85,12 +92,14 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           },
           icon: const Icon(Icons.add),
           label: const Text('Leistungen erstellen'),
-          style: ElevatedButton.styleFrom(
-            elevation: 4,
+          style: FilledButton.styleFrom(
+            elevation: 0,
+            backgroundColor: const Color(0xFFF1F3FF),
+            foregroundColor: const Color(0xFF5466B8),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
             alignment: Alignment.centerLeft,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(6),
             ),
           ),
         ),
@@ -125,7 +134,13 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     final pages = [
       _buildHomePage(),
       const Center(child: Text('Kalender kommt bald!')),
-      const DienstleisterAngebotePage(showScaffold: false),
+      DienstleisterAngebotePage(
+        showScaffold: false,
+        onDesktopDrawerVisibilityChanged: (isVisible) {
+          if (_angeboteDrawerVisible == isVisible) return;
+          setState(() => _angeboteDrawerVisible = isVisible);
+        },
+      ),
       _buildProfilPage(),
     ];
 

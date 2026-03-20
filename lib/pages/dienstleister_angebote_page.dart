@@ -8,9 +8,11 @@ class DienstleisterAngebotePage extends StatefulWidget {
   const DienstleisterAngebotePage({
     super.key,
     this.showScaffold = true,
+    this.onDesktopDrawerVisibilityChanged,
   });
 
   final bool showScaffold;
+  final ValueChanged<bool>? onDesktopDrawerVisibilityChanged;
 
   @override
   State<DienstleisterAngebotePage> createState() =>
@@ -22,6 +24,17 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
 
   String? _selectedDocId;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _angeboteStream;
+  bool? _lastReportedDrawerVisible;
+
+  void _reportDrawerVisibility(bool isVisible) {
+    if (_lastReportedDrawerVisible == isVisible) return;
+    _lastReportedDrawerVisible = isVisible;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.onDesktopDrawerVisibilityChanged?.call(isVisible);
+    });
+  }
 
   @override
   void initState() {
@@ -608,6 +621,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
         }
 
         final listContent = _buildHeaderListView(children);
+        _reportDrawerVisibility(isDesktopLayout && selectedLeistung != null);
         if (!isDesktopLayout) {
           return listContent;
         }
