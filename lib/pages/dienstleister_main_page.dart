@@ -24,6 +24,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   static const double _desktopSidebarWidth = 188;
 
   int _selectedIndex = 0;
+  int _selectedHomeSidebarIndex = 0;
   String? dienstleisterName;
 
   @override
@@ -58,7 +59,19 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   }
 
   void _onTabTapped(int index) {
-    setState(() => _selectedIndex = index);
+    setState(() {
+      _selectedIndex = index;
+      if (index != 0) {
+        _selectedHomeSidebarIndex = 0;
+      }
+    });
+  }
+
+  void _onHomeSidebarTapped(int index) {
+    setState(() {
+      _selectedIndex = 0;
+      _selectedHomeSidebarIndex = index;
+    });
   }
 
   Future<void> _logout() async {
@@ -86,11 +99,12 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      _buildHomePage(),
+      _buildCurrentHomeContent(),
       const Center(child: Text('Kalender kommt bald!')),
       const DienstleisterAngebotePage(showScaffold: false),
       _buildProfilPage(),
     ];
+    final sidebarItems = _buildSidebarItems();
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -98,15 +112,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
 
         return Scaffold(
           appBar: AppBar(
-            title: Text(
-              _selectedIndex == 0
-                  ? 'Hallo, ${dienstleisterName ?? '...'}'
-                  : _selectedIndex == 1
-                  ? 'Kalender'
-                  : _selectedIndex == 2
-                  ? 'Leistungen'
-                  : 'Profil',
-            ),
+            title: Text(_buildAppBarTitle()),
             centerTitle: true,
           ),
           body: Row(
@@ -115,8 +121,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
               if (isDesktopLayout)
                 _DesktopSidebar(
                   width: _desktopSidebarWidth,
-                  isLeistungenSelected: _selectedIndex == 2,
-                  onTap: () => _onTabTapped(2),
+                  items: sidebarItems,
                 ),
               Expanded(child: pages[_selectedIndex]),
             ],
@@ -145,10 +150,93 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     );
   }
 
+  String _buildAppBarTitle() {
+    switch (_selectedIndex) {
+      case 0:
+        return 'Hallo, ${dienstleisterName ?? '...'}';
+      case 1:
+        return 'Kalender';
+      case 2:
+        return 'Leistungen';
+      case 3:
+        return 'Profil';
+      default:
+        return '';
+    }
+  }
+
+  Widget _buildCurrentHomeContent() {
+    switch (_selectedHomeSidebarIndex) {
+      case 1:
+        return _buildMitarbeiterPage();
+      case 0:
+      default:
+        return _buildHomePage();
+    }
+  }
+
+  List<_SidebarItemData> _buildSidebarItems() {
+    switch (_selectedIndex) {
+      case 0:
+        return [
+          _SidebarItemData(
+            title: 'Home',
+            icon: Icons.home_outlined,
+            isSelected: _selectedHomeSidebarIndex == 0,
+            onTap: () => _onHomeSidebarTapped(0),
+          ),
+          _SidebarItemData(
+            title: 'Mitarbeiter',
+            icon: Icons.groups_2_outlined,
+            isSelected: _selectedHomeSidebarIndex == 1,
+            onTap: () => _onHomeSidebarTapped(1),
+          ),
+        ];
+      case 1:
+        return [
+          _SidebarItemData(
+            title: 'Kalender',
+            icon: Icons.calendar_today_outlined,
+            isSelected: true,
+            onTap: () => _onTabTapped(1),
+          ),
+        ];
+      case 2:
+        return [
+          _SidebarItemData(
+            title: 'Leistungen',
+            icon: Icons.design_services_outlined,
+            isSelected: true,
+            onTap: () => _onTabTapped(2),
+          ),
+        ];
+      case 3:
+        return [
+          _SidebarItemData(
+            title: 'Profil',
+            icon: Icons.person_outline,
+            isSelected: true,
+            onTap: () => _onTabTapped(3),
+          ),
+        ];
+      default:
+        return const [];
+    }
+  }
+
   Widget _buildHomePage() {
     return Center(
       child: Text(
         'Willkommen zurück, ${dienstleisterName ?? 'Dienstleister'}!',
+        style: const TextStyle(fontSize: 20),
+      ),
+    );
+  }
+
+  Widget _buildMitarbeiterPage() {
+    return Center(
+      child: Text(
+        'Mitarbeiterbereich für ${dienstleisterName ?? 'Dienstleister'}',
         style: const TextStyle(fontSize: 20),
       ),
     );
@@ -250,16 +338,28 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   }
 }
 
-class _DesktopSidebar extends StatelessWidget {
-  const _DesktopSidebar({
-    required this.width,
-    required this.isLeistungenSelected,
+class _SidebarItemData {
+  const _SidebarItemData({
+    required this.title,
+    required this.icon,
+    required this.isSelected,
     required this.onTap,
   });
 
-  final double width;
-  final bool isLeistungenSelected;
+  final String title;
+  final IconData icon;
+  final bool isSelected;
   final VoidCallback onTap;
+}
+
+class _DesktopSidebar extends StatelessWidget {
+  const _DesktopSidebar({
+    required this.width,
+    required this.items,
+  });
+
+  final double width;
+  final List<_SidebarItemData> items;
 
   @override
   Widget build(BuildContext context) {
@@ -276,49 +376,54 @@ class _DesktopSidebar extends StatelessWidget {
       child: Column(
         children: [
           const SizedBox(height: 14),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Material(
-              color: isLeistungenSelected
-                  ? const Color(0xFFF4F4F4)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
-              child: InkWell(
+          for (var i = 0; i < items.length; i++) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Material(
+                color: items[i].isSelected
+                    ? const Color(0xFFF4F4F4)
+                    : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
-                onTap: onTap,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.home_outlined,
-                        size: 18,
-                        color: isLeistungenSelected
-                            ? selectedColor
-                            : Colors.grey.shade600,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Leistungen',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.grey.shade900,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: items[i].onTap,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          items[i].icon,
+                          size: 18,
+                          color: items[i].isSelected
+                              ? selectedColor
+                              : Colors.grey.shade600,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            items[i].title,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.grey.shade900,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 4),
-          const Divider(height: 1, color: Color(0xFFEFEFEF)),
+            if (i < items.length - 1) ...[
+              const SizedBox(height: 4),
+              const Divider(height: 1, color: Color(0xFFEFEFEF)),
+              const SizedBox(height: 4),
+            ],
+          ],
         ],
       ),
     );
