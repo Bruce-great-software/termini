@@ -164,7 +164,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       return;
     }
 
-    await FirebaseFirestore.instance.collection('Mitarbeiter').add({
+    await FirebaseFirestore.instance.collection('mitarbeiter').add({
       'vorname': trimmedVorname,
       'dienstleisterId': widget.dienstleisterId,
       'dienstleisterName': dienstleisterName,
@@ -323,7 +323,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   Widget _buildMitarbeiterPage() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
-          .collection('Mitarbeiter')
+          .collection('mitarbeiter')
           .where('dienstleisterId', isEqualTo: widget.dienstleisterId)
           .snapshots(),
       builder: (context, snapshot) {
