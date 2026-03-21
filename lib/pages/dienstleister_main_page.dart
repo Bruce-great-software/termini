@@ -96,6 +96,93 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
         .delete();
   }
 
+  Future<void> _showMitarbeiterDialog() async {
+    final controller = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Neuen Mitarbeiter erstellen'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            decoration: const InputDecoration(
+              labelText: 'Vorname',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (_) async {
+              await _speichereMitarbeiter(
+                dialogContext: dialogContext,
+                vorname: controller.text,
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Abbrechen'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await _speichereMitarbeiter(
+                  dialogContext: dialogContext,
+                  vorname: controller.text,
+                );
+              },
+              child: const Text('Speichern'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _speichereMitarbeiter({
+    required BuildContext dialogContext,
+    required String vorname,
+  }) async {
+    final trimmedVorname = vorname.trim();
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (trimmedVorname.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bitte einen Vornamen für den Mitarbeiter eingeben.'),
+        ),
+      );
+      return;
+    }
+
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Du musst eingeloggt sein, um Mitarbeiter zu erstellen.'),
+        ),
+      );
+      return;
+    }
+
+    await FirebaseFirestore.instance.collection('Mitarbeiter').add({
+      'vorname': trimmedVorname,
+      'dienstleisterId': widget.dienstleisterId,
+      'dienstleisterName': dienstleisterName,
+      'userId': user.uid,
+      'branche': widget.branche,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    if (!mounted) return;
+
+    Navigator.of(dialogContext).pop();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$trimmedVorname wurde als Mitarbeiter gespeichert.'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = [
@@ -234,56 +321,68 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   }
 
   Widget _buildMitarbeiterPage() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            'Mitarbeiterbereich für ${dienstleisterName ?? 'Dienstleister'}',
-            style: const TextStyle(fontSize: 20),
-          ),
-          const SizedBox(height: 96),
-          Container(
-            width: 320,
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 34),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(44),
-              border: Border.all(color: Colors.black, width: 4),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: const [
-                Icon(
-                  Icons.person,
-                  size: 132,
-                  color: Color(0xFF02152B),
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('Mitarbeiter')
+          .where('dienstleisterId', isEqualTo: widget.dienstleisterId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final mitarbeiterDocs = snapshot.data?.docs.toList() ?? [];
+
+        mitarbeiterDocs.sort((a, b) {
+          final aDate = a.data()['createdAt'];
+          final bDate = b.data()['createdAt'];
+
+          if (aDate is Timestamp && bDate is Timestamp) {
+            return aDate.compareTo(bDate);
+          }
+
+          return 0;
+        });
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight - 48,
                 ),
-                SizedBox(height: 6),
-                CircleAvatar(
-                  radius: 23,
-                  backgroundColor: Color(0xFF02152B),
-                  child: Icon(
-                    Icons.add,
-                    size: 34,
-                    color: Colors.white,
-                  ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'Mitarbeiterbereich für ${dienstleisterName ?? 'Dienstleister'}',
+                      style: const TextStyle(fontSize: 20),
+                    ),
+                    const SizedBox(height: 72),
+                    if (snapshot.connectionState == ConnectionState.waiting)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 24),
+                        child: CircularProgressIndicator(),
+                      ),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      runAlignment: WrapAlignment.center,
+                      spacing: 42,
+                      runSpacing: 42,
+                      children: [
+                        for (final mitarbeiterDoc in mitarbeiterDocs)
+                          _MitarbeiterCard(
+                            title: (mitarbeiterDoc.data()['vorname'] as String?) ??
+                                'Unbekannt',
+                            iconColor: const Color(0xFF25B24A),
+                          ),
+                        _MitarbeiterAddCard(onTap: _showMitarbeiterDialog),
+                      ],
+                    ),
+                  ],
                 ),
-                SizedBox(height: 26),
-                Text(
-                  'Neuen Mitarbeiter erstellen',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -395,6 +494,107 @@ class _SidebarItemData {
   final IconData icon;
   final bool isSelected;
   final VoidCallback onTap;
+}
+
+class _MitarbeiterCard extends StatelessWidget {
+  const _MitarbeiterCard({
+    required this.title,
+    required this.iconColor,
+  });
+
+  final String title;
+  final Color iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 320,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 34),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(44),
+        border: Border.all(color: Colors.black, width: 4),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.person,
+            size: 132,
+            color: iconColor,
+          ),
+          const SizedBox(height: 34),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: Colors.black,
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
+
+class _MitarbeiterAddCard extends StatelessWidget {
+  const _MitarbeiterAddCard({
+    required this.onTap,
+  });
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 320,
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 34),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(44),
+            border: Border.all(color: Colors.black, width: 4),
+          ),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.person,
+                size: 132,
+                color: Color(0xFF02152B),
+              ),
+              SizedBox(height: 6),
+              CircleAvatar(
+                radius: 23,
+                backgroundColor: Color(0xFF02152B),
+                child: Icon(
+                  Icons.add,
+                  size: 34,
+                  color: Colors.white,
+                ),
+              ),
+              SizedBox(height: 26),
+              Text(
+                'Neuen Mitarbeiter erstellen',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _DesktopSidebar extends StatelessWidget {
