@@ -235,9 +235,54 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
 
   Widget _buildMitarbeiterPage() {
     return Center(
-      child: Text(
-        'Mitarbeiterbereich für ${dienstleisterName ?? 'Dienstleister'}',
-        style: const TextStyle(fontSize: 20),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            'Mitarbeiterbereich für ${dienstleisterName ?? 'Dienstleister'}',
+            style: const TextStyle(fontSize: 20),
+          ),
+          const SizedBox(height: 96),
+          Container(
+            width: 320,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 34),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(44),
+              border: Border.all(color: Colors.black, width: 4),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Icon(
+                  Icons.person,
+                  size: 132,
+                  color: Color(0xFF02152B),
+                ),
+                SizedBox(height: 6),
+                CircleAvatar(
+                  radius: 23,
+                  backgroundColor: Color(0xFF02152B),
+                  child: Icon(
+                    Icons.add,
+                    size: 34,
+                    color: Colors.white,
+                  ),
+                ),
+                SizedBox(height: 26),
+                Text(
+                  'Neuen Mitarbeiter erstellen',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
