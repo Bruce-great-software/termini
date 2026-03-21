@@ -35,12 +35,12 @@ class MyApp extends StatelessWidget {
 
     if (rolle == 'admin') {
       return const AlleDienstleisterPage();
-    } else if (rolle == 'dienstleister' &&
-        dienstleisterId != null &&
+    } else if ((rolle == 'dienstleister' || rolle == 'mitarbeiter') &&
+        (dienstleisterId != null || rolle == 'mitarbeiter') &&
         branche != null) {
       return DienstleisterMainPage(
         branche: branche,
-        dienstleisterId: dienstleisterId,
+        dienstleisterId: (dienstleisterId ?? user.uid) as String,
       );
     } else {
       return const AlleDienstleisterPage();
