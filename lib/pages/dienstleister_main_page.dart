@@ -661,7 +661,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     String? fehlertext;
     bool wirdGespeichert = false;
 
-    await showDialog<void>(
+    final erstellterMitarbeiterName = await showDialog<String>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
@@ -700,14 +700,10 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                   'loginAktiviert': false,
                 });
 
-                if (!mounted) return;
-                Navigator.of(dialogContext).pop();
-                ScaffoldMessenger.of(this.context).showSnackBar(
-                  SnackBar(
-                    content: Text('Mitarbeiter „$name“ wurde erstellt.'),
-                  ),
-                );
+                if (!mounted || !dialogContext.mounted) return;
+                Navigator.of(dialogContext).pop(name);
               } catch (_) {
+                if (!dialogContext.mounted) return;
                 setDialogState(() {
                   fehlertext = 'Der Mitarbeiter konnte nicht erstellt werden.';
                   wirdGespeichert = false;
@@ -766,6 +762,13 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     );
 
     nameController.dispose();
+
+    if (!mounted || erstellterMitarbeiterName == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Mitarbeiter „$erstellterMitarbeiterName“ wurde erstellt.'),
+      ),
+    );
   }
 
   Widget _buildLeistungenPage() {
