@@ -28,7 +28,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   int _selectedHomeSidebarIndex = 0;
   String? dienstleisterName;
   String? _selectedMitarbeiterId;
-  String? _savingMitarbeiterId;
 
   @override
   void initState() {
@@ -549,10 +548,9 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       elevation: 14,
       child: SafeArea(
         child: _MitarbeiterDetailSidebar(
-          key: ValueKey('${selection.docId}-${selection.name}-${selection.aktiv}'),
+          key: ValueKey(selection.docId),
           name: selection.name,
           istAktiv: selection.aktiv,
-          isSaving: _savingMitarbeiterId == selection.docId,
           onClose: () => setState(() => _selectedMitarbeiterId = null),
           onSave: (name, status) => _speichereMitarbeiterAenderungen(
             docId: selection.docId,
@@ -577,8 +575,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       return;
     }
 
-    setState(() => _savingMitarbeiterId = docId);
-
     try {
       await FirebaseFirestore.instance.collection('users').doc(docId).update({
         'name': bereinigterName,
@@ -596,10 +592,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           content: Text('Die Änderungen konnten nicht gespeichert werden.'),
         ),
       );
-    } finally {
-      if (mounted) {
-        setState(() => _savingMitarbeiterId = null);
-      }
     }
   }
 
@@ -828,14 +820,12 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
     super.key,
     required this.name,
     required this.istAktiv,
-    required this.isSaving,
     required this.onClose,
     required this.onSave,
   });
 
   final String name;
   final bool istAktiv;
-  final bool isSaving;
   final VoidCallback onClose;
   final Future<void> Function(String name, String status) onSave;
 
@@ -847,6 +837,7 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
 class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
   late final TextEditingController _nameController;
   late String _status;
+  bool _isSaving = false;
 
   @override
   void initState() {
@@ -936,7 +927,7 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
                       DropdownMenuItem(value: 'aktiv', child: Text('aktiv')),
                       DropdownMenuItem(value: 'inaktiv', child: Text('inaktiv')),
                     ],
-                    onChanged: widget.isSaving
+                    onChanged: _isSaving
                         ? null
                         : (value) {
                             if (value == null) return;
@@ -953,10 +944,19 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
           child: SizedBox(
             width: double.infinity,
             child: FilledButton(
-              onPressed: widget.isSaving
+              onPressed: _isSaving
                   ? null
-                  : () => widget.onSave(_nameController.text, _status),
-              child: widget.isSaving
+                  : () async {
+                      setState(() => _isSaving = true);
+                      try {
+                        await widget.onSave(_nameController.text, _status);
+                      } finally {
+                        if (mounted) {
+                          setState(() => _isSaving = false);
+                        }
+                      }
+                    },
+              child: _isSaving
                   ? const SizedBox(
                       width: 18,
                       height: 18,
