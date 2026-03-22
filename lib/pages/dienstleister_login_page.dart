@@ -64,9 +64,9 @@ class _DienstleisterLoginPageState extends State<DienstleisterLoginPage> {
             MaterialPageRoute(builder: (_) => const AdminMainPage()),
           );
         });
-      } else if (rolle == 'dienstleister') {
+      } else if (rolle == 'dienstleister' || rolle == 'mitarbeiter') {
         final branche = data['branche'];
-        final dienstleisterId = data['dienstleisterId'];
+        final dienstleisterId = data['dienstleisterId'] ?? uid;
 
         if (branche != null && dienstleisterId != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
