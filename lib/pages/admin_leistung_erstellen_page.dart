@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../utils/app_snackbar.dart';
 
 class AdminLeistungErstellenPage extends StatefulWidget {
   const AdminLeistungErstellenPage({super.key});
@@ -130,7 +131,7 @@ class _AdminLeistungErstellenPageState
   Future<void> _zuordnungSpeichern() async {
     if (_ausgewaehlteLeistungen.isEmpty ||
         _ausgewaehlteLeistungskategorien.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         const SnackBar(
           content: Text(
               'Bitte mindestens eine Leistung *und* eine Leistungskategorie wählen.'),
@@ -246,7 +247,7 @@ class _AdminLeistungErstellenPageState
     // Nach dem Speichern Status neu laden (zur Sicherheit)
     await _syncHaarlaengeFromDB();
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    showAppSnackBar(context,
       const SnackBar(content: Text('Zuordnung erfolgreich gespeichert')),
     );
   }

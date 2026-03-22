@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'dienstleister_home_page.dart';
+import '../utils/app_snackbar.dart';
 
 class DienstleisterRegistrierungPage extends StatefulWidget {
   const DienstleisterRegistrierungPage({super.key});
@@ -27,7 +28,7 @@ class _DienstleisterRegistrierungPageState extends State<DienstleisterRegistrier
         MaterialPageRoute(builder: (_) => const DienstleisterHomePage()),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Fehler: ${e.toString()}')));
+      showAppSnackBar(context,SnackBar(content: Text('Fehler: ${e.toString()}')));
     }
   }
 

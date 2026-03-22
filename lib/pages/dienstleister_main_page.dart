@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_angebote_page.dart';
 import 'dienstleister_edit_page.dart';
+import '../utils/app_snackbar.dart';
 
 class DienstleisterMainPage extends StatefulWidget {
   final String branche;
@@ -580,7 +581,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   }) async {
     final bereinigterName = name.trim();
     if (bereinigterName.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         const SnackBar(content: Text('Bitte geben Sie einen Namen ein.')),
       );
       return false;
@@ -592,13 +593,13 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       );
 
       if (!mounted) return true;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         const SnackBar(content: Text('Name gespeichert.')),
       );
       return true;
     } catch (_) {
       if (!mounted) return false;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         const SnackBar(
           content: Text('Der Name konnte nicht gespeichert werden.'),
         ),
@@ -617,13 +618,13 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       );
 
       if (!mounted) return true;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         const SnackBar(content: Text('Status gespeichert.')),
       );
       return true;
     } catch (_) {
       if (!mounted) return false;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         const SnackBar(
           content: Text('Der Status konnte nicht gespeichert werden.'),
         ),
@@ -641,13 +642,13 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
 
       if (!mounted) return true;
       setState(() => _selectedMitarbeiterId = null);
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         SnackBar(content: Text('„$name“ wurde gelöscht.')),
       );
       return true;
     } catch (_) {
       if (!mounted) return false;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         const SnackBar(
           content: Text('Der Mitarbeiter konnte nicht gelöscht werden.'),
         ),
@@ -722,7 +723,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     if (!mounted || erstellterMitarbeiterName == null) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         const SnackBar(content: Text('Sie sind nicht eingeloggt.')),
       );
       return;
@@ -739,14 +740,14 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       });
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         SnackBar(
           content: Text('Mitarbeiter „$erstellterMitarbeiterName“ wurde erstellt.'),
         ),
       );
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         const SnackBar(
           content: Text('Der Mitarbeiter konnte nicht erstellt werden.'),
         ),

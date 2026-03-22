@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../utils/app_snackbar.dart';
 
 class LeistungErstellenDialog extends StatefulWidget {
   final String? angebotId;
@@ -711,7 +712,7 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
     if (uid == null) return;
 
     if (ausgewaehlteLeistungen.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         const SnackBar(content: Text('Bitte mindestens eine Leistung wählen.')),
       );
       return;
@@ -735,7 +736,7 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
 
     // Bei Neuerstellung muss mind. eine Zielgruppe Werte haben.
     if (!_isEdit && zielgruppenGesamt.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         const SnackBar(content: Text('Bitte Preis und/oder Dauer angeben.')),
       );
       return;
@@ -878,7 +879,7 @@ class _LeistungErstellenDialogState extends State<LeistungErstellenDialog>
                           // Beim Wechsel von Step 2 -> 3 frisch prüfen
                           if (currentStep == 1) {
                             if (ausgewaehlteLeistungen.isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              showAppSnackBar(context,
                                 const SnackBar(
                                   content:
                                   Text('Bitte mindestens eine Leistung wählen.'),

@@ -5,6 +5,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:flutter/cupertino.dart';
 
 import 'dart:ui' show FontFeature;
+import '../utils/app_snackbar.dart';
 
 /// ---- Brand / Farben ----
 const Color kBrandOrange = Color(0xFFFF7A00); // Buttonfarbe
@@ -1361,7 +1362,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   }
 
   void _showWrongGroupSnack(String other) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    showAppSnackBar(context,
       SnackBar(
         content: Text(
           'Du hast bereits Angebote für $other ausgewählt. '

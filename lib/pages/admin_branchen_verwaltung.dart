@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../utils/app_snackbar.dart';
 
 class AdminBranchenVerwaltungPage extends StatefulWidget {
   final String branchenId;
@@ -152,7 +153,7 @@ class _AdminBranchenVerwaltungPageState extends State<AdminBranchenVerwaltungPag
                     if (ausgewaehlteZielgruppe != null) {
                       _leistungskategorieHinzufuegen(kategorienController.text);
                     } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      showAppSnackBar(context,
                         const SnackBar(content: Text('Bitte zuerst eine Zielgruppe auswählen.')),
                       );
                     }
