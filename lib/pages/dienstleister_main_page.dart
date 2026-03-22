@@ -322,7 +322,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 40),
                   Text(
                     'Dein Team (${mitarbeiterDocs.length})',
                     style: Theme.of(context).textTheme.titleLarge,
@@ -353,51 +353,71 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                         ),
                       )
                     else
-                      Column(
-                        children: mitarbeiterDocs.map((doc) {
-                          final data = doc.data();
-                          final name = (data['name'] as String?)?.trim();
-                          final istAktiv = data['aktiv'] == true;
+                      Card(
+                        child: Column(
+                          children: mitarbeiterDocs.asMap().entries.map((entry) {
+                            final index = entry.key;
+                            final data = entry.value.data();
+                            final name = (data['name'] as String?)?.trim();
+                            final istAktiv = data['aktiv'] == true;
 
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: Card(
-                              child: ListTile(
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 8,
-                                ),
-                                onTap: () {},
-                                leading: CircleAvatar(
-                                  radius: 22,
-                                  backgroundColor: const Color(0xFF02152B),
-                                  child: Text(
-                                    (name != null && name.isNotEmpty)
-                                        ? name.characters.first.toUpperCase()
-                                        : '?',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w700,
+                            return Column(
+                              children: [
+                                ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 18,
+                                    vertical: 10,
+                                  ),
+                                  onTap: () {},
+                                  mouseCursor: SystemMouseCursors.click,
+                                  hoverColor: const Color(0xFFF3F6FA),
+                                  leading: CircleAvatar(
+                                    radius: 24,
+                                    backgroundColor: const Color(0xFF02152B),
+                                    child: Text(
+                                      (name != null && name.isNotEmpty)
+                                          ? name.characters.first.toUpperCase()
+                                          : '?',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
                                   ),
+                                  title: Text(
+                                    name?.isNotEmpty == true ? name! : 'Unbenannt',
+                                    style: Theme.of(context).textTheme.titleMedium,
+                                  ),
+                                  subtitle: Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          width: 9,
+                                          height: 9,
+                                          decoration: const BoxDecoration(
+                                            color: Color(0xFF2EAD62),
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(istAktiv ? 'Aktiv' : 'Inaktiv'),
+                                      ],
+                                    ),
+                                  ),
+                                  trailing: const Icon(
+                                    Icons.arrow_forward_ios_rounded,
+                                    size: 20,
+                                    color: Colors.black87,
+                                  ),
                                 ),
-                                title: Text(
-                                  name?.isNotEmpty == true ? name! : 'Unbenannt',
-                                  style: Theme.of(context).textTheme.titleMedium,
-                                ),
-                                subtitle: Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(istAktiv ? 'Aktiv' : 'Inaktiv'),
-                                ),
-                                trailing: const Icon(
-                                  Icons.arrow_forward_ios_rounded,
-                                  size: 18,
-                                  color: Color(0xFF02152B),
-                                ),
-                              ),
-                            ),
-                          );
-                        }).toList(),
+                                if (index < mitarbeiterDocs.length - 1)
+                                  const Divider(height: 1, indent: 18, endIndent: 18),
+                              ],
+                            );
+                          }).toList(),
+                        ),
                       ),
                 ],
               ),
