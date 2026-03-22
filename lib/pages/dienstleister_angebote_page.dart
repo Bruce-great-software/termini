@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../widgets/leistung_erstellen_dialog.dart';
+import '../utils/app_snackbar.dart';
 
 class DienstleisterAngebotePage extends StatefulWidget {
   const DienstleisterAngebotePage({
@@ -156,12 +157,12 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
           .doc(docId)
           .update(update);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         SnackBar(content: Text('„$titel“ für $zielgruppe gespeichert.')),
       );
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         SnackBar(
           content: Text(
             'Preis und Dauer für $zielgruppe konnten nicht gespeichert werden.',
@@ -204,14 +205,14 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
           .doc(docId)
           .update(update);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         SnackBar(
           content: Text('„$titel“ – $zielgruppe / $variante gespeichert.'),
         ),
       );
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         SnackBar(
           content: Text(
             'Preis und Dauer für $zielgruppe / $variante konnten nicht gespeichert werden.',
@@ -773,7 +774,7 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
                   if (_selectedDocId == docId) {
                     setState(() => _selectedDocId = null);
                   }
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  showAppSnackBar(context,
                     SnackBar(content: Text('„$titel“ gelöscht')),
                   );
                 }

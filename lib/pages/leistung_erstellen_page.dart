@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/app_snackbar.dart';
 
 class LeistungErstellenPage extends StatefulWidget {
   final String zielgruppe;
@@ -35,7 +36,7 @@ class _LeistungErstellenPageState extends State<LeistungErstellenPage> {
       final dauer = int.tryParse(_dauerController.text.trim());
 
       if (preis == null || dauer == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showAppSnackBar(context,
           const SnackBar(content: Text('Bitte gültige Zahlen eingeben.')),
         );
         return;

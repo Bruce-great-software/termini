@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/app_snackbar.dart';
 
 class BranchenPage extends StatelessWidget {
   const BranchenPage({super.key});
@@ -33,7 +34,7 @@ class BranchenPage extends StatelessWidget {
                 trailing: const Icon(Icons.arrow_forward_ios),
                 onTap: () {
                   // hier später Filter oder Navigation zur Liste
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  showAppSnackBar(context,
                     SnackBar(content: Text('Branche: $brancheId ausgewählt')),
                   );
                 },

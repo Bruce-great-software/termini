@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../utils/app_snackbar.dart';
 
 class AdminDienstleisterErstellenPage extends StatefulWidget {
   const AdminDienstleisterErstellenPage({super.key});
@@ -51,11 +52,11 @@ class _AdminDienstleisterErstellenPageState
         });
 
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
+        showAppSnackBar(context,
           const SnackBar(content: Text('Dienstleister erfolgreich erstellt!')),
         );
       } on FirebaseAuthException catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showAppSnackBar(context,
           SnackBar(content: Text('Fehler: ${e.message}')),
         );
       }

@@ -7,6 +7,7 @@ import 'alle_dienstleister_page.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../utils/app_snackbar.dart';
 
 class AdminMainPage extends StatefulWidget {
   const AdminMainPage({super.key});
@@ -185,14 +186,14 @@ class _AdminDienstleisterFormularState extends State<AdminDienstleisterFormular>
         'geo': GeoPoint(latitude, longitude),
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         const SnackBar(content: Text('Dienstleister erfolgreich registriert')),
       );
       _formKey.currentState!.reset();
       _latitudeController.clear();
       _longitudeController.clear();
     } on FirebaseAuthException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         SnackBar(content: Text('Fehler: ${e.message}')),
       );
     }

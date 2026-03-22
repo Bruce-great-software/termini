@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import '../firebase_options.dart';
+import '../utils/app_snackbar.dart';
 
 
 class DienstleisterVorlagePage extends StatelessWidget {
@@ -52,7 +53,7 @@ class DienstleisterVorlagePage extends StatelessWidget {
         child: ElevatedButton(
           onPressed: () async {
             await erstelleVorlagenDienstleister();
-            ScaffoldMessenger.of(context).showSnackBar(
+            showAppSnackBar(context,
               const SnackBar(content: Text('Dienstleister erfolgreich angelegt!')),
             );
           },

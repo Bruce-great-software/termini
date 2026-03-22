@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_main_page.dart';
 import 'admin_page.dart';
+import '../utils/app_snackbar.dart';
 
 class LoginRegisterPage extends StatefulWidget {
   const LoginRegisterPage({super.key});
@@ -53,7 +54,7 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
           .get();
 
       if (!doc.exists) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showAppSnackBar(context,
           const SnackBar(content: Text('Benutzer existiert nicht in der Nutzersammlung.')),
         );
         setState(() => isLoading = false);
@@ -83,7 +84,7 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
             ),
           );
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
+          showAppSnackBar(context,
             const SnackBar(content: Text('Daten für Dienstleister unvollständig.')),
           );
         }
@@ -93,12 +94,12 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
           MaterialPageRoute(builder: (_) => const AdminMainPage()),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        showAppSnackBar(context,
           const SnackBar(content: Text('Unbekannte oder fehlende Rolle im Nutzerprofil.')),
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      showAppSnackBar(context,
         SnackBar(content: Text('Fehler: ${e.toString()}')),
       );
     }
