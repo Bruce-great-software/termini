@@ -1,6 +1,11 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:crop_your_image/crop_your_image.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_angebote_page.dart';
@@ -29,6 +34,9 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   String? dienstleisterName;
   String? _selectedMitarbeiterId;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _mitarbeiterStream;
+  Uint8List? _pendingProfileImageBytes;
+  String? _pendingProfileImageMitarbeiterId;
+  bool _isProfileImageUploading = false;
 
   @override
   void initState() {
@@ -267,6 +275,8 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
               docId: doc.id,
               name: (data['name'] as String?)?.trim() ?? '',
               aktiv: data['aktiv'] == true,
+              profileImageUrl: (data['profileImageUrl'] as String?)?.trim(),
+              profileImagePath: (data['profileImagePath'] as String?)?.trim(),
             );
           }
         }
@@ -421,6 +431,8 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                         final name = (data['name'] as String?)?.trim();
                         final istAktiv = data['aktiv'] == true;
                         final isSelected = doc.id == _selectedMitarbeiterId;
+                        final profileImageUrl =
+                            (data['profileImageUrl'] as String?)?.trim();
 
                         return Column(
                           children: [
@@ -455,18 +467,10 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                                       ),
                                     ],
                                   ),
-                                  child: CircleAvatar(
+                                  child: _MitarbeiterAvatar(
                                     radius: 24,
-                                    backgroundColor: const Color(0xFF02152B),
-                                    child: Text(
-                                      (name != null && name.isNotEmpty)
-                                          ? name.characters.first.toUpperCase()
-                                          : '?',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
+                                    name: name,
+                                    imageUrl: profileImageUrl,
                                   ),
                                 ),
                                 title: Text(
@@ -524,10 +528,35 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     required _SelectedMitarbeiter? selection,
   }) {
     final drawerVisible = selection != null;
+    final showEditor =
+        selection != null &&
+        _pendingProfileImageBytes != null &&
+        _pendingProfileImageMitarbeiterId == selection.docId;
 
     return Row(
       children: [
-        Expanded(child: listContent),
+        Expanded(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              listContent,
+              if (showEditor)
+                _MitarbeiterImageEditorOverlay(
+                  imageBytes: _pendingProfileImageBytes!,
+                  isSaving: _isProfileImageUploading,
+                  onCancel: _isProfileImageUploading
+                      ? null
+                      : _verwerfeLokalesProfilbild,
+                  onConfirm: _isProfileImageUploading
+                      ? null
+                      : (croppedBytes) => _speichereProfilbild(
+                        docId: selection.docId,
+                        croppedBytes: croppedBytes,
+                      ),
+                ),
+            ],
+          ),
+        ),
         AnimatedContainer(
           duration: const Duration(milliseconds: 260),
           curve: Curves.easeOutCubic,
@@ -554,8 +583,18 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       child: SafeArea(
         child: _MitarbeiterDetailSidebar(
           key: ValueKey(selection.docId),
+          docId: selection.docId,
           name: selection.name,
           istAktiv: selection.aktiv,
+          profileImageUrl: selection.profileImageUrl,
+          localProfileImageBytes:
+              _pendingProfileImageMitarbeiterId == selection.docId
+              ? _pendingProfileImageBytes
+              : null,
+          hasPendingProfileImage:
+              _pendingProfileImageMitarbeiterId == selection.docId &&
+              _pendingProfileImageBytes != null,
+          isProfileImageBusy: _isProfileImageUploading,
           onClose: () => setState(() => _selectedMitarbeiterId = null),
           onNameSave: (name) => _speichereMitarbeiterNamen(
             docId: selection.docId,
@@ -569,9 +608,110 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             docId: selection.docId,
             name: selection.name,
           ),
+          onTakePhoto: () => _waehleProfilbild(
+            docId: selection.docId,
+            source: ImageSource.camera,
+          ),
+          onUploadPhoto: () => _waehleProfilbild(
+            docId: selection.docId,
+            source: ImageSource.gallery,
+          ),
         ),
       ),
     );
+  }
+
+  Future<void> _waehleProfilbild({
+    required String docId,
+    required ImageSource source,
+  }) async {
+    if (_isProfileImageUploading) return;
+
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: source,
+        imageQuality: 95,
+      );
+
+      if (pickedFile == null) {
+        return;
+      }
+
+      final bytes = await pickedFile.readAsBytes();
+      if (!mounted || bytes.isEmpty) return;
+
+      setState(() {
+        _pendingProfileImageMitarbeiterId = docId;
+        _pendingProfileImageBytes = bytes;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            source == ImageSource.camera
+                ? 'Das Foto konnte nicht aufgenommen werden.'
+                : 'Das Bild konnte nicht ausgewählt werden.',
+          ),
+        ),
+      );
+    }
+  }
+
+  void _verwerfeLokalesProfilbild() {
+    if (!mounted) return;
+    setState(() {
+      _pendingProfileImageBytes = null;
+      _pendingProfileImageMitarbeiterId = null;
+    });
+  }
+
+  Future<void> _speichereProfilbild({
+    required String docId,
+    required Uint8List croppedBytes,
+  }) async {
+    if (_isProfileImageUploading) return;
+
+    setState(() {
+      _isProfileImageUploading = true;
+    });
+
+    const storagePathTemplate = 'profile_images/%s/profile.jpg';
+    final storagePath = storagePathTemplate.replaceFirst('%s', docId);
+
+    try {
+      final storageRef = FirebaseStorage.instance.ref().child(storagePath);
+      await storageRef.putData(croppedBytes);
+      final downloadUrl = await storageRef.getDownloadURL();
+
+      await FirebaseFirestore.instance.collection('users').doc(docId).update({
+        'profileImageUrl': downloadUrl,
+        'profileImagePath': storagePath,
+      });
+
+      if (!mounted) return;
+      setState(() {
+        _pendingProfileImageBytes = null;
+        _pendingProfileImageMitarbeiterId = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profilbild gespeichert.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Das Profilbild konnte nicht gespeichert werden.'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProfileImageUploading = false;
+        });
+      }
+    }
   }
 
   Future<bool> _speichereMitarbeiterNamen({
@@ -872,30 +1012,48 @@ class _SelectedMitarbeiter {
     required this.docId,
     required this.name,
     required this.aktiv,
+    this.profileImageUrl,
+    this.profileImagePath,
   });
 
   final String docId;
   final String name;
   final bool aktiv;
+  final String? profileImageUrl;
+  final String? profileImagePath;
 }
 
 class _MitarbeiterDetailSidebar extends StatefulWidget {
   const _MitarbeiterDetailSidebar({
     super.key,
+    required this.docId,
     required this.name,
     required this.istAktiv,
+    this.profileImageUrl,
+    this.localProfileImageBytes,
+    required this.hasPendingProfileImage,
+    required this.isProfileImageBusy,
     required this.onClose,
     required this.onNameSave,
     required this.onStatusChanged,
     required this.onDelete,
+    required this.onTakePhoto,
+    required this.onUploadPhoto,
   });
 
+  final String docId;
   final String name;
   final bool istAktiv;
+  final String? profileImageUrl;
+  final Uint8List? localProfileImageBytes;
+  final bool hasPendingProfileImage;
+  final bool isProfileImageBusy;
   final VoidCallback onClose;
   final Future<bool> Function(String name) onNameSave;
   final Future<bool> Function(bool istAktiv) onStatusChanged;
   final Future<bool> Function() onDelete;
+  final Future<void> Function() onTakePhoto;
+  final Future<void> Function() onUploadPhoto;
 
   @override
   State<_MitarbeiterDetailSidebar> createState() =>
@@ -1153,6 +1311,104 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _MitarbeiterSidebarSection(
+                  title: 'Profilbild',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: widget.hasPendingProfileImage
+                                ? const Color(0xFF24C552)
+                                : const Color(0xFFE5E7EB),
+                            width: 2,
+                          ),
+                        ),
+                        child: _MitarbeiterAvatar(
+                          radius: 42,
+                          name: widget.name,
+                          imageUrl: widget.profileImageUrl,
+                          imageBytes: widget.localProfileImageBytes,
+                          usePlaceholderIcon: true,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      PopupMenuButton<_ProfileImageMenuAction>(
+                        enabled: !widget.isProfileImageBusy,
+                        tooltip: 'Profilbild bearbeiten',
+                        onSelected: (action) async {
+                          switch (action) {
+                            case _ProfileImageMenuAction.takePhoto:
+                              await widget.onTakePhoto();
+                              break;
+                            case _ProfileImageMenuAction.uploadPhoto:
+                              await widget.onUploadPhoto();
+                              break;
+                          }
+                        },
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(
+                            value: _ProfileImageMenuAction.takePhoto,
+                            child: ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.photo_camera_outlined),
+                              title: Text('Foto aufnehmen'),
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: _ProfileImageMenuAction.uploadPhoto,
+                            child: ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.upload_outlined),
+                              title: Text('Bild hochladen'),
+                            ),
+                          ),
+                        ],
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF3F4F6),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              widget.isProfileImageBusy
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.edit_outlined, size: 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                widget.hasPendingProfileImage
+                                    ? 'Bearbeiten fortsetzen'
+                                    : 'Bearbeiten',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF111827),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                _MitarbeiterSidebarSection(
                   title: 'Name',
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1287,6 +1543,305 @@ class _MitarbeiterSidebarSection extends StatelessWidget {
           const SizedBox(height: 10),
           child,
         ],
+      ),
+    );
+  }
+}
+
+enum _ProfileImageMenuAction { takePhoto, uploadPhoto }
+
+class _MitarbeiterAvatar extends StatelessWidget {
+  const _MitarbeiterAvatar({
+    required this.radius,
+    required this.name,
+    this.imageUrl,
+    this.imageBytes,
+    this.usePlaceholderIcon = false,
+  });
+
+  final double radius;
+  final String? name;
+  final String? imageUrl;
+  final Uint8List? imageBytes;
+  final bool usePlaceholderIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    final trimmedUrl = imageUrl?.trim();
+    final trimmedName = name?.trim();
+
+    if (imageBytes != null) {
+      return CircleAvatar(
+        radius: radius,
+        backgroundColor: const Color(0xFFE5E7EB),
+        backgroundImage: MemoryImage(imageBytes!),
+      );
+    }
+
+    if (trimmedUrl != null && trimmedUrl.isNotEmpty) {
+      return CircleAvatar(
+        radius: radius,
+        backgroundColor: const Color(0xFFE5E7EB),
+        backgroundImage: NetworkImage(trimmedUrl),
+      );
+    }
+
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: const Color(0xFF02152B),
+      child: usePlaceholderIcon
+          ? Icon(
+              Icons.person,
+              color: Colors.white,
+              size: radius,
+            )
+          : Text(
+              (trimmedName != null && trimmedName.isNotEmpty)
+                  ? trimmedName.characters.first.toUpperCase()
+                  : '?',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: radius * 0.75,
+              ),
+            ),
+    );
+  }
+}
+
+class _MitarbeiterImageEditorOverlay extends StatefulWidget {
+  const _MitarbeiterImageEditorOverlay({
+    required this.imageBytes,
+    required this.isSaving,
+    required this.onConfirm,
+    this.onCancel,
+  });
+
+  final Uint8List imageBytes;
+  final bool isSaving;
+  final ValueChanged<Uint8List>? onConfirm;
+  final VoidCallback? onCancel;
+
+  @override
+  State<_MitarbeiterImageEditorOverlay> createState() =>
+      _MitarbeiterImageEditorOverlayState();
+}
+
+class _MitarbeiterImageEditorOverlayState
+    extends State<_MitarbeiterImageEditorOverlay> {
+  final CropController _cropController = CropController();
+
+  bool _isCropping = false;
+  double _aspectRatio = 1;
+
+  @override
+  void didUpdateWidget(covariant _MitarbeiterImageEditorOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.imageBytes != widget.imageBytes) {
+      _isCropping = false;
+    }
+  }
+
+  void _confirmCrop() {
+    if (_isCropping || widget.isSaving || widget.onConfirm == null) return;
+    setState(() => _isCropping = true);
+    _cropController.crop();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _cropController.aspectRatio = _aspectRatio;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 180),
+      opacity: 1,
+      child: ColoredBox(
+        color: const Color(0xB3121722),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxWidth: 760,
+              maxHeight: 720,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x33000000),
+                      blurRadius: 28,
+                      offset: Offset(0, 18),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Profilbild anpassen',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                SizedBox(height: 6),
+                                Text(
+                                  'Verschiebe und schneide das Bild zu, bevor du es speicherst.',
+                                  style: TextStyle(
+                                    color: Color(0xFFD1D5DB),
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Abbrechen',
+                            onPressed: widget.isSaving ? null : widget.onCancel,
+                            icon: const Icon(Icons.close, color: Colors.white),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(22),
+                          child: Crop(
+                            controller: _cropController,
+                            image: widget.imageBytes,
+                            initialRectBuilder:
+                                InitialRectBuilder.withSizeAndRatio(
+                                  size: 0.8,
+                                  aspectRatio: _aspectRatio,
+                                ),
+                            baseColor: const Color(0xFF111827),
+                            maskColor: const Color(0xA6000000),
+                            radius: 22,
+                            withCircleUi: false,
+                            interactive: true,
+                            fixCropRect: false,
+                            aspectRatio: _aspectRatio,
+                            onCropped: (result) {
+                              if (!mounted) return;
+                              switch (result) {
+                                case CropSuccess(:final croppedImage):
+                                  setState(() {
+                                    _isCropping = false;
+                                  });
+                                  widget.onConfirm?.call(croppedImage);
+                                  break;
+                                case CropFailure():
+                                  setState(() {
+                                    _isCropping = false;
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Das Bild konnte nicht zugeschnitten werden.',
+                                      ),
+                                    ),
+                                  );
+                                  break;
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        children: [
+                          SegmentedButton<double>(
+                            segments: const [
+                              ButtonSegment<double>(
+                                value: 1,
+                                icon: Icon(Icons.crop_square),
+                                label: Text('1:1'),
+                              ),
+                              ButtonSegment<double>(
+                                value: 0.8,
+                                icon: Icon(Icons.portrait),
+                                label: Text('4:5'),
+                              ),
+                            ],
+                            selected: {_aspectRatio},
+                            onSelectionChanged: widget.isSaving
+                                ? null
+                                : (selection) {
+                                    if (selection.isEmpty) return;
+                                    setState(() {
+                                      _aspectRatio = selection.first;
+                                    });
+                                    _cropController.aspectRatio = _aspectRatio;
+                                  },
+                            style: ButtonStyle(
+                              foregroundColor: MaterialStateProperty.all(
+                                Colors.white,
+                              ),
+                            ),
+                          ),
+                          const Spacer(),
+                          OutlinedButton(
+                            onPressed: widget.isSaving ? null : widget.onCancel,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              side: const BorderSide(color: Colors.white24),
+                            ),
+                            child: const Text('Abbrechen'),
+                          ),
+                          const SizedBox(width: 12),
+                          FilledButton(
+                            onPressed: (widget.isSaving || _isCropping)
+                                ? null
+                                : _confirmCrop,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF24C552),
+                              foregroundColor: Colors.white,
+                            ),
+                            child: widget.isSaving
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : _isCropping
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(Icons.check),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
