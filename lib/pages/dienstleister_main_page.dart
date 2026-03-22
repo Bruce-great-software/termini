@@ -251,79 +251,87 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
         final mitarbeiterDocs = snapshot.data?.docs ?? const [];
 
         return SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-          child: Center(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: Align(
+            alignment: Alignment.topCenter,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 840),
+              constraints: const BoxConstraints(maxWidth: 920),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
                     'Verwalte dein Team',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Colors.black54,
                     ),
-                    textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 32),
-                  InkWell(
-                    borderRadius: BorderRadius.circular(44),
-                    onTap: _zeigeMitarbeiterErstellenDialog,
-                    child: Container(
-                      width: 320,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 34,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(44),
-                        border: Border.all(color: Colors.black, width: 4),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: const [
-                          Icon(
-                            Icons.person,
-                            size: 132,
-                            color: Color(0xFF02152B),
-                          ),
-                          SizedBox(height: 6),
-                          CircleAvatar(
-                            radius: 23,
-                            backgroundColor: Color(0xFF02152B),
-                            child: Icon(
-                              Icons.add,
-                              size: 34,
-                              color: Colors.white,
+                  const SizedBox(height: 20),
+                  Card(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(20),
+                      onTap: _zeigeMitarbeiterErstellenDialog,
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF02152B),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Icon(
+                                Icons.add,
+                                color: Colors.white,
+                                size: 28,
+                              ),
                             ),
-                          ),
-                          SizedBox(height: 26),
-                          Text(
-                            'Neuen Mitarbeiter erstellen',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black,
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'Neuen Mitarbeiter erstellen',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.w700),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Lege einen neuen Mitarbeiter an',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(color: Colors.black54),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 12),
+                            const Icon(
+                              Icons.arrow_forward_ios_rounded,
+                              size: 18,
+                              color: Color(0xFF02152B),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 40),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Teammitglieder',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
+                  const SizedBox(height: 28),
+                  Text(
+                    'Dein Team (${mitarbeiterDocs.length})',
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   if (snapshot.connectionState == ConnectionState.waiting)
                     const Padding(
                       padding: EdgeInsets.all(24),
-                      child: CircularProgressIndicator(),
+                      child: Center(child: CircularProgressIndicator()),
                     )
                   else if (snapshot.hasError)
                     Card(
@@ -341,12 +349,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                     const Card(
                       child: Padding(
                         padding: EdgeInsets.all(20),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: Text(
-                            'Noch keine Mitarbeiter vorhanden.',
-                          ),
-                        ),
+                        child: Text('Noch keine Mitarbeiter vorhanden.'),
                       ),
                     )
                   else
@@ -355,30 +358,42 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                         final data = doc.data();
                         final name = (data['name'] as String?)?.trim();
                         final istAktiv = data['aktiv'] == true;
-                        final loginAktiviert = data['loginAktiviert'] == true;
 
-                        return Card(
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: const Color(0xFF02152B),
-                              child: Text(
-                                (name != null && name.isNotEmpty)
-                                    ? name.characters.first.toUpperCase()
-                                    : '?',
-                                style: const TextStyle(color: Colors.white),
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Card(
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
                               ),
-                            ),
-                            title: Text(
-                              name?.isNotEmpty == true ? name! : 'Unbenannt',
-                            ),
-                            subtitle: Text(
-                              istAktiv ? 'Aktiv' : 'Inaktiv',
-                            ),
-                            trailing: Icon(
-                              loginAktiviert
-                                  ? Icons.verified_user_outlined
-                                  : Icons.person_outline,
-                              color: const Color(0xFF02152B),
+                              onTap: () {},
+                              leading: CircleAvatar(
+                                radius: 22,
+                                backgroundColor: const Color(0xFF02152B),
+                                child: Text(
+                                  (name != null && name.isNotEmpty)
+                                      ? name.characters.first.toUpperCase()
+                                      : '?',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              title: Text(
+                                name?.isNotEmpty == true ? name! : 'Unbenannt',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(istAktiv ? 'Aktiv' : 'Inaktiv'),
+                              ),
+                              trailing: const Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                size: 18,
+                                color: Color(0xFF02152B),
+                              ),
                             ),
                           ),
                         );
