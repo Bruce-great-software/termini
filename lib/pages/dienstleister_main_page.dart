@@ -207,7 +207,8 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Profilbild gespeichert.')),
       );
-    } catch (_) {
+    } catch (e) {
+      print('❌ STORAGE ERROR: $e');
       if (!mounted) return;
       setState(() => _isProfileImageUploading = false);
       ScaffoldMessenger.of(context).showSnackBar(
