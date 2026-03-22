@@ -234,57 +234,271 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   }
 
   Widget _buildMitarbeiterPage() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            'Mitarbeiterbereich für ${dienstleisterName ?? 'Dienstleister'}',
-            style: const TextStyle(fontSize: 20),
-          ),
-          const SizedBox(height: 96),
-          Container(
-            width: 320,
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 34),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(44),
-              border: Border.all(color: Colors.black, width: 4),
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return const Center(child: Text('Nicht eingeloggt.'));
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'mitarbeiter')
+          .where('dienstleisterId', isEqualTo: user.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final mitarbeiterDocs = snapshot.data?.docs ?? const [];
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 840),
+              child: Column(
+                children: [
+                  Text(
+                    'Mitarbeiterbereich für ${dienstleisterName ?? 'Dienstleister'}',
+                    style: const TextStyle(fontSize: 20),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 40),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(44),
+                    onTap: _zeigeMitarbeiterErstellenDialog,
+                    child: Container(
+                      width: 320,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 34,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(44),
+                        border: Border.all(color: Colors.black, width: 4),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(
+                            Icons.person,
+                            size: 132,
+                            color: Color(0xFF02152B),
+                          ),
+                          SizedBox(height: 6),
+                          CircleAvatar(
+                            radius: 23,
+                            backgroundColor: Color(0xFF02152B),
+                            child: Icon(
+                              Icons.add,
+                              size: 34,
+                              color: Colors.white,
+                            ),
+                          ),
+                          SizedBox(height: 26),
+                          Text(
+                            'Neuen Mitarbeiter erstellen',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Mitarbeiter',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (snapshot.connectionState == ConnectionState.waiting)
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: CircularProgressIndicator(),
+                    )
+                  else if (snapshot.hasError)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Text(
+                          'Die Mitarbeiter konnten nicht geladen werden.',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ),
+                    )
+                  else if (mitarbeiterDocs.isEmpty)
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: Text(
+                            'Noch keine Mitarbeiter vorhanden.',
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    Column(
+                      children: mitarbeiterDocs.map((doc) {
+                        final data = doc.data();
+                        final name = (data['name'] as String?)?.trim();
+                        final istAktiv = data['aktiv'] == true;
+                        final loginAktiviert = data['loginAktiviert'] == true;
+
+                        return Card(
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: const Color(0xFF02152B),
+                              child: Text(
+                                (name != null && name.isNotEmpty)
+                                    ? name.characters.first.toUpperCase()
+                                    : '?',
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                            ),
+                            title: Text(
+                              name?.isNotEmpty == true ? name! : 'Unbenannt',
+                            ),
+                            subtitle: Text(
+                              istAktiv ? 'Aktiv' : 'Inaktiv',
+                            ),
+                            trailing: Icon(
+                              loginAktiviert
+                                  ? Icons.verified_user_outlined
+                                  : Icons.person_outline,
+                              color: const Color(0xFF02152B),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                ],
+              ),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: const [
-                Icon(
-                  Icons.person,
-                  size: 132,
-                  color: Color(0xFF02152B),
-                ),
-                SizedBox(height: 6),
-                CircleAvatar(
-                  radius: 23,
-                  backgroundColor: Color(0xFF02152B),
-                  child: Icon(
-                    Icons.add,
-                    size: 34,
-                    color: Colors.white,
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _zeigeMitarbeiterErstellenDialog() async {
+    final nameController = TextEditingController();
+    String? fehlertext;
+    bool wirdGespeichert = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (_, setDialogState) {
+            Future<void> speichern() async {
+              final user = FirebaseAuth.instance.currentUser;
+              final name = nameController.text.trim();
+
+              if (name.isEmpty) {
+                setDialogState(() {
+                  fehlertext = 'Bitte geben Sie einen Namen ein.';
+                });
+                return;
+              }
+
+              if (user == null) {
+                setDialogState(() {
+                  fehlertext = 'Sie sind nicht eingeloggt.';
+                });
+                return;
+              }
+
+              setDialogState(() {
+                fehlertext = null;
+                wirdGespeichert = true;
+              });
+
+              try {
+                await FirebaseFirestore.instance.collection('users').add({
+                  'name': name,
+                  'role': 'mitarbeiter',
+                  'dienstleisterId': user.uid,
+                  'createdAt': FieldValue.serverTimestamp(),
+                  'aktiv': true,
+                  'loginAktiviert': false,
+                });
+
+                if (!mounted) return;
+                Navigator.of(dialogContext).pop();
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(
+                    content: Text('Mitarbeiter „$name“ wurde erstellt.'),
+                  ),
+                );
+              } catch (_) {
+                setDialogState(() {
+                  fehlertext = 'Der Mitarbeiter konnte nicht erstellt werden.';
+                  wirdGespeichert = false;
+                });
+              }
+            }
+
+            return AlertDialog(
+              title: const Text('Neuen Mitarbeiter erstellen'),
+              content: SizedBox(
+                width: 420,
+                child: TextField(
+                  controller: nameController,
+                  autofocus: true,
+                  textInputAction: TextInputAction.done,
+                  onChanged: (_) {
+                    if (fehlertext != null) {
+                      setDialogState(() {
+                        fehlertext = null;
+                      });
+                    }
+                  },
+                  onSubmitted: (_) {
+                    if (!wirdGespeichert) {
+                      speichern();
+                    }
+                  },
+                  decoration: InputDecoration(
+                    labelText: 'Name des Mitarbeiters',
+                    errorText: fehlertext,
                   ),
                 ),
-                SizedBox(height: 26),
-                Text(
-                  'Neuen Mitarbeiter erstellen',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black,
-                  ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: wirdGespeichert
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Abbrechen'),
+                ),
+                FilledButton(
+                  onPressed: wirdGespeichert ? null : speichern,
+                  child: wirdGespeichert
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Erstellen'),
                 ),
               ],
-            ),
-          ),
-        ],
-      ),
+            );
+          },
+        );
+      },
     );
+
+    nameController.dispose();
   }
 
   Widget _buildLeistungenPage() {
