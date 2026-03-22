@@ -28,11 +28,21 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   int _selectedHomeSidebarIndex = 0;
   String? dienstleisterName;
   String? _selectedMitarbeiterId;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _mitarbeiterStream;
 
   @override
   void initState() {
     super.initState();
     _ladeDienstleisterName();
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      _mitarbeiterStream = FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'mitarbeiter')
+          .where('dienstleisterId', isEqualTo: uid)
+          .snapshots();
+    }
   }
 
   Future<void> _ladeDienstleisterName() async {
@@ -238,19 +248,14 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   }
 
   Widget _buildMitarbeiterPage() {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
+    if (_mitarbeiterStream == null) {
       return const Center(child: Text('Nicht eingeloggt.'));
     }
 
     final isDesktopLayout = MediaQuery.sizeOf(context).width >= 1100;
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('users')
-          .where('role', isEqualTo: 'mitarbeiter')
-          .where('dienstleisterId', isEqualTo: user.uid)
-          .snapshots(),
+      stream: _mitarbeiterStream,
       builder: (context, snapshot) {
         final mitarbeiterDocs = snapshot.data?.docs ?? const [];
         _SelectedMitarbeiter? selectedMitarbeiter;
