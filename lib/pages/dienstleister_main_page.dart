@@ -841,14 +841,14 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
 
 class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
   late final TextEditingController _nameController;
-  late String _status;
+  late bool _istAktiv;
   bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.name);
-    _status = widget.istAktiv ? 'aktiv' : 'inaktiv';
+    _istAktiv = widget.istAktiv;
   }
 
   @override
@@ -858,7 +858,7 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
       _nameController.text = widget.name;
     }
     if (oldWidget.istAktiv != widget.istAktiv) {
-      _status = widget.istAktiv ? 'aktiv' : 'inaktiv';
+      _istAktiv = widget.istAktiv;
     }
   }
 
@@ -926,18 +926,54 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
                 ),
                 _MitarbeiterSidebarSection(
                   title: 'Status',
-                  child: DropdownButtonFormField<String>(
-                    value: _status,
-                    items: const [
-                      DropdownMenuItem(value: 'aktiv', child: Text('aktiv')),
-                      DropdownMenuItem(value: 'inaktiv', child: Text('inaktiv')),
-                    ],
-                    onChanged: _isSaving
-                        ? null
-                        : (value) {
-                            if (value == null) return;
-                            setState(() => _status = value);
-                          },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 140),
+                    curve: Curves.easeInOut,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _istAktiv
+                          ? const Color(0x142EAD62)
+                          : const Color(0x14D92D20),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: _istAktiv
+                            ? const Color(0xFF2EAD62)
+                            : const Color(0xFFD92D20),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Switch(
+                          value: _istAktiv,
+                          onChanged: _isSaving
+                              ? null
+                              : (value) {
+                                  setState(() => _istAktiv = value);
+                                },
+                          activeColor: Colors.white,
+                          activeTrackColor: const Color(0xFF2EAD62),
+                          inactiveThumbColor: Colors.white,
+                          inactiveTrackColor: const Color(0xFFD92D20),
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        const SizedBox(width: 12),
+                        AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 140),
+                          curve: Curves.easeInOut,
+                          style: Theme.of(context).textTheme.titleSmall!.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: _istAktiv
+                                    ? const Color(0xFF1F7A42)
+                                    : const Color(0xFFB42318),
+                              ),
+                          child: Text(_istAktiv ? 'Aktiv' : 'Inaktiv'),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -954,7 +990,10 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
                   : () async {
                       setState(() => _isSaving = true);
                       try {
-                        await widget.onSave(_nameController.text, _status);
+                        await widget.onSave(
+                          _nameController.text,
+                          _istAktiv ? 'aktiv' : 'inaktiv',
+                        );
                       } finally {
                         if (mounted) {
                           setState(() => _isSaving = false);
