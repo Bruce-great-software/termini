@@ -565,6 +565,10 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             docId: selection.docId,
             istAktiv: istAktiv,
           ),
+          onDelete: () => _loescheMitarbeiter(
+            docId: selection.docId,
+            name: selection.name,
+          ),
         ),
       ),
     );
@@ -622,6 +626,30 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Der Status konnte nicht gespeichert werden.'),
+        ),
+      );
+      return false;
+    }
+  }
+
+  Future<bool> _loescheMitarbeiter({
+    required String docId,
+    required String name,
+  }) async {
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(docId).delete();
+
+      if (!mounted) return true;
+      setState(() => _selectedMitarbeiterId = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('„$name“ wurde gelöscht.')),
+      );
+      return true;
+    } catch (_) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Der Mitarbeiter konnte nicht gelöscht werden.'),
         ),
       );
       return false;
@@ -856,6 +884,7 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
     required this.onClose,
     required this.onNameSave,
     required this.onStatusChanged,
+    required this.onDelete,
   });
 
   final String name;
@@ -863,6 +892,7 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
   final VoidCallback onClose;
   final Future<bool> Function(String name) onNameSave;
   final Future<bool> Function(bool istAktiv) onStatusChanged;
+  final Future<bool> Function() onDelete;
 
   @override
   State<_MitarbeiterDetailSidebar> createState() =>
@@ -875,9 +905,15 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
   late bool _istAktiv;
   bool _isNameSaving = false;
   bool _isStatusSaving = false;
+  bool _isDeleting = false;
 
   bool get _hasNameChanged =>
       _nameController.text.trim() != _initialName.trim();
+
+  String get _deleteDialogName {
+    final name = _initialName.trim();
+    return name.isEmpty ? 'Unbenannt' : name;
+  }
 
   void _handleNameChanged() {
     if (!mounted) return;
@@ -928,6 +964,75 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
       }
       _isStatusSaving = false;
     });
+  }
+
+  Future<void> _confirmDelete() async {
+    if (_isDeleting) return;
+
+    final bestaetigt = await showDialog<bool>(
+      context: context,
+      barrierDismissible: !_isDeleting,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          title: const Text(
+            'Mitarbeiter löschen',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          content: Text(
+            'Soll „$_deleteDialogName“ wirklich gelöscht werden?',
+            style: const TextStyle(
+              fontSize: 15,
+              color: Colors.black87,
+            ),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+          actions: [
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFE53935),
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: _isDeleting
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(true),
+                    child: const Text('Löschen'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _isDeleting
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(false),
+                    child: const Text('Abbrechen'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+
+    if (bestaetigt != true || !mounted) return;
+
+    setState(() => _isDeleting = true);
+    try {
+      await widget.onDelete();
+    } finally {
+      if (mounted) {
+        setState(() => _isDeleting = false);
+      }
+    }
   }
 
   Widget _buildSaveAction({required bool visible}) {
@@ -1113,6 +1218,37 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
                   ),
                 ),
               ],
+            ),
+          ),
+        ),
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _isDeleting ? null : _confirmDelete,
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFFE53935),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+              ),
+              icon: _isDeleting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Color(0xFFE53935),
+                      ),
+                    )
+                  : const Icon(Icons.delete_outline),
+              label: const Text(
+                'Mitarbeiter löschen',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
             ),
           ),
         ),
