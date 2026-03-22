@@ -659,7 +659,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   Future<void> _zeigeMitarbeiterErstellenDialog() async {
     final nameController = TextEditingController();
     String? fehlertext;
-    bool wirdGespeichert = false;
 
     final erstellterMitarbeiterName = await showDialog<String>(
       context: context,
@@ -667,8 +666,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (_, setDialogState) {
-            Future<void> speichern() async {
-              final user = FirebaseAuth.instance.currentUser;
+            void bestaetigen() {
               final name = nameController.text.trim();
 
               if (name.isEmpty) {
@@ -678,37 +676,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                 return;
               }
 
-              if (user == null) {
-                setDialogState(() {
-                  fehlertext = 'Sie sind nicht eingeloggt.';
-                });
-                return;
-              }
-
-              setDialogState(() {
-                fehlertext = null;
-                wirdGespeichert = true;
-              });
-
-              try {
-                await FirebaseFirestore.instance.collection('users').add({
-                  'name': name,
-                  'role': 'mitarbeiter',
-                  'dienstleisterId': user.uid,
-                  'createdAt': FieldValue.serverTimestamp(),
-                  'aktiv': true,
-                  'loginAktiviert': false,
-                });
-
-                if (!mounted || !dialogContext.mounted) return;
-                Navigator.of(dialogContext).pop(name);
-              } catch (_) {
-                if (!dialogContext.mounted) return;
-                setDialogState(() {
-                  fehlertext = 'Der Mitarbeiter konnte nicht erstellt werden.';
-                  wirdGespeichert = false;
-                });
-              }
+              Navigator.of(dialogContext).pop(name);
             }
 
             return AlertDialog(
@@ -726,11 +694,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                       });
                     }
                   },
-                  onSubmitted: (_) {
-                    if (!wirdGespeichert) {
-                      speichern();
-                    }
-                  },
+                  onSubmitted: (_) => bestaetigen(),
                   decoration: InputDecoration(
                     labelText: 'Name des Mitarbeiters',
                     errorText: fehlertext,
@@ -739,20 +703,12 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
               ),
               actions: [
                 TextButton(
-                  onPressed: wirdGespeichert
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(),
+                  onPressed: () => Navigator.of(dialogContext).pop(),
                   child: const Text('Abbrechen'),
                 ),
                 FilledButton(
-                  onPressed: wirdGespeichert ? null : speichern,
-                  child: wirdGespeichert
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Erstellen'),
+                  onPressed: bestaetigen,
+                  child: const Text('Erstellen'),
                 ),
               ],
             );
@@ -764,11 +720,38 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     nameController.dispose();
 
     if (!mounted || erstellterMitarbeiterName == null) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Mitarbeiter „$erstellterMitarbeiterName“ wurde erstellt.'),
-      ),
-    );
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sie sind nicht eingeloggt.')),
+      );
+      return;
+    }
+
+    try {
+      await FirebaseFirestore.instance.collection('users').add({
+        'name': erstellterMitarbeiterName,
+        'role': 'mitarbeiter',
+        'dienstleisterId': user.uid,
+        'createdAt': FieldValue.serverTimestamp(),
+        'aktiv': true,
+        'loginAktiviert': false,
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Mitarbeiter „$erstellterMitarbeiterName“ wurde erstellt.'),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Der Mitarbeiter konnte nicht erstellt werden.'),
+        ),
+      );
+    }
   }
 
   Widget _buildLeistungenPage() {
