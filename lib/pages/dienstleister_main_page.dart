@@ -153,7 +153,9 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   String _buildAppBarTitle() {
     switch (_selectedIndex) {
       case 0:
-        return 'Hallo, ${dienstleisterName ?? '...'}';
+        return _selectedHomeSidebarIndex == 1
+            ? 'Mitarbeiter'
+            : 'Hallo, ${dienstleisterName ?? '...'}';
       case 1:
         return 'Kalender';
       case 2:
@@ -256,11 +258,13 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
               child: Column(
                 children: [
                   Text(
-                    'Mitarbeiterbereich für ${dienstleisterName ?? 'Dienstleister'}',
-                    style: const TextStyle(fontSize: 20),
+                    'Verwalte dein Team',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.black54,
+                    ),
                     textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 32),
                   InkWell(
                     borderRadius: BorderRadius.circular(44),
                     onTap: _zeigeMitarbeiterErstellenDialog,
@@ -311,7 +315,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Mitarbeiter',
+                      'Teammitglieder',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
