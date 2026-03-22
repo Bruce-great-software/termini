@@ -22,15 +22,27 @@ class DienstleisterMainPage extends StatefulWidget {
 
 class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   static const double _desktopSidebarWidth = 188;
+  static const double _desktopMitarbeiterDrawerWidth = 380;
 
   int _selectedIndex = 0;
   int _selectedHomeSidebarIndex = 0;
   String? dienstleisterName;
+  String? _selectedMitarbeiterId;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _mitarbeiterStream;
 
   @override
   void initState() {
     super.initState();
     _ladeDienstleisterName();
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      _mitarbeiterStream = FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'mitarbeiter')
+          .where('dienstleisterId', isEqualTo: uid)
+          .snapshots();
+    }
   }
 
   Future<void> _ladeDienstleisterName() async {
@@ -236,142 +248,214 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   }
 
   Widget _buildMitarbeiterPage() {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
+    if (_mitarbeiterStream == null) {
       return const Center(child: Text('Nicht eingeloggt.'));
     }
 
+    final isDesktopLayout = MediaQuery.sizeOf(context).width >= 1100;
+
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('users')
-          .where('role', isEqualTo: 'mitarbeiter')
-          .where('dienstleisterId', isEqualTo: user.uid)
-          .snapshots(),
+      stream: _mitarbeiterStream,
       builder: (context, snapshot) {
         final mitarbeiterDocs = snapshot.data?.docs ?? const [];
+        _SelectedMitarbeiter? selectedMitarbeiter;
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 920),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Verwalte dein Team',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.black54,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Card(
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(20),
-                      onTap: _zeigeMitarbeiterErstellenDialog,
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 52,
-                              height: 52,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF02152B),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: const Icon(
-                                Icons.add,
-                                color: Colors.white,
-                                size: 28,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    'Neuen Mitarbeiter erstellen',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium
-                                        ?.copyWith(fontWeight: FontWeight.w700),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Lege einen neuen Mitarbeiter an',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(color: Colors.black54),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            const Icon(
-                              Icons.arrow_forward_ios_rounded,
-                              size: 18,
-                              color: Color(0xFF02152B),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 40),
-                  Text(
-                    'Dein Team (${mitarbeiterDocs.length})',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 12),
-                  if (snapshot.connectionState == ConnectionState.waiting)
-                    const Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  else if (snapshot.hasError)
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Text(
-                          'Die Mitarbeiter konnten nicht geladen werden.',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
+        for (final doc in mitarbeiterDocs) {
+          final data = doc.data();
+          if (_selectedMitarbeiterId == doc.id) {
+            selectedMitarbeiter = _SelectedMitarbeiter(
+              docId: doc.id,
+              name: (data['name'] as String?)?.trim() ?? '',
+              aktiv: data['aktiv'] == true,
+            );
+          }
+        }
+
+        if (_selectedMitarbeiterId != null && selectedMitarbeiter == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() => _selectedMitarbeiterId = null);
+            }
+          });
+        }
+
+        final listContent = _buildMitarbeiterListContent(
+          snapshot: snapshot,
+          mitarbeiterDocs: mitarbeiterDocs,
+          isDesktopLayout: isDesktopLayout,
+        );
+
+        if (!isDesktopLayout) {
+          return listContent;
+        }
+
+        return _buildMitarbeiterDesktopContent(
+          listContent: listContent,
+          selection: selectedMitarbeiter,
+        );
+      },
+    );
+  }
+
+  Widget _buildMitarbeiterListContent({
+    required AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> mitarbeiterDocs,
+    required bool isDesktopLayout,
+  }) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 900),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Verwalte dein Team',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.black54,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Card(
+                color: const Color(0xFFFAFAFA),
+                elevation: 1.5,
+                shadowColor: Colors.black12,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  mouseCursor: SystemMouseCursors.click,
+                  hoverColor: const Color(0xFFF5F5F5),
+                  splashColor: const Color(0x1402152B),
+                  highlightColor: const Color(0x0F02152B),
+                  onTap: _zeigeMitarbeiterErstellenDialog,
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 52,
+                          height: 52,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF02152B),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const Icon(
+                            Icons.add,
+                            color: Colors.white,
+                            size: 28,
                           ),
                         ),
-                      ),
-                    )
-                  else if (mitarbeiterDocs.isEmpty)
-                      const Card(
-                        child: Padding(
-                          padding: EdgeInsets.all(20),
-                          child: Text('Noch keine Mitarbeiter vorhanden.'),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Neuen Mitarbeiter erstellen',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Lege einen neuen Mitarbeiter an',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(color: Colors.black54),
+                              ),
+                            ],
+                          ),
                         ),
-                      )
-                    else
-                      Card(
-                        child: Column(
-                          children: mitarbeiterDocs.asMap().entries.map((entry) {
-                            final index = entry.key;
-                            final data = entry.value.data();
-                            final name = (data['name'] as String?)?.trim();
-                            final istAktiv = data['aktiv'] == true;
+                        const SizedBox(width: 12),
+                        const Icon(
+                          Icons.arrow_forward_ios_rounded,
+                          size: 18,
+                          color: Color(0xFF02152B),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 40),
+              Text(
+                'Dein Team (${mitarbeiterDocs.length})',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              if (snapshot.connectionState == ConnectionState.waiting)
+                const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (snapshot.hasError)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text(
+                      'Die Mitarbeiter konnten nicht geladen werden.',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                )
+              else if (mitarbeiterDocs.isEmpty)
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Text('Noch keine Mitarbeiter vorhanden.'),
+                    ),
+                  )
+                else
+                  Card(
+                    child: Column(
+                      children: mitarbeiterDocs.asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final doc = entry.value;
+                        final data = doc.data();
+                        final name = (data['name'] as String?)?.trim();
+                        final istAktiv = data['aktiv'] == true;
+                        final isSelected = doc.id == _selectedMitarbeiterId;
 
-                            return Column(
-                              children: [
-                                ListTile(
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 18,
-                                    vertical: 10,
+                        return Column(
+                          children: [
+                            Material(
+                              color: isSelected
+                                  ? const Color(0xFFF5F8FF)
+                                  : Colors.transparent,
+                              child: ListTile(
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 12,
+                                ),
+                                horizontalTitleGap: 16,
+                                minLeadingWidth: 0,
+                                onTap: isDesktopLayout
+                                    ? () => setState(() {
+                                  _selectedMitarbeiterId = doc.id;
+                                })
+                                    : null,
+                                mouseCursor: isDesktopLayout
+                                    ? SystemMouseCursors.click
+                                    : MouseCursor.defer,
+                                hoverColor: const Color(0xFFF5F5F5),
+                                leading: Container(
+                                  decoration: const BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Color(0x14000000),
+                                        blurRadius: 8,
+                                        offset: Offset(0, 3),
+                                      ),
+                                    ],
                                   ),
-                                  onTap: () {},
-                                  mouseCursor: SystemMouseCursors.click,
-                                  hoverColor: const Color(0xFFF3F6FA),
-                                  leading: CircleAvatar(
+                                  child: CircleAvatar(
                                     radius: 24,
                                     backgroundColor: const Color(0xFF02152B),
                                     child: Text(
@@ -384,48 +468,136 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                                       ),
                                     ),
                                   ),
-                                  title: Text(
-                                    name?.isNotEmpty == true ? name! : 'Unbenannt',
-                                    style: Theme.of(context).textTheme.titleMedium,
-                                  ),
-                                  subtitle: Padding(
-                                    padding: const EdgeInsets.only(top: 6),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Container(
-                                          width: 9,
-                                          height: 9,
-                                          decoration: const BoxDecoration(
-                                            color: Color(0xFF2EAD62),
-                                            shape: BoxShape.circle,
-                                          ),
+                                ),
+                                title: Text(
+                                  name?.isNotEmpty == true ? name! : 'Unbenannt',
+                                  style: Theme.of(context).textTheme.titleMedium,
+                                ),
+                                subtitle: Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 9,
+                                        height: 9,
+                                        decoration: BoxDecoration(
+                                          color: istAktiv
+                                              ? const Color(0xFF2EAD62)
+                                              : Colors.grey,
+                                          shape: BoxShape.circle,
                                         ),
-                                        const SizedBox(width: 8),
-                                        Text(istAktiv ? 'Aktiv' : 'Inaktiv'),
-                                      ],
-                                    ),
-                                  ),
-                                  trailing: const Icon(
-                                    Icons.arrow_forward_ios_rounded,
-                                    size: 20,
-                                    color: Colors.black87,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(istAktiv ? 'Aktiv' : 'Inaktiv'),
+                                    ],
                                   ),
                                 ),
-                                if (index < mitarbeiterDocs.length - 1)
-                                  const Divider(height: 1, indent: 18, endIndent: 18),
-                              ],
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                ],
+                                trailing: const Icon(
+                                  Icons.arrow_forward_ios_rounded,
+                                  size: 20,
+                                  color: Color(0xFF1F2937),
+                                ),
+                              ),
+                            ),
+                            if (index < mitarbeiterDocs.length - 1)
+                              const Divider(
+                                height: 1,
+                                indent: 20,
+                                endIndent: 20,
+                                color: Color(0xFFEEEEEE),
+                              ),
+                          ],
+                        );
+                      }).toList(),
+                    ),
+                  ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMitarbeiterDesktopContent({
+    required Widget listContent,
+    required _SelectedMitarbeiter? selection,
+  }) {
+    final drawerVisible = selection != null;
+
+    return Row(
+      children: [
+        Expanded(child: listContent),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          width: drawerVisible ? _desktopMitarbeiterDrawerWidth : 0,
+          child: drawerVisible
+              ? DecoratedBox(
+            decoration: const BoxDecoration(
+              border: Border(
+                left: BorderSide(color: Color(0xFFE5E5E5)),
               ),
             ),
-          ),
-        );
-      },
+            child: _buildMitarbeiterDesktopDrawer(selection!),
+          )
+              : const SizedBox.shrink(),
+        ),
+      ],
     );
+  }
+
+  Widget _buildMitarbeiterDesktopDrawer(_SelectedMitarbeiter selection) {
+    return Material(
+      color: Colors.white,
+      elevation: 14,
+      child: SafeArea(
+        child: _MitarbeiterDetailSidebar(
+          key: ValueKey(selection.docId),
+          name: selection.name,
+          istAktiv: selection.aktiv,
+          onClose: () => setState(() => _selectedMitarbeiterId = null),
+          onSave: (name, status) => _speichereMitarbeiterAenderungen(
+            docId: selection.docId,
+            name: name,
+            status: status,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _speichereMitarbeiterAenderungen({
+    required String docId,
+    required String name,
+    required String status,
+  }) async {
+    final bereinigterName = name.trim();
+    if (bereinigterName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bitte geben Sie einen Namen ein.')),
+      );
+      return;
+    }
+
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(docId).update({
+        'name': bereinigterName,
+        'aktiv': status == 'aktiv',
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Änderungen gespeichert.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Die Änderungen konnten nicht gespeichert werden.'),
+        ),
+      );
+    }
   }
 
   Future<void> _zeigeMitarbeiterErstellenDialog() async {
@@ -630,6 +802,206 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             onPressed: _logout,
             child: const Text('Abmelden'),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SelectedMitarbeiter {
+  const _SelectedMitarbeiter({
+    required this.docId,
+    required this.name,
+    required this.aktiv,
+  });
+
+  final String docId;
+  final String name;
+  final bool aktiv;
+}
+
+class _MitarbeiterDetailSidebar extends StatefulWidget {
+  const _MitarbeiterDetailSidebar({
+    super.key,
+    required this.name,
+    required this.istAktiv,
+    required this.onClose,
+    required this.onSave,
+  });
+
+  final String name;
+  final bool istAktiv;
+  final VoidCallback onClose;
+  final Future<void> Function(String name, String status) onSave;
+
+  @override
+  State<_MitarbeiterDetailSidebar> createState() =>
+      _MitarbeiterDetailSidebarState();
+}
+
+class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
+  late final TextEditingController _nameController;
+  late String _status;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.name);
+    _status = widget.istAktiv ? 'aktiv' : 'inaktiv';
+  }
+
+  @override
+  void didUpdateWidget(covariant _MitarbeiterDetailSidebar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.name != widget.name) {
+      _nameController.text = widget.name;
+    }
+    if (oldWidget.istAktiv != widget.istAktiv) {
+      _status = widget.istAktiv ? 'aktiv' : 'inaktiv';
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Mitarbeiter bearbeiten',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      widget.name.isNotEmpty ? widget.name : 'Unbenannt',
+                      style: const TextStyle(
+                        color: Colors.black54,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Schließen',
+                onPressed: widget.onClose,
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _MitarbeiterSidebarSection(
+                  title: 'Name',
+                  child: TextField(
+                    controller: _nameController,
+                    decoration: const InputDecoration(
+                      hintText: 'Name des Mitarbeiters',
+                    ),
+                  ),
+                ),
+                _MitarbeiterSidebarSection(
+                  title: 'Status',
+                  child: DropdownButtonFormField<String>(
+                    value: _status,
+                    items: const [
+                      DropdownMenuItem(value: 'aktiv', child: Text('aktiv')),
+                      DropdownMenuItem(value: 'inaktiv', child: Text('inaktiv')),
+                    ],
+                    onChanged: _isSaving
+                        ? null
+                        : (value) {
+                      if (value == null) return;
+                      setState(() => _status = value);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _isSaving
+                  ? null
+                  : () async {
+                setState(() => _isSaving = true);
+                try {
+                  await widget.onSave(_nameController.text, _status);
+                } finally {
+                  if (mounted) {
+                    setState(() => _isSaving = false);
+                  }
+                }
+              },
+              child: _isSaving
+                  ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+                  : const Text('Änderungen speichern'),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MitarbeiterSidebarSection extends StatelessWidget {
+  const _MitarbeiterSidebarSection({
+    required this.title,
+    required this.child,
+  });
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: Colors.black54,
+            ),
+          ),
+          const SizedBox(height: 10),
+          child,
         ],
       ),
     );
