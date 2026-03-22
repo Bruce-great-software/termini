@@ -1081,6 +1081,21 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     setState(() {});
   }
 
+  void _handleProfileImageMenuSelection(_ProfileImageMenuAction action) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+
+      switch (action) {
+        case _ProfileImageMenuAction.takePhoto:
+          await widget.onTakePhoto();
+          break;
+        case _ProfileImageMenuAction.uploadPhoto:
+          await widget.onUploadPhoto();
+          break;
+      }
+    });
+  }
+
   Future<void> _saveName() async {
     if (_isNameSaving || !_hasNameChanged) return;
 
@@ -1340,16 +1355,7 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
                       PopupMenuButton<_ProfileImageMenuAction>(
                         enabled: !widget.isProfileImageBusy,
                         tooltip: 'Profilbild bearbeiten',
-                        onSelected: (action) async {
-                          switch (action) {
-                            case _ProfileImageMenuAction.takePhoto:
-                              await widget.onTakePhoto();
-                              break;
-                            case _ProfileImageMenuAction.uploadPhoto:
-                              await widget.onUploadPhoto();
-                              break;
-                          }
-                        },
+                        onSelected: _handleProfileImageMenuSelection,
                         itemBuilder: (context) => const [
                           PopupMenuItem(
                             value: _ProfileImageMenuAction.takePhoto,
