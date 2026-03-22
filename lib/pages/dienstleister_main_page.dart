@@ -557,46 +557,74 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           name: selection.name,
           istAktiv: selection.aktiv,
           onClose: () => setState(() => _selectedMitarbeiterId = null),
-          onSave: (name, status) => _speichereMitarbeiterAenderungen(
+          onNameSave: (name) => _speichereMitarbeiterNamen(
             docId: selection.docId,
             name: name,
-            status: status,
+          ),
+          onStatusChanged: (istAktiv) => _speichereMitarbeiterStatus(
+            docId: selection.docId,
+            istAktiv: istAktiv,
           ),
         ),
       ),
     );
   }
 
-  Future<void> _speichereMitarbeiterAenderungen({
+  Future<bool> _speichereMitarbeiterNamen({
     required String docId,
     required String name,
-    required String status,
   }) async {
     final bereinigterName = name.trim();
     if (bereinigterName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Bitte geben Sie einen Namen ein.')),
       );
-      return;
+      return false;
     }
 
     try {
-      await FirebaseFirestore.instance.collection('users').doc(docId).update({
-        'name': bereinigterName,
-        'aktiv': status == 'aktiv',
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Änderungen gespeichert.')),
+      await FirebaseFirestore.instance.collection('users').doc(docId).update(
+        {'name': bereinigterName},
       );
+
+      if (!mounted) return true;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Name gespeichert.')),
+      );
+      return true;
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted) return false;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Die Änderungen konnten nicht gespeichert werden.'),
+          content: Text('Der Name konnte nicht gespeichert werden.'),
         ),
       );
+      return false;
+    }
+  }
+
+  Future<bool> _speichereMitarbeiterStatus({
+    required String docId,
+    required bool istAktiv,
+  }) async {
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(docId).update(
+        {'aktiv': istAktiv},
+      );
+
+      if (!mounted) return true;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Status gespeichert.')),
+      );
+      return true;
+    } catch (_) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Der Status konnte nicht gespeichert werden.'),
+        ),
+      );
+      return false;
     }
   }
 
@@ -826,13 +854,15 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
     required this.name,
     required this.istAktiv,
     required this.onClose,
-    required this.onSave,
+    required this.onNameSave,
+    required this.onStatusChanged,
   });
 
   final String name;
   final bool istAktiv;
   final VoidCallback onClose;
-  final Future<void> Function(String name, String status) onSave;
+  final Future<bool> Function(String name) onNameSave;
+  final Future<bool> Function(bool istAktiv) onStatusChanged;
 
   @override
   State<_MitarbeiterDetailSidebar> createState() =>
@@ -841,29 +871,128 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
 
 class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
   late final TextEditingController _nameController;
-  late String _status;
-  bool _isSaving = false;
+  late String _initialName;
+  late bool _istAktiv;
+  bool _isNameSaving = false;
+  bool _isStatusSaving = false;
+
+  bool get _hasNameChanged =>
+      _nameController.text.trim() != _initialName.trim();
+
+  void _handleNameChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _saveName() async {
+    if (_isNameSaving || !_hasNameChanged) return;
+
+    setState(() => _isNameSaving = true);
+    final bereinigterName = _nameController.text.trim();
+
+    try {
+      final erfolgreich = await widget.onNameSave(bereinigterName);
+      if (erfolgreich && mounted) {
+        setState(() {
+          _initialName = bereinigterName;
+          _nameController.value = _nameController.value.copyWith(
+            text: bereinigterName,
+            selection: TextSelection.collapsed(
+              offset: bereinigterName.length,
+            ),
+          );
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isNameSaving = false);
+      }
+    }
+  }
+
+  Future<void> _handleStatusChanged(bool value) async {
+    if (_isStatusSaving || value == _istAktiv) return;
+
+    final vorherigerStatus = _istAktiv;
+    setState(() {
+      _istAktiv = value;
+      _isStatusSaving = true;
+    });
+
+    final erfolgreich = await widget.onStatusChanged(value);
+
+    if (!mounted) return;
+    setState(() {
+      if (!erfolgreich) {
+        _istAktiv = vorherigerStatus;
+      }
+      _isStatusSaving = false;
+    });
+  }
+
+  Widget _buildSaveAction({required bool visible}) {
+    if (!visible) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 10),
+      child: Material(
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: Colors.grey.shade300),
+        ),
+        child: InkWell(
+          onTap: _isNameSaving ? null : _saveName,
+          borderRadius: BorderRadius.circular(18),
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Center(
+              child: _isNameSaving
+                  ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+                  : const Icon(
+                Icons.check,
+                size: 32,
+                color: Color(0xFF24C552),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.name);
-    _status = widget.istAktiv ? 'aktiv' : 'inaktiv';
+    _nameController.addListener(_handleNameChanged);
+    _initialName = widget.name;
+    _istAktiv = widget.istAktiv;
   }
 
   @override
   void didUpdateWidget(covariant _MitarbeiterDetailSidebar oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.name != widget.name) {
-      _nameController.text = widget.name;
+      _initialName = widget.name;
+      _nameController.value = _nameController.value.copyWith(
+        text: widget.name,
+        selection: TextSelection.collapsed(offset: widget.name.length),
+      );
     }
     if (oldWidget.istAktiv != widget.istAktiv) {
-      _status = widget.istAktiv ? 'aktiv' : 'inaktiv';
+      _istAktiv = widget.istAktiv;
     }
   }
 
   @override
   void dispose() {
+    _nameController.removeListener(_handleNameChanged);
     _nameController.dispose();
     super.dispose();
   }
@@ -917,57 +1046,73 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
               children: [
                 _MitarbeiterSidebarSection(
                   title: 'Name',
-                  child: TextField(
-                    controller: _nameController,
-                    decoration: const InputDecoration(
-                      hintText: 'Name des Mitarbeiters',
-                    ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _nameController,
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) => _saveName(),
+                          decoration: const InputDecoration(
+                            hintText: 'Name des Mitarbeiters',
+                          ),
+                        ),
+                      ),
+                      _buildSaveAction(visible: _hasNameChanged),
+                    ],
                   ),
                 ),
                 _MitarbeiterSidebarSection(
                   title: 'Status',
-                  child: DropdownButtonFormField<String>(
-                    value: _status,
-                    items: const [
-                      DropdownMenuItem(value: 'aktiv', child: Text('aktiv')),
-                      DropdownMenuItem(value: 'inaktiv', child: Text('inaktiv')),
-                    ],
-                    onChanged: _isSaving
-                        ? null
-                        : (value) {
-                      if (value == null) return;
-                      setState(() => _status = value);
-                    },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 140),
+                    curve: Curves.easeInOut,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _istAktiv
+                          ? const Color(0x142EAD62)
+                          : const Color(0x14D92D20),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: _istAktiv
+                            ? const Color(0xFF2EAD62)
+                            : const Color(0xFFD92D20),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Switch(
+                          value: _istAktiv,
+                          onChanged:
+                          _isStatusSaving ? null : _handleStatusChanged,
+                          activeColor: Colors.white,
+                          activeTrackColor: const Color(0xFF2EAD62),
+                          inactiveThumbColor: Colors.white,
+                          inactiveTrackColor: const Color(0xFFD92D20),
+                          materialTapTargetSize:
+                          MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        const SizedBox(width: 12),
+                        AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 140),
+                          curve: Curves.easeInOut,
+                          style: Theme.of(context).textTheme.titleSmall!.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: _istAktiv
+                                ? const Color(0xFF1F7A42)
+                                : const Color(0xFFB42318),
+                          ),
+                          child: Text(_istAktiv ? 'Aktiv' : 'Inaktiv'),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-          child: SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: _isSaving
-                  ? null
-                  : () async {
-                setState(() => _isSaving = true);
-                try {
-                  await widget.onSave(_nameController.text, _status);
-                } finally {
-                  if (mounted) {
-                    setState(() => _isSaving = false);
-                  }
-                }
-              },
-              child: _isSaving
-                  ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-                  : const Text('Änderungen speichern'),
             ),
           ),
         ),
