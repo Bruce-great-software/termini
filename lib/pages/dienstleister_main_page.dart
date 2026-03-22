@@ -1,6 +1,11 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:crop_your_image/crop_your_image.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_angebote_page.dart';
@@ -30,6 +35,12 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   String? dienstleisterName;
   String? _selectedMitarbeiterId;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _mitarbeiterStream;
+  final ImagePicker _imagePicker = ImagePicker();
+  CropController _profileImageCropController = CropController();
+  Uint8List? _pendingProfileImageBytes;
+  String? _pendingProfileImageDocId;
+  String? _pendingProfileImageName;
+  bool _isUploadingProfileImage = false;
 
   @override
   void initState() {
@@ -268,6 +279,8 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
               docId: doc.id,
               name: (data['name'] as String?)?.trim() ?? '',
               aktiv: data['aktiv'] == true,
+              profileImageUrl: (data['profileImageUrl'] as String?)?.trim(),
+              profileImagePath: (data['profileImagePath'] as String?)?.trim(),
             );
           }
         }
@@ -275,7 +288,10 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
         if (_selectedMitarbeiterId != null && selectedMitarbeiter == null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
-              setState(() => _selectedMitarbeiterId = null);
+              setState(() {
+                _selectedMitarbeiterId = null;
+                _verwerfeLokalesProfilbild();
+              });
             }
           });
         }
@@ -438,6 +454,9 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                               minLeadingWidth: 0,
                               onTap: isDesktopLayout
                                   ? () => setState(() {
+                                        if (_selectedMitarbeiterId != doc.id) {
+                                          _verwerfeLokalesProfilbild();
+                                        }
                                         _selectedMitarbeiterId = doc.id;
                                       })
                                   : null,
@@ -520,6 +539,208 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     );
   }
 
+  bool _zeigtLokalesProfilbildFuer(String docId) =>
+      _pendingProfileImageBytes != null && _pendingProfileImageDocId == docId;
+
+  void _verwerfeLokalesProfilbild() {
+    _pendingProfileImageBytes = null;
+    _pendingProfileImageDocId = null;
+    _pendingProfileImageName = null;
+    _isUploadingProfileImage = false;
+    _profileImageCropController = CropController();
+  }
+
+  Future<void> _handleProfilbildAktion({
+    required _SelectedMitarbeiter selection,
+    required _ProfileImageAction action,
+  }) async {
+    try {
+      final pickedFile = await _imagePicker.pickImage(
+        source: action == _ProfileImageAction.kamera
+            ? ImageSource.camera
+            : ImageSource.gallery,
+      );
+
+      if (pickedFile == null) return;
+
+      final bytes = await pickedFile.readAsBytes();
+      if (!mounted) return;
+
+      setState(() {
+        _pendingProfileImageBytes = bytes;
+        _pendingProfileImageDocId = selection.docId;
+        _pendingProfileImageName = selection.name;
+        _profileImageCropController = CropController();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        const SnackBar(
+          content: Text('Das Bild konnte nicht ausgewählt werden.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleProfilbildZugeschnitten(CropResult result) async {
+    switch (result) {
+      case CropSuccess(:final croppedImage):
+        await _uploadProfilbild(croppedImage);
+      case CropFailure():
+        if (!mounted) return;
+        showAppSnackBar(
+          context,
+          const SnackBar(
+            content: Text('Das Bild konnte nicht zugeschnitten werden.'),
+          ),
+        );
+    }
+  }
+
+  Future<void> _uploadProfilbild(Uint8List croppedImage) async {
+    final docId = _pendingProfileImageDocId;
+    if (docId == null || _isUploadingProfileImage) return;
+
+    setState(() => _isUploadingProfileImage = true);
+
+    final path = 'profile_images/$docId/profile.jpg';
+
+    try {
+      final ref = FirebaseStorage.instance.ref().child(path);
+      await ref.putData(
+        croppedImage,
+        SettableMetadata(contentType: 'image/jpeg'),
+      );
+      final downloadUrl = await ref.getDownloadURL();
+
+      await FirebaseFirestore.instance.collection('users').doc(docId).update({
+        'profileImageUrl': downloadUrl,
+        'profileImagePath': path,
+      });
+
+      if (!mounted) return;
+      setState(_verwerfeLokalesProfilbild);
+      showAppSnackBar(
+        context,
+        const SnackBar(content: Text('Profilbild gespeichert.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isUploadingProfileImage = false);
+      showAppSnackBar(
+        context,
+        const SnackBar(
+          content: Text('Das Profilbild konnte nicht gespeichert werden.'),
+        ),
+      );
+    }
+  }
+
+  Widget _buildProfilbildVorschauOverlay() {
+    final imageBytes = _pendingProfileImageBytes;
+    if (imageBytes == null) return const SizedBox.shrink();
+
+    return Positioned.fill(
+      child: ColoredBox(
+        color: const Color(0xCCFFFFFF),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620, maxHeight: 760),
+            child: Card(
+              elevation: 14,
+              margin: const EdgeInsets.all(24),
+              clipBehavior: Clip.antiAlias,
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Profilbild anpassen',
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Passe das Bild für ${_pendingProfileImageName ?? 'den Mitarbeiter'} an und bestätige mit dem grünen Haken.',
+                                style: const TextStyle(color: Colors.black54),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        IconButton(
+                          tooltip: 'Abbrechen',
+                          onPressed: _isUploadingProfileImage
+                              ? null
+                              : () => setState(_verwerfeLokalesProfilbild),
+                          icon: const Icon(Icons.close),
+                        ),
+                        IconButton(
+                          tooltip: 'Speichern',
+                          onPressed: _isUploadingProfileImage
+                              ? null
+                              : _profileImageCropController.cropCircle,
+                          style: IconButton.styleFrom(
+                            backgroundColor: const Color(0xFF24C552),
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: _isUploadingProfileImage
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.check),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    AspectRatio(
+                      aspectRatio: 1,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(24),
+                        child: ColoredBox(
+                          color: const Color(0xFF111827),
+                          child: Crop(
+                            image: imageBytes,
+                            controller: _profileImageCropController,
+                            onCropped: _handleProfilbildZugeschnitten,
+                            withCircleUi: true,
+                            interactive: true,
+                            fixCropRect: true,
+                            baseColor: const Color(0xFF111827),
+                            maskColor: const Color(0x99000000),
+                            progressIndicator: const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildMitarbeiterDesktopContent({
     required Widget listContent,
     required _SelectedMitarbeiter? selection,
@@ -528,7 +749,15 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
 
     return Row(
       children: [
-        Expanded(child: listContent),
+        Expanded(
+          child: Stack(
+            children: [
+              Positioned.fill(child: listContent),
+              if (selection != null && _zeigtLokalesProfilbildFuer(selection.docId))
+                _buildProfilbildVorschauOverlay(),
+            ],
+          ),
+        ),
         AnimatedContainer(
           duration: const Duration(milliseconds: 260),
           curve: Curves.easeOutCubic,
@@ -557,7 +786,13 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           key: ValueKey(selection.docId),
           name: selection.name,
           istAktiv: selection.aktiv,
-          onClose: () => setState(() => _selectedMitarbeiterId = null),
+          profileImageUrl: selection.profileImageUrl,
+          isProfileImageUploading:
+              _isUploadingProfileImage && _pendingProfileImageDocId == selection.docId,
+          onClose: () => setState(() {
+            _selectedMitarbeiterId = null;
+            _verwerfeLokalesProfilbild();
+          }),
           onNameSave: (name) => _speichereMitarbeiterNamen(
             docId: selection.docId,
             name: name,
@@ -569,6 +804,10 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           onDelete: () => _loescheMitarbeiter(
             docId: selection.docId,
             name: selection.name,
+          ),
+          onProfileImageActionSelected: (action) => _handleProfilbildAktion(
+            selection: selection,
+            action: action,
           ),
         ),
       ),
@@ -641,7 +880,12 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       await FirebaseFirestore.instance.collection('users').doc(docId).delete();
 
       if (!mounted) return true;
-      setState(() => _selectedMitarbeiterId = null);
+      setState(() {
+        _selectedMitarbeiterId = null;
+        if (_pendingProfileImageDocId == docId) {
+          _verwerfeLokalesProfilbild();
+        }
+      });
       showAppSnackBar(context,
         SnackBar(content: Text('„$name“ wurde gelöscht.')),
       );
@@ -856,30 +1100,43 @@ class _SelectedMitarbeiter {
     required this.docId,
     required this.name,
     required this.aktiv,
+    required this.profileImageUrl,
+    required this.profileImagePath,
   });
 
   final String docId;
   final String name;
   final bool aktiv;
+  final String? profileImageUrl;
+  final String? profileImagePath;
 }
+
+enum _ProfileImageAction { kamera, galerie }
 
 class _MitarbeiterDetailSidebar extends StatefulWidget {
   const _MitarbeiterDetailSidebar({
     super.key,
     required this.name,
     required this.istAktiv,
+    required this.profileImageUrl,
+    required this.isProfileImageUploading,
     required this.onClose,
     required this.onNameSave,
     required this.onStatusChanged,
     required this.onDelete,
+    required this.onProfileImageActionSelected,
   });
 
   final String name;
   final bool istAktiv;
+  final String? profileImageUrl;
+  final bool isProfileImageUploading;
   final VoidCallback onClose;
   final Future<bool> Function(String name) onNameSave;
   final Future<bool> Function(bool istAktiv) onStatusChanged;
   final Future<bool> Function() onDelete;
+  final Future<void> Function(_ProfileImageAction action)
+      onProfileImageActionSelected;
 
   @override
   State<_MitarbeiterDetailSidebar> createState() =>
@@ -1058,6 +1315,36 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     );
   }
 
+  Widget _buildProfilbildAvatar() {
+    final imageUrl = widget.profileImageUrl;
+
+    return Container(
+      width: 112,
+      height: 112,
+      decoration: BoxDecoration(
+        color: const Color(0xFF1F2937),
+        shape: BoxShape.circle,
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: imageUrl != null && imageUrl.isNotEmpty
+          ? Image.network(
+              imageUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => const Icon(
+                Icons.person,
+                size: 52,
+                color: Colors.white70,
+              ),
+            )
+          : const Icon(
+              Icons.person,
+              size: 52,
+              color: Colors.white70,
+            ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1136,6 +1423,81 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                _MitarbeiterSidebarSection(
+                  title: 'Profilbild',
+                  child: Center(
+                    child: Column(
+                      children: [
+                        _buildProfilbildAvatar(),
+                        const SizedBox(height: 14),
+                        PopupMenuButton<_ProfileImageAction>(
+                          enabled: !widget.isProfileImageUploading,
+                          tooltip: 'Profilbild bearbeiten',
+                          onSelected: (action) {
+                            widget.onProfileImageActionSelected(action);
+                          },
+                          itemBuilder: (context) => const [
+                            PopupMenuItem(
+                              value: _ProfileImageAction.kamera,
+                              child: ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(Icons.photo_camera_outlined),
+                                title: Text('Foto aufnehmen'),
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: _ProfileImageAction.galerie,
+                              child: ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(Icons.folder_outlined),
+                                title: Text('Bild hochladen'),
+                              ),
+                            ),
+                          ],
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF111827),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                widget.isProfileImageUploading
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Color(0xFF24C552),
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.edit_outlined,
+                                        size: 18,
+                                        color: Color(0xFF24C552),
+                                      ),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Bearbeiten',
+                                  style: TextStyle(
+                                    color: Color(0xFF24C552),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 _MitarbeiterSidebarSection(
                   title: 'Name',
                   child: Row(
