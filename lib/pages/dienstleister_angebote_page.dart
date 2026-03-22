@@ -338,155 +338,175 @@ class _DienstleisterAngebotePageState extends State<DienstleisterAngebotePage> {
         : <String>[];
     final zielgruppenBlocks = _detailBlocksForZielgruppen(data);
     final hasEditableZielgruppen = zielgruppenBlocks.isNotEmpty;
-
     return Material(
       color: Colors.white,
       elevation: 14,
       child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          selection.titel,
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          selection.subtitle,
-                          style: const TextStyle(
-                            color: Colors.black54,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Schließen',
-                    onPressed: () => setState(() => _selectedDocId = null),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
-                child: Column(
+        child: SizedBox.expand(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _DetailSection(
-                      title: 'Kategorie',
-                      child: Text(kategorie),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            selection.titel,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            selection.subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.black54,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    if (leistungen.isNotEmpty)
-                      _DetailSection(
-                        title: 'Leistungen',
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: leistungen
-                              .map(
-                                (entry) => Chip(
-                              label: Text(entry),
-                              backgroundColor: const Color(0xFFF3F4F8),
-                            ),
-                          )
-                              .toList(),
-                        ),
-                      ),
-                    if (methoden.isNotEmpty)
-                      _DetailSection(
-                        title: 'Varianten',
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: methoden
-                              .map(
-                                (entry) => Chip(
-                              label: Text(entry),
-                              backgroundColor: const Color(0xFFEFF4FF),
-                            ),
-                          )
-                              .toList(),
-                        ),
-                      ),
-                    if (zielgruppenBlocks.isNotEmpty)
-                      _DetailSection(
-                        title: hasEditableZielgruppen
-                            ? 'Zielgruppen (Preis & Dauer bearbeitbar)'
-                            : 'Zielgruppen',
-                        child: Column(
-                          children: zielgruppenBlocks
-                              .map(
-                                (block) => Container(
-                              width: double.infinity,
-                              margin: const EdgeInsets.only(bottom: 12),
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF8F9FB),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: const Color(0xFFE6E9F0),
-                                ),
-                              ),
-                              child: _EditableZielgruppeCard(
-                                key: ValueKey(
-                                  '${selection.docId}-${block.title}-${block.values['preis']}-${block.values['dauer']}-${block.varianten.length}',
-                                ),
-                                title: block.title,
-                                initialPreis: _toDouble(block.values['preis']),
-                                initialDauer: _toInt(block.values['dauer']),
-                                varianten: block.varianten,
-                                isSaving:
-                                _savingZielgruppeKey ==
-                                    '${selection.docId}::${block.title}',
-                                onSave: (preisText, dauerText) =>
-                                    _updateZielgruppeValues(
-                                      docId: selection.docId,
-                                      titel: selection.titel,
-                                      zielgruppe: block.title,
-                                      zielgruppenWerte: block.values,
-                                      preisText: preisText,
-                                      dauerText: dauerText,
-                                    ),
-                                isVariantSaving: (variantenTitel) =>
-                                _savingZielgruppeKey ==
-                                    '${selection.docId}::${block.title}::$variantenTitel',
-                                onVariantSave:
-                                    (variantenTitel, preisText, dauerText) =>
-                                    _updateVariantenValues(
-                                      docId: selection.docId,
-                                      titel: selection.titel,
-                                      zielgruppe: block.title,
-                                      variante: variantenTitel,
-                                      preisText: preisText,
-                                      dauerText: dauerText,
-                                    ),
-                              ),
-                            ),
-                          )
-                              .toList(),
-                        ),
-                      ),
+                    IconButton(
+                      tooltip: 'Schließen',
+                      onPressed: () => setState(() => _selectedDocId = null),
+                      icon: const Icon(Icons.close),
+                    ),
                   ],
                 ),
               ),
-            ),
-          ],
+              const Divider(height: 1),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _DetailSection(
+                        title: 'Kategorie',
+                        child: Text(
+                          kategorie,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (leistungen.isNotEmpty)
+                        _DetailSection(
+                          title: 'Leistungen',
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: leistungen
+                                .map(
+                                  (entry) => Chip(
+                                label: Text(
+                                  entry,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                backgroundColor: const Color(0xFFF3F4F8),
+                              ),
+                            )
+                                .toList(),
+                          ),
+                        ),
+                      if (methoden.isNotEmpty)
+                        _DetailSection(
+                          title: 'Varianten',
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: methoden
+                                .map(
+                                  (entry) => Chip(
+                                label: Text(
+                                  entry,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                backgroundColor: const Color(0xFFEFF4FF),
+                              ),
+                            )
+                                .toList(),
+                          ),
+                        ),
+                      if (zielgruppenBlocks.isNotEmpty)
+                        _DetailSection(
+                          title: hasEditableZielgruppen
+                              ? 'Zielgruppen (Preis & Dauer bearbeitbar)'
+                              : 'Zielgruppen',
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: zielgruppenBlocks
+                                .map(
+                                  (block) => Container(
+                                width: double.infinity,
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8F9FB),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: const Color(0xFFE6E9F0),
+                                  ),
+                                ),
+                                child: _EditableZielgruppeCard(
+                                  key: ValueKey(
+                                    '${selection.docId}-${block.title}-${block.values['preis']}-${block.values['dauer']}-${block.varianten.length}',
+                                  ),
+                                  title: block.title,
+                                  initialPreis: _toDouble(block.values['preis']),
+                                  initialDauer: _toInt(block.values['dauer']),
+                                  varianten: block.varianten,
+                                  isSaving:
+                                  _savingZielgruppeKey ==
+                                      '${selection.docId}::${block.title}',
+                                  onSave: (preisText, dauerText) =>
+                                      _updateZielgruppeValues(
+                                        docId: selection.docId,
+                                        titel: selection.titel,
+                                        zielgruppe: block.title,
+                                        zielgruppenWerte: block.values,
+                                        preisText: preisText,
+                                        dauerText: dauerText,
+                                      ),
+                                  isVariantSaving: (variantenTitel) =>
+                                  _savingZielgruppeKey ==
+                                      '${selection.docId}::${block.title}::$variantenTitel',
+                                  onVariantSave: (
+                                      variantenTitel,
+                                      preisText,
+                                      dauerText,
+                                      ) =>
+                                      _updateVariantenValues(
+                                        docId: selection.docId,
+                                        titel: selection.titel,
+                                        zielgruppe: block.title,
+                                        variante: variantenTitel,
+                                        preisText: preisText,
+                                        dauerText: dauerText,
+                                      ),
+                                ),
+                              ),
+                            )
+                                .toList(),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

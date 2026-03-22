@@ -1397,6 +1397,7 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
                                 ),
                               ],
                               child: Container(
+                                width: double.infinity,
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 14,
                                   vertical: 10,
@@ -1413,7 +1414,7 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
                                   ],
                                 ),
                                 child: Row(
-                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(
                                       widget.isProfileImageSaving
@@ -1423,14 +1424,14 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
                                       color: const Color(0xFF24C552),
                                     ),
                                     const SizedBox(width: 8),
-                                    Text(
-                                      'Bearbeiten',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelLarge
-                                          ?.copyWith(
-                                        color: const Color(0xFF24C552),
-                                        fontWeight: FontWeight.w700,
+                                    Flexible(
+                                      child: Text(
+                                        'Bearbeiten',
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                          color: const Color(0xFF24C552),
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                       ),
                                     ),
                                   ],
