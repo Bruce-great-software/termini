@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_angebote_page.dart';
 import 'dienstleister_edit_page.dart';
+import 'dienstleister_kalender_page.dart';
 
 class DienstleisterMainPage extends StatefulWidget {
   final String branche;
@@ -131,7 +132,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   Widget build(BuildContext context) {
     final pages = [
       _buildCurrentHomeContent(),
-      const Center(child: Text('Kalender kommt bald!')),
+      const DienstleisterKalenderPage(),
       const DienstleisterAngebotePage(showScaffold: false),
       _buildProfilPage(),
     ];
