@@ -98,17 +98,16 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   Widget _buildCalendarSidebar(ThemeData theme) {
     return Container(
       width: _calendarSidebarWidth,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE4E7EC)),
+      padding: const EdgeInsets.fromLTRB(0, 8, 16, 0),
+      decoration: const BoxDecoration(
+        border: Border(
+          right: BorderSide(color: Color(0xFFE4E7EC)),
+        ),
       ),
-      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildCreateButton(theme),
-          const SizedBox(height: 12),
           const Expanded(child: SizedBox()),
         ],
       ),
@@ -118,22 +117,23 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   Widget _buildCreateButton(ThemeData theme) {
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-      elevation: 2,
-      shadowColor: const Color(0x14000000),
+      borderRadius: BorderRadius.circular(16),
+      shadowColor: const Color(0x1A101828),
+      elevation: 1.5,
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         onTap: _showCreateAppointmentDialog,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.start,
             children: [
               const Icon(Icons.add, color: Color(0xFF101828), size: 22),
-              const SizedBox(width: 10),
-              Flexible(
+              const SizedBox(width: 12),
+              Expanded(
                 child: Text(
                   'Eintragen',
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w700,
