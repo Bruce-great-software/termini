@@ -18,7 +18,7 @@ class DienstleisterKalenderPage extends StatefulWidget {
 enum _KalenderViewMode { tag, woche, monat }
 
 class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
-  static const double _calendarSidebarWidth = 136;
+  static const double _calendarSidebarWidth = 188;
   static const double _timeColumnWidth = 72;
   static const double _hourRowHeight = 72;
   static const double _terminHorizontalPadding = 6;
