@@ -543,46 +543,53 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         left: (dayIndex * dayColumnWidth) + _terminHorizontalPadding,
         width: blockWidth,
         height: height - 4,
-        child: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: const Color(0xFFEAF2FF),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFB2CCFF)),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x12101828),
-                blurRadius: 10,
-                offset: Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.start,
-            children: [
-              Text(
-                termin.titel,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFF175CD3),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              if (height >= 54) ...[
-                const SizedBox(height: 4),
-                Text(
-                  '${termin.startZeit} - ${termin.endZeit}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF175CD3),
-                    fontWeight: FontWeight.w600,
+            onTap: () => _showEditAppointmentDialog(termin),
+            child: Ink(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF2FF),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFB2CCFF)),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x12101828),
+                    blurRadius: 10,
+                    offset: Offset(0, 4),
                   ),
-                ),
-              ],
-            ],
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  Text(
+                    termin.titel,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFF175CD3),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (height >= 54) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '${termin.startZeit} - ${termin.endZeit}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF175CD3),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
         ),
       );
@@ -590,16 +597,35 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   }
 
   Future<void> _showCreateAppointmentDialog() async {
+    await _showAppointmentDialog();
+  }
+
+  Future<void> _showEditAppointmentDialog(_TerminEntry termin) async {
+    await _showAppointmentDialog(initialTermin: termin);
+  }
+
+  Future<void> _showAppointmentDialog({
+    _TerminEntry? initialTermin,
+  }) async {
     final titleController = TextEditingController();
     final mitarbeiterFuture = _loadActiveMitarbeiter();
-    var selectedDate = _referenceDate;
-    var fromTime = const TimeOfDay(hour: 9, minute: 0);
-    var toTime = const TimeOfDay(hour: 10, minute: 0);
-    _MitarbeiterOption? selectedMitarbeiter;
+    final isEditMode = initialTermin != null;
+    var selectedDate =
+        initialTermin != null ? _dateOnly(initialTermin.startAt) : _referenceDate;
+    var fromTime = initialTermin != null
+        ? TimeOfDay.fromDateTime(initialTermin.startAt)
+        : const TimeOfDay(hour: 9, minute: 0);
+    var toTime = initialTermin != null
+        ? TimeOfDay.fromDateTime(initialTermin.endAt)
+        : const TimeOfDay(hour: 10, minute: 0);
+    _MitarbeiterOption? selectedMitarbeiter =
+        _buildInitialMitarbeiterOption(initialTermin);
     String? validationMessage;
     bool isSaving = false;
+    bool isDeleting = false;
     bool isLoadingMitarbeiter = true;
     bool hasMitarbeiter = false;
+    titleController.text = initialTermin?.titel ?? '';
 
     await showDialog<void>(
       context: context,
@@ -681,7 +707,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
               if (!endAt.isAfter(startAt)) {
                 setDialogState(() {
-                  validationMessage = 'Die Endzeit muss nach der Startzeit liegen.';
+                  validationMessage =
+                      'Die Endzeit muss nach der Startzeit liegen.';
                 });
                 _showSnackBar('Bis muss nach Von liegen.');
                 return;
@@ -692,13 +719,22 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 validationMessage = null;
               });
 
-              final saveResult = await _saveTermin(
-                titel: titel,
-                datum: selectedDate,
-                fromTime: fromTime,
-                toTime: toTime,
-                mitarbeiter: mitarbeiter,
-              );
+              final saveResult = isEditMode
+                  ? await _updateTermin(
+                      terminId: initialTermin!.id,
+                      titel: titel,
+                      datum: selectedDate,
+                      fromTime: fromTime,
+                      toTime: toTime,
+                      mitarbeiter: mitarbeiter,
+                    )
+                  : await _saveTermin(
+                      titel: titel,
+                      datum: selectedDate,
+                      fromTime: fromTime,
+                      toTime: toTime,
+                      mitarbeiter: mitarbeiter,
+                    );
 
               if (!mounted) {
                 return;
@@ -706,7 +742,11 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
               if (saveResult == null) {
                 Navigator.of(dialogContext).pop();
-                _showSnackBar('Termin erfolgreich gespeichert.');
+                _showSnackBar(
+                  isEditMode
+                      ? 'Termin erfolgreich aktualisiert.'
+                      : 'Termin erfolgreich gespeichert.',
+                );
                 return;
               }
 
@@ -717,29 +757,64 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
               _showSnackBar(saveResult);
             }
 
+            Future<void> handleDelete() async {
+              if (!isEditMode || isDeleting || isSaving) {
+                return;
+              }
+
+              setDialogState(() {
+                isDeleting = true;
+                validationMessage = null;
+              });
+
+              final deleteResult = await _deleteTermin(initialTermin!.id);
+
+              if (!mounted) {
+                return;
+              }
+
+              if (deleteResult == null) {
+                Navigator.of(dialogContext).pop();
+                _showSnackBar('Termin erfolgreich gelöscht.');
+                return;
+              }
+
+              setDialogState(() {
+                isDeleting = false;
+                validationMessage = deleteResult;
+              });
+              _showSnackBar(deleteResult);
+            }
+
             return AlertDialog(
-              title: const Text('Termin eintragen'),
+              title: Text(
+                isEditMode ? 'Termin bearbeiten' : 'Termin eintragen',
+              ),
               content: SizedBox(
                 width: 420,
                 child: FutureBuilder<List<_MitarbeiterOption>>(
                   future: mitarbeiterFuture,
                   builder: (context, mitarbeiterSnapshot) {
-                    final mitarbeiter = mitarbeiterSnapshot.data ?? const <_MitarbeiterOption>[];
+                    final mitarbeiter =
+                        mitarbeiterSnapshot.data ?? const <_MitarbeiterOption>[];
                     hasMitarbeiter = mitarbeiter.isNotEmpty;
                     isLoadingMitarbeiter =
                         mitarbeiterSnapshot.connectionState == ConnectionState.waiting;
                     final mitarbeiterError = mitarbeiterSnapshot.hasError
                         ? 'Mitarbeiter konnten nicht geladen werden.'
                         : null;
+                    final ausgewahlterMitarbeiter = _resolveSelectedMitarbeiter(
+                      mitarbeiter: mitarbeiter,
+                      selectedMitarbeiter: selectedMitarbeiter,
+                    );
 
-                    if (selectedMitarbeiter != null &&
-                        !mitarbeiter.any((item) => item.id == selectedMitarbeiter!.id)) {
+                    if (selectedMitarbeiter?.id != ausgewahlterMitarbeiter?.id) {
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         if (!mounted) {
                           return;
                         }
                         setDialogState(() {
-                          selectedMitarbeiter = null;
+                          selectedMitarbeiter = ausgewahlterMitarbeiter;
                         });
                       });
                     }
@@ -778,13 +853,15 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                                   child: CircularProgressIndicator(strokeWidth: 2),
                                 ),
                                 SizedBox(width: 12),
-                                Expanded(child: Text('Mitarbeiter werden geladen...')),
+                                Expanded(
+                                  child: Text('Mitarbeiter werden geladen...'),
+                                ),
                               ],
                             ),
                           )
                         else ...[
                           DropdownButtonFormField<String>(
-                            value: selectedMitarbeiter?.id,
+                            value: ausgewahlterMitarbeiter?.id,
                             decoration: const InputDecoration(
                               labelText: 'Mitarbeiter *',
                               border: OutlineInputBorder(),
@@ -798,7 +875,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                                   ),
                                 )
                                 .toList(growable: false),
-                            onChanged: hasMitarbeiter && !isSaving
+                            onChanged: hasMitarbeiter && !isSaving && !isDeleting
                                 ? (value) {
                                     setDialogState(() {
                                       selectedMitarbeiter = _findMitarbeiterById(
@@ -813,11 +890,15 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                           if (mitarbeiterError != null || !hasMitarbeiter) ...[
                             const SizedBox(height: 8),
                             Text(
-                              mitarbeiterError ?? 'Keine aktiven Mitarbeiter verfügbar.',
-                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: const Color(0xFFB42318),
-                                fontWeight: FontWeight.w600,
-                              ),
+                              mitarbeiterError ??
+                                  'Keine aktiven Mitarbeiter verfügbar.',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(
+                                    color: const Color(0xFFB42318),
+                                    fontWeight: FontWeight.w600,
+                                  ),
                             ),
                           ],
                         ],
@@ -847,10 +928,13 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                           const SizedBox(height: 16),
                           Text(
                             validationMessage!,
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: const Color(0xFFB42318),
-                              fontWeight: FontWeight.w600,
-                            ),
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(
+                                  color: const Color(0xFFB42318),
+                                  fontWeight: FontWeight.w600,
+                                ),
                           ),
                         ],
                       ],
@@ -859,20 +943,34 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 ),
               ),
               actions: [
+                if (isEditMode)
+                  TextButton(
+                    onPressed: isSaving || isDeleting ? null : handleDelete,
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFFB42318),
+                    ),
+                    child: isDeleting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Löschen'),
+                  ),
                 TextButton(
-                  onPressed: isSaving
+                  onPressed: isSaving || isDeleting
                       ? null
                       : () => Navigator.of(dialogContext).pop(),
                   child: const Text('Abbrechen'),
                 ),
                 FilledButton(
-                  onPressed: isSaving ? null : handleSave,
+                  onPressed: isSaving || isDeleting ? null : handleSave,
                   child: isSaving
                       ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : const Text('Speichern'),
                 ),
               ],
@@ -962,6 +1060,33 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     return null;
   }
 
+  _MitarbeiterOption? _buildInitialMitarbeiterOption(_TerminEntry? termin) {
+    final mitarbeiterId = termin?.mitarbeiterId?.trim();
+    if (mitarbeiterId == null || mitarbeiterId.isEmpty) {
+      return null;
+    }
+
+    final mitarbeiterName = termin?.mitarbeiterName?.trim();
+    return _MitarbeiterOption(
+      id: mitarbeiterId,
+      name: mitarbeiterName != null && mitarbeiterName.isNotEmpty
+          ? mitarbeiterName
+          : 'Unbekannter Mitarbeiter',
+    );
+  }
+
+  _MitarbeiterOption? _resolveSelectedMitarbeiter({
+    required List<_MitarbeiterOption> mitarbeiter,
+    required _MitarbeiterOption? selectedMitarbeiter,
+  }) {
+    final selectedId = selectedMitarbeiter?.id.trim();
+    if (selectedId == null || selectedId.isEmpty) {
+      return null;
+    }
+
+    return _findMitarbeiterById(mitarbeiter, selectedId);
+  }
+
   Future<String?> _saveTermin({
     required String titel,
     required DateTime datum,
@@ -1005,6 +1130,66 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       return error.message ?? 'Termin konnte nicht gespeichert werden.';
     } catch (_) {
       return 'Termin konnte nicht gespeichert werden.';
+    }
+  }
+
+  Future<String?> _updateTermin({
+    required String terminId,
+    required String titel,
+    required DateTime datum,
+    required TimeOfDay fromTime,
+    required TimeOfDay toTime,
+    required _MitarbeiterOption mitarbeiter,
+  }) async {
+    try {
+      final cleanedTerminId = terminId.trim();
+      if (cleanedTerminId.isEmpty) {
+        return 'Termin konnte nicht aktualisiert werden.';
+      }
+
+      final startAt = _combineDateAndTime(datum, fromTime);
+      final endAt = _combineDateAndTime(datum, toTime);
+
+      await FirebaseFirestore.instance
+          .collection('termine')
+          .doc(cleanedTerminId)
+          .update({
+        'mitarbeiterId': mitarbeiter.id,
+        'mitarbeiterName': mitarbeiter.name,
+        'titel': titel,
+        'datum': _formatDate(datum),
+        'startZeit': _formatTime(fromTime),
+        'endZeit': _formatTime(toTime),
+        'startAt': Timestamp.fromDate(startAt),
+        'endAt': Timestamp.fromDate(endAt),
+        'updatedAt': Timestamp.now(),
+      });
+
+      return null;
+    } on FirebaseException catch (error) {
+      return error.message ?? 'Termin konnte nicht aktualisiert werden.';
+    } catch (_) {
+      return 'Termin konnte nicht aktualisiert werden.';
+    }
+  }
+
+  Future<String?> _deleteTermin(String terminId) async {
+    try {
+      final cleanedTerminId = terminId.trim();
+      if (cleanedTerminId.isEmpty) {
+        return 'Termin konnte nicht gelöscht werden.';
+      }
+
+      await FirebaseFirestore.instance
+          .collection('termine')
+          .doc(cleanedTerminId)
+          .delete();
+
+      return null;
+    } on FirebaseException catch (error) {
+      return error.message ?? 'Termin konnte nicht gelöscht werden.';
+    } catch (_) {
+      return 'Termin konnte nicht gelöscht werden.';
     }
   }
 
@@ -1064,9 +1249,12 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     }
 
     return _TerminEntry(
+      id: doc.id,
       titel: titel,
       startAt: startAt,
       endAt: endAt,
+      mitarbeiterId: (data['mitarbeiterId'] as String?)?.trim(),
+      mitarbeiterName: (data['mitarbeiterName'] as String?)?.trim(),
       startZeit: startZeit?.isNotEmpty == true
           ? startZeit!
           : _formatTime(TimeOfDay.fromDateTime(startAt)),
@@ -1269,16 +1457,22 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 }
 
 class _TerminEntry {
+  final String id;
   final String titel;
   final DateTime startAt;
   final DateTime endAt;
+  final String? mitarbeiterId;
+  final String? mitarbeiterName;
   final String startZeit;
   final String endZeit;
 
   const _TerminEntry({
+    required this.id,
     required this.titel,
     required this.startAt,
     required this.endAt,
+    required this.mitarbeiterId,
+    required this.mitarbeiterName,
     required this.startZeit,
     required this.endZeit,
   });
