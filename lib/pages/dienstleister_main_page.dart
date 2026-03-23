@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_angebote_page.dart';
 import 'dienstleister_edit_page.dart';
+import 'dienstleister_kalender_page.dart';
 
 class DienstleisterMainPage extends StatefulWidget {
   final String branche;
@@ -48,6 +49,8 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   String? _pendingProfileImageMitarbeiterId;
   bool _isProfileImageUploading = false;
   bool _isInitializingOeffnungszeiten = false;
+  final GlobalKey<DienstleisterKalenderPageState> _calendarPageKey =
+      GlobalKey<DienstleisterKalenderPageState>();
 
   @override
   void initState() {
@@ -131,7 +134,10 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   Widget build(BuildContext context) {
     final pages = [
       _buildCurrentHomeContent(),
-      const Center(child: Text('Kalender kommt bald!')),
+      DienstleisterKalenderPage(
+        key: _calendarPageKey,
+        dienstleisterId: widget.dienstleisterId,
+      ),
       const DienstleisterAngebotePage(showScaffold: false),
       _buildProfilPage(),
     ];
@@ -242,10 +248,11 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       case 1:
         return [
           _SidebarItemData(
-            title: 'Kalender',
-            icon: Icons.calendar_today_outlined,
-            isSelected: true,
-            onTap: () => _onTabTapped(1),
+            title: 'Eintragen',
+            icon: Icons.add,
+            isSelected: false,
+            isActionButton: true,
+            onTap: () => _calendarPageKey.currentState?.showCreateAppointmentDialog(),
           ),
         ];
       case 2:
@@ -2709,12 +2716,14 @@ class _SidebarItemData {
     required this.icon,
     required this.isSelected,
     required this.onTap,
+    this.isActionButton = false,
   });
 
   final String title;
   final IconData icon;
   final bool isSelected;
   final VoidCallback onTap;
+  final bool isActionButton;
 }
 
 class _DesktopSidebar extends StatelessWidget {
@@ -2744,49 +2753,86 @@ class _DesktopSidebar extends StatelessWidget {
           for (var i = 0; i < items.length; i++) ...[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Material(
-                color: items[i].isSelected
-                    ? const Color(0xFFF4F4F4)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: items[i].onTap,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          items[i].icon,
-                          size: 18,
-                          color: items[i].isSelected
-                              ? selectedColor
-                              : Colors.grey.shade600,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            items[i].title,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.grey.shade900,
-                            ),
+              child: items[i].isActionButton
+                  ? Material(
+                      color: Colors.white,
+                      elevation: 1.5,
+                      shadowColor: const Color(0x1A101828),
+                      borderRadius: BorderRadius.circular(16),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: items[i].onTap,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 14,
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.add,
+                                size: 20,
+                                color: Color(0xFF101828),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  items[i].title,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF101828),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
+                      ),
+                    )
+                  : Material(
+                      color: items[i].isSelected
+                          ? const Color(0xFFF4F4F4)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: items[i].onTap,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 12,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                items[i].icon,
+                                size: 18,
+                                color: items[i].isSelected
+                                    ? selectedColor
+                                    : Colors.grey.shade600,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  items[i].title,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.grey.shade900,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ),
             ),
             if (i < items.length - 1) ...[
-              const SizedBox(height: 4),
+              SizedBox(height: items[i].isActionButton ? 10 : 4),
               const Divider(height: 1, color: Color(0xFFEFEFEF)),
-              const SizedBox(height: 4),
+              SizedBox(height: items[i].isActionButton ? 10 : 4),
             ],
           ],
         ],
