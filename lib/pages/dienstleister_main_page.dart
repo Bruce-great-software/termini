@@ -58,7 +58,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     if (uid != null) {
       _mitarbeiterStream = FirebaseFirestore.instance
           .collection('users')
-          .where('role', isEqualTo: 'mitarbeiter')
+          .where('rolle', isEqualTo: 'mitarbeiter')
           .where('dienstleisterId', isEqualTo: uid)
           .snapshots();
     }
@@ -1332,7 +1332,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
               try {
                 await FirebaseFirestore.instance.collection('users').add({
                   'name': name,
-                  'role': 'mitarbeiter',
+                  'rolle': 'mitarbeiter',
                   'dienstleisterId': user.uid,
                   'createdAt': FieldValue.serverTimestamp(),
                   'aktiv': true,
@@ -2516,11 +2516,7 @@ class _MitarbeiterImageEditorOverlayState
     _cropController.crop();
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _cropController.aspectRatio = _aspectRatio;
-  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -2648,15 +2644,7 @@ class _MitarbeiterImageEditorOverlayState
                               ),
                             ],
                             selected: {_aspectRatio},
-                            onSelectionChanged: widget.isSaving
-                                ? null
-                                : (selection) {
-                              if (selection.isEmpty) return;
-                              setState(() {
-                                _aspectRatio = selection.first;
-                              });
-                              _cropController.aspectRatio = _aspectRatio;
-                            },
+
                             style: ButtonStyle(
                               foregroundColor: MaterialStateProperty.all(
                                 Colors.white,

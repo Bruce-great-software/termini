@@ -688,6 +688,16 @@ class _BookingMitarbeiterOption {
   });
 }
 
+class _BookingTimeAvailability {
+  final List<String> times;
+  final String? message;
+
+  const _BookingTimeAvailability({
+    required this.times,
+    this.message,
+  });
+}
+
 // Key-Helfer: unterscheidet Zielgruppe!
 String _keyFor({
   required String zielgruppe,
@@ -978,18 +988,6 @@ class DienstleisterDetailPage extends StatefulWidget {
 }
 
 class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
-  static const List<String> _mockAvailableTimes = <String>[
-    '10:00',
-    '10:30',
-    '11:00',
-    '11:30',
-    '12:00',
-    '12:30',
-    '13:00',
-    '13:30',
-    '14:00',
-  ];
-
   String _zielgruppe = 'Damen';
 
   /// Auswahl als ValueNotifier -> verhindert kompletten Rebuild der Liste
@@ -1013,12 +1011,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   late DateTime _selectedBookingDate;
   String? _selectedBookingTime;
   late List<String> _availableBookingTimes;
+  String? _bookingTimesHint;
 
   @override
   void initState() {
     super.initState();
     _selectedBookingDate = _dateOnly(DateTime.now());
-    _availableBookingTimes = List<String>.from(_mockAvailableTimes);
+    _availableBookingTimes = const <String>[];
+    _bookingTimesHint = null;
   }
 
   @override
@@ -1848,9 +1848,167 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return DateTime(value.year, value.month, value.day);
   }
 
-  void _reloadMockBookingTimes() {
+  Future<Map<String, dynamic>?> _loadDienstleisterOeffnungszeiten() async {
+    final dienstleisterId = widget.dienstleister['id'] as String?;
+    if (dienstleisterId == null || dienstleisterId.trim().isEmpty) {
+      return null;
+    }
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(dienstleisterId)
+          .get();
+
+      final data = snapshot.data();
+      final rawOeffnungszeiten = data?['oeffnungszeiten'];
+      if (rawOeffnungszeiten is! Map) {
+        return null;
+      }
+
+      return Map<String, dynamic>.from(rawOeffnungszeiten);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _weekdayKeyFromDate(DateTime date) {
+    switch (date.weekday) {
+      case DateTime.monday:
+        return 'montag';
+      case DateTime.tuesday:
+        return 'dienstag';
+      case DateTime.wednesday:
+        return 'mittwoch';
+      case DateTime.thursday:
+        return 'donnerstag';
+      case DateTime.friday:
+        return 'freitag';
+      case DateTime.saturday:
+        return 'samstag';
+      case DateTime.sunday:
+        return 'sonntag';
+      default:
+        return '';
+    }
+  }
+
+  int? _parseHourMinute(String? value) {
+    final trimmed = value?.trim() ?? '';
+    if (trimmed.isEmpty) return null;
+
+    final parts = trimmed.split(':');
+    if (parts.length != 2) return null;
+
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) return null;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
+    return hour * 60 + minute;
+  }
+
+  String _formatHourMinute(int totalMinutes) {
+    final hour = (totalMinutes ~/ 60).toString().padLeft(2, '0');
+    final minute = (totalMinutes % 60).toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  int _selectedDurationMinutes({
+    required Map<String, _CartItem> singles,
+    required Map<String, _ComboSelection> combos,
+  }) {
+    var totalMinutes = 0;
+
+    for (final item in singles.values) {
+      totalMinutes += item.dauer ?? 0;
+    }
+    for (final combo in combos.values) {
+      totalMinutes += combo.dauer ?? 0;
+    }
+
+    return totalMinutes;
+  }
+
+  _BookingTimeAvailability _buildAvailabilityFromOpeningHours({
+    required Map<String, dynamic>? oeffnungszeiten,
+    required DateTime selectedDate,
+    required int totalDurationMinutes,
+  }) {
+    if (oeffnungszeiten == null || oeffnungszeiten.isEmpty) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Für diesen Tag sind keine Öffnungszeiten hinterlegt.',
+      );
+    }
+
+    final weekdayKey = _weekdayKeyFromDate(selectedDate);
+    final rawDay = oeffnungszeiten[weekdayKey];
+    if (rawDay is! Map) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Für diesen Tag sind keine Öffnungszeiten hinterlegt.',
+      );
+    }
+
+    final day = Map<String, dynamic>.from(rawDay);
+    final isActive = day['aktiv'] == true;
+    final fromMinutes = _parseHourMinute(day['von'] as String?);
+    final untilMinutes = _parseHourMinute(day['bis'] as String?);
+
+    if (!isActive) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'An diesem Tag ist geschlossen.',
+      );
+    }
+
+    if (fromMinutes == null ||
+        untilMinutes == null ||
+        untilMinutes <= fromMinutes) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Für diesen Tag sind keine Öffnungszeiten hinterlegt.',
+      );
+    }
+
+    final duration = totalDurationMinutes < 0 ? 0 : totalDurationMinutes;
+    final latestStart = untilMinutes - duration;
+    if (latestStart < fromMinutes) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Für die gewählte Auswahl sind an diesem Tag keine Zeiten verfügbar.',
+      );
+    }
+
+    final slots = <String>[];
+    for (var minutes = fromMinutes; minutes <= latestStart; minutes += 30) {
+      slots.add(_formatHourMinute(minutes));
+    }
+
+    if (slots.isEmpty) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Für die gewählte Auswahl sind an diesem Tag keine Zeiten verfügbar.',
+      );
+    }
+
+    return _BookingTimeAvailability(times: slots);
+  }
+
+  void _reloadBookingTimes({
+    required Map<String, dynamic>? oeffnungszeiten,
+    required int totalDurationMinutes,
+  }) {
+    final availability = _buildAvailabilityFromOpeningHours(
+      oeffnungszeiten: oeffnungszeiten,
+      selectedDate: _selectedBookingDate,
+      totalDurationMinutes: totalDurationMinutes,
+    );
+
     _selectedBookingTime = null;
-    _availableBookingTimes = List<String>.from(_mockAvailableTimes);
+    _availableBookingTimes = List<String>.from(availability.times);
+    _bookingTimesHint = availability.message;
   }
 
   String _formatBookingDate(DateTime date) {
@@ -1885,6 +2043,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   Future<void> _selectBookingDate({
     required BuildContext context,
+    required Map<String, dynamic>? oeffnungszeiten,
+    required int totalDurationMinutes,
   }) async {
     final pickedDate = await showDatePicker(
       context: context,
@@ -1897,13 +2057,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     setState(() {
       _selectedBookingDate = _dateOnly(pickedDate);
-      _reloadMockBookingTimes();
+      _reloadBookingTimes(
+        oeffnungszeiten: oeffnungszeiten,
+        totalDurationMinutes: totalDurationMinutes,
+      );
     });
   }
 
   Widget _buildDateTimeSection({
     required BuildContext context,
     required StateSetter setSheetState,
+    required Map<String, dynamic>? oeffnungszeiten,
+    required int totalDurationMinutes,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1920,7 +2085,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         InkWell(
           borderRadius: BorderRadius.circular(12),
           onTap: () async {
-            await _selectBookingDate(context: context);
+            await _selectBookingDate(
+              context: context,
+              oeffnungszeiten: oeffnungszeiten,
+              totalDurationMinutes: totalDurationMinutes,
+            );
             if (context.mounted) {
               setSheetState(() {});
             }
@@ -1987,14 +2156,24 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             );
           },
         ),
+        if (_availableBookingTimes.isEmpty && _bookingTimesHint != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            _bookingTimesHint!,
+            style: const TextStyle(
+              color: Colors.black54,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ],
     );
   }
 
   bool _isActiveEmployee(Map<String, dynamic> data) {
     final rolle = (data['rolle'] as String?)?.trim().toLowerCase();
-    final role = (data['role'] as String?)?.trim().toLowerCase();
-    return rolle == 'mitarbeiter' || role == 'mitarbeiter';
+    return rolle == 'mitarbeiter' ;
   }
 
   Widget _buildMitarbeiterAvatar({
@@ -2031,6 +2210,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   Future<void> _openMitarbeiterSelectionSheet({
     required BuildContext context,
+    required Map<String, dynamic>? oeffnungszeiten,
+    required int totalDurationMinutes,
   }) async {
     final dienstleisterId = widget.dienstleister['id'] as String;
 
@@ -2170,7 +2351,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     setState(() {
       _selectedMitarbeiterId = selectedOption.id;
       _selectedMitarbeiterLabel = selectedOption.label;
-      _reloadMockBookingTimes();
+      _reloadBookingTimes(
+        oeffnungszeiten: oeffnungszeiten,
+        totalDurationMinutes: totalDurationMinutes,
+      );
     });
   }
 
@@ -2501,6 +2685,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     double panelTotal = total;
     double panelSavings = savings;
+    final oeffnungszeiten = await _loadDienstleisterOeffnungszeiten();
+
+    if (mounted) {
+      setState(() {
+        _reloadBookingTimes(
+          oeffnungszeiten: oeffnungszeiten,
+          totalDurationMinutes: _selectedDurationMinutes(
+            singles: panelSingles,
+            combos: panelCombos,
+          ),
+        );
+      });
+    }
 
     await showGeneralDialog<void>(
       context: context,
@@ -2769,6 +2966,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                   );
                                                   panelTotal = totals.optimized;
                                                   panelSavings = totals.savings;
+                                                  _reloadBookingTimes(
+                                                    oeffnungszeiten: oeffnungszeiten,
+                                                    totalDurationMinutes:
+                                                    _selectedDurationMinutes(
+                                                      singles: singlesMap,
+                                                      combos: combosMap,
+                                                    ),
+                                                  );
 
                                                   if (entries.isEmpty) {
                                                     Navigator.of(ctx).pop();
@@ -2792,6 +2997,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 onTap: () async {
                                   await _openMitarbeiterSelectionSheet(
                                     context: ctx,
+                                    oeffnungszeiten: oeffnungszeiten,
+                                    totalDurationMinutes: _selectedDurationMinutes(
+                                      singles: panelSingles,
+                                      combos: panelCombos,
+                                    ),
                                   );
                                   if (ctx.mounted) {
                                     setSheetState(() {});
@@ -2827,6 +3037,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                               _buildDateTimeSection(
                                 context: ctx,
                                 setSheetState: setSheetState,
+                                oeffnungszeiten: oeffnungszeiten,
+                                totalDurationMinutes: _selectedDurationMinutes(
+                                  singles: panelSingles,
+                                  combos: panelCombos,
+                                ),
                               ),
                               if (suggestions.isNotEmpty) ...[
                                 if (entries.isNotEmpty)
