@@ -978,6 +978,18 @@ class DienstleisterDetailPage extends StatefulWidget {
 }
 
 class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
+  static const List<String> _mockAvailableTimes = <String>[
+    '10:00',
+    '10:30',
+    '11:00',
+    '11:30',
+    '12:00',
+    '12:30',
+    '13:00',
+    '13:30',
+    '14:00',
+  ];
+
   String _zielgruppe = 'Damen';
 
   /// Auswahl als ValueNotifier -> verhindert kompletten Rebuild der Liste
@@ -998,6 +1010,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   Map<String, List<Set<String>>> _comboDependencies = {};
   String? _selectedMitarbeiterId;
   String _selectedMitarbeiterLabel = 'Beliebiger Mitarbeiter';
+  late DateTime _selectedBookingDate;
+  String? _selectedBookingTime;
+  late List<String> _availableBookingTimes;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedBookingDate = _dateOnly(DateTime.now());
+    _availableBookingTimes = List<String>.from(_mockAvailableTimes);
+  }
 
   @override
   void dispose() {
@@ -1822,6 +1844,153 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   String _dauerText(int? d) => d == null ? '' : ' • ${d.toString()} Min';
 
+  DateTime _dateOnly(DateTime value) {
+    return DateTime(value.year, value.month, value.day);
+  }
+
+  void _reloadMockBookingTimes() {
+    _selectedBookingTime = null;
+    _availableBookingTimes = List<String>.from(_mockAvailableTimes);
+  }
+
+  String _formatBookingDate(DateTime date) {
+    const weekdays = <String>[
+      'Montag',
+      'Dienstag',
+      'Mittwoch',
+      'Donnerstag',
+      'Freitag',
+      'Samstag',
+      'Sonntag',
+    ];
+    const months = <String>[
+      'Januar',
+      'Februar',
+      'März',
+      'April',
+      'Mai',
+      'Juni',
+      'Juli',
+      'August',
+      'September',
+      'Oktober',
+      'November',
+      'Dezember',
+    ];
+
+    final weekday = weekdays[date.weekday - 1];
+    final month = months[date.month - 1];
+    return '$weekday, ${date.day}. $month';
+  }
+
+  Future<void> _selectBookingDate({
+    required BuildContext context,
+  }) async {
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: _selectedBookingDate,
+      firstDate: _dateOnly(DateTime.now()),
+      lastDate: _dateOnly(DateTime.now().add(const Duration(days: 365))),
+    );
+
+    if (!mounted || pickedDate == null) return;
+
+    setState(() {
+      _selectedBookingDate = _dateOnly(pickedDate);
+      _reloadMockBookingTimes();
+    });
+  }
+
+  Widget _buildDateTimeSection({
+    required BuildContext context,
+    required StateSetter setSheetState,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        const Text(
+          '2. Datum und Uhrzeit auswählen',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 16),
+        InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () async {
+            await _selectBookingDate(context: context);
+            if (context.mounted) {
+              setSheetState(() {});
+            }
+          },
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFDADDE5)),
+              color: Colors.white,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _formatBookingDate(_selectedBookingDate),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.keyboard_arrow_down),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: _availableBookingTimes.length,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: 2.15,
+          ),
+          itemBuilder: (context, index) {
+            final time = _availableBookingTimes[index];
+            final isSelected = _selectedBookingTime == time;
+
+            return Material(
+              color: isSelected ? Colors.black : const Color(0xFFF4F5F7),
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () {
+                  setState(() {
+                    _selectedBookingTime = time;
+                  });
+                  setSheetState(() {});
+                },
+                child: Center(
+                  child: Text(
+                    time,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: isSelected ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
   bool _isActiveEmployee(Map<String, dynamic> data) {
     final rolle = (data['rolle'] as String?)?.trim().toLowerCase();
     final role = (data['role'] as String?)?.trim().toLowerCase();
@@ -2001,6 +2170,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     setState(() {
       _selectedMitarbeiterId = selectedOption.id;
       _selectedMitarbeiterLabel = selectedOption.label;
+      _reloadMockBookingTimes();
     });
   }
 
@@ -2653,6 +2823,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     ],
                                   ),
                                 ),
+                              ),
+                              _buildDateTimeSection(
+                                context: ctx,
+                                setSheetState: setSheetState,
                               ),
                               if (suggestions.isNotEmpty) ...[
                                 if (entries.isNotEmpty)
