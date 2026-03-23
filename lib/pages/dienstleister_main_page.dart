@@ -150,7 +150,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           body: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (isDesktopLayout)
+              if (isDesktopLayout && _selectedIndex != 1)
                 _DesktopSidebar(
                   width: _desktopSidebarWidth,
                   items: sidebarItems,
