@@ -49,8 +49,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   String? _pendingProfileImageMitarbeiterId;
   bool _isProfileImageUploading = false;
   bool _isInitializingOeffnungszeiten = false;
-  final DienstleisterKalenderController _kalenderController =
-      DienstleisterKalenderController();
 
   @override
   void initState() {
@@ -134,11 +132,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   Widget build(BuildContext context) {
     final pages = [
       _buildCurrentHomeContent(),
-      DienstleisterKalenderPage(
-        dienstleisterId: widget.dienstleisterId,
-        useExternalDesktopSidebar: true,
-        controller: _kalenderController,
-      ),
+      DienstleisterKalenderPage(dienstleisterId: widget.dienstleisterId),
       const DienstleisterAngebotePage(showScaffold: false),
       _buildProfilPage(),
     ];
@@ -156,19 +150,10 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           body: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (isDesktopLayout)
+              if (isDesktopLayout && _selectedIndex != 1)
                 _DesktopSidebar(
                   width: _desktopSidebarWidth,
                   items: sidebarItems,
-                  header: _selectedIndex == 1
-                      ? Padding(
-                          padding: const EdgeInsets.fromLTRB(10, 14, 10, 0),
-                          child: KalenderEintragenButton(
-                            onTap:
-                                _kalenderController.openCreateAppointmentDialog,
-                          ),
-                        )
-                      : null,
                 ),
               Expanded(child: pages[_selectedIndex]),
             ],
@@ -256,7 +241,14 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           ),
         ];
       case 1:
-        return const [];
+        return [
+          _SidebarItemData(
+            title: 'Kalender',
+            icon: Icons.calendar_today_outlined,
+            isSelected: true,
+            onTap: () => _onTabTapped(1),
+          ),
+        ];
       case 2:
         return [
           _SidebarItemData(
@@ -2730,12 +2722,10 @@ class _DesktopSidebar extends StatelessWidget {
   const _DesktopSidebar({
     required this.width,
     required this.items,
-    this.header,
   });
 
   final double width;
   final List<_SidebarItemData> items;
-  final Widget? header;
 
   @override
   Widget build(BuildContext context) {
@@ -2751,8 +2741,7 @@ class _DesktopSidebar extends StatelessWidget {
       ),
       child: Column(
         children: [
-          if (header != null) header!,
-          if (header == null) const SizedBox(height: 14),
+          const SizedBox(height: 14),
           for (var i = 0; i < items.length; i++) ...[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10),

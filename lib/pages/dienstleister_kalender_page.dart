@@ -2,73 +2,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-class DienstleisterKalenderController {
-  VoidCallback? _openCreateAppointmentDialog;
-
-  void _bind(VoidCallback callback) {
-    _openCreateAppointmentDialog = callback;
-  }
-
-  void openCreateAppointmentDialog() {
-    _openCreateAppointmentDialog?.call();
-  }
-}
-
-class KalenderEintragenButton extends StatelessWidget {
-  const KalenderEintragenButton({
-    super.key,
-    required this.onTap,
-  });
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-      elevation: 2,
-      shadowColor: const Color(0x14000000),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.add, color: Color(0xFF101828), size: 22),
-              const SizedBox(width: 10),
-              Flexible(
-                child: Text(
-                  'Eintragen',
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFF101828),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class DienstleisterKalenderPage extends StatefulWidget {
   final String dienstleisterId;
-  final bool useExternalDesktopSidebar;
-  final DienstleisterKalenderController? controller;
 
   const DienstleisterKalenderPage({
     super.key,
     required this.dienstleisterId,
-    this.useExternalDesktopSidebar = false,
-    this.controller,
   });
 
   @override
@@ -114,15 +53,6 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   void initState() {
     super.initState();
     _referenceDate = _dateOnly(DateTime.now());
-    widget.controller?._bind(_showCreateAppointmentDialog);
-  }
-
-  @override
-  void didUpdateWidget(covariant DienstleisterKalenderPage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller != widget.controller) {
-      widget.controller?._bind(_showCreateAppointmentDialog);
-    }
   }
 
   @override
@@ -143,10 +73,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 return Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (!widget.useExternalDesktopSidebar) ...[
-                      _buildCalendarSidebar(theme),
-                      const SizedBox(width: 16),
-                    ],
+                    _buildCalendarSidebar(theme),
+                    const SizedBox(width: 16),
                     Expanded(child: _buildCalendarContent(theme)),
                   ],
                 );
@@ -188,7 +116,36 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   }
 
   Widget _buildCreateButton() {
-    return KalenderEintragenButton(onTap: _showCreateAppointmentDialog);
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      elevation: 2,
+      shadowColor: const Color(0x14000000),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: _showCreateAppointmentDialog,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.add, color: Color(0xFF101828), size: 22),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  'Eintragen',
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF101828),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildCalendarContent(ThemeData theme) {
