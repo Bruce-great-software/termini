@@ -248,12 +248,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       case 1:
         return [
           _SidebarItemData(
-            title: 'Kalender',
-            icon: Icons.calendar_today_outlined,
-            isSelected: true,
-            onTap: () => _onTabTapped(1),
-          ),
-          _SidebarItemData(
             title: 'Eintragen',
             icon: Icons.add,
             isSelected: false,
