@@ -678,6 +678,26 @@ class _ComboMethodOption {
   });
 }
 
+class _BookingMitarbeiterOption {
+  final String? id;
+  final String label;
+
+  const _BookingMitarbeiterOption({
+    required this.id,
+    required this.label,
+  });
+}
+
+class _BookingTimeAvailability {
+  final List<String> times;
+  final String? message;
+
+  const _BookingTimeAvailability({
+    required this.times,
+    this.message,
+  });
+}
+
 // Key-Helfer: unterscheidet Zielgruppe!
 String _keyFor({
   required String zielgruppe,
@@ -986,6 +1006,20 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   /// Abhängigkeiten für Kombi-Einzelteile (cat|partLc -> required parts)
   Map<String, List<Set<String>>> _comboDependencies = {};
+  String? _selectedMitarbeiterId;
+  String _selectedMitarbeiterLabel = 'Beliebiger Mitarbeiter';
+  late DateTime _selectedBookingDate;
+  String? _selectedBookingTime;
+  late List<String> _availableBookingTimes;
+  String? _bookingTimesHint;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedBookingDate = _dateOnly(DateTime.now());
+    _availableBookingTimes = const <String>[];
+    _bookingTimesHint = null;
+  }
 
   @override
   void dispose() {
@@ -1810,6 +1844,521 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   String _dauerText(int? d) => d == null ? '' : ' • ${d.toString()} Min';
 
+  DateTime _dateOnly(DateTime value) {
+    return DateTime(value.year, value.month, value.day);
+  }
+
+  Future<Map<String, dynamic>?> _loadDienstleisterOeffnungszeiten() async {
+    final dienstleisterId = widget.dienstleister['id'] as String?;
+    if (dienstleisterId == null || dienstleisterId.trim().isEmpty) {
+      return null;
+    }
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(dienstleisterId)
+          .get();
+
+      final data = snapshot.data();
+      final rawOeffnungszeiten = data?['oeffnungszeiten'];
+      if (rawOeffnungszeiten is! Map) {
+        return null;
+      }
+
+      return Map<String, dynamic>.from(rawOeffnungszeiten);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _weekdayKeyFromDate(DateTime date) {
+    switch (date.weekday) {
+      case DateTime.monday:
+        return 'montag';
+      case DateTime.tuesday:
+        return 'dienstag';
+      case DateTime.wednesday:
+        return 'mittwoch';
+      case DateTime.thursday:
+        return 'donnerstag';
+      case DateTime.friday:
+        return 'freitag';
+      case DateTime.saturday:
+        return 'samstag';
+      case DateTime.sunday:
+        return 'sonntag';
+      default:
+        return '';
+    }
+  }
+
+  int? _parseHourMinute(String? value) {
+    final trimmed = value?.trim() ?? '';
+    if (trimmed.isEmpty) return null;
+
+    final parts = trimmed.split(':');
+    if (parts.length != 2) return null;
+
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) return null;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
+    return hour * 60 + minute;
+  }
+
+  String _formatHourMinute(int totalMinutes) {
+    final hour = (totalMinutes ~/ 60).toString().padLeft(2, '0');
+    final minute = (totalMinutes % 60).toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  int _selectedDurationMinutes({
+    required Map<String, _CartItem> singles,
+    required Map<String, _ComboSelection> combos,
+  }) {
+    var totalMinutes = 0;
+
+    for (final item in singles.values) {
+      totalMinutes += item.dauer ?? 0;
+    }
+    for (final combo in combos.values) {
+      totalMinutes += combo.dauer ?? 0;
+    }
+
+    return totalMinutes;
+  }
+
+  _BookingTimeAvailability _buildAvailabilityFromOpeningHours({
+    required Map<String, dynamic>? oeffnungszeiten,
+    required DateTime selectedDate,
+    required int totalDurationMinutes,
+  }) {
+    if (oeffnungszeiten == null || oeffnungszeiten.isEmpty) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Für diesen Tag sind keine Öffnungszeiten hinterlegt.',
+      );
+    }
+
+    final weekdayKey = _weekdayKeyFromDate(selectedDate);
+    final rawDay = oeffnungszeiten[weekdayKey];
+    if (rawDay is! Map) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Für diesen Tag sind keine Öffnungszeiten hinterlegt.',
+      );
+    }
+
+    final day = Map<String, dynamic>.from(rawDay);
+    final isActive = day['aktiv'] == true;
+    final fromMinutes = _parseHourMinute(day['von'] as String?);
+    final untilMinutes = _parseHourMinute(day['bis'] as String?);
+
+    if (!isActive) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'An diesem Tag ist geschlossen.',
+      );
+    }
+
+    if (fromMinutes == null ||
+        untilMinutes == null ||
+        untilMinutes <= fromMinutes) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Für diesen Tag sind keine Öffnungszeiten hinterlegt.',
+      );
+    }
+
+    final duration = totalDurationMinutes < 0 ? 0 : totalDurationMinutes;
+    final latestStart = untilMinutes - duration;
+    if (latestStart < fromMinutes) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Für die gewählte Auswahl sind an diesem Tag keine Zeiten verfügbar.',
+      );
+    }
+
+    final slots = <String>[];
+    for (var minutes = fromMinutes; minutes <= latestStart; minutes += 30) {
+      slots.add(_formatHourMinute(minutes));
+    }
+
+    if (slots.isEmpty) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Für die gewählte Auswahl sind an diesem Tag keine Zeiten verfügbar.',
+      );
+    }
+
+    return _BookingTimeAvailability(times: slots);
+  }
+
+  void _reloadBookingTimes({
+    required Map<String, dynamic>? oeffnungszeiten,
+    required int totalDurationMinutes,
+  }) {
+    final availability = _buildAvailabilityFromOpeningHours(
+      oeffnungszeiten: oeffnungszeiten,
+      selectedDate: _selectedBookingDate,
+      totalDurationMinutes: totalDurationMinutes,
+    );
+
+    _selectedBookingTime = null;
+    _availableBookingTimes = List<String>.from(availability.times);
+    _bookingTimesHint = availability.message;
+  }
+
+  String _formatBookingDate(DateTime date) {
+    const weekdays = <String>[
+      'Montag',
+      'Dienstag',
+      'Mittwoch',
+      'Donnerstag',
+      'Freitag',
+      'Samstag',
+      'Sonntag',
+    ];
+    const months = <String>[
+      'Januar',
+      'Februar',
+      'März',
+      'April',
+      'Mai',
+      'Juni',
+      'Juli',
+      'August',
+      'September',
+      'Oktober',
+      'November',
+      'Dezember',
+    ];
+
+    final weekday = weekdays[date.weekday - 1];
+    final month = months[date.month - 1];
+    return '$weekday, ${date.day}. $month';
+  }
+
+  Future<void> _selectBookingDate({
+    required BuildContext context,
+    required Map<String, dynamic>? oeffnungszeiten,
+    required int totalDurationMinutes,
+  }) async {
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: _selectedBookingDate,
+      firstDate: _dateOnly(DateTime.now()),
+      lastDate: _dateOnly(DateTime.now().add(const Duration(days: 365))),
+    );
+
+    if (!mounted || pickedDate == null) return;
+
+    setState(() {
+      _selectedBookingDate = _dateOnly(pickedDate);
+      _reloadBookingTimes(
+        oeffnungszeiten: oeffnungszeiten,
+        totalDurationMinutes: totalDurationMinutes,
+      );
+    });
+  }
+
+  Widget _buildDateTimeSection({
+    required BuildContext context,
+    required StateSetter setSheetState,
+    required Map<String, dynamic>? oeffnungszeiten,
+    required int totalDurationMinutes,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        const Text(
+          '2. Datum und Uhrzeit auswählen',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 16),
+        InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () async {
+            await _selectBookingDate(
+              context: context,
+              oeffnungszeiten: oeffnungszeiten,
+              totalDurationMinutes: totalDurationMinutes,
+            );
+            if (context.mounted) {
+              setSheetState(() {});
+            }
+          },
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFDADDE5)),
+              color: Colors.white,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _formatBookingDate(_selectedBookingDate),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.keyboard_arrow_down),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: _availableBookingTimes.length,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: 2.15,
+          ),
+          itemBuilder: (context, index) {
+            final time = _availableBookingTimes[index];
+            final isSelected = _selectedBookingTime == time;
+
+            return Material(
+              color: isSelected ? Colors.black : const Color(0xFFF4F5F7),
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () {
+                  setState(() {
+                    _selectedBookingTime = time;
+                  });
+                  setSheetState(() {});
+                },
+                child: Center(
+                  child: Text(
+                    time,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: isSelected ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+        if (_availableBookingTimes.isEmpty && _bookingTimesHint != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            _bookingTimesHint!,
+            style: const TextStyle(
+              color: Colors.black54,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  bool _isActiveEmployee(Map<String, dynamic> data) {
+    final rolle = (data['rolle'] as String?)?.trim().toLowerCase();
+    final role = (data['role'] as String?)?.trim().toLowerCase();
+    return rolle == 'mitarbeiter' || role == 'mitarbeiter';
+  }
+
+  Widget _buildMitarbeiterAvatar({
+    required String name,
+    String? profileImageUrl,
+  }) {
+    final trimmedName = name.trim();
+    final trimmedUrl = profileImageUrl?.trim();
+
+    if (trimmedUrl != null && trimmedUrl.isNotEmpty) {
+      return CircleAvatar(
+        radius: 20,
+        backgroundColor: const Color(0xFFE5E7EB),
+        backgroundImage: NetworkImage(trimmedUrl),
+      );
+    }
+
+    final initial = trimmedName.isNotEmpty
+        ? trimmedName.characters.first.toUpperCase()
+        : '?';
+
+    return CircleAvatar(
+      radius: 20,
+      backgroundColor: Colors.black,
+      child: Text(
+        initial,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openMitarbeiterSelectionSheet({
+    required BuildContext context,
+    required Map<String, dynamic>? oeffnungszeiten,
+    required int totalDurationMinutes,
+  }) async {
+    final dienstleisterId = widget.dienstleister['id'] as String;
+
+    final selectedOption = await showModalBottomSheet<_BookingMitarbeiterOption>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection('users')
+                .where('dienstleisterId', isEqualTo: dienstleisterId)
+                .where('aktiv', isEqualTo: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              final mitarbeiterDocs = (snapshot.data?.docs ??
+                      const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+                  .where((doc) => _isActiveEmployee(doc.data()))
+                  .toList()
+                ..sort((a, b) {
+                  final nameA = (a.data()['name'] as String? ?? '').trim();
+                  final nameB = (b.data()['name'] as String? ?? '').trim();
+                  return nameA.toLowerCase().compareTo(nameB.toLowerCase());
+                });
+
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Mitarbeiter/in auswählen',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Flexible(
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: [
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Beliebiger Mitarbeiter'),
+                            trailing: Radio<String?>(
+                              value: null,
+                              groupValue: _selectedMitarbeiterId,
+                              onChanged: (_) {
+                                Navigator.of(sheetContext).pop(
+                                  const _BookingMitarbeiterOption(
+                                    id: null,
+                                    label: 'Beliebiger Mitarbeiter',
+                                  ),
+                                );
+                              },
+                            ),
+                            onTap: () {
+                              Navigator.of(sheetContext).pop(
+                                const _BookingMitarbeiterOption(
+                                  id: null,
+                                  label: 'Beliebiger Mitarbeiter',
+                                ),
+                              );
+                            },
+                          ),
+                          if (snapshot.connectionState == ConnectionState.waiting)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 24),
+                              child: Center(child: CircularProgressIndicator()),
+                            )
+                          else
+                            ...mitarbeiterDocs.map((doc) {
+                              final data = doc.data();
+                              final name =
+                                  (data['name'] as String?)?.trim().isNotEmpty == true
+                                  ? (data['name'] as String).trim()
+                                  : 'Unbenannt';
+                              final imageUrl =
+                                  (data['profileImageUrl'] as String?)?.trim();
+
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: _buildMitarbeiterAvatar(
+                                  name: name,
+                                  profileImageUrl: imageUrl,
+                                ),
+                                title: Text(name),
+                                trailing: Radio<String?>(
+                                  value: doc.id,
+                                  groupValue: _selectedMitarbeiterId,
+                                  onChanged: (_) {
+                                    Navigator.of(sheetContext).pop(
+                                      _BookingMitarbeiterOption(
+                                        id: doc.id,
+                                        label: name,
+                                      ),
+                                    );
+                                  },
+                                ),
+                                onTap: () {
+                                  Navigator.of(sheetContext).pop(
+                                    _BookingMitarbeiterOption(
+                                      id: doc.id,
+                                      label: name,
+                                    ),
+                                  );
+                                },
+                              );
+                            }),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    if (!mounted || selectedOption == null) return;
+
+    setState(() {
+      _selectedMitarbeiterId = selectedOption.id;
+      _selectedMitarbeiterLabel = selectedOption.label;
+      _reloadBookingTimes(
+        oeffnungszeiten: oeffnungszeiten,
+        totalDurationMinutes: totalDurationMinutes,
+      );
+    });
+  }
+
   Future<void> _openBookingSummaryPanel({
     required Map<String, _CartItem> singles,
     required Map<String, _ComboSelection> combos,
@@ -2137,6 +2686,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     double panelTotal = total;
     double panelSavings = savings;
+    final oeffnungszeiten = await _loadDienstleisterOeffnungszeiten();
+
+    if (mounted) {
+      setState(() {
+        _reloadBookingTimes(
+          oeffnungszeiten: oeffnungszeiten,
+          totalDurationMinutes: _selectedDurationMinutes(
+            singles: panelSingles,
+            combos: panelCombos,
+          ),
+        );
+      });
+    }
 
     await showGeneralDialog<void>(
       context: context,
@@ -2176,6 +2738,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           child: ListView(
                             padding: const EdgeInsets.all(16),
                             children: [
+                              const Text(
+                                '1. Ausgewählte Leistungen',
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
                               for (var i = 0; i < entries.length; i++) ...[
                                 if (i > 0)
                                   const SizedBox(height: 12),
@@ -2397,6 +2967,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                   );
                                                   panelTotal = totals.optimized;
                                                   panelSavings = totals.savings;
+                                                  _reloadBookingTimes(
+                                                    oeffnungszeiten: oeffnungszeiten,
+                                                    totalDurationMinutes:
+                                                        _selectedDurationMinutes(
+                                                      singles: singlesMap,
+                                                      combos: combosMap,
+                                                    ),
+                                                  );
 
                                                   if (entries.isEmpty) {
                                                     Navigator.of(ctx).pop();
@@ -2414,6 +2992,58 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   },
                                 ),
                               ],
+                              const SizedBox(height: 16),
+                              InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () async {
+                                  await _openMitarbeiterSelectionSheet(
+                                    context: ctx,
+                                    oeffnungszeiten: oeffnungszeiten,
+                                    totalDurationMinutes: _selectedDurationMinutes(
+                                      singles: panelSingles,
+                                      combos: panelCombos,
+                                    ),
+                                  );
+                                  if (ctx.mounted) {
+                                    setSheetState(() {});
+                                  }
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 14,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: const Color(0xFFDADDE5),
+                                    ),
+                                    color: Colors.white,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          _selectedMitarbeiterLabel,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                      const Icon(Icons.keyboard_arrow_down),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              _buildDateTimeSection(
+                                context: ctx,
+                                setSheetState: setSheetState,
+                                oeffnungszeiten: oeffnungszeiten,
+                                totalDurationMinutes: _selectedDurationMinutes(
+                                  singles: panelSingles,
+                                  combos: panelCombos,
+                                ),
+                              ),
                               if (suggestions.isNotEmpty) ...[
                                 if (entries.isNotEmpty)
                                   const SizedBox(height: 20),
