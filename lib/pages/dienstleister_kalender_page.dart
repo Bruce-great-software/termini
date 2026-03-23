@@ -837,15 +837,18 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     return FirebaseFirestore.instance
         .collection('termine')
         .where('dienstleisterId', isEqualTo: dienstleisterId)
-        .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfWeek))
-        .where('startAt', isLessThan: Timestamp.fromDate(endOfWeek))
-        .orderBy('startAt')
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs
+      final termine = snapshot.docs
           .map(_parseTermin)
           .whereType<_TerminEntry>()
+          .where((termin) =>
+      !termin.startAt.isBefore(startOfWeek) &&
+          termin.startAt.isBefore(endOfWeek))
           .toList(growable: false);
+
+      return List<_TerminEntry>.from(termine)
+        ..sort((a, b) => a.startAt.compareTo(b.startAt));
     });
   }
 
@@ -860,17 +863,22 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       return null;
     }
 
-    final startTimestamp = data['startAt'];
-    final endTimestamp = data['endAt'];
-    final startAt = startTimestamp is Timestamp ? startTimestamp.toDate() : null;
-    final endAt = endTimestamp is Timestamp ? endTimestamp.toDate() : null;
+    final startZeit = (data['startZeit'] as String?)?.trim();
+    final endZeit = (data['endZeit'] as String?)?.trim();
+    final startAt = _parseTerminDateTime(
+      dateValue: data['datum'],
+      timeValue: startZeit,
+      timestampValue: data['startAt'],
+    );
+    final endAt = _parseTerminDateTime(
+      dateValue: data['datum'],
+      timeValue: endZeit,
+      timestampValue: data['endAt'],
+    );
 
     if (startAt == null || endAt == null || !endAt.isAfter(startAt)) {
       return null;
     }
-
-    final startZeit = (data['startZeit'] as String?)?.trim();
-    final endZeit = (data['endZeit'] as String?)?.trim();
 
     return _TerminEntry(
       titel: titel,
@@ -883,6 +891,97 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
           ? endZeit!
           : _formatTime(TimeOfDay.fromDateTime(endAt)),
     );
+  }
+
+  DateTime? _parseTerminDateTime({
+    required dynamic dateValue,
+    required dynamic timeValue,
+    required dynamic timestampValue,
+  }) {
+    if (timestampValue is Timestamp) {
+      return timestampValue.toDate();
+    }
+
+    final parsedDate = _parseStoredDate(dateValue);
+    final parsedTime = _parseStoredTime(timeValue);
+
+    if (parsedDate == null || parsedTime == null) {
+      return null;
+    }
+
+    return DateTime(
+      parsedDate.year,
+      parsedDate.month,
+      parsedDate.day,
+      parsedTime.hour,
+      parsedTime.minute,
+    );
+  }
+
+  DateTime? _parseStoredDate(dynamic value) {
+    if (value is Timestamp) {
+      return _dateOnly(value.toDate());
+    }
+
+    if (value is DateTime) {
+      return _dateOnly(value);
+    }
+
+    if (value is String) {
+      final normalized = value.trim();
+      if (normalized.isEmpty) {
+        return null;
+      }
+
+      final parsed = DateTime.tryParse(normalized);
+      if (parsed != null) {
+        return _dateOnly(parsed);
+      }
+
+      final parts = normalized.split(RegExp(r'[-./]'));
+      if (parts.length == 3) {
+        final first = int.tryParse(parts[0]);
+        final second = int.tryParse(parts[1]);
+        final third = int.tryParse(parts[2]);
+
+        if (first != null && second != null && third != null) {
+          if (parts[0].length == 4) {
+            return DateTime(first, second, third);
+          }
+          return DateTime(third, second, first);
+        }
+      }
+    }
+
+    return null;
+  }
+
+  TimeOfDay? _parseStoredTime(dynamic value) {
+    if (value is Timestamp) {
+      return TimeOfDay.fromDateTime(value.toDate());
+    }
+
+    if (value is DateTime) {
+      return TimeOfDay.fromDateTime(value);
+    }
+
+    if (value is String) {
+      final normalized = value.trim();
+      if (normalized.isEmpty) {
+        return null;
+      }
+
+      final match = RegExp(r'^(\d{1,2}):(\d{2})').firstMatch(normalized);
+      if (match != null) {
+        final hour = int.tryParse(match.group(1)!);
+        final minute = int.tryParse(match.group(2)!);
+        if (hour != null && minute != null) {
+          return TimeOfDay(hour: hour, minute: minute);
+        }
+      }
+    }
+
+    return null;
   }
 
   void _showSnackBar(String message) {
