@@ -552,6 +552,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                       : (croppedBytes) => _speichereProfilbild(
                         docId: selection.docId,
                         croppedBytes: croppedBytes,
+                        previousProfileImagePath: selection.profileImagePath,
                       ),
                 ),
             ],
@@ -616,9 +617,17 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             docId: selection.docId,
             source: ImageSource.gallery,
           ),
+          onRemovePhoto: () => _entferneProfilbild(
+            docId: selection.docId,
+            currentProfileImagePath: selection.profileImagePath,
+          ),
         ),
       ),
     );
+  }
+
+  String _buildProfileImageStoragePath(String docId) {
+    return 'profile_images/$docId.jpg';
   }
 
   Future<void> _waehleProfilbild({
@@ -670,6 +679,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   Future<void> _speichereProfilbild({
     required String docId,
     required Uint8List croppedBytes,
+    String? previousProfileImagePath,
   }) async {
     if (_isProfileImageUploading) return;
 
@@ -677,13 +687,25 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       _isProfileImageUploading = true;
     });
 
-    const storagePathTemplate = 'profile_images/%s/profile.jpg';
-    final storagePath = storagePathTemplate.replaceFirst('%s', docId);
+    final storagePath = _buildProfileImageStoragePath(docId);
 
     try {
       final storageRef = FirebaseStorage.instance.ref().child(storagePath);
       await storageRef.putData(croppedBytes);
       final downloadUrl = await storageRef.getDownloadURL();
+
+      final previousPath = previousProfileImagePath?.trim();
+      if (previousPath != null &&
+          previousPath.isNotEmpty &&
+          previousPath != storagePath) {
+        try {
+          await FirebaseStorage.instance.ref().child(previousPath).delete();
+        } on FirebaseException catch (error) {
+          if (error.code != 'object-not-found') {
+            rethrow;
+          }
+        }
+      }
 
       await FirebaseFirestore.instance.collection('users').doc(docId).update({
         'profileImageUrl': downloadUrl,
@@ -703,6 +725,63 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Das Profilbild konnte nicht gespeichert werden.'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProfileImageUploading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _entferneProfilbild({
+    required String docId,
+    String? currentProfileImagePath,
+  }) async {
+    if (_isProfileImageUploading) return;
+
+    setState(() {
+      _isProfileImageUploading = true;
+    });
+
+    final existingPath = currentProfileImagePath?.trim();
+    final storagePath = existingPath != null && existingPath.isNotEmpty
+        ? existingPath
+        : _buildProfileImageStoragePath(docId);
+
+    try {
+      final storageRef = FirebaseStorage.instance.ref().child(storagePath);
+
+      try {
+        await storageRef.delete();
+      } on FirebaseException catch (error) {
+        if (error.code != 'object-not-found') {
+          rethrow;
+        }
+      }
+
+      await FirebaseFirestore.instance.collection('users').doc(docId).update({
+        'profileImageUrl': FieldValue.delete(),
+        'profileImagePath': FieldValue.delete(),
+      });
+
+      if (!mounted) return;
+      setState(() {
+        if (_pendingProfileImageMitarbeiterId == docId) {
+          _pendingProfileImageBytes = null;
+          _pendingProfileImageMitarbeiterId = null;
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profilbild entfernt.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Das Profilbild konnte nicht entfernt werden.'),
         ),
       );
     } finally {
@@ -1039,6 +1118,7 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
     required this.onDelete,
     required this.onTakePhoto,
     required this.onUploadPhoto,
+    required this.onRemovePhoto,
   });
 
   final String docId;
@@ -1054,6 +1134,7 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
   final Future<bool> Function() onDelete;
   final Future<void> Function() onTakePhoto;
   final Future<void> Function() onUploadPhoto;
+  final Future<void> Function() onRemovePhoto;
 
   @override
   State<_MitarbeiterDetailSidebar> createState() =>
@@ -1091,6 +1172,9 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
           break;
         case _ProfileImageMenuAction.uploadPhoto:
           await widget.onUploadPhoto();
+          break;
+        case _ProfileImageMenuAction.removePhoto:
+          await widget.onRemovePhoto();
           break;
       }
     });
@@ -1280,6 +1364,10 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
 
   @override
   Widget build(BuildContext context) {
+    final hasProfileImage =
+        (widget.profileImageUrl?.trim().isNotEmpty ?? false) ||
+        widget.localProfileImageBytes != null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1356,8 +1444,8 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
                         enabled: !widget.isProfileImageBusy,
                         tooltip: 'Profilbild bearbeiten',
                         onSelected: _handleProfileImageMenuSelection,
-                        itemBuilder: (context) => const [
-                          PopupMenuItem(
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
                             value: _ProfileImageMenuAction.takePhoto,
                             child: ListTile(
                               dense: true,
@@ -1366,13 +1454,23 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
                               title: Text('Foto aufnehmen'),
                             ),
                           ),
-                          PopupMenuItem(
+                          const PopupMenuItem(
                             value: _ProfileImageMenuAction.uploadPhoto,
                             child: ListTile(
                               dense: true,
                               contentPadding: EdgeInsets.zero,
                               leading: Icon(Icons.upload_outlined),
                               title: Text('Bild hochladen'),
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: _ProfileImageMenuAction.removePhoto,
+                            enabled: hasProfileImage,
+                            child: const ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.delete_outline),
+                              title: Text('Bild entfernen'),
                             ),
                           ),
                         ],
@@ -1554,7 +1652,7 @@ class _MitarbeiterSidebarSection extends StatelessWidget {
   }
 }
 
-enum _ProfileImageMenuAction { takePhoto, uploadPhoto }
+enum _ProfileImageMenuAction { takePhoto, uploadPhoto, removePhoto }
 
 class _MitarbeiterAvatar extends StatelessWidget {
   const _MitarbeiterAvatar({
