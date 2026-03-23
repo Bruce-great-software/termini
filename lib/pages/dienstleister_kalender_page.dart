@@ -18,7 +18,7 @@ class DienstleisterKalenderPage extends StatefulWidget {
 enum _KalenderViewMode { tag, woche, monat }
 
 class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
-  static const double _calendarSidebarWidth = 136;
+  static const double _calendarSidebarWidth = 188;
   static const double _timeColumnWidth = 72;
   static const double _hourRowHeight = 72;
   static const double _terminHorizontalPadding = 6;
@@ -83,7 +83,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _buildCreateButton(theme),
+                  _buildCreateButton(),
                   const SizedBox(height: 16),
                   Expanded(child: _buildCalendarContent(theme)),
                 ],
@@ -107,7 +107,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildCreateButton(theme),
+          _buildCreateButton(),
           const SizedBox(height: 12),
           const Expanded(child: SizedBox()),
         ],
@@ -115,7 +115,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     );
   }
 
-  Widget _buildCreateButton(ThemeData theme) {
+  Widget _buildCreateButton() {
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(18),
@@ -135,7 +135,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 child: Text(
                   'Eintragen',
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: const Color(0xFF101828),
                   ),
