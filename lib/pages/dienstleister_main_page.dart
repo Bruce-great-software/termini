@@ -28,15 +28,26 @@ class DienstleisterMainPage extends StatefulWidget {
 class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   static const double _desktopSidebarWidth = 188;
   static const double _desktopMitarbeiterDrawerWidth = 380;
+  static const List<_OeffnungszeitenTagDefinition> _tageDerWoche = [
+    _OeffnungszeitenTagDefinition(key: 'montag', label: 'Montag'),
+    _OeffnungszeitenTagDefinition(key: 'dienstag', label: 'Dienstag'),
+    _OeffnungszeitenTagDefinition(key: 'mittwoch', label: 'Mittwoch'),
+    _OeffnungszeitenTagDefinition(key: 'donnerstag', label: 'Donnerstag'),
+    _OeffnungszeitenTagDefinition(key: 'freitag', label: 'Freitag'),
+    _OeffnungszeitenTagDefinition(key: 'samstag', label: 'Samstag'),
+    _OeffnungszeitenTagDefinition(key: 'sonntag', label: 'Sonntag'),
+  ];
 
   int _selectedIndex = 0;
   int _selectedHomeSidebarIndex = 0;
   String? dienstleisterName;
   String? _selectedMitarbeiterId;
+  String? _selectedOeffnungszeitenTagKey;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _mitarbeiterStream;
   Uint8List? _pendingProfileImageBytes;
   String? _pendingProfileImageMitarbeiterId;
   bool _isProfileImageUploading = false;
+  bool _isInitializingOeffnungszeiten = false;
 
   @override
   void initState() {
@@ -173,9 +184,15 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   String _buildAppBarTitle() {
     switch (_selectedIndex) {
       case 0:
-        return _selectedHomeSidebarIndex == 1
-            ? 'Mitarbeiter'
-            : 'Hallo, ${dienstleisterName ?? '...'}';
+        switch (_selectedHomeSidebarIndex) {
+          case 1:
+            return 'Mitarbeiter';
+          case 2:
+            return 'Öffnungszeiten';
+          case 0:
+          default:
+            return 'Hallo, ${dienstleisterName ?? '...'}';
+        }
       case 1:
         return 'Kalender';
       case 2:
@@ -191,6 +208,8 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     switch (_selectedHomeSidebarIndex) {
       case 1:
         return _buildMitarbeiterPage();
+      case 2:
+        return _buildOeffnungszeitenPage();
       case 0:
       default:
         return _buildHomePage();
@@ -212,6 +231,12 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             icon: Icons.groups_2_outlined,
             isSelected: _selectedHomeSidebarIndex == 1,
             onTap: () => _onHomeSidebarTapped(1),
+          ),
+          _SidebarItemData(
+            title: 'Öffnungszeiten',
+            icon: Icons.access_time_outlined,
+            isSelected: _selectedHomeSidebarIndex == 2,
+            onTap: () => _onHomeSidebarTapped(2),
           ),
         ];
       case 1:
@@ -251,6 +276,344 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       child: Text(
         'Willkommen zurück, ${dienstleisterName ?? 'Dienstleister'}!',
         style: const TextStyle(fontSize: 20),
+      ),
+    );
+  }
+
+  Map<String, dynamic> _defaultOeffnungszeitenMap() {
+    return {
+      'montag': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
+      'dienstag': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
+      'mittwoch': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
+      'donnerstag': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
+      'freitag': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
+      'samstag': {'aktiv': false, 'von': '', 'bis': ''},
+      'sonntag': {'aktiv': false, 'von': '', 'bis': ''},
+    };
+  }
+
+  Map<String, dynamic> _normalizeOeffnungszeiten(Map<String, dynamic>? raw) {
+    final defaults = _defaultOeffnungszeitenMap();
+    final source = raw ?? const <String, dynamic>{};
+    final normalized = <String, dynamic>{};
+
+    for (final tag in _tageDerWoche) {
+      final defaultTag =
+          Map<String, dynamic>.from(defaults[tag.key] as Map<String, dynamic>);
+      final currentValue = source[tag.key];
+      final currentTag = currentValue is Map
+          ? Map<String, dynamic>.from(currentValue as Map)
+          : const <String, dynamic>{};
+
+      normalized[tag.key] = {
+        'aktiv': currentTag['aktiv'] is bool
+            ? currentTag['aktiv']
+            : defaultTag['aktiv'],
+        'von': (currentTag['von'] as String?)?.trim() ?? defaultTag['von'],
+        'bis': (currentTag['bis'] as String?)?.trim() ?? defaultTag['bis'],
+      };
+    }
+
+    return normalized;
+  }
+
+  bool _oeffnungszeitenNeedInitialization(Map<String, dynamic>? raw) {
+    if (raw == null) return true;
+
+    for (final tag in _tageDerWoche) {
+      final dayValue = raw[tag.key];
+      if (dayValue is! Map) {
+        return true;
+      }
+
+      final dayMap = Map<String, dynamic>.from(dayValue as Map);
+      if (dayMap['aktiv'] is! bool || dayMap['von'] is! String || dayMap['bis'] is! String) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  Future<void> _ensureOeffnungszeitenInitialized(Map<String, dynamic>? raw) async {
+    if (_isInitializingOeffnungszeiten) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || !_oeffnungszeitenNeedInitialization(raw)) return;
+
+    setState(() => _isInitializingOeffnungszeiten = true);
+
+    try {
+      final normalized = _normalizeOeffnungszeiten(raw);
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'oeffnungszeiten': normalized,
+      }, SetOptions(merge: true));
+    } finally {
+      if (mounted) {
+        setState(() => _isInitializingOeffnungszeiten = false);
+      }
+    }
+  }
+
+  String _buildOeffnungszeitenSubtitle(_OeffnungszeitenTag tag) {
+    if (!tag.aktiv) {
+      return 'Geschlossen';
+    }
+
+    final von = tag.von.trim();
+    final bis = tag.bis.trim();
+    if (von.isEmpty || bis.isEmpty) {
+      return 'Offen';
+    }
+
+    return 'Offen $von - $bis';
+  }
+
+  Widget _buildOeffnungszeitenPage() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return const Center(child: Text('Nicht eingeloggt.'));
+    }
+
+    final isDesktopLayout = MediaQuery.sizeOf(context).width >= 1100;
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final rawData = snapshot.data?.data();
+        final rawOeffnungszeiten = rawData?['oeffnungszeiten'];
+        final normalized = _normalizeOeffnungszeiten(
+          rawOeffnungszeiten is Map ? Map<String, dynamic>.from(rawOeffnungszeiten) : null,
+        );
+
+        if (_oeffnungszeitenNeedInitialization(
+          rawOeffnungszeiten is Map ? Map<String, dynamic>.from(rawOeffnungszeiten) : null,
+        )) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _ensureOeffnungszeitenInitialized(
+                rawOeffnungszeiten is Map
+                    ? Map<String, dynamic>.from(rawOeffnungszeiten)
+                    : null,
+              );
+            }
+          });
+        }
+
+        final tage = _tageDerWoche.map((tag) {
+          final values = Map<String, dynamic>.from(
+            normalized[tag.key] as Map<String, dynamic>,
+          );
+          return _OeffnungszeitenTag(
+            key: tag.key,
+            label: tag.label,
+            aktiv: values['aktiv'] == true,
+            von: (values['von'] as String?)?.trim() ?? '',
+            bis: (values['bis'] as String?)?.trim() ?? '',
+          );
+        }).toList();
+
+        _OeffnungszeitenTag? selectedTag;
+        for (final tag in tage) {
+          if (tag.key == _selectedOeffnungszeitenTagKey) {
+            selectedTag = tag;
+            break;
+          }
+        }
+
+        final listContent = _buildOeffnungszeitenListContent(
+          snapshot: snapshot,
+          tage: tage,
+          isDesktopLayout: isDesktopLayout,
+        );
+
+        if (!isDesktopLayout) {
+          return listContent;
+        }
+
+        return _buildOeffnungszeitenDesktopContent(
+          listContent: listContent,
+          selection: selectedTag,
+        );
+      },
+    );
+  }
+
+  Widget _buildOeffnungszeitenListContent({
+    required AsyncSnapshot<DocumentSnapshot<Map<String, dynamic>>> snapshot,
+    required List<_OeffnungszeitenTag> tage,
+    required bool isDesktopLayout,
+  }) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 900),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Verwalte deine Öffnungszeiten',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.black54,
+                ),
+              ),
+              const SizedBox(height: 40),
+              Text(
+                'Wochentage (${tage.length})',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              if (snapshot.connectionState == ConnectionState.waiting &&
+                  !snapshot.hasData)
+                const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (snapshot.hasError)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text(
+                      'Die Öffnungszeiten konnten nicht geladen werden.',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Card(
+                  child: Column(
+                    children: tage.asMap().entries.map((entry) {
+                      final index = entry.key;
+                      final tag = entry.value;
+                      final isSelected = tag.key == _selectedOeffnungszeitenTagKey;
+
+                      return Column(
+                        children: [
+                          Material(
+                            color: isSelected
+                                ? const Color(0xFFF5F8FF)
+                                : Colors.transparent,
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 12,
+                              ),
+                              horizontalTitleGap: 16,
+                              minLeadingWidth: 0,
+                              onTap: isDesktopLayout
+                                  ? () => setState(() {
+                                      _selectedOeffnungszeitenTagKey = tag.key;
+                                    })
+                                  : null,
+                              mouseCursor: isDesktopLayout
+                                  ? SystemMouseCursors.click
+                                  : MouseCursor.defer,
+                              hoverColor: const Color(0xFFF5F5F5),
+                              leading: Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF02152B),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: const Icon(
+                                  Icons.access_time_outlined,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              title: Text(
+                                tag.label,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(_buildOeffnungszeitenSubtitle(tag)),
+                              ),
+                              trailing: const Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                size: 20,
+                                color: Color(0xFF1F2937),
+                              ),
+                            ),
+                          ),
+                          if (index < tage.length - 1)
+                            const Divider(
+                              height: 1,
+                              indent: 20,
+                              endIndent: 20,
+                              color: Color(0xFFEEEEEE),
+                            ),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOeffnungszeitenDesktopContent({
+    required Widget listContent,
+    required _OeffnungszeitenTag? selection,
+  }) {
+    final drawerVisible = selection != null;
+
+    return Row(
+      children: [
+        Expanded(child: listContent),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          width: drawerVisible ? _desktopMitarbeiterDrawerWidth : 0,
+          child: drawerVisible
+              ? DecoratedBox(
+                  decoration: const BoxDecoration(
+                    border: Border(
+                      left: BorderSide(color: Color(0xFFE5E5E5)),
+                    ),
+                  ),
+                  child: _buildOeffnungszeitenDesktopDrawer(selection!),
+                )
+              : const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOeffnungszeitenDesktopDrawer(_OeffnungszeitenTag selection) {
+    return Material(
+      color: Colors.white,
+      elevation: 14,
+      child: SafeArea(
+        child: _OeffnungszeitenDetailSidebar(
+          key: ValueKey(selection.key),
+          day: selection,
+          onClose: () => setState(() => _selectedOeffnungszeitenTagKey = null),
+          onStatusChanged: (aktiv) => _speichereOeffnungszeitenStatus(
+            tagKey: selection.key,
+            aktiv: aktiv,
+          ),
+          onVonChanged: (zeit) => _speichereOeffnungszeitenZeit(
+            tagKey: selection.key,
+            feld: 'von',
+            zeit: zeit,
+          ),
+          onBisChanged: (zeit) => _speichereOeffnungszeitenZeit(
+            tagKey: selection.key,
+            feld: 'bis',
+            zeit: zeit,
+          ),
+        ),
       ),
     );
   }
@@ -793,6 +1156,63 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     }
   }
 
+  Future<bool> _speichereOeffnungszeitenStatus({
+    required String tagKey,
+    required bool aktiv,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return false;
+
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+        'oeffnungszeiten.$tagKey.aktiv': aktiv,
+      });
+
+      if (!mounted) return true;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Öffnungsstatus gespeichert.')),
+      );
+      return true;
+    } catch (_) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Der Öffnungsstatus konnte nicht gespeichert werden.'),
+        ),
+      );
+      return false;
+    }
+  }
+
+  Future<bool> _speichereOeffnungszeitenZeit({
+    required String tagKey,
+    required String feld,
+    required String zeit,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return false;
+
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+        'oeffnungszeiten.$tagKey.$feld': zeit,
+      });
+
+      if (!mounted) return true;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Uhrzeit gespeichert.')),
+      );
+      return true;
+    } catch (_) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Die Uhrzeit konnte nicht gespeichert werden.'),
+        ),
+      );
+      return false;
+    }
+  }
+
   Future<bool> _speichereMitarbeiterNamen({
     required String docId,
     required String name,
@@ -1100,6 +1520,32 @@ class _SelectedMitarbeiter {
   final bool aktiv;
   final String? profileImageUrl;
   final String? profileImagePath;
+}
+
+class _OeffnungszeitenTagDefinition {
+  const _OeffnungszeitenTagDefinition({
+    required this.key,
+    required this.label,
+  });
+
+  final String key;
+  final String label;
+}
+
+class _OeffnungszeitenTag {
+  const _OeffnungszeitenTag({
+    required this.key,
+    required this.label,
+    required this.aktiv,
+    required this.von,
+    required this.bis,
+  });
+
+  final String key;
+  final String label;
+  final bool aktiv;
+  final String von;
+  final String bis;
 }
 
 class _MitarbeiterDetailSidebar extends StatefulWidget {
@@ -1648,6 +2094,324 @@ class _MitarbeiterSidebarSection extends StatelessWidget {
           child,
         ],
       ),
+    );
+  }
+}
+
+class _OeffnungszeitenDetailSidebar extends StatefulWidget {
+  const _OeffnungszeitenDetailSidebar({
+    super.key,
+    required this.day,
+    required this.onClose,
+    required this.onStatusChanged,
+    required this.onVonChanged,
+    required this.onBisChanged,
+  });
+
+  final _OeffnungszeitenTag day;
+  final VoidCallback onClose;
+  final Future<bool> Function(bool aktiv) onStatusChanged;
+  final Future<bool> Function(String zeit) onVonChanged;
+  final Future<bool> Function(String zeit) onBisChanged;
+
+  @override
+  State<_OeffnungszeitenDetailSidebar> createState() =>
+      _OeffnungszeitenDetailSidebarState();
+}
+
+class _OeffnungszeitenDetailSidebarState
+    extends State<_OeffnungszeitenDetailSidebar> {
+  late bool _istAktiv;
+  late String _von;
+  late String _bis;
+  bool _isStatusSaving = false;
+  bool _isVonSaving = false;
+  bool _isBisSaving = false;
+
+  Future<void> _handleStatusChanged(bool value) async {
+    if (_isStatusSaving || value == _istAktiv) return;
+
+    final previous = _istAktiv;
+    setState(() {
+      _istAktiv = value;
+      _isStatusSaving = true;
+    });
+
+    final success = await widget.onStatusChanged(value);
+    if (!mounted) return;
+
+    setState(() {
+      if (!success) {
+        _istAktiv = previous;
+      }
+      _isStatusSaving = false;
+    });
+  }
+
+  Future<void> _pickTime({
+    required String title,
+    required String currentValue,
+    required bool isSaving,
+    required Future<bool> Function(String zeit) onSave,
+    required ValueSetter<String> onLocalUpdate,
+    required ValueSetter<bool> onSavingChanged,
+  }) async {
+    if (isSaving) return;
+
+    final initial = _parseTimeString(currentValue) ?? const TimeOfDay(hour: 9, minute: 0);
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initial,
+      helpText: title,
+    );
+
+    if (!mounted || picked == null) return;
+
+    final formatted = _formatTimeOfDay(picked);
+    final previous = currentValue;
+    setState(() {
+      onLocalUpdate(formatted);
+      onSavingChanged(true);
+    });
+
+    final success = await onSave(formatted);
+    if (!mounted) return;
+
+    setState(() {
+      if (!success) {
+        onLocalUpdate(previous);
+      }
+      onSavingChanged(false);
+    });
+  }
+
+  TimeOfDay? _parseTimeString(String value) {
+    final parts = value.split(':');
+    if (parts.length != 2) return null;
+
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) return null;
+
+    return TimeOfDay(hour: hour, minute: minute);
+  }
+
+  String _formatTimeOfDay(TimeOfDay value) {
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  Widget _buildTimeTile({
+    required String title,
+    required String value,
+    required bool isSaving,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: isSaving ? null : onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.black54,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      value.isEmpty ? 'Uhrzeit wählen' : value,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              isSaving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.schedule_outlined),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _istAktiv = widget.day.aktiv;
+    _von = widget.day.von;
+    _bis = widget.day.bis;
+  }
+
+  @override
+  void didUpdateWidget(covariant _OeffnungszeitenDetailSidebar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.day.key != widget.day.key ||
+        oldWidget.day.aktiv != widget.day.aktiv ||
+        oldWidget.day.von != widget.day.von ||
+        oldWidget.day.bis != widget.day.bis) {
+      _istAktiv = widget.day.aktiv;
+      _von = widget.day.von;
+      _bis = widget.day.bis;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Öffnungszeiten bearbeiten',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      widget.day.label,
+                      style: const TextStyle(
+                        color: Colors.black54,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Schließen',
+                onPressed: widget.onClose,
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _MitarbeiterSidebarSection(
+                  title: 'Status',
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 140),
+                    curve: Curves.easeInOut,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _istAktiv
+                          ? const Color(0x142EAD62)
+                          : const Color(0x14D92D20),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: _istAktiv
+                            ? const Color(0xFF2EAD62)
+                            : const Color(0xFFD92D20),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Switch(
+                          value: _istAktiv,
+                          onChanged: _isStatusSaving ? null : _handleStatusChanged,
+                          activeColor: Colors.white,
+                          activeTrackColor: const Color(0xFF2EAD62),
+                          inactiveThumbColor: Colors.white,
+                          inactiveTrackColor: const Color(0xFFD92D20),
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        const SizedBox(width: 12),
+                        AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 140),
+                          curve: Curves.easeInOut,
+                          style: Theme.of(context).textTheme.titleSmall!.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: _istAktiv
+                                    ? const Color(0xFF1F7A42)
+                                    : const Color(0xFFB42318),
+                              ),
+                          child: Text(_istAktiv ? 'Offen' : 'Geschlossen'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                _MitarbeiterSidebarSection(
+                  title: 'Von',
+                  child: _buildTimeTile(
+                    title: 'Startzeit',
+                    value: _von,
+                    isSaving: _isVonSaving,
+                    onTap: () => _pickTime(
+                      title: 'Von',
+                      currentValue: _von,
+                      isSaving: _isVonSaving,
+                      onSave: widget.onVonChanged,
+                      onLocalUpdate: (value) => _von = value,
+                      onSavingChanged: (saving) => _isVonSaving = saving,
+                    ),
+                  ),
+                ),
+                _MitarbeiterSidebarSection(
+                  title: 'Bis',
+                  child: _buildTimeTile(
+                    title: 'Endzeit',
+                    value: _bis,
+                    isSaving: _isBisSaving,
+                    onTap: () => _pickTime(
+                      title: 'Bis',
+                      currentValue: _bis,
+                      isSaving: _isBisSaving,
+                      onSave: widget.onBisChanged,
+                      onLocalUpdate: (value) => _bis = value,
+                      onSavingChanged: (saving) => _isBisSaving = saving,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
