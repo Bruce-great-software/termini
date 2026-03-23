@@ -11,14 +11,13 @@ class DienstleisterKalenderPage extends StatefulWidget {
   });
 
   @override
-  State<DienstleisterKalenderPage> createState() =>
-      _DienstleisterKalenderPageState();
+  DienstleisterKalenderPageState createState() =>
+      DienstleisterKalenderPageState();
 }
 
 enum _KalenderViewMode { tag, woche, monat }
 
-class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
-  static const double _calendarSidebarWidth = 136;
+class DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   static const double _timeColumnWidth = 72;
   static const double _hourRowHeight = 72;
   static const double _terminHorizontalPadding = 6;
@@ -70,14 +69,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
               final isWideLayout = constraints.maxWidth >= 980;
 
               if (isWideLayout) {
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _buildCalendarSidebar(theme),
-                    const SizedBox(width: 16),
-                    Expanded(child: _buildCalendarContent(theme)),
-                  ],
-                );
+                return _buildCalendarContent(theme);
               }
 
               return Column(
@@ -95,25 +87,6 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     );
   }
 
-  Widget _buildCalendarSidebar(ThemeData theme) {
-    return Container(
-      width: _calendarSidebarWidth,
-      padding: const EdgeInsets.fromLTRB(0, 8, 16, 0),
-      decoration: const BoxDecoration(
-        border: Border(
-          right: BorderSide(color: Color(0xFFE4E7EC)),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildCreateButton(theme),
-          const Expanded(child: SizedBox()),
-        ],
-      ),
-    );
-  }
-
   Widget _buildCreateButton(ThemeData theme) {
     return Material(
       color: Colors.white,
@@ -122,7 +95,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       elevation: 1.5,
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: _showCreateAppointmentDialog,
+        onTap: showCreateAppointmentDialog,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           child: Row(
@@ -579,7 +552,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     }).toList();
   }
 
-  Future<void> _showCreateAppointmentDialog() async {
+  Future<void> showCreateAppointmentDialog() async {
     final titleController = TextEditingController();
     var selectedDate = _referenceDate;
     var fromTime = const TimeOfDay(hour: 9, minute: 0);
