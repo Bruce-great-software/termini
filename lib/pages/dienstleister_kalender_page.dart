@@ -17,6 +17,16 @@ class DienstleisterKalenderPage extends StatefulWidget {
 
 enum _KalenderViewMode { tag, woche, monat }
 
+class _MitarbeiterOption {
+  final String id;
+  final String name;
+
+  const _MitarbeiterOption({
+    required this.id,
+    required this.name,
+  });
+}
+
 class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   static const double _calendarSidebarWidth = 188;
   static const double _timeColumnWidth = 72;
@@ -581,11 +591,15 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
   Future<void> _showCreateAppointmentDialog() async {
     final titleController = TextEditingController();
+    final mitarbeiterFuture = _loadActiveMitarbeiter();
     var selectedDate = _referenceDate;
     var fromTime = const TimeOfDay(hour: 9, minute: 0);
     var toTime = const TimeOfDay(hour: 10, minute: 0);
+    _MitarbeiterOption? selectedMitarbeiter;
     String? validationMessage;
     bool isSaving = false;
+    bool isLoadingMitarbeiter = true;
+    bool hasMitarbeiter = false;
 
     await showDialog<void>(
       context: context,
@@ -631,12 +645,37 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
               final titel = titleController.text.trim();
               final startAt = _combineDateAndTime(selectedDate, fromTime);
               final endAt = _combineDateAndTime(selectedDate, toTime);
+              final mitarbeiter = selectedMitarbeiter;
 
               if (titel.isEmpty) {
                 setDialogState(() {
                   validationMessage = 'Bitte gib einen Titel ein.';
                 });
                 _showSnackBar('Titel darf nicht leer sein.');
+                return;
+              }
+
+              if (isLoadingMitarbeiter) {
+                setDialogState(() {
+                  validationMessage = 'Mitarbeiter werden noch geladen.';
+                });
+                _showSnackBar('Bitte warte, bis die Mitarbeiter geladen sind.');
+                return;
+              }
+
+              if (!hasMitarbeiter) {
+                setDialogState(() {
+                  validationMessage = 'Keine aktiven Mitarbeiter verfügbar.';
+                });
+                _showSnackBar('Keine aktiven Mitarbeiter verfügbar.');
+                return;
+              }
+
+              if (mitarbeiter == null) {
+                setDialogState(() {
+                  validationMessage = 'Bitte wähle einen Mitarbeiter aus.';
+                });
+                _showSnackBar('Bitte wähle einen Mitarbeiter aus.');
                 return;
               }
 
@@ -658,6 +697,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 datum: selectedDate,
                 fromTime: fromTime,
                 toTime: toTime,
+                mitarbeiter: mitarbeiter,
               );
 
               if (!mounted) {
@@ -681,58 +721,141 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
               title: const Text('Termin eintragen'),
               content: SizedBox(
                 width: 420,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    TextField(
-                      controller: titleController,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Titel *',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildDialogPickerField(
-                      label: 'Datum',
-                      value: _formatDate(selectedDate),
-                      icon: Icons.calendar_today_outlined,
-                      onTap: pickDate,
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
+                child: FutureBuilder<List<_MitarbeiterOption>>(
+                  future: mitarbeiterFuture,
+                  builder: (context, mitarbeiterSnapshot) {
+                    final mitarbeiter = mitarbeiterSnapshot.data ?? const <_MitarbeiterOption>[];
+                    hasMitarbeiter = mitarbeiter.isNotEmpty;
+                    isLoadingMitarbeiter =
+                        mitarbeiterSnapshot.connectionState == ConnectionState.waiting;
+                    final mitarbeiterError = mitarbeiterSnapshot.hasError
+                        ? 'Mitarbeiter konnten nicht geladen werden.'
+                        : null;
+
+                    if (selectedMitarbeiter != null &&
+                        !mitarbeiter.any((item) => item.id == selectedMitarbeiter!.id)) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted) {
+                          return;
+                        }
+                        setDialogState(() {
+                          selectedMitarbeiter = null;
+                        });
+                      });
+                    }
+
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Expanded(
-                          child: _buildDialogPickerField(
-                            label: 'Von *',
-                            value: _formatTime(fromTime),
-                            icon: Icons.schedule,
-                            onTap: () => pickTime(isStartTime: true),
+                        TextField(
+                          controller: titleController,
+                          textInputAction: TextInputAction.next,
+                          decoration: const InputDecoration(
+                            labelText: 'Titel *',
+                            border: OutlineInputBorder(),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildDialogPickerField(
-                            label: 'Bis *',
-                            value: _formatTime(toTime),
-                            icon: Icons.schedule_outlined,
-                            onTap: () => pickTime(isStartTime: false),
-                          ),
+                        const SizedBox(height: 16),
+                        _buildDialogPickerField(
+                          label: 'Datum',
+                          value: _formatDate(selectedDate),
+                          icon: Icons.calendar_today_outlined,
+                          onTap: pickDate,
                         ),
+                        const SizedBox(height: 16),
+                        if (isLoadingMitarbeiter)
+                          const InputDecorator(
+                            decoration: InputDecoration(
+                              labelText: 'Mitarbeiter *',
+                              border: OutlineInputBorder(),
+                            ),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                                SizedBox(width: 12),
+                                Expanded(child: Text('Mitarbeiter werden geladen...')),
+                              ],
+                            ),
+                          )
+                        else ...[
+                          DropdownButtonFormField<String>(
+                            value: selectedMitarbeiter?.id,
+                            decoration: const InputDecoration(
+                              labelText: 'Mitarbeiter *',
+                              border: OutlineInputBorder(),
+                            ),
+                            isExpanded: true,
+                            items: mitarbeiter
+                                .map(
+                                  (item) => DropdownMenuItem<String>(
+                                value: item.id,
+                                child: Text(item.name),
+                              ),
+                            )
+                                .toList(growable: false),
+                            onChanged: hasMitarbeiter && !isSaving
+                                ? (value) {
+                              setDialogState(() {
+                                selectedMitarbeiter = _findMitarbeiterById(
+                                  mitarbeiter,
+                                  value,
+                                );
+                                validationMessage = null;
+                              });
+                            }
+                                : null,
+                          ),
+                          if (mitarbeiterError != null || !hasMitarbeiter) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              mitarbeiterError ?? 'Keine aktiven Mitarbeiter verfügbar.',
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: const Color(0xFFB42318),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ],
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildDialogPickerField(
+                                label: 'Von *',
+                                value: _formatTime(fromTime),
+                                icon: Icons.schedule,
+                                onTap: () => pickTime(isStartTime: true),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildDialogPickerField(
+                                label: 'Bis *',
+                                value: _formatTime(toTime),
+                                icon: Icons.schedule_outlined,
+                                onTap: () => pickTime(isStartTime: false),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (validationMessage != null) ...[
+                          const SizedBox(height: 16),
+                          Text(
+                            validationMessage!,
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: const Color(0xFFB42318),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ],
-                    ),
-                    if (validationMessage != null) ...[
-                      const SizedBox(height: 16),
-                      Text(
-                        validationMessage!,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: const Color(0xFFB42318),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ],
+                    );
+                  },
                 ),
               ),
               actions: [
@@ -782,11 +905,69 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     );
   }
 
+  Future<List<_MitarbeiterOption>> _loadActiveMitarbeiter() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final dienstleisterId = currentUser?.uid.trim().isNotEmpty == true
+        ? currentUser!.uid.trim()
+        : widget.dienstleisterId.trim();
+
+    if (dienstleisterId.isEmpty) {
+      return const <_MitarbeiterOption>[];
+    }
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('rolle', isEqualTo: 'mitarbeiter')
+          .where('dienstleisterId', isEqualTo: dienstleisterId)
+          .where('aktiv', isEqualTo: true)
+          .get();
+
+      final mitarbeiter = snapshot.docs
+          .map((doc) {
+        final data = doc.data();
+        final name = (data['name'] as String?)?.trim();
+        if (name == null || name.isEmpty) {
+          return null;
+        }
+
+        return _MitarbeiterOption(id: doc.id, name: name);
+      })
+          .whereType<_MitarbeiterOption>()
+          .toList(growable: false);
+
+      mitarbeiter.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      return mitarbeiter;
+    } on FirebaseException {
+      return const <_MitarbeiterOption>[];
+    } catch (_) {
+      return const <_MitarbeiterOption>[];
+    }
+  }
+
+  _MitarbeiterOption? _findMitarbeiterById(
+      List<_MitarbeiterOption> mitarbeiter,
+      String? id,
+      ) {
+    if (id == null || id.trim().isEmpty) {
+      return null;
+    }
+
+    for (final item in mitarbeiter) {
+      if (item.id == id) {
+        return item;
+      }
+    }
+
+    return null;
+  }
+
   Future<String?> _saveTermin({
     required String titel,
     required DateTime datum,
     required TimeOfDay fromTime,
     required TimeOfDay toTime,
+    required _MitarbeiterOption mitarbeiter,
   }) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -805,6 +986,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
       await FirebaseFirestore.instance.collection('termine').add({
         'dienstleisterId': dienstleisterId,
+        'mitarbeiterId': mitarbeiter.id,
+        'mitarbeiterName': mitarbeiter.name,
         'titel': titel,
         'datum': _formatDate(datum),
         'startZeit': _formatTime(fromTime),
