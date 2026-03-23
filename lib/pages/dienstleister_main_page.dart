@@ -132,7 +132,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   Widget build(BuildContext context) {
     final pages = [
       _buildCurrentHomeContent(),
-      const DienstleisterKalenderPage(),
+      DienstleisterKalenderPage(dienstleisterId: widget.dienstleisterId),
       const DienstleisterAngebotePage(showScaffold: false),
       _buildProfilPage(),
     ];
