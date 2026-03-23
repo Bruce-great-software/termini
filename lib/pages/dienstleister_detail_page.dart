@@ -678,6 +678,16 @@ class _ComboMethodOption {
   });
 }
 
+class _BookingMitarbeiterOption {
+  final String? id;
+  final String label;
+
+  const _BookingMitarbeiterOption({
+    required this.id,
+    required this.label,
+  });
+}
+
 // Key-Helfer: unterscheidet Zielgruppe!
 String _keyFor({
   required String zielgruppe,
@@ -986,6 +996,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   /// Abhängigkeiten für Kombi-Einzelteile (cat|partLc -> required parts)
   Map<String, List<Set<String>>> _comboDependencies = {};
+  String? _selectedMitarbeiterId;
+  String _selectedMitarbeiterLabel = 'Beliebiger Mitarbeiter';
 
   @override
   void dispose() {
@@ -1810,6 +1822,188 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   String _dauerText(int? d) => d == null ? '' : ' • ${d.toString()} Min';
 
+  bool _isActiveEmployee(Map<String, dynamic> data) {
+    final rolle = (data['rolle'] as String?)?.trim().toLowerCase();
+    final role = (data['role'] as String?)?.trim().toLowerCase();
+    return rolle == 'mitarbeiter' || role == 'mitarbeiter';
+  }
+
+  Widget _buildMitarbeiterAvatar({
+    required String name,
+    String? profileImageUrl,
+  }) {
+    final trimmedName = name.trim();
+    final trimmedUrl = profileImageUrl?.trim();
+
+    if (trimmedUrl != null && trimmedUrl.isNotEmpty) {
+      return CircleAvatar(
+        radius: 20,
+        backgroundColor: const Color(0xFFE5E7EB),
+        backgroundImage: NetworkImage(trimmedUrl),
+      );
+    }
+
+    final initial = trimmedName.isNotEmpty
+        ? trimmedName.characters.first.toUpperCase()
+        : '?';
+
+    return CircleAvatar(
+      radius: 20,
+      backgroundColor: Colors.black,
+      child: Text(
+        initial,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openMitarbeiterSelectionSheet({
+    required BuildContext context,
+  }) async {
+    final dienstleisterId = widget.dienstleister['id'] as String;
+
+    final selectedOption = await showModalBottomSheet<_BookingMitarbeiterOption>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection('users')
+                .where('dienstleisterId', isEqualTo: dienstleisterId)
+                .where('aktiv', isEqualTo: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              final mitarbeiterDocs = (snapshot.data?.docs ??
+                  const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+                  .where((doc) => _isActiveEmployee(doc.data()))
+                  .toList()
+                ..sort((a, b) {
+                  final nameA = (a.data()['name'] as String? ?? '').trim();
+                  final nameB = (b.data()['name'] as String? ?? '').trim();
+                  return nameA.toLowerCase().compareTo(nameB.toLowerCase());
+                });
+
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Mitarbeiter/in auswählen',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Flexible(
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: [
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Beliebiger Mitarbeiter'),
+                            trailing: Radio<String?>(
+                              value: null,
+                              groupValue: _selectedMitarbeiterId,
+                              onChanged: (_) {
+                                Navigator.of(sheetContext).pop(
+                                  const _BookingMitarbeiterOption(
+                                    id: null,
+                                    label: 'Beliebiger Mitarbeiter',
+                                  ),
+                                );
+                              },
+                            ),
+                            onTap: () {
+                              Navigator.of(sheetContext).pop(
+                                const _BookingMitarbeiterOption(
+                                  id: null,
+                                  label: 'Beliebiger Mitarbeiter',
+                                ),
+                              );
+                            },
+                          ),
+                          if (snapshot.connectionState == ConnectionState.waiting)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 24),
+                              child: Center(child: CircularProgressIndicator()),
+                            )
+                          else
+                            ...mitarbeiterDocs.map((doc) {
+                              final data = doc.data();
+                              final name =
+                              (data['name'] as String?)?.trim().isNotEmpty == true
+                                  ? (data['name'] as String).trim()
+                                  : 'Unbenannt';
+                              final imageUrl =
+                              (data['profileImageUrl'] as String?)?.trim();
+
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: _buildMitarbeiterAvatar(
+                                  name: name,
+                                  profileImageUrl: imageUrl,
+                                ),
+                                title: Text(name),
+                                trailing: Radio<String?>(
+                                  value: doc.id,
+                                  groupValue: _selectedMitarbeiterId,
+                                  onChanged: (_) {
+                                    Navigator.of(sheetContext).pop(
+                                      _BookingMitarbeiterOption(
+                                        id: doc.id,
+                                        label: name,
+                                      ),
+                                    );
+                                  },
+                                ),
+                                onTap: () {
+                                  Navigator.of(sheetContext).pop(
+                                    _BookingMitarbeiterOption(
+                                      id: doc.id,
+                                      label: name,
+                                    ),
+                                  );
+                                },
+                              );
+                            }),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    if (!mounted || selectedOption == null) return;
+
+    setState(() {
+      _selectedMitarbeiterId = selectedOption.id;
+      _selectedMitarbeiterLabel = selectedOption.label;
+    });
+  }
+
   Future<void> _openBookingSummaryPanel({
     required Map<String, _CartItem> singles,
     required Map<String, _ComboSelection> combos,
@@ -2176,6 +2370,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           child: ListView(
                             padding: const EdgeInsets.all(16),
                             children: [
+                              const Text(
+                                '1. Ausgewählte Leistungen',
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
                               for (var i = 0; i < entries.length; i++) ...[
                                 if (i > 0)
                                   const SizedBox(height: 12),
@@ -2414,6 +2616,44 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   },
                                 ),
                               ],
+                              const SizedBox(height: 16),
+                              InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () async {
+                                  await _openMitarbeiterSelectionSheet(
+                                    context: ctx,
+                                  );
+                                  if (ctx.mounted) {
+                                    setSheetState(() {});
+                                  }
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 14,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: const Color(0xFFDADDE5),
+                                    ),
+                                    color: Colors.white,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          _selectedMitarbeiterLabel,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                      const Icon(Icons.keyboard_arrow_down),
+                                    ],
+                                  ),
+                                ),
+                              ),
                               if (suggestions.isNotEmpty) ...[
                                 if (entries.isNotEmpty)
                                   const SizedBox(height: 20),
