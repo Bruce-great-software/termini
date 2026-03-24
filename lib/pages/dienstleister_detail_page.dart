@@ -1026,6 +1026,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String _bookingLoginName = '';
   String _bookingLoginEmail = '';
   String _bookingLoginPhone = '';
+  bool _isBookingLoginSyncInProgress = false;
+  String? _bookingLoginSyncedUid;
 
   @override
   void initState() {
@@ -2254,6 +2256,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       BuildContext context, {
         required StateSetter setSheetState,
       }) {
+    _ensureBookingLoginStateFromCurrentUser(setSheetState: setSheetState);
+
     final state = _bookingLoginState;
     void updateLoginSectionState(VoidCallback updater) {
       setState(updater);
@@ -2460,13 +2464,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   ),
                 ),
                 TextButton(
-                  onPressed: () {
-                    updateLoginSectionState(() {
-                      _bookingLoginState = _BookingLoginState.loginForm;
-                    });
-                  },
+                  onPressed: () => _handleBookingLogout(
+                    setSheetState: setSheetState,
+                  ),
                   child: const Text(
-                    'Bearbeiten',
+                    'Ausloggen',
                     style: TextStyle(
                       decoration: TextDecoration.underline,
                       fontWeight: FontWeight.w600,
@@ -2577,6 +2579,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         _bookingLoginEmail = profileEmail;
         _bookingLoginPhone = phoneNumber;
         _bookingLoginState = _BookingLoginState.loginSuccess;
+        _bookingLoginSyncedUid = user.uid;
       });
       setSheetState(() {});
     } on FirebaseAuthException catch (error) {
@@ -2602,6 +2605,118 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         setSheetState(() {});
       }
     }
+  }
+
+  Future<void> _handleBookingLogout({
+    required StateSetter setSheetState,
+  }) async {
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _bookingLoginState = _BookingLoginState.loginInitial;
+      _bookingLoginName = '';
+      _bookingLoginEmail = '';
+      _bookingLoginPhone = '';
+      _bookingLoginEmailController.clear();
+      _bookingLoginPasswordController.clear();
+      _bookingLoginObscurePassword = true;
+      _isBookingLoginLoading = false;
+      _bookingLoginSyncedUid = null;
+    });
+    setSheetState(() {});
+  }
+
+  void _ensureBookingLoginStateFromCurrentUser({
+    required StateSetter setSheetState,
+  }) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    if (currentUser == null) {
+      if (_bookingLoginState == _BookingLoginState.loginSuccess) {
+        setState(() {
+          _bookingLoginState = _BookingLoginState.loginInitial;
+          _bookingLoginName = '';
+          _bookingLoginEmail = '';
+          _bookingLoginPhone = '';
+          _bookingLoginSyncedUid = null;
+        });
+        setSheetState(() {});
+      }
+      return;
+    }
+
+    if (_isBookingLoginSyncInProgress) {
+      return;
+    }
+
+    if (_bookingLoginState == _BookingLoginState.loginSuccess &&
+        _bookingLoginSyncedUid == currentUser.uid) {
+      return;
+    }
+
+    _isBookingLoginSyncInProgress = true;
+
+    FirebaseFirestore.instance
+        .collection('users')
+        .doc(currentUser.uid)
+        .get()
+        .then((snapshot) {
+      if (!mounted) {
+        return;
+      }
+
+      final data = snapshot.data();
+      final email = (data?['email'] as String?)?.trim().isNotEmpty == true
+          ? (data?['email'] as String).trim()
+          : (currentUser.email ?? '').trim();
+      final name = (data?['name'] as String?)?.trim().isNotEmpty == true
+          ? (data?['name'] as String).trim()
+          : (email.isNotEmpty ? email : 'Kunde');
+      final phone = (data?['phoneNumber'] as String?)?.trim().isNotEmpty == true
+          ? (data?['phoneNumber'] as String).trim()
+          : (currentUser.phoneNumber ?? '').trim();
+
+      setState(() {
+        _bookingLoginName = name;
+        _bookingLoginEmail = email;
+        _bookingLoginPhone = phone;
+        _bookingLoginState = _BookingLoginState.loginSuccess;
+        _bookingLoginSyncedUid = currentUser.uid;
+      });
+      setSheetState(() {});
+    }).catchError((_) {
+      if (!mounted) {
+        return;
+      }
+
+      final fallbackEmail = (currentUser.email ?? '').trim();
+      final fallbackName = fallbackEmail.isNotEmpty ? fallbackEmail : 'Kunde';
+      final fallbackPhone = (currentUser.phoneNumber ?? '').trim();
+
+      setState(() {
+        _bookingLoginName = fallbackName;
+        _bookingLoginEmail = fallbackEmail;
+        _bookingLoginPhone = fallbackPhone;
+        _bookingLoginState = _BookingLoginState.loginSuccess;
+        _bookingLoginSyncedUid = currentUser.uid;
+      });
+      setSheetState(() {});
+    }).whenComplete(() {
+      _isBookingLoginSyncInProgress = false;
+    });
+  }
+
+  bool _canShowBookingConfirmButton({
+    required Map<String, _CartItem> singles,
+    required Map<String, _ComboSelection> combos,
+  }) {
+    final hasServices = singles.isNotEmpty || combos.isNotEmpty;
+    final hasDateTime = _selectedBookingTime != null;
+    final hasLoggedInUser = _bookingLoginState == _BookingLoginState.loginSuccess;
+    return hasServices && hasDateTime && hasLoggedInUser;
   }
 
   bool _isActiveEmployee(Map<String, dynamic> data) {
@@ -3913,6 +4028,39 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     ],
                                   ),
                                 ),
+                              if (_canShowBookingConfirmButton(
+                                singles: panelSingles,
+                                combos: panelCombos,
+                              )) ...[
+                                const SizedBox(height: 14),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton(
+                                    onPressed: () {
+                                      ScaffoldMessenger.of(ctx).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Buchung kann jetzt bestätigt werden.'),
+                                        ),
+                                      );
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      minimumSize: const Size.fromHeight(54),
+                                      backgroundColor: const Color(0xFF181A1F),
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                    child: const Text(
+                                      'Bestätigen',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
