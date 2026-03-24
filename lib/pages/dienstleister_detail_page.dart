@@ -2460,13 +2460,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   ),
                 ),
                 TextButton(
-                  onPressed: () {
-                    updateLoginSectionState(() {
-                      _bookingLoginState = _BookingLoginState.loginForm;
-                    });
-                  },
+                  onPressed: () => _handleBookingLogout(
+                    setSheetState: setSheetState,
+                  ),
                   child: const Text(
-                    'Bearbeiten',
+                    'Ausloggen',
                     style: TextStyle(
                       decoration: TextDecoration.underline,
                       fontWeight: FontWeight.w600,
@@ -2602,6 +2600,37 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         setSheetState(() {});
       }
     }
+  }
+
+  Future<void> _handleBookingLogout({
+    required StateSetter setSheetState,
+  }) async {
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _bookingLoginState = _BookingLoginState.loginInitial;
+      _bookingLoginName = '';
+      _bookingLoginEmail = '';
+      _bookingLoginPhone = '';
+      _bookingLoginEmailController.clear();
+      _bookingLoginPasswordController.clear();
+      _bookingLoginObscurePassword = true;
+      _isBookingLoginLoading = false;
+    });
+    setSheetState(() {});
+  }
+
+  bool _canShowBookingConfirmButton({
+    required Map<String, _CartItem> singles,
+    required Map<String, _ComboSelection> combos,
+  }) {
+    final hasServices = singles.isNotEmpty || combos.isNotEmpty;
+    final hasDateTime = _selectedBookingTime != null;
+    final hasLoggedInUser = _bookingLoginState == _BookingLoginState.loginSuccess;
+    return hasServices && hasDateTime && hasLoggedInUser;
   }
 
   bool _isActiveEmployee(Map<String, dynamic> data) {
@@ -3913,6 +3942,39 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                     ],
                                   ),
                                 ),
+                              if (_canShowBookingConfirmButton(
+                                singles: panelSingles,
+                                combos: panelCombos,
+                              )) ...[
+                                const SizedBox(height: 14),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton(
+                                    onPressed: () {
+                                      ScaffoldMessenger.of(ctx).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Buchung kann jetzt bestätigt werden.'),
+                                        ),
+                                      );
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      minimumSize: const Size.fromHeight(54),
+                                      backgroundColor: const Color(0xFF181A1F),
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                    child: const Text(
+                                      'Bestätigen',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
