@@ -8,11 +8,17 @@ import 'pages/alle_dienstleister_page.dart';
 import 'pages/dienstleister_main_page.dart';
 import 'pages/admin_page.dart';
 
-void main() async {
+import 'package:intl/date_symbol_data_local.dart';
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  await initializeDateFormatting('de_DE');
+
   runApp(const MyApp());
 }
 
