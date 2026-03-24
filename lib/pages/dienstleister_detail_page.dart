@@ -1,6 +1,7 @@
 // dienstleister_detail_page.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:flutter/cupertino.dart';
 import 'login_register_page.dart';
@@ -699,6 +700,8 @@ class _BookingTimeAvailability {
   });
 }
 
+enum _BookingLoginState { loginInitial, loginForm, loginSuccess }
+
 // Key-Helfer: unterscheidet Zielgruppe!
 String _keyFor({
   required String zielgruppe,
@@ -1013,6 +1016,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String? _selectedBookingTime;
   late List<String> _availableBookingTimes;
   String? _bookingTimesHint;
+  _BookingLoginState _bookingLoginState = _BookingLoginState.loginInitial;
+  final TextEditingController _bookingLoginEmailController =
+  TextEditingController();
+  final TextEditingController _bookingLoginPasswordController =
+  TextEditingController();
+  bool _isBookingLoginLoading = false;
+  bool _bookingLoginObscurePassword = true;
+  String _bookingLoginName = '';
+  String _bookingLoginEmail = '';
+  String _bookingLoginPhone = '';
 
   @override
   void initState() {
@@ -1027,6 +1040,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     _selectedVN.dispose();
     _selectedCombosVN.dispose();
     _expandedVariantGroupsVN.dispose();
+    _bookingLoginEmailController.dispose();
+    _bookingLoginPasswordController.dispose();
     super.dispose();
   }
 
@@ -2235,7 +2250,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     );
   }
 
-  Widget _buildLoginSection(BuildContext context) {
+  Widget _buildLoginSection(
+      BuildContext context, {
+        required StateSetter setSheetState,
+      }) {
+    final state = _bookingLoginState;
+    void updateLoginSectionState(VoidCallback updater) {
+      setState(updater);
+      setSheetState(() {});
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2251,83 +2275,251 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           ),
         ),
         const SizedBox(height: 18),
-        const Text(
-          'Neu bei Termini?',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF1D2939),
-          ),
-        ),
-        const SizedBox(height: 12),
-        OutlinedButton(
-          onPressed: () => _openLoginScreen(context),
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size.fromHeight(56),
-            side: const BorderSide(color: Color(0xFFBFC5D2)),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+        if (state == _BookingLoginState.loginInitial) ...[
+          const Text(
+            'Neu bei Termini?',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF1D2939),
             ),
           ),
-          child: const Text(
-            'Ein Konto erstellen',
+          const SizedBox(height: 12),
+          _buildCreateAccountButton(context),
+          const SizedBox(height: 16),
+          _buildLoginOrDivider(),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: () {
+              updateLoginSectionState(() {
+                _bookingLoginState = _BookingLoginState.loginForm;
+              });
+            },
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size.fromHeight(56),
+              backgroundColor: const Color(0xFF181A1F),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Einloggen',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ] else if (state == _BookingLoginState.loginForm) ...[
+          const Text(
+            'E-Mail *',
             style: TextStyle(
               fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF3A3F46),
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1D2939),
             ),
           ),
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: const [
-            Expanded(child: Divider(color: Color(0xFFDDE1E8), thickness: 1)),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12),
-              child: Text(
-                'ODER',
-                style: TextStyle(
-                  color: Color(0xFF7B8190),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
+          const SizedBox(height: 8),
+          TextField(
+            controller: _bookingLoginEmailController,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(hintText: 'E-Mail'),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Passwort *',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1D2939),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _bookingLoginPasswordController,
+            obscureText: _bookingLoginObscurePassword,
+            decoration: InputDecoration(
+              hintText: 'Passwort',
+              suffixIcon: IconButton(
+                onPressed: () {
+                  updateLoginSectionState(() {
+                    _bookingLoginObscurePassword = !_bookingLoginObscurePassword;
+                  });
+                },
+                icon: Icon(
+                  _bookingLoginObscurePassword
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
                 ),
               ),
             ),
-            Expanded(child: Divider(color: Color(0xFFDDE1E8), thickness: 1)),
-          ],
-        ),
-        const SizedBox(height: 16),
-        const Text(
-          'Sie haben bereits ein Planity-Konto?',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 18,
-            height: 1.2,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF262D34),
           ),
-        ),
-        const SizedBox(height: 14),
-        ElevatedButton(
-          onPressed: () => _openLoginScreen(context),
-          style: ElevatedButton.styleFrom(
-            minimumSize: const Size.fromHeight(56),
-            backgroundColor: const Color(0xFF181A1F),
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Passwort vergessen ist noch nicht verfügbar.')),
+                );
+              },
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                foregroundColor: const Color(0xFF262D34),
+              ),
+              child: const Text(
+                'Passwort vergessen?',
+                style: TextStyle(
+                  decoration: TextDecoration.underline,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ),
           ),
-          child: const Text(
-            'Einloggen',
+          const SizedBox(height: 8),
+          ElevatedButton(
+            onPressed: _isBookingLoginLoading
+                ? null
+                : () => _handleBookingLogin(setSheetState: setSheetState),
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size.fromHeight(56),
+              backgroundColor: const Color(0xFF181A1F),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: _isBookingLoginLoading
+                ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+                : const Text(
+              'Einloggen',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildLoginOrDivider(),
+          const SizedBox(height: 16),
+          _buildCreateAccountButton(context),
+        ] else ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            decoration: const BoxDecoration(
+              border: Border(
+                top: BorderSide(color: Color(0xFFE4E7EC)),
+                bottom: BorderSide(color: Color(0xFFE4E7EC)),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _bookingLoginName.isEmpty ? 'Kunde' : _bookingLoginName,
+                        style: const TextStyle(
+                          fontSize: 30,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1D2939),
+                        ),
+                      ),
+                      if (_bookingLoginEmail.isNotEmpty)
+                        Text(
+                          _bookingLoginEmail,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF667085),
+                          ),
+                        ),
+                      if (_bookingLoginPhone.isNotEmpty)
+                        Text(
+                          _bookingLoginPhone,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF667085),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    updateLoginSectionState(() {
+                      _bookingLoginState = _BookingLoginState.loginForm;
+                    });
+                  },
+                  child: const Text(
+                    'Bearbeiten',
+                    style: TextStyle(
+                      decoration: TextDecoration.underline,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF8B84F6),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildLoginOrDivider() {
+    return Row(
+      children: const [
+        Expanded(child: Divider(color: Color(0xFFDDE1E8), thickness: 1)),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12),
+          child: Text(
+            'ODER',
             style: TextStyle(
-              fontSize: 16,
+              color: Color(0xFF7B8190),
+              fontSize: 13,
               fontWeight: FontWeight.w700,
             ),
           ),
         ),
+        Expanded(child: Divider(color: Color(0xFFDDE1E8), thickness: 1)),
       ],
+    );
+  }
+
+  Widget _buildCreateAccountButton(BuildContext context) {
+    return OutlinedButton(
+      onPressed: () => _openLoginScreen(context),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(56),
+        side: const BorderSide(color: Color(0xFFBFC5D2)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+      child: const Text(
+        'Ein Konto erstellen',
+        style: TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF3A3F46),
+        ),
+      ),
     );
   }
 
@@ -2335,6 +2527,81 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const LoginRegisterPage()),
     );
+  }
+
+  Future<void> _handleBookingLogin({
+    required StateSetter setSheetState,
+  }) async {
+    final email = _bookingLoginEmailController.text.trim();
+    final password = _bookingLoginPasswordController.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bitte E-Mail und Passwort eingeben.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isBookingLoginLoading = true;
+    });
+    setSheetState(() {});
+
+    try {
+      final authResult = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      final user = authResult.user;
+      if (user == null) {
+        throw FirebaseAuthException(code: 'user-not-found');
+      }
+
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      final data = userDoc.data();
+      final name = (data?['name'] as String?)?.trim() ?? '';
+      final profileEmail = (data?['email'] as String?)?.trim() ?? user.email ?? '';
+      final phoneNumber = (data?['phoneNumber'] as String?)?.trim() ?? user.phoneNumber ?? '';
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _bookingLoginName = name;
+        _bookingLoginEmail = profileEmail;
+        _bookingLoginPhone = phoneNumber;
+        _bookingLoginState = _BookingLoginState.loginSuccess;
+      });
+      setSheetState(() {});
+    } on FirebaseAuthException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final message = error.message ?? 'Login fehlgeschlagen.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Login fehlgeschlagen.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBookingLoginLoading = false;
+        });
+        setSheetState(() {});
+      }
+    }
   }
 
   bool _isActiveEmployee(Map<String, dynamic> data) {
@@ -3210,7 +3477,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 ),
                               ),
                               if (_selectedBookingTime != null)
-                                _buildLoginSection(ctx),
+                                _buildLoginSection(
+                                  ctx,
+                                  setSheetState: setSheetState,
+                                ),
                               if (suggestions.isNotEmpty) ...[
                                 if (entries.isNotEmpty)
                                   const SizedBox(height: 20),
