@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_main_page.dart';
 import 'admin_page.dart';
+import 'sms_verification_page.dart';
 
 class LoginRegisterPage extends StatefulWidget {
   const LoginRegisterPage({super.key});
@@ -27,6 +28,20 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
       return;
     }
 
+    if (!isLoginMode && _emailController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bitte gib eine E-Mail ein.')),
+      );
+      return;
+    }
+
+    if (!isLoginMode && _passwordController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bitte gib ein Passwort ein.')),
+      );
+      return;
+    }
+
     setState(() => isLoading = true);
     try {
       UserCredential credential;
@@ -38,20 +53,8 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
           password: _passwordController.text.trim(),
         );
       } else {
-        credential = await auth.createUserWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
-        );
-
-        // Neuer Kunde wird in Firestore gespeichert
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(credential.user!.uid)
-            .set({
-          'email': _emailController.text.trim(),
-          'rolle': 'kunde',
-          'name': '',
-        });
+        await _startPhoneVerification();
+        return;
       }
 
       // Rolle prüfen
@@ -110,7 +113,114 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
         SnackBar(content: Text('Fehler: ${e.toString()}')),
       );
     }
-    setState(() => isLoading = false);
+    if (mounted) {
+      setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _startPhoneVerification() async {
+    final formattedPhone = _formatGermanPhoneNumber(_phoneController.text);
+    if (formattedPhone == null) {
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bitte gib eine gültige Handynummer ein.')),
+      );
+      return;
+    }
+
+    await FirebaseAuth.instance.verifyPhoneNumber(
+      phoneNumber: formattedPhone,
+      timeout: const Duration(seconds: 60),
+      verificationCompleted: (PhoneAuthCredential credential) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('SMS-Code wurde automatisch erkannt. Bitte bestätigen.'),
+          ),
+        );
+      },
+      verificationFailed: (FirebaseAuthException error) {
+        if (!mounted) {
+          return;
+        }
+        setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error.message ?? 'SMS konnte nicht gesendet werden.',
+            ),
+          ),
+        );
+      },
+      codeSent: (String verificationId, int? resendToken) {
+        if (!mounted) {
+          return;
+        }
+        setState(() => isLoading = false);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => SmsVerificationPage(
+              phoneNumberE164: formattedPhone,
+              email: _emailController.text.trim(),
+              password: _passwordController.text.trim(),
+              verificationId: verificationId,
+              resendToken: resendToken,
+            ),
+          ),
+        );
+      },
+      codeAutoRetrievalTimeout: (_) {
+        if (!mounted) {
+          return;
+        }
+        setState(() => isLoading = false);
+      },
+    );
+  }
+
+  String? _formatGermanPhoneNumber(String input) {
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+
+    final normalized = trimmed.replaceAll(RegExp(r'[\s\-\(\)]'), '');
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    if (normalized.startsWith('+')) {
+      final digits = normalized.substring(1);
+      if (digits.isEmpty || !RegExp(r'^\d+$').hasMatch(digits)) {
+        return null;
+      }
+      return '+$digits';
+    }
+
+    if (!RegExp(r'^\d+$').hasMatch(normalized)) {
+      return null;
+    }
+
+    if (normalized.startsWith('00')) {
+      final digits = normalized.substring(2);
+      return digits.isEmpty ? null : '+$digits';
+    }
+
+    if (normalized.startsWith('49')) {
+      return '+$normalized';
+    }
+
+    final local = normalized.replaceFirst(RegExp(r'^0+'), '');
+    if (local.isEmpty) {
+      return null;
+    }
+
+    return '+49$local';
   }
 
   @override
