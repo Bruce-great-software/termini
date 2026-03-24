@@ -979,12 +979,14 @@ class DienstleisterDetailPage extends StatefulWidget {
   final Map<String, dynamic> dienstleister;
   final String selektierteZielgruppe;
   final String selektierteKategorie;
+  final VoidCallback? onNavigateToTermine;
 
   const DienstleisterDetailPage({
     super.key,
     required this.dienstleister,
     required this.selektierteZielgruppe,
     required this.selektierteKategorie,
+    this.onNavigateToTermine,
   });
 
   @override
@@ -4139,13 +4141,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   width: double.infinity,
                                   child: ElevatedButton(
                                     onPressed: () {
-                                      ScaffoldMessenger.of(ctx).showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                            'Navigation zu „Zu meinen Terminen“ folgt im nächsten Schritt.',
-                                          ),
-                                        ),
-                                      );
+                                      Navigator.of(ctx).pop();
+                                      widget.onNavigateToTermine?.call();
                                     },
                                     style: ElevatedButton.styleFrom(
                                       minimumSize: const Size.fromHeight(54),
