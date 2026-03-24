@@ -2719,6 +2719,75 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return hasServices && hasDateTime && hasLoggedInUser;
   }
 
+  DateTime? _buildBookingStartAt({
+    required DateTime date,
+    required String time,
+  }) {
+    final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(time.trim());
+    if (match == null) {
+      return null;
+    }
+
+    final hour = int.tryParse(match.group(1)!);
+    final minute = int.tryParse(match.group(2)!);
+    if (hour == null || minute == null) {
+      return null;
+    }
+
+    return DateTime(date.year, date.month, date.day, hour, minute);
+  }
+
+  Future<bool> _hasBookingCollision({
+    required String mitarbeiterId,
+    required DateTime startAt,
+    required DateTime endAt,
+  }) async {
+    final dayStart = DateTime(startAt.year, startAt.month, startAt.day);
+    final dayEnd = dayStart.add(const Duration(days: 1));
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('termine')
+        .where('mitarbeiterId', isEqualTo: mitarbeiterId)
+        .where('startAt', isLessThan: Timestamp.fromDate(dayEnd))
+        .where('endAt', isGreaterThan: Timestamp.fromDate(dayStart))
+        .get();
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final existingStart = _bookingDateTimeFromDynamic(data['startAt']);
+      final existingEnd = _bookingDateTimeFromDynamic(data['endAt']);
+      if (existingStart == null || existingEnd == null) {
+        continue;
+      }
+      final overlaps = existingStart.isBefore(endAt) && existingEnd.isAfter(startAt);
+      if (overlaps) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  DateTime? _bookingDateTimeFromDynamic(dynamic value) {
+    if (value is Timestamp) {
+      return value.toDate();
+    }
+    if (value is DateTime) {
+      return value;
+    }
+    if (value is String) {
+      return DateTime.tryParse(value);
+    }
+    return null;
+  }
+
+  String _bookingDateIso(DateTime date) {
+    final year = date.year.toString().padLeft(4, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
+  }
+
   bool _isActiveEmployee(Map<String, dynamic> data) {
     final rolle = (data['rolle'] as String?)?.trim().toLowerCase();
     return rolle == 'mitarbeiter' ;
@@ -3233,6 +3302,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     double panelTotal = total;
     double panelSavings = savings;
+    bool isBookingSubmitting = false;
+    bool bookingSuccess = false;
+    Map<String, String> bookingSuccessSummary = {};
     final oeffnungszeiten = await _loadDienstleisterOeffnungszeiten();
 
     if (mounted) {
@@ -3282,7 +3354,82 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         ),
                         const Divider(height: 1),
                         Expanded(
-                          child: ListView(
+                          child: bookingSuccess
+                              ? ListView(
+                            padding: const EdgeInsets.all(16),
+                            children: [
+                              const Text(
+                                'Termin erfolgreich gebucht',
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF101828),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Container(
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF7F8FB),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: const Color(0xFFE4E7EC),
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      bookingSuccessSummary['datum'] ?? '',
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'um ${bookingSuccessSummary['zeit'] ?? ''}',
+                                      style: const TextStyle(
+                                        color: Color(0xFF667085),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      'bei ${bookingSuccessSummary['mitarbeiter'] ?? ''}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      bookingSuccessSummary['dienstleister'] ?? '',
+                                      style: const TextStyle(
+                                        color: Color(0xFF475467),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      bookingSuccessSummary['titel'] ?? '',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      bookingSuccessSummary['preis'] ?? '',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF181A1F),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          )
+                              : ListView(
                             padding: const EdgeInsets.all(16),
                             children: [
                               const Text(
@@ -3987,59 +4134,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                           child: Column(
                             children: [
-                              Row(
-                                mainAxisAlignment:
-                                MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text(
-                                    'Gesamt',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  Text(
-                                    _formatEuro(panelTotal),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              if (panelSavings > 0)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 6),
-                                  child: Row(
-                                    mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text(
-                                        'Dein Vorteil',
-                                        style: TextStyle(color: Colors.black54),
-                                      ),
-                                      Text(
-                                        '-${_formatEuro(panelSavings)}',
-                                        style: const TextStyle(
-                                          color: Colors.green,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              if (_canShowBookingConfirmButton(
-                                singles: panelSingles,
-                                combos: panelCombos,
-                              )) ...[
-                                const SizedBox(height: 14),
+                              if (bookingSuccess)
                                 SizedBox(
                                   width: double.infinity,
                                   child: ElevatedButton(
                                     onPressed: () {
                                       ScaffoldMessenger.of(ctx).showSnackBar(
                                         const SnackBar(
-                                          content: Text('Buchung kann jetzt bestätigt werden.'),
+                                          content: Text(
+                                            'Navigation zu „Zu meinen Terminen“ folgt im nächsten Schritt.',
+                                          ),
                                         ),
                                       );
                                     },
@@ -4052,14 +4156,315 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                       ),
                                     ),
                                     child: const Text(
-                                      'Bestätigen',
+                                      'Zu meinen Terminen',
                                       style: TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.w700,
                                       ),
                                     ),
                                   ),
+                                )
+                              else ...[
+                                Row(
+                                  mainAxisAlignment:
+                                  MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Gesamt',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                    Text(
+                                      _formatEuro(panelTotal),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ],
                                 ),
+                                if (panelSavings > 0)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        const Text(
+                                          'Dein Vorteil',
+                                          style: TextStyle(color: Colors.black54),
+                                        ),
+                                        Text(
+                                          '-${_formatEuro(panelSavings)}',
+                                          style: const TextStyle(
+                                            color: Colors.green,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                if (_canShowBookingConfirmButton(
+                                  singles: panelSingles,
+                                  combos: panelCombos,
+                                )) ...[
+                                  const SizedBox(height: 14),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: ElevatedButton(
+                                      onPressed: isBookingSubmitting
+                                          ? null
+                                          : () async {
+                                        if (entries.isEmpty) {
+                                          ScaffoldMessenger.of(ctx).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Bitte wählen Sie mindestens eine Leistung.'),
+                                            ),
+                                          );
+                                          return;
+                                        }
+
+                                        final selectedTime = _selectedBookingTime;
+                                        if (selectedTime == null ||
+                                            selectedTime.trim().isEmpty) {
+                                          ScaffoldMessenger.of(ctx).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Bitte wählen Sie eine Uhrzeit aus.'),
+                                            ),
+                                          );
+                                          return;
+                                        }
+
+                                        final currentUser = FirebaseAuth.instance.currentUser;
+                                        if (currentUser == null ||
+                                            _bookingLoginState != _BookingLoginState.loginSuccess) {
+                                          ScaffoldMessenger.of(ctx).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Bitte loggen Sie sich ein.'),
+                                            ),
+                                          );
+                                          return;
+                                        }
+
+                                        final mitarbeiterId =
+                                            _selectedMitarbeiterId?.trim() ?? '';
+                                        if (mitarbeiterId.isEmpty) {
+                                          ScaffoldMessenger.of(ctx).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Bitte wählen Sie einen Mitarbeiter aus.'),
+                                            ),
+                                          );
+                                          return;
+                                        }
+
+                                        final startAt = _buildBookingStartAt(
+                                          date: _selectedBookingDate,
+                                          time: selectedTime,
+                                        );
+                                        final durationMinutes =
+                                        _selectedDurationMinutes(
+                                          singles: panelSingles,
+                                          combos: panelCombos,
+                                        );
+
+                                        if (startAt == null || durationMinutes <= 0) {
+                                          ScaffoldMessenger.of(ctx).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Terminzeit konnte nicht ermittelt werden.'),
+                                            ),
+                                          );
+                                          return;
+                                        }
+
+                                        final endAt = startAt.add(
+                                          Duration(minutes: durationMinutes),
+                                        );
+                                        final kundeId = currentUser.uid.trim();
+                                        if (kundeId.isEmpty) {
+                                          ScaffoldMessenger.of(ctx).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Kundendaten konnten nicht ermittelt werden.'),
+                                            ),
+                                          );
+                                          return;
+                                        }
+
+                                        setSheetState(() {
+                                          isBookingSubmitting = true;
+                                        });
+
+                                        try {
+                                          final hasCollision =
+                                          await _hasBookingCollision(
+                                            mitarbeiterId: mitarbeiterId,
+                                            startAt: startAt,
+                                            endAt: endAt,
+                                          );
+
+                                          if (hasCollision) {
+                                            if (ctx.mounted) {
+                                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text(
+                                                    'Dieser Termin ist leider nicht mehr verfügbar. Bitte wählen Sie eine andere Uhrzeit.',
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                            return;
+                                          }
+
+                                          final dienstleisterId =
+                                          (widget.dienstleister['id'] as String? ?? '')
+                                              .trim();
+                                          if (dienstleisterId.isEmpty) {
+                                            ScaffoldMessenger.of(ctx).showSnackBar(
+                                              const SnackBar(
+                                                content: Text('Dienstleister konnte nicht ermittelt werden.'),
+                                              ),
+                                            );
+                                            return;
+                                          }
+
+                                          final dienstleisterName =
+                                          (widget.dienstleister['name']
+                                          as String? ??
+                                              widget
+                                                  .dienstleister['titel']
+                                              as String? ??
+                                              '')
+                                              .trim();
+                                          final mitarbeiterName =
+                                          _selectedMitarbeiterLabel.trim();
+                                          final kundeName =
+                                          _bookingLoginName.trim().isNotEmpty
+                                              ? _bookingLoginName.trim()
+                                              : (_bookingLoginEmail.trim().isNotEmpty
+                                              ? _bookingLoginEmail.trim()
+                                              : 'Kunde');
+                                          final kundeEmail =
+                                          _bookingLoginEmail.trim();
+                                          final kundePhone =
+                                          _bookingLoginPhone.trim();
+                                          final titel = entries
+                                              .map((entry) => entry.title)
+                                              .where((title) => title.trim().isNotEmpty)
+                                              .join(' • ');
+                                          final leistungen = entries
+                                              .map((entry) => entry.title)
+                                              .where((title) => title.trim().isNotEmpty)
+                                              .toList(growable: false);
+                                          final now = Timestamp.now();
+
+                                          await FirebaseFirestore.instance
+                                              .collection('termine')
+                                              .add({
+                                            'dienstleisterId': dienstleisterId,
+                                            'dienstleisterName': dienstleisterName,
+                                            'mitarbeiterId': mitarbeiterId,
+                                            'mitarbeiterName': mitarbeiterName,
+                                            'kundeId': kundeId,
+                                            'kundeName': kundeName,
+                                            'kundeEmail': kundeEmail,
+                                            'kundePhone': kundePhone,
+                                            'titel': titel,
+                                            'leistungen': leistungen,
+                                            'datum': _bookingDateIso(
+                                              _selectedBookingDate,
+                                            ),
+                                            'startZeit': selectedTime,
+                                            'endZeit': _formatHourMinute(
+                                              (endAt.hour * 60) + endAt.minute,
+                                            ),
+                                            'startAt': Timestamp.fromDate(
+                                              startAt,
+                                            ),
+                                            'endAt': Timestamp.fromDate(endAt),
+                                            'preisGesamt': panelTotal,
+                                            'dauerGesamt': durationMinutes,
+                                            'status': 'bestaetigt',
+                                            'quelle': 'kunde',
+                                            'createdAt': now,
+                                            'updatedAt': now,
+                                          });
+
+                                          if (!ctx.mounted) {
+                                            return;
+                                          }
+
+                                          setSheetState(() {
+                                            bookingSuccess = true;
+                                            bookingSuccessSummary = {
+                                              'datum':
+                                              _formatBookingDateWithYear(
+                                                _selectedBookingDate,
+                                              ),
+                                              'zeit': selectedTime,
+                                              'mitarbeiter': mitarbeiterName,
+                                              'dienstleister':
+                                              dienstleisterName,
+                                              'titel': titel,
+                                              'preis': _formatEuro(
+                                                panelTotal,
+                                              ),
+                                            };
+                                          });
+                                        } on FirebaseException catch (error) {
+                                          if (ctx.mounted) {
+                                            ScaffoldMessenger.of(ctx).showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  error.message ??
+                                                      'Buchung konnte nicht gespeichert werden.',
+                                                ),
+                                              ),
+                                            );
+                                          }
+                                        } catch (_) {
+                                          if (ctx.mounted) {
+                                            ScaffoldMessenger.of(ctx).showSnackBar(
+                                              const SnackBar(
+                                                content: Text('Buchung konnte nicht gespeichert werden.'),
+                                              ),
+                                            );
+                                          }
+                                        } finally {
+                                          if (ctx.mounted) {
+                                            setSheetState(() {
+                                              isBookingSubmitting = false;
+                                            });
+                                          }
+                                        }
+                                      },
+                                      style: ElevatedButton.styleFrom(
+                                        minimumSize: const Size.fromHeight(54),
+                                        backgroundColor: const Color(0xFF181A1F),
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                      ),
+                                      child: isBookingSubmitting
+                                          ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                          : const Text(
+                                        'Bestätigen',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ],
                             ],
                           ),
