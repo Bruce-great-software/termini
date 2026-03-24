@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:flutter/cupertino.dart';
+import 'login_register_page.dart';
 
 import 'dart:ui' show FontFeature;
 
@@ -2041,6 +2042,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return '$weekday, ${date.day}. $month';
   }
 
+  String _formatBookingDateWithYear(DateTime date) {
+    return '${_formatBookingDate(date)} ${date.year}';
+  }
+
   Future<void> _selectBookingDate({
     required BuildContext context,
     required Map<String, dynamic>? oeffnungszeiten,
@@ -2070,6 +2075,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required Map<String, dynamic>? oeffnungszeiten,
     required int totalDurationMinutes,
   }) {
+    final hasSelectedDateTime = _selectedBookingTime != null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2082,92 +2089,251 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           ),
         ),
         const SizedBox(height: 16),
-        InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () async {
-            await _selectBookingDate(
-              context: context,
-              oeffnungszeiten: oeffnungszeiten,
-              totalDurationMinutes: totalDurationMinutes,
-            );
-            if (context.mounted) {
-              setSheetState(() {});
-            }
-          },
-          child: Container(
+        if (!hasSelectedDateTime) ...[
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () async {
+              await _selectBookingDate(
+                context: context,
+                oeffnungszeiten: oeffnungszeiten,
+                totalDurationMinutes: totalDurationMinutes,
+              );
+              if (context.mounted) {
+                setSheetState(() {});
+              }
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFDADDE5)),
+                color: Colors.white,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _formatBookingDate(_selectedBookingDate),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.keyboard_arrow_down),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _availableBookingTimes.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 2.15,
+            ),
+            itemBuilder: (context, index) {
+              final time = _availableBookingTimes[index];
+              final isSelected = _selectedBookingTime == time;
+
+              return Material(
+                color: isSelected ? Colors.black : const Color(0xFFF4F5F7),
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    setState(() {
+                      _selectedBookingTime = time;
+                    });
+                    setSheetState(() {});
+                  },
+                  child: Center(
+                    child: Text(
+                      time,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: isSelected ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+          if (_availableBookingTimes.isEmpty && _bookingTimesHint != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _bookingTimesHint!,
+              style: const TextStyle(
+                color: Colors.black54,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ] else ...[
+          Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFDADDE5)),
-              color: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: const BoxDecoration(
+              border: Border(
+                top: BorderSide(color: Color(0xFFE4E7EC)),
+                bottom: BorderSide(color: Color(0xFFE4E7EC)),
+              ),
             ),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Text(
-                    _formatBookingDate(_selectedBookingDate),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _formatBookingDateWithYear(_selectedBookingDate),
+                        style: const TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF344054),
+                        ),
+                      ),
+                      Text(
+                        'um $_selectedBookingTime',
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF667085),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const Icon(Icons.keyboard_arrow_down),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _availableBookingTimes.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: 2.15,
-          ),
-          itemBuilder: (context, index) {
-            final time = _availableBookingTimes[index];
-            final isSelected = _selectedBookingTime == time;
-
-            return Material(
-              color: isSelected ? Colors.black : const Color(0xFFF4F5F7),
-              borderRadius: BorderRadius.circular(12),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () {
-                  setState(() {
-                    _selectedBookingTime = time;
-                  });
-                  setSheetState(() {});
-                },
-                child: Center(
-                  child: Text(
-                    time,
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _selectedBookingTime = null;
+                    });
+                    setSheetState(() {});
+                  },
+                  child: const Text(
+                    'Bearbeiten',
                     style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: isSelected ? Colors.white : Colors.black87,
+                      decoration: TextDecoration.underline,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF8B84F6),
                     ),
                   ),
                 ),
-              ),
-            );
-          },
-        ),
-        if (_availableBookingTimes.isEmpty && _bookingTimesHint != null) ...[
-          const SizedBox(height: 8),
-          Text(
-            _bookingTimesHint!,
-            style: const TextStyle(
-              color: Colors.black54,
-              fontSize: 13.5,
-              fontWeight: FontWeight.w500,
+              ],
             ),
           ),
         ],
       ],
+    );
+  }
+
+  Widget _buildLoginSection(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 18),
+        const Divider(height: 1, color: Color(0xFFE4E7EC)),
+        const SizedBox(height: 18),
+        const Text(
+          '3. Login',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF7269EA),
+          ),
+        ),
+        const SizedBox(height: 18),
+        const Text(
+          'Neu bei Termini?',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF1D2939),
+          ),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton(
+          onPressed: () => _openLoginScreen(context),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(56),
+            side: const BorderSide(color: Color(0xFFBFC5D2)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          child: const Text(
+            'Ein Konto erstellen',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF3A3F46),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: const [
+            Expanded(child: Divider(color: Color(0xFFDDE1E8), thickness: 1)),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                'ODER',
+                style: TextStyle(
+                  color: Color(0xFF7B8190),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Expanded(child: Divider(color: Color(0xFFDDE1E8), thickness: 1)),
+          ],
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          'Sie haben bereits ein Planity-Konto?',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 18,
+            height: 1.2,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF262D34),
+          ),
+        ),
+        const SizedBox(height: 14),
+        ElevatedButton(
+          onPressed: () => _openLoginScreen(context),
+          style: ElevatedButton.styleFrom(
+            minimumSize: const Size.fromHeight(56),
+            backgroundColor: const Color(0xFF181A1F),
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          child: const Text(
+            'Einloggen',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openLoginScreen(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const LoginRegisterPage()),
     );
   }
 
@@ -3043,6 +3209,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   combos: panelCombos,
                                 ),
                               ),
+                              if (_selectedBookingTime != null)
+                                _buildLoginSection(ctx),
                               if (suggestions.isNotEmpty) ...[
                                 if (entries.isNotEmpty)
                                   const SizedBox(height: 20),
