@@ -2250,8 +2250,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     );
   }
 
-  Widget _buildLoginSection(BuildContext context) {
+  Widget _buildLoginSection(
+    BuildContext context, {
+    required StateSetter setSheetState,
+  }) {
     final state = _bookingLoginState;
+    void updateLoginSectionState(VoidCallback updater) {
+      setState(updater);
+      setSheetState(() {});
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2285,7 +2292,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           const SizedBox(height: 16),
           ElevatedButton(
             onPressed: () {
-              setState(() {
+              updateLoginSectionState(() {
                 _bookingLoginState = _BookingLoginState.loginForm;
               });
             },
@@ -2337,7 +2344,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               hintText: 'Passwort',
               suffixIcon: IconButton(
                 onPressed: () {
-                  setState(() {
+                  updateLoginSectionState(() {
                     _bookingLoginObscurePassword = !_bookingLoginObscurePassword;
                   });
                 },
@@ -2374,7 +2381,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           ),
           const SizedBox(height: 8),
           ElevatedButton(
-            onPressed: _isBookingLoginLoading ? null : _handleBookingLogin,
+            onPressed: _isBookingLoginLoading
+                ? null
+                : () => _handleBookingLogin(setSheetState: setSheetState),
             style: ElevatedButton.styleFrom(
               minimumSize: const Size.fromHeight(56),
               backgroundColor: const Color(0xFF181A1F),
@@ -2452,7 +2461,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 ),
                 TextButton(
                   onPressed: () {
-                    setState(() {
+                    updateLoginSectionState(() {
                       _bookingLoginState = _BookingLoginState.loginForm;
                     });
                   },
@@ -2520,7 +2529,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     );
   }
 
-  Future<void> _handleBookingLogin() async {
+  Future<void> _handleBookingLogin({
+    required StateSetter setSheetState,
+  }) async {
     final email = _bookingLoginEmailController.text.trim();
     final password = _bookingLoginPasswordController.text.trim();
 
@@ -2534,6 +2545,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     setState(() {
       _isBookingLoginLoading = true;
     });
+    setSheetState(() {});
 
     try {
       final authResult = await FirebaseAuth.instance.signInWithEmailAndPassword(
@@ -2566,6 +2578,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         _bookingLoginPhone = phoneNumber;
         _bookingLoginState = _BookingLoginState.loginSuccess;
       });
+      setSheetState(() {});
     } on FirebaseAuthException catch (error) {
       if (!mounted) {
         return;
@@ -2586,6 +2599,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         setState(() {
           _isBookingLoginLoading = false;
         });
+        setSheetState(() {});
       }
     }
   }
@@ -3463,7 +3477,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 ),
                               ),
                               if (_selectedBookingTime != null)
-                                _buildLoginSection(ctx),
+                                _buildLoginSection(
+                                  ctx,
+                                  setSheetState: setSheetState,
+                                ),
                               if (suggestions.isNotEmpty) ...[
                                 if (entries.isNotEmpty)
                                   const SizedBox(height: 20),
