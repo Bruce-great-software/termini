@@ -268,17 +268,93 @@ class _Termin {
   factory _Termin.fromMap(String id, Map<String, dynamic> data) {
     return _Termin(
       id: id,
-      startAt: _parseDateTime(data['startAt']),
+      startAt: _parseTerminStartAt(
+        dateValue: data['datum'],
+        timeValue: data['startZeit'],
+        timestampValue: data['startAt'],
+      ),
       mitarbeiterId: _readNullableString(data['mitarbeiterId']),
       dienstleisterName: _readString(data['dienstleisterName'], 'Dienstleister'),
       mitarbeiterName: _readString(data['mitarbeiterName'], 'Mitarbeiter'),
     );
   }
 
-  static DateTime? _parseDateTime(dynamic value) {
+  static DateTime? _parseTerminStartAt({
+    required dynamic dateValue,
+    required dynamic timeValue,
+    required dynamic timestampValue,
+  }) {
+    final parsedDate = _parseStoredDate(dateValue);
+    final parsedTime = _parseStoredTime(timeValue);
+
+    if (parsedDate != null && parsedTime != null) {
+      return DateTime(
+        parsedDate.year,
+        parsedDate.month,
+        parsedDate.day,
+        parsedTime.hour,
+        parsedTime.minute,
+      );
+    }
+
+    return _parseTimestampFallback(timestampValue);
+  }
+
+  static DateTime? _parseTimestampFallback(dynamic value) {
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
-    if (value is String) return DateTime.tryParse(value);
+    if (value is String) {
+      final normalized = value.trim();
+      if (normalized.isEmpty) return null;
+      return DateTime.tryParse(normalized);
+    }
+    return null;
+  }
+
+  static DateTime? _parseStoredDate(dynamic value) {
+    if (value is Timestamp) return DateTime(value.toDate().year, value.toDate().month, value.toDate().day);
+    if (value is DateTime) return DateTime(value.year, value.month, value.day);
+    if (value is String) {
+      final normalized = value.trim();
+      if (normalized.isEmpty) return null;
+
+      final parsed = DateTime.tryParse(normalized);
+      if (parsed != null) {
+        return DateTime(parsed.year, parsed.month, parsed.day);
+      }
+
+      final parts = normalized.split(RegExp(r'[-./]'));
+      if (parts.length == 3) {
+        final first = int.tryParse(parts[0]);
+        final second = int.tryParse(parts[1]);
+        final third = int.tryParse(parts[2]);
+        if (first != null && second != null && third != null) {
+          if (parts[0].length == 4) {
+            return DateTime(first, second, third);
+          }
+          return DateTime(third, second, first);
+        }
+      }
+    }
+    return null;
+  }
+
+  static TimeOfDay? _parseStoredTime(dynamic value) {
+    if (value is TimeOfDay) return value;
+    if (value is String) {
+      final normalized = value.trim();
+      if (normalized.isEmpty) return null;
+
+      final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(normalized);
+      if (match == null) return null;
+
+      final hour = int.tryParse(match.group(1)!);
+      final minute = int.tryParse(match.group(2)!);
+      if (hour == null || minute == null) return null;
+      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
+      return TimeOfDay(hour: hour, minute: minute);
+    }
     return null;
   }
 
