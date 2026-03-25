@@ -55,6 +55,7 @@ class _KundenTermineDetailPageState extends State<KundenTermineDetailPage> {
   Widget build(BuildContext context) {
     final dateText = _capitalize(DateFormat('EEEE, d. MMMM', 'de_DE').format(widget.startAt));
     final timeText = DateFormat('HH:mm', 'de_DE').format(widget.startAt);
+    final isCancelled = widget.status.trim().toLowerCase() == 'abgesagt';
 
     final theme = Theme.of(context);
     const headerColor = Color(0xFF1F3A57);
@@ -153,39 +154,40 @@ class _KundenTermineDetailPageState extends State<KundenTermineDetailPage> {
               ),
             ),
             const Spacer(),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _isCancelling ? null : _cancelTermin,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF443A),
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: const Color(0xFFFF443A),
-                    disabledForegroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+            if (!isCancelled)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _isCancelling ? null : _cancelTermin,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF443A),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: const Color(0xFFFF443A),
+                      disabledForegroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      textStyle: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                      ),
                     ),
-                    textStyle: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 16,
-                    ),
+                    child: _isCancelling
+                        ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                        : const Text('Termin absagen'),
                   ),
-                  child: _isCancelling
-                      ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  )
-                      : const Text('Termin absagen'),
                 ),
               ),
-            ),
           ],
         ),
       ),
