@@ -167,7 +167,7 @@ class _TerminCard extends StatelessWidget {
             child: Row(
               children: [
                 _MitarbeiterAvatar(
-                  imageUrl: termin.mitarbeiterBildUrl,
+                  mitarbeiterId: termin.mitarbeiterId,
                   fallbackName: termin.mitarbeiterName,
                 ),
                 const SizedBox(width: 12),
@@ -203,27 +203,42 @@ class _TerminCard extends StatelessWidget {
 }
 
 class _MitarbeiterAvatar extends StatelessWidget {
-  final String? imageUrl;
+  final String? mitarbeiterId;
   final String fallbackName;
 
   const _MitarbeiterAvatar({
-    required this.imageUrl,
+    required this.mitarbeiterId,
     required this.fallbackName,
   });
 
   @override
   Widget build(BuildContext context) {
-    final trimmedUrl = imageUrl?.trim() ?? '';
-    final initials = _initialsFromName(fallbackName);
-
-    if (trimmedUrl.isNotEmpty) {
-      return CircleAvatar(
-        radius: 22,
-        backgroundColor: Colors.grey.shade200,
-        backgroundImage: NetworkImage(trimmedUrl),
-      );
+    final employeeId = mitarbeiterId?.trim() ?? '';
+    if (employeeId.isEmpty) {
+      return _buildFallbackAvatar(context);
     }
 
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: FirebaseFirestore.instance.collection('users').doc(employeeId).get(),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data();
+        final profileImageUrl = (data?['profileImageUrl'] as String?)?.trim() ?? '';
+
+        if (profileImageUrl.isNotEmpty) {
+          return CircleAvatar(
+            radius: 22,
+            backgroundColor: Colors.grey.shade200,
+            backgroundImage: NetworkImage(profileImageUrl),
+          );
+        }
+
+        return _buildFallbackAvatar(context);
+      },
+    );
+  }
+
+  Widget _buildFallbackAvatar(BuildContext context) {
+    final initials = _initialsFromName(fallbackName);
     return CircleAvatar(
       radius: 22,
       backgroundColor: Colors.grey.shade200,
@@ -238,25 +253,25 @@ class _MitarbeiterAvatar extends StatelessWidget {
 class _Termin {
   final String id;
   final DateTime? startAt;
+  final String? mitarbeiterId;
   final String dienstleisterName;
   final String mitarbeiterName;
-  final String? mitarbeiterBildUrl;
 
   const _Termin({
     required this.id,
     required this.startAt,
+    required this.mitarbeiterId,
     required this.dienstleisterName,
     required this.mitarbeiterName,
-    required this.mitarbeiterBildUrl,
   });
 
   factory _Termin.fromMap(String id, Map<String, dynamic> data) {
     return _Termin(
       id: id,
       startAt: _parseDateTime(data['startAt']),
+      mitarbeiterId: _readNullableString(data['mitarbeiterId']),
       dienstleisterName: _readString(data['dienstleisterName'], 'Dienstleister'),
       mitarbeiterName: _readString(data['mitarbeiterName'], 'Mitarbeiter'),
-      mitarbeiterBildUrl: _readNullableString(data['mitarbeiterBildUrl']),
     );
   }
 
