@@ -59,8 +59,21 @@ class KundenTerminePage extends StatelessWidget {
             items.sort((a, b) => a.startAt!.compareTo(b.startAt!));
 
             final now = DateTime.now();
-            final upcoming = items.where((t) => !t.startAt!.isBefore(now)).toList();
-            final past = items.where((t) => t.startAt!.isBefore(now)).toList().reversed.toList();
+            final upcoming = items
+                .where(
+                  (t) =>
+                      t.status.toLowerCase() == 'bestaetigt' &&
+                      !t.startAt!.isBefore(now),
+                )
+                .toList();
+            final past = items
+                .where(
+                  (t) =>
+                      t.status.toLowerCase() != 'bestaetigt' ||
+                      t.startAt!.isBefore(now),
+                )
+                .toList()
+              ..sort((a, b) => b.startAt!.compareTo(a.startAt!));
 
             return TabBarView(
               children: [
@@ -129,71 +142,276 @@ class _TerminCard extends StatelessWidget {
       elevation: 1,
       borderRadius: BorderRadius.circular(18),
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: const BoxDecoration(color: headerColor),
-            child: Row(
-              children: [
-                const Icon(Icons.calendar_today, size: 16, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    dateText,
+      child: InkWell(
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => KundenTerminDetailPage(termin: termin),
+            ),
+          );
+        },
+        child: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: const BoxDecoration(color: headerColor),
+              child: Row(
+                children: [
+                  const Icon(Icons.calendar_today, size: 16, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      dateText,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Icon(Icons.access_time, size: 16, color: Colors.white),
+                  const SizedBox(width: 6),
+                  Text(
+                    timeText,
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w600,
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                const SizedBox(width: 10),
-                const Icon(Icons.access_time, size: 16, color: Colors.white),
-                const SizedBox(width: 6),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  _MitarbeiterAvatar(
+                    mitarbeiterId: termin.mitarbeiterId,
+                    fallbackName: termin.mitarbeiterName,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          termin.dienstleisterName,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          termin.mitarbeiterName,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                        if (termin.status.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            termin.status,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(Icons.chevron_right, color: Colors.grey.shade500),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class KundenTerminDetailPage extends StatefulWidget {
+  final _Termin termin;
+
+  const KundenTerminDetailPage({super.key, required this.termin});
+
+  @override
+  State<KundenTerminDetailPage> createState() => _KundenTerminDetailPageState();
+}
+
+class _KundenTerminDetailPageState extends State<KundenTerminDetailPage> {
+  bool _isCancelling = false;
+
+  bool get _isPast {
+    final startAt = widget.termin.startAt;
+    if (startAt == null) return true;
+    return startAt.isBefore(DateTime.now());
+  }
+
+  bool get _canCancel {
+    return widget.termin.status.toLowerCase() == 'bestaetigt' && !_isPast;
+  }
+
+  Future<void> _onCancelPressed() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          content: const Text('Möchtest du den Termin wirklich absagen?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Abbrechen'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Absagen'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    setState(() => _isCancelling = true);
+    try {
+      await FirebaseFirestore.instance.collection('termine').doc(widget.termin.id).update({
+        'status': 'storniert',
+        'storniertVon': 'kunde',
+        'updatedAt': Timestamp.now(),
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Termin wurde abgesagt')),
+      );
+      Navigator.of(context).pop();
+    } finally {
+      if (mounted) {
+        setState(() => _isCancelling = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final startAt = widget.termin.startAt;
+    final dateText = startAt != null
+        ? _capitalize(DateFormat('EEEE, d. MMMM y', 'de_DE').format(startAt))
+        : widget.termin.datum;
+    final startText = startAt != null
+        ? DateFormat('HH:mm', 'de_DE').format(startAt)
+        : widget.termin.startZeit;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Termindetails')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        child: Card(
+          elevation: 0.5,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
-                  timeText,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  widget.termin.titel,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
+                const SizedBox(height: 16),
+                _DetailRow(label: 'Status', value: widget.termin.status),
+                _DetailRow(label: 'Datum', value: dateText),
+                _DetailRow(label: 'Von', value: startText),
+                _DetailRow(
+                  label: 'Bis',
+                  value: widget.termin.endZeit.isNotEmpty ? widget.termin.endZeit : '-',
+                ),
+                _DetailRow(label: 'Dienstleister', value: widget.termin.dienstleisterName),
+                _DetailRow(label: 'Mitarbeiter', value: widget.termin.mitarbeiterName),
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                _MitarbeiterAvatar(
-                  mitarbeiterId: termin.mitarbeiterId,
-                  fallbackName: termin.mitarbeiterName,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        termin.dienstleisterName,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
+        ),
+      ),
+      bottomNavigationBar: _canCancel
+          ? SafeArea(
+              minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _isCancelling ? null : _onCancelPressed,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
                         ),
+                        padding: const EdgeInsets.symmetric(vertical: 15),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        termin.mitarbeiterName,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
-                    ],
+                      child: _isCancelling
+                          ? const SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : const Text(
+                              'Termin absagen',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Icon(Icons.chevron_right, color: Colors.grey.shade500),
-              ],
+              ),
+            )
+          : null,
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _DetailRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Colors.grey.shade700,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value.isNotEmpty ? value : '-',
+              style: const TextStyle(fontWeight: FontWeight.w500),
             ),
           ),
         ],
@@ -252,14 +470,24 @@ class _MitarbeiterAvatar extends StatelessWidget {
 
 class _Termin {
   final String id;
+  final String titel;
   final DateTime? startAt;
+  final String datum;
+  final String startZeit;
+  final String endZeit;
+  final String status;
   final String? mitarbeiterId;
   final String dienstleisterName;
   final String mitarbeiterName;
 
   const _Termin({
     required this.id,
+    required this.titel,
     required this.startAt,
+    required this.datum,
+    required this.startZeit,
+    required this.endZeit,
+    required this.status,
     required this.mitarbeiterId,
     required this.dienstleisterName,
     required this.mitarbeiterName,
@@ -268,11 +496,16 @@ class _Termin {
   factory _Termin.fromMap(String id, Map<String, dynamic> data) {
     return _Termin(
       id: id,
+      titel: _readString(data['titel'], 'Termin'),
       startAt: _parseTerminStartAt(
         dateValue: data['datum'],
         timeValue: data['startZeit'],
         timestampValue: data['startAt'],
       ),
+      datum: _readString(data['datum'], ''),
+      startZeit: _readString(data['startZeit'], ''),
+      endZeit: _readString(data['endZeit'], ''),
+      status: _readString(data['status'], 'bestaetigt'),
       mitarbeiterId: _readNullableString(data['mitarbeiterId']),
       dienstleisterName: _readString(data['dienstleisterName'], 'Dienstleister'),
       mitarbeiterName: _readString(data['mitarbeiterName'], 'Mitarbeiter'),
@@ -312,7 +545,10 @@ class _Termin {
   }
 
   static DateTime? _parseStoredDate(dynamic value) {
-    if (value is Timestamp) return DateTime(value.toDate().year, value.toDate().month, value.toDate().day);
+    if (value is Timestamp) {
+      final date = value.toDate();
+      return DateTime(date.year, date.month, date.day);
+    }
     if (value is DateTime) return DateTime(value.year, value.month, value.day);
     if (value is String) {
       final normalized = value.trim();
@@ -375,12 +611,10 @@ String _capitalize(String text) {
 }
 
 String _initialsFromName(String name) {
-  final parts = name
-      .trim()
-      .split(RegExp(r'\s+'))
-      .where((p) => p.isNotEmpty)
-      .toList();
+  final parts =
+      name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
   if (parts.isEmpty) return '?';
   if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-  return '${parts.first.substring(0, 1)}${parts.last.substring(0, 1)}'.toUpperCase();
+  return '${parts.first.substring(0, 1)}${parts.last.substring(0, 1)}'
+      .toUpperCase();
 }
