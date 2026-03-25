@@ -1,8 +1,10 @@
 // dienstleister_detail_page.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:flutter/cupertino.dart';
+import 'login_register_page.dart';
 
 import 'dart:ui' show FontFeature;
 
@@ -698,6 +700,8 @@ class _BookingTimeAvailability {
   });
 }
 
+enum _BookingLoginState { loginInitial, loginForm, loginSuccess }
+
 // Key-Helfer: unterscheidet Zielgruppe!
 String _keyFor({
   required String zielgruppe,
@@ -975,12 +979,14 @@ class DienstleisterDetailPage extends StatefulWidget {
   final Map<String, dynamic> dienstleister;
   final String selektierteZielgruppe;
   final String selektierteKategorie;
+  final VoidCallback? onNavigateToTermine;
 
   const DienstleisterDetailPage({
     super.key,
     required this.dienstleister,
     required this.selektierteZielgruppe,
     required this.selektierteKategorie,
+    this.onNavigateToTermine,
   });
 
   @override
@@ -1012,6 +1018,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String? _selectedBookingTime;
   late List<String> _availableBookingTimes;
   String? _bookingTimesHint;
+  _BookingLoginState _bookingLoginState = _BookingLoginState.loginInitial;
+  final TextEditingController _bookingLoginEmailController =
+      TextEditingController();
+  final TextEditingController _bookingLoginPasswordController =
+      TextEditingController();
+  bool _isBookingLoginLoading = false;
+  bool _bookingLoginObscurePassword = true;
+  String _bookingLoginName = '';
+  String _bookingLoginEmail = '';
+  String _bookingLoginPhone = '';
+  bool _isBookingLoginSyncInProgress = false;
+  String? _bookingLoginSyncedUid;
 
   @override
   void initState() {
@@ -1026,6 +1044,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     _selectedVN.dispose();
     _selectedCombosVN.dispose();
     _expandedVariantGroupsVN.dispose();
+    _bookingLoginEmailController.dispose();
+    _bookingLoginPasswordController.dispose();
     super.dispose();
   }
 
@@ -2041,6 +2061,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return '$weekday, ${date.day}. $month';
   }
 
+  String _formatBookingDateWithYear(DateTime date) {
+    return '${_formatBookingDate(date)} ${date.year}';
+  }
+
   Future<void> _selectBookingDate({
     required BuildContext context,
     required Map<String, dynamic>? oeffnungszeiten,
@@ -2070,6 +2094,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required Map<String, dynamic>? oeffnungszeiten,
     required int totalDurationMinutes,
   }) {
+    final hasSelectedDateTime = _selectedBookingTime != null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2082,93 +2108,686 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           ),
         ),
         const SizedBox(height: 16),
-        InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () async {
-            await _selectBookingDate(
-              context: context,
-              oeffnungszeiten: oeffnungszeiten,
-              totalDurationMinutes: totalDurationMinutes,
-            );
-            if (context.mounted) {
-              setSheetState(() {});
-            }
-          },
-          child: Container(
+        if (!hasSelectedDateTime) ...[
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () async {
+              await _selectBookingDate(
+                context: context,
+                oeffnungszeiten: oeffnungszeiten,
+                totalDurationMinutes: totalDurationMinutes,
+              );
+              if (context.mounted) {
+                setSheetState(() {});
+              }
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFDADDE5)),
+                color: Colors.white,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _formatBookingDate(_selectedBookingDate),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.keyboard_arrow_down),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _availableBookingTimes.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 2.15,
+            ),
+            itemBuilder: (context, index) {
+              final time = _availableBookingTimes[index];
+              final isSelected = _selectedBookingTime == time;
+
+              return Material(
+                color: isSelected ? Colors.black : const Color(0xFFF4F5F7),
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    setState(() {
+                      _selectedBookingTime = time;
+                    });
+                    setSheetState(() {});
+                  },
+                  child: Center(
+                    child: Text(
+                      time,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: isSelected ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+          if (_availableBookingTimes.isEmpty && _bookingTimesHint != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _bookingTimesHint!,
+              style: const TextStyle(
+                color: Colors.black54,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ] else ...[
+          Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFDADDE5)),
-              color: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: const BoxDecoration(
+              border: Border(
+                top: BorderSide(color: Color(0xFFE4E7EC)),
+                bottom: BorderSide(color: Color(0xFFE4E7EC)),
+              ),
             ),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Text(
-                    _formatBookingDate(_selectedBookingDate),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _formatBookingDateWithYear(_selectedBookingDate),
+                        style: const TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF344054),
+                        ),
+                      ),
+                      Text(
+                        'um $_selectedBookingTime',
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF667085),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const Icon(Icons.keyboard_arrow_down),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _availableBookingTimes.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: 2.15,
-          ),
-          itemBuilder: (context, index) {
-            final time = _availableBookingTimes[index];
-            final isSelected = _selectedBookingTime == time;
-
-            return Material(
-              color: isSelected ? Colors.black : const Color(0xFFF4F5F7),
-              borderRadius: BorderRadius.circular(12),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () {
-                  setState(() {
-                    _selectedBookingTime = time;
-                  });
-                  setSheetState(() {});
-                },
-                child: Center(
-                  child: Text(
-                    time,
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _selectedBookingTime = null;
+                    });
+                    setSheetState(() {});
+                  },
+                  child: const Text(
+                    'Bearbeiten',
                     style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: isSelected ? Colors.white : Colors.black87,
+                      decoration: TextDecoration.underline,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF8B84F6),
                     ),
                   ),
                 ),
-              ),
-            );
-          },
-        ),
-        if (_availableBookingTimes.isEmpty && _bookingTimesHint != null) ...[
-          const SizedBox(height: 8),
-          Text(
-            _bookingTimesHint!,
-            style: const TextStyle(
-              color: Colors.black54,
-              fontSize: 13.5,
-              fontWeight: FontWeight.w500,
+              ],
             ),
           ),
         ],
       ],
     );
+  }
+
+  Widget _buildLoginSection(
+    BuildContext context, {
+    required StateSetter setSheetState,
+  }) {
+    _ensureBookingLoginStateFromCurrentUser(setSheetState: setSheetState);
+
+    final state = _bookingLoginState;
+    void updateLoginSectionState(VoidCallback updater) {
+      setState(updater);
+      setSheetState(() {});
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 18),
+        const Divider(height: 1, color: Color(0xFFE4E7EC)),
+        const SizedBox(height: 18),
+        const Text(
+          '3. Login',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF7269EA),
+          ),
+        ),
+        const SizedBox(height: 18),
+        if (state == _BookingLoginState.loginInitial) ...[
+          const Text(
+            'Neu bei Termini?',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF1D2939),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildCreateAccountButton(context),
+          const SizedBox(height: 16),
+          _buildLoginOrDivider(),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: () {
+              updateLoginSectionState(() {
+                _bookingLoginState = _BookingLoginState.loginForm;
+              });
+            },
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size.fromHeight(56),
+              backgroundColor: const Color(0xFF181A1F),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Einloggen',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ] else if (state == _BookingLoginState.loginForm) ...[
+          const Text(
+            'E-Mail *',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1D2939),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _bookingLoginEmailController,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(hintText: 'E-Mail'),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Passwort *',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1D2939),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _bookingLoginPasswordController,
+            obscureText: _bookingLoginObscurePassword,
+            decoration: InputDecoration(
+              hintText: 'Passwort',
+              suffixIcon: IconButton(
+                onPressed: () {
+                  updateLoginSectionState(() {
+                    _bookingLoginObscurePassword = !_bookingLoginObscurePassword;
+                  });
+                },
+                icon: Icon(
+                  _bookingLoginObscurePassword
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Passwort vergessen ist noch nicht verfügbar.')),
+                );
+              },
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                foregroundColor: const Color(0xFF262D34),
+              ),
+              child: const Text(
+                'Passwort vergessen?',
+                style: TextStyle(
+                  decoration: TextDecoration.underline,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          ElevatedButton(
+            onPressed: _isBookingLoginLoading
+                ? null
+                : () => _handleBookingLogin(setSheetState: setSheetState),
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size.fromHeight(56),
+              backgroundColor: const Color(0xFF181A1F),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: _isBookingLoginLoading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Text(
+                    'Einloggen',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+          ),
+          const SizedBox(height: 16),
+          _buildLoginOrDivider(),
+          const SizedBox(height: 16),
+          _buildCreateAccountButton(context),
+        ] else ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            decoration: const BoxDecoration(
+              border: Border(
+                top: BorderSide(color: Color(0xFFE4E7EC)),
+                bottom: BorderSide(color: Color(0xFFE4E7EC)),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _bookingLoginName.isEmpty ? 'Kunde' : _bookingLoginName,
+                        style: const TextStyle(
+                          fontSize: 30,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1D2939),
+                        ),
+                      ),
+                      if (_bookingLoginEmail.isNotEmpty)
+                        Text(
+                          _bookingLoginEmail,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF667085),
+                          ),
+                        ),
+                      if (_bookingLoginPhone.isNotEmpty)
+                        Text(
+                          _bookingLoginPhone,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF667085),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _handleBookingLogout(
+                    setSheetState: setSheetState,
+                  ),
+                  child: const Text(
+                    'Ausloggen',
+                    style: TextStyle(
+                      decoration: TextDecoration.underline,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF8B84F6),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildLoginOrDivider() {
+    return Row(
+      children: const [
+        Expanded(child: Divider(color: Color(0xFFDDE1E8), thickness: 1)),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12),
+          child: Text(
+            'ODER',
+            style: TextStyle(
+              color: Color(0xFF7B8190),
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        Expanded(child: Divider(color: Color(0xFFDDE1E8), thickness: 1)),
+      ],
+    );
+  }
+
+  Widget _buildCreateAccountButton(BuildContext context) {
+    return OutlinedButton(
+      onPressed: () => _openLoginScreen(context),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(56),
+        side: const BorderSide(color: Color(0xFFBFC5D2)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+      child: const Text(
+        'Ein Konto erstellen',
+        style: TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF3A3F46),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openLoginScreen(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const LoginRegisterPage()),
+    );
+  }
+
+  Future<void> _handleBookingLogin({
+    required StateSetter setSheetState,
+  }) async {
+    final email = _bookingLoginEmailController.text.trim();
+    final password = _bookingLoginPasswordController.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bitte E-Mail und Passwort eingeben.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isBookingLoginLoading = true;
+    });
+    setSheetState(() {});
+
+    try {
+      final authResult = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      final user = authResult.user;
+      if (user == null) {
+        throw FirebaseAuthException(code: 'user-not-found');
+      }
+
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      final data = userDoc.data();
+      final name = (data?['name'] as String?)?.trim() ?? '';
+      final profileEmail = (data?['email'] as String?)?.trim() ?? user.email ?? '';
+      final phoneNumber = (data?['phoneNumber'] as String?)?.trim() ?? user.phoneNumber ?? '';
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _bookingLoginName = name;
+        _bookingLoginEmail = profileEmail;
+        _bookingLoginPhone = phoneNumber;
+        _bookingLoginState = _BookingLoginState.loginSuccess;
+        _bookingLoginSyncedUid = user.uid;
+      });
+      setSheetState(() {});
+    } on FirebaseAuthException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final message = error.message ?? 'Login fehlgeschlagen.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Login fehlgeschlagen.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBookingLoginLoading = false;
+        });
+        setSheetState(() {});
+      }
+    }
+  }
+
+  Future<void> _handleBookingLogout({
+    required StateSetter setSheetState,
+  }) async {
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _bookingLoginState = _BookingLoginState.loginInitial;
+      _bookingLoginName = '';
+      _bookingLoginEmail = '';
+      _bookingLoginPhone = '';
+      _bookingLoginEmailController.clear();
+      _bookingLoginPasswordController.clear();
+      _bookingLoginObscurePassword = true;
+      _isBookingLoginLoading = false;
+      _bookingLoginSyncedUid = null;
+    });
+    setSheetState(() {});
+  }
+
+  void _ensureBookingLoginStateFromCurrentUser({
+    required StateSetter setSheetState,
+  }) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    if (currentUser == null) {
+      if (_bookingLoginState == _BookingLoginState.loginSuccess) {
+        setState(() {
+          _bookingLoginState = _BookingLoginState.loginInitial;
+          _bookingLoginName = '';
+          _bookingLoginEmail = '';
+          _bookingLoginPhone = '';
+          _bookingLoginSyncedUid = null;
+        });
+        setSheetState(() {});
+      }
+      return;
+    }
+
+    if (_isBookingLoginSyncInProgress) {
+      return;
+    }
+
+    if (_bookingLoginState == _BookingLoginState.loginSuccess &&
+        _bookingLoginSyncedUid == currentUser.uid) {
+      return;
+    }
+
+    _isBookingLoginSyncInProgress = true;
+
+    FirebaseFirestore.instance
+        .collection('users')
+        .doc(currentUser.uid)
+        .get()
+        .then((snapshot) {
+      if (!mounted) {
+        return;
+      }
+
+      final data = snapshot.data();
+      final email = (data?['email'] as String?)?.trim().isNotEmpty == true
+          ? (data?['email'] as String).trim()
+          : (currentUser.email ?? '').trim();
+      final name = (data?['name'] as String?)?.trim().isNotEmpty == true
+          ? (data?['name'] as String).trim()
+          : (email.isNotEmpty ? email : 'Kunde');
+      final phone = (data?['phoneNumber'] as String?)?.trim().isNotEmpty == true
+          ? (data?['phoneNumber'] as String).trim()
+          : (currentUser.phoneNumber ?? '').trim();
+
+      setState(() {
+        _bookingLoginName = name;
+        _bookingLoginEmail = email;
+        _bookingLoginPhone = phone;
+        _bookingLoginState = _BookingLoginState.loginSuccess;
+        _bookingLoginSyncedUid = currentUser.uid;
+      });
+      setSheetState(() {});
+    }).catchError((_) {
+      if (!mounted) {
+        return;
+      }
+
+      final fallbackEmail = (currentUser.email ?? '').trim();
+      final fallbackName = fallbackEmail.isNotEmpty ? fallbackEmail : 'Kunde';
+      final fallbackPhone = (currentUser.phoneNumber ?? '').trim();
+
+      setState(() {
+        _bookingLoginName = fallbackName;
+        _bookingLoginEmail = fallbackEmail;
+        _bookingLoginPhone = fallbackPhone;
+        _bookingLoginState = _BookingLoginState.loginSuccess;
+        _bookingLoginSyncedUid = currentUser.uid;
+      });
+      setSheetState(() {});
+    }).whenComplete(() {
+      _isBookingLoginSyncInProgress = false;
+    });
+  }
+
+  bool _canShowBookingConfirmButton({
+    required Map<String, _CartItem> singles,
+    required Map<String, _ComboSelection> combos,
+  }) {
+    final hasServices = singles.isNotEmpty || combos.isNotEmpty;
+    final hasDateTime = _selectedBookingTime != null;
+    final hasLoggedInUser = _bookingLoginState == _BookingLoginState.loginSuccess;
+    return hasServices && hasDateTime && hasLoggedInUser;
+  }
+
+  DateTime? _buildBookingStartAt({
+    required DateTime date,
+    required String time,
+  }) {
+    final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(time.trim());
+    if (match == null) {
+      return null;
+    }
+
+    final hour = int.tryParse(match.group(1)!);
+    final minute = int.tryParse(match.group(2)!);
+    if (hour == null || minute == null) {
+      return null;
+    }
+
+    return DateTime(date.year, date.month, date.day, hour, minute);
+  }
+
+  Future<bool> _hasBookingCollision({
+    required String mitarbeiterId,
+    required DateTime startAt,
+    required DateTime endAt,
+  }) async {
+    final dayStart = DateTime(startAt.year, startAt.month, startAt.day);
+    final dayEnd = dayStart.add(const Duration(days: 1));
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('termine')
+        .where('mitarbeiterId', isEqualTo: mitarbeiterId)
+        .where('startAt', isLessThan: Timestamp.fromDate(dayEnd))
+        .where('endAt', isGreaterThan: Timestamp.fromDate(dayStart))
+        .get();
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final existingStart = _bookingDateTimeFromDynamic(data['startAt']);
+      final existingEnd = _bookingDateTimeFromDynamic(data['endAt']);
+      if (existingStart == null || existingEnd == null) {
+        continue;
+      }
+      final overlaps = existingStart.isBefore(endAt) && existingEnd.isAfter(startAt);
+      if (overlaps) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  DateTime? _bookingDateTimeFromDynamic(dynamic value) {
+    if (value is Timestamp) {
+      return value.toDate();
+    }
+    if (value is DateTime) {
+      return value;
+    }
+    if (value is String) {
+      return DateTime.tryParse(value);
+    }
+    return null;
+  }
+
+  String _bookingDateIso(DateTime date) {
+    final year = date.year.toString().padLeft(4, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
   }
 
   bool _isActiveEmployee(Map<String, dynamic> data) {
@@ -2685,6 +3304,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     double panelTotal = total;
     double panelSavings = savings;
+    bool isBookingSubmitting = false;
+    bool bookingSuccess = false;
+    Map<String, String> bookingSuccessSummary = {};
     final oeffnungszeiten = await _loadDienstleisterOeffnungszeiten();
 
     if (mounted) {
@@ -2734,9 +3356,84 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         ),
                         const Divider(height: 1),
                         Expanded(
-                          child: ListView(
-                            padding: const EdgeInsets.all(16),
-                            children: [
+                          child: bookingSuccess
+                              ? ListView(
+                                  padding: const EdgeInsets.all(16),
+                                  children: [
+                                    const Text(
+                                      'Termin erfolgreich gebucht',
+                                      style: TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.w800,
+                                        color: Color(0xFF101828),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Container(
+                                      padding: const EdgeInsets.all(14),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF7F8FB),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: const Color(0xFFE4E7EC),
+                                        ),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            bookingSuccessSummary['datum'] ?? '',
+                                            style: const TextStyle(
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            'um ${bookingSuccessSummary['zeit'] ?? ''}',
+                                            style: const TextStyle(
+                                              color: Color(0xFF667085),
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 10),
+                                          Text(
+                                            'bei ${bookingSuccessSummary['mitarbeiter'] ?? ''}',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            bookingSuccessSummary['dienstleister'] ?? '',
+                                            style: const TextStyle(
+                                              color: Color(0xFF475467),
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 10),
+                                          Text(
+                                            bookingSuccessSummary['titel'] ?? '',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            bookingSuccessSummary['preis'] ?? '',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              color: Color(0xFF181A1F),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : ListView(
+                                  padding: const EdgeInsets.all(16),
+                                  children: [
                               const Text(
                                 '1. Ausgewählte Leistungen',
                                 style: TextStyle(
@@ -3043,6 +3740,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                   combos: panelCombos,
                                 ),
                               ),
+                              if (_selectedBookingTime != null)
+                                _buildLoginSection(
+                                  ctx,
+                                  setSheetState: setSheetState,
+                                ),
                               if (suggestions.isNotEmpty) ...[
                                 if (entries.isNotEmpty)
                                   const SizedBox(height: 20),
@@ -3434,47 +4136,333 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                           child: Column(
                             children: [
-                              Row(
-                                mainAxisAlignment:
-                                MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text(
-                                    'Gesamt',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 16,
+                              if (bookingSuccess)
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton(
+                                    onPressed: () {
+                                      Navigator.of(ctx).pop();
+                                      widget.onNavigateToTermine?.call();
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      minimumSize: const Size.fromHeight(54),
+                                      backgroundColor: const Color(0xFF181A1F),
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                    child: const Text(
+                                      'Zu meinen Terminen',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
                                   ),
-                                  Text(
-                                    _formatEuro(panelTotal),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 16,
+                                )
+                              else ...[
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Gesamt',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                    Text(
+                                      _formatEuro(panelTotal),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (panelSavings > 0)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        const Text(
+                                          'Dein Vorteil',
+                                          style: TextStyle(color: Colors.black54),
+                                        ),
+                                        Text(
+                                          '-${_formatEuro(panelSavings)}',
+                                          style: const TextStyle(
+                                            color: Colors.green,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                if (_canShowBookingConfirmButton(
+                                  singles: panelSingles,
+                                  combos: panelCombos,
+                                )) ...[
+                                  const SizedBox(height: 14),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: ElevatedButton(
+                                      onPressed: isBookingSubmitting
+                                          ? null
+                                          : () async {
+                                              if (entries.isEmpty) {
+                                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text('Bitte wählen Sie mindestens eine Leistung.'),
+                                                  ),
+                                                );
+                                                return;
+                                              }
+
+                                              final selectedTime = _selectedBookingTime;
+                                              if (selectedTime == null ||
+                                                  selectedTime.trim().isEmpty) {
+                                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text('Bitte wählen Sie eine Uhrzeit aus.'),
+                                                  ),
+                                                );
+                                                return;
+                                              }
+
+                                              final currentUser = FirebaseAuth.instance.currentUser;
+                                              if (currentUser == null ||
+                                                  _bookingLoginState != _BookingLoginState.loginSuccess) {
+                                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text('Bitte loggen Sie sich ein.'),
+                                                  ),
+                                                );
+                                                return;
+                                              }
+
+                                              final mitarbeiterId =
+                                                  _selectedMitarbeiterId?.trim() ?? '';
+                                              if (mitarbeiterId.isEmpty) {
+                                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text('Bitte wählen Sie einen Mitarbeiter aus.'),
+                                                  ),
+                                                );
+                                                return;
+                                              }
+
+                                              final startAt = _buildBookingStartAt(
+                                                date: _selectedBookingDate,
+                                                time: selectedTime,
+                                              );
+                                              final durationMinutes =
+                                                  _selectedDurationMinutes(
+                                                singles: panelSingles,
+                                                combos: panelCombos,
+                                              );
+
+                                              if (startAt == null || durationMinutes <= 0) {
+                                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text('Terminzeit konnte nicht ermittelt werden.'),
+                                                  ),
+                                                );
+                                                return;
+                                              }
+
+                                              final endAt = startAt.add(
+                                                Duration(minutes: durationMinutes),
+                                              );
+                                              final kundeId = currentUser.uid.trim();
+                                              if (kundeId.isEmpty) {
+                                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text('Kundendaten konnten nicht ermittelt werden.'),
+                                                  ),
+                                                );
+                                                return;
+                                              }
+
+                                              setSheetState(() {
+                                                isBookingSubmitting = true;
+                                              });
+
+                                              try {
+                                                final hasCollision =
+                                                    await _hasBookingCollision(
+                                                  mitarbeiterId: mitarbeiterId,
+                                                  startAt: startAt,
+                                                  endAt: endAt,
+                                                );
+
+                                                if (hasCollision) {
+                                                  if (ctx.mounted) {
+                                                    ScaffoldMessenger.of(ctx).showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text(
+                                                          'Dieser Termin ist leider nicht mehr verfügbar. Bitte wählen Sie eine andere Uhrzeit.',
+                                                        ),
+                                                      ),
+                                                    );
+                                                  }
+                                                  return;
+                                                }
+
+                                                final dienstleisterId =
+                                                    (widget.dienstleister['id'] as String? ?? '')
+                                                        .trim();
+                                                if (dienstleisterId.isEmpty) {
+                                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text('Dienstleister konnte nicht ermittelt werden.'),
+                                                    ),
+                                                  );
+                                                  return;
+                                                }
+
+                                                final dienstleisterName =
+                                                    (widget.dienstleister['name']
+                                                                as String? ??
+                                                            widget
+                                                                .dienstleister['titel']
+                                                                as String? ??
+                                                            '')
+                                                        .trim();
+                                                final mitarbeiterName =
+                                                    _selectedMitarbeiterLabel.trim();
+                                                final kundeName =
+                                                    _bookingLoginName.trim().isNotEmpty
+                                                        ? _bookingLoginName.trim()
+                                                        : (_bookingLoginEmail.trim().isNotEmpty
+                                                            ? _bookingLoginEmail.trim()
+                                                            : 'Kunde');
+                                                final kundeEmail =
+                                                    _bookingLoginEmail.trim();
+                                                final kundePhone =
+                                                    _bookingLoginPhone.trim();
+                                                final titel = entries
+                                                    .map((entry) => entry.title)
+                                                    .where((title) => title.trim().isNotEmpty)
+                                                    .join(' • ');
+                                                final leistungen = entries
+                                                    .map((entry) => entry.title)
+                                                    .where((title) => title.trim().isNotEmpty)
+                                                    .toList(growable: false);
+                                                final now = Timestamp.now();
+
+                                                await FirebaseFirestore.instance
+                                                    .collection('termine')
+                                                    .add({
+                                                  'dienstleisterId': dienstleisterId,
+                                                  'dienstleisterName': dienstleisterName,
+                                                  'mitarbeiterId': mitarbeiterId,
+                                                  'mitarbeiterName': mitarbeiterName,
+                                                  'kundeId': kundeId,
+                                                  'kundeName': kundeName,
+                                                  'kundeEmail': kundeEmail,
+                                                  'kundePhone': kundePhone,
+                                                  'titel': titel,
+                                                  'leistungen': leistungen,
+                                                  'datum': _bookingDateIso(
+                                                    _selectedBookingDate,
+                                                  ),
+                                                  'startZeit': selectedTime,
+                                                  'endZeit': _formatHourMinute(
+                                                    (endAt.hour * 60) + endAt.minute,
+                                                  ),
+                                                  'startAt': Timestamp.fromDate(
+                                                    startAt,
+                                                  ),
+                                                  'endAt': Timestamp.fromDate(endAt),
+                                                  'preisGesamt': panelTotal,
+                                                  'dauerGesamt': durationMinutes,
+                                                  'status': 'bestaetigt',
+                                                  'quelle': 'kunde',
+                                                  'createdAt': now,
+                                                  'updatedAt': now,
+                                                });
+
+                                                if (!ctx.mounted) {
+                                                  return;
+                                                }
+
+                                                setSheetState(() {
+                                                  bookingSuccess = true;
+                                                  bookingSuccessSummary = {
+                                                    'datum':
+                                                        _formatBookingDateWithYear(
+                                                      _selectedBookingDate,
+                                                    ),
+                                                    'zeit': selectedTime,
+                                                    'mitarbeiter': mitarbeiterName,
+                                                    'dienstleister':
+                                                        dienstleisterName,
+                                                    'titel': titel,
+                                                    'preis': _formatEuro(
+                                                      panelTotal,
+                                                    ),
+                                                  };
+                                                });
+                                              } on FirebaseException catch (error) {
+                                                if (ctx.mounted) {
+                                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                                    SnackBar(
+                                                      content: Text(
+                                                        error.message ??
+                                                            'Buchung konnte nicht gespeichert werden.',
+                                                      ),
+                                                    ),
+                                                  );
+                                                }
+                                              } catch (_) {
+                                                if (ctx.mounted) {
+                                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text('Buchung konnte nicht gespeichert werden.'),
+                                                    ),
+                                                  );
+                                                }
+                                              } finally {
+                                                if (ctx.mounted) {
+                                                  setSheetState(() {
+                                                    isBookingSubmitting = false;
+                                                  });
+                                                }
+                                              }
+                                            },
+                                      style: ElevatedButton.styleFrom(
+                                        minimumSize: const Size.fromHeight(54),
+                                        backgroundColor: const Color(0xFF181A1F),
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                      ),
+                                      child: isBookingSubmitting
+                                          ? const SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : const Text(
+                                              'Bestätigen',
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
                                     ),
                                   ),
                                 ],
-                              ),
-                              if (panelSavings > 0)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 6),
-                                  child: Row(
-                                    mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text(
-                                        'Dein Vorteil',
-                                        style: TextStyle(color: Colors.black54),
-                                      ),
-                                      Text(
-                                        '-${_formatEuro(panelSavings)}',
-                                        style: const TextStyle(
-                                          color: Colors.green,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                              ],
                             ],
                           ),
                         ),
