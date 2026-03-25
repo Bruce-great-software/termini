@@ -81,9 +81,21 @@ class KundenTerminePage extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(_formatDate(termin.startAt, termin.datumFallback)),
+                      Text(
+                        _formatDate(
+                          context,
+                          termin.startAt,
+                          termin.datumFallback,
+                        ),
+                      ),
                       const SizedBox(height: 2),
-                      Text(_formatTime(termin.startAt, termin.startZeitFallback)),
+                      Text(
+                        _formatTime(
+                          context,
+                          termin.startAt,
+                          termin.startZeitFallback,
+                        ),
+                      ),
                       const SizedBox(height: 6),
                       Text(termin.dienstleisterName),
                       Text('bei ${termin.mitarbeiterName}'),
@@ -124,47 +136,30 @@ class KundenTerminePage extends StatelessWidget {
     return aDate.compareTo(bDate);
   }
 
-  static String _formatDate(DateTime? startAt, String fallback) {
+  static String _formatDate(
+    BuildContext context,
+    DateTime? startAt,
+    String fallback,
+  ) {
     if (startAt == null) {
       return fallback.isNotEmpty ? fallback : 'Datum unbekannt';
     }
 
-    const weekdays = <String>[
-      'Montag',
-      'Dienstag',
-      'Mittwoch',
-      'Donnerstag',
-      'Freitag',
-      'Samstag',
-      'Sonntag',
-    ];
-    const months = <String>[
-      'Januar',
-      'Februar',
-      'März',
-      'April',
-      'Mai',
-      'Juni',
-      'Juli',
-      'August',
-      'September',
-      'Oktober',
-      'November',
-      'Dezember',
-    ];
-
-    final weekday = weekdays[startAt.weekday - 1];
-    final month = months[startAt.month - 1];
-    return '$weekday, ${startAt.day}. $month ${startAt.year}';
+    return MaterialLocalizations.of(context).formatFullDate(startAt);
   }
 
-  static String _formatTime(DateTime? startAt, String fallback) {
+  static String _formatTime(
+    BuildContext context,
+    DateTime? startAt,
+    String fallback,
+  ) {
     if (startAt == null) {
       return fallback.isNotEmpty ? fallback : 'Uhrzeit unbekannt';
     }
-    final hour = startAt.hour.toString().padLeft(2, '0');
-    final minute = startAt.minute.toString().padLeft(2, '0');
-    return '$hour:$minute';
+    return MaterialLocalizations.of(context).formatTimeOfDay(
+      TimeOfDay.fromDateTime(startAt),
+      alwaysUse24HourFormat: true,
+    );
   }
 }
 
