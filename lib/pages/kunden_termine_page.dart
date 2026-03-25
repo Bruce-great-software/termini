@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 class KundenTerminePage extends StatelessWidget {
   const KundenTerminePage({super.key});
@@ -129,14 +128,43 @@ class KundenTerminePage extends StatelessWidget {
     if (startAt == null) {
       return fallback.isNotEmpty ? fallback : 'Datum unbekannt';
     }
-    return DateFormat('EEEE, d. MMMM y', 'de_DE').format(startAt);
+
+    const weekdays = <String>[
+      'Montag',
+      'Dienstag',
+      'Mittwoch',
+      'Donnerstag',
+      'Freitag',
+      'Samstag',
+      'Sonntag',
+    ];
+    const months = <String>[
+      'Januar',
+      'Februar',
+      'März',
+      'April',
+      'Mai',
+      'Juni',
+      'Juli',
+      'August',
+      'September',
+      'Oktober',
+      'November',
+      'Dezember',
+    ];
+
+    final weekday = weekdays[startAt.weekday - 1];
+    final month = months[startAt.month - 1];
+    return '$weekday, ${startAt.day}. $month ${startAt.year}';
   }
 
   static String _formatTime(DateTime? startAt, String fallback) {
     if (startAt == null) {
       return fallback.isNotEmpty ? fallback : 'Uhrzeit unbekannt';
     }
-    return DateFormat('HH:mm').format(startAt);
+    final hour = startAt.hour.toString().padLeft(2, '0');
+    final minute = startAt.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 }
 
