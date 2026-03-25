@@ -1269,24 +1269,32 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     required dynamic timeValue,
     required dynamic timestampValue,
   }) {
-    if (timestampValue is Timestamp) {
-      return timestampValue.toDate();
-    }
-
     final parsedDate = _parseStoredDate(dateValue);
     final parsedTime = _parseStoredTime(timeValue);
 
-    if (parsedDate == null || parsedTime == null) {
-      return null;
+    if (parsedDate != null && parsedTime != null) {
+      return DateTime(
+        parsedDate.year,
+        parsedDate.month,
+        parsedDate.day,
+        parsedTime.hour,
+        parsedTime.minute,
+      );
     }
 
-    return DateTime(
-      parsedDate.year,
-      parsedDate.month,
-      parsedDate.day,
-      parsedTime.hour,
-      parsedTime.minute,
-    );
+    if (timestampValue is Timestamp) {
+      return timestampValue.toDate();
+    }
+    if (timestampValue is DateTime) {
+      return timestampValue;
+    }
+    if (timestampValue is String) {
+      final normalized = timestampValue.trim();
+      if (normalized.isNotEmpty) {
+        return DateTime.tryParse(normalized);
+      }
+    }
+    return null;
   }
 
   DateTime? _parseStoredDate(dynamic value) {
