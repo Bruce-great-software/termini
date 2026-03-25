@@ -4353,6 +4353,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                               .map((entry) => entry.title)
                                               .where((title) => title.trim().isNotEmpty)
                                               .toList(growable: false);
+                                          final leistungsPositionen = entries
+                                              .map((entry) => <String, dynamic>{
+                                            'category': (entry.categoryLabel ?? '').trim(),
+                                            'title': entry.title.trim(),
+                                            'subtitle': entry.subtitle.trim(),
+                                            'price': entry.price,
+                                            'originalPrice': entry.originalPrice,
+                                            'duration': entry.duration,
+                                          })
+                                              .toList(growable: false);
                                           final now = Timestamp.now();
 
                                           await FirebaseFirestore.instance
@@ -4368,6 +4378,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                             'kundePhone': kundePhone,
                                             'titel': titel,
                                             'leistungen': leistungen,
+                                            'leistungsPositionen': leistungsPositionen,
                                             'datum': _bookingDateIso(
                                               _selectedBookingDate,
                                             ),
