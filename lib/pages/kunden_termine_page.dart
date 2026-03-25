@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'kunden_termine_detail_page.dart';
+
 class KundenTerminePage extends StatelessWidget {
   const KundenTerminePage({super.key});
 
@@ -59,7 +61,9 @@ class KundenTerminePage extends StatelessWidget {
             items.sort((a, b) => a.startAt!.compareTo(b.startAt!));
 
             final now = DateTime.now();
-            final upcoming = items.where((t) => !t.startAt!.isBefore(now)).toList();
+            final upcoming = items
+                .where((t) => !t.startAt!.isBefore(now) && t.status.toLowerCase() != 'abgesagt')
+                .toList();
             final past = items.where((t) => t.startAt!.isBefore(now)).toList().reversed.toList();
 
             return TabBarView(
@@ -129,74 +133,91 @@ class _TerminCard extends StatelessWidget {
       elevation: 1,
       borderRadius: BorderRadius.circular(18),
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: const BoxDecoration(color: headerColor),
-            child: Row(
-              children: [
-                const Icon(Icons.calendar_today, size: 16, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    dateText,
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => KundenTermineDetailPage(
+                terminId: termin.id,
+                startAt: termin.startAt!,
+                mitarbeiterId: termin.mitarbeiterId,
+                dienstleisterName: termin.dienstleisterName,
+                mitarbeiterName: termin.mitarbeiterName,
+                status: termin.status,
+              ),
+            ),
+          );
+        },
+        child: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: const BoxDecoration(color: headerColor),
+              child: Row(
+                children: [
+                  const Icon(Icons.calendar_today, size: 16, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      dateText,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Icon(Icons.access_time, size: 16, color: Colors.white),
+                  const SizedBox(width: 6),
+                  Text(
+                    timeText,
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w600,
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                const SizedBox(width: 10),
-                const Icon(Icons.access_time, size: 16, color: Colors.white),
-                const SizedBox(width: 6),
-                Text(
-                  timeText,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                _MitarbeiterAvatar(
-                  mitarbeiterId: termin.mitarbeiterId,
-                  fallbackName: termin.mitarbeiterName,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        termin.dienstleisterName,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        termin.mitarbeiterName,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
-                    ],
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  _MitarbeiterAvatar(
+                    mitarbeiterId: termin.mitarbeiterId,
+                    fallbackName: termin.mitarbeiterName,
                   ),
-                ),
-                const SizedBox(width: 8),
-                Icon(Icons.chevron_right, color: Colors.grey.shade500),
-              ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          termin.dienstleisterName,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          termin.mitarbeiterName,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(Icons.chevron_right, color: Colors.grey.shade500),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -256,6 +277,7 @@ class _Termin {
   final String? mitarbeiterId;
   final String dienstleisterName;
   final String mitarbeiterName;
+  final String status;
 
   const _Termin({
     required this.id,
@@ -263,6 +285,7 @@ class _Termin {
     required this.mitarbeiterId,
     required this.dienstleisterName,
     required this.mitarbeiterName,
+    required this.status,
   });
 
   factory _Termin.fromMap(String id, Map<String, dynamic> data) {
@@ -276,6 +299,7 @@ class _Termin {
       mitarbeiterId: _readNullableString(data['mitarbeiterId']),
       dienstleisterName: _readString(data['dienstleisterName'], 'Dienstleister'),
       mitarbeiterName: _readString(data['mitarbeiterName'], 'Mitarbeiter'),
+      status: _readString(data['status'], 'bestaetigt'),
     );
   }
 
