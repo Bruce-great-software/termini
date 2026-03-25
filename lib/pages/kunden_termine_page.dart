@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'kunden_termin_detail_page.dart';
+
 class KundenTerminePage extends StatelessWidget {
   const KundenTerminePage({super.key});
 
@@ -146,7 +148,10 @@ class _TerminCard extends StatelessWidget {
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => KundenTerminDetailPage(termin: termin),
+              builder: (_) => KundenTerminDetailPage(
+                terminId: termin.id,
+                initialData: termin.toMap(),
+              ),
             ),
           );
         },
@@ -234,16 +239,18 @@ class _TerminCard extends StatelessWidget {
   }
 }
 
-class KundenTerminDetailPage extends StatefulWidget {
+class _LegacyKundenTerminDetailPage extends StatefulWidget {
   final _Termin termin;
 
-  const KundenTerminDetailPage({super.key, required this.termin});
+  const _LegacyKundenTerminDetailPage({super.key, required this.termin});
 
   @override
-  State<KundenTerminDetailPage> createState() => _KundenTerminDetailPageState();
+  State<_LegacyKundenTerminDetailPage> createState() =>
+      _LegacyKundenTerminDetailPageState();
 }
 
-class _KundenTerminDetailPageState extends State<KundenTerminDetailPage> {
+class _LegacyKundenTerminDetailPageState
+    extends State<_LegacyKundenTerminDetailPage> {
   bool _isCancelling = false;
 
   bool get _isPast {
@@ -602,6 +609,20 @@ class _Termin {
   static String? _readNullableString(dynamic value) {
     if (value is String && value.trim().isNotEmpty) return value.trim();
     return null;
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'titel': titel,
+      'datum': datum,
+      'startZeit': startZeit,
+      'endZeit': endZeit,
+      'startAt': startAt != null ? Timestamp.fromDate(startAt!) : null,
+      'status': status,
+      'mitarbeiterId': mitarbeiterId,
+      'dienstleisterName': dienstleisterName,
+      'mitarbeiterName': mitarbeiterName,
+    };
   }
 }
 
