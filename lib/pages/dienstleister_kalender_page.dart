@@ -538,18 +538,24 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         return const SizedBox.shrink();
       }
 
+      final blockHeight = (height - 4).clamp(24.0, _hourRowHeight * 24).toDouble();
+      final isCompactBlock = blockHeight < 52;
+
       return Positioned(
         top: top + 2,
         left: (dayIndex * dayColumnWidth) + _terminHorizontalPadding,
         width: blockWidth,
-        height: height - 4,
+        height: blockHeight,
         child: Material(
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
             onTap: () => _showEditAppointmentDialog(termin),
             child: Ink(
-              padding: const EdgeInsets.all(8),
+              padding: EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: isCompactBlock ? 4 : 8,
+              ),
               decoration: BoxDecoration(
                 color: const Color(0xFFEAF2FF),
                 borderRadius: BorderRadius.circular(12),
@@ -562,20 +568,33 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                   ),
                 ],
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.start,
-                children: [
-                  Text(
+              child: ClipRect(
+                child: isCompactBlock
+                    ? Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
                     termin.titel,
-                    maxLines: 2,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
+                    style: theme.textTheme.bodySmall?.copyWith(
                       color: const Color(0xFF175CD3),
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  if (height >= 54) ...[
+                )
+                    : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      termin.titel,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF175CD3),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     Text(
                       '${termin.startZeit} - ${termin.endZeit}',
@@ -587,7 +606,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                       ),
                     ),
                   ],
-                ],
+                ),
               ),
             ),
           ),
