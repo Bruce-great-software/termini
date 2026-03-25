@@ -61,7 +61,9 @@ class KundenTerminePage extends StatelessWidget {
             items.sort((a, b) => a.startAt!.compareTo(b.startAt!));
 
             final now = DateTime.now();
-            final upcoming = items.where((t) => !t.startAt!.isBefore(now)).toList();
+            final upcoming = items
+                .where((t) => !t.startAt!.isBefore(now) && t.status.toLowerCase() != 'abgesagt')
+                .toList();
             final past = items.where((t) => t.startAt!.isBefore(now)).toList().reversed.toList();
 
             return TabBarView(
@@ -137,6 +139,7 @@ class _TerminCard extends StatelessWidget {
             context,
             MaterialPageRoute(
               builder: (_) => KundenTermineDetailPage(
+                terminId: termin.id,
                 startAt: termin.startAt!,
                 mitarbeiterId: termin.mitarbeiterId,
                 dienstleisterName: termin.dienstleisterName,
