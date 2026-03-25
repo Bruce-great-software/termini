@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'kunden_termin_detail_page.dart';
+
 class KundenTerminePage extends StatelessWidget {
   const KundenTerminePage({super.key});
 
@@ -62,16 +64,16 @@ class KundenTerminePage extends StatelessWidget {
             final upcoming = items
                 .where(
                   (t) =>
-              t.status.toLowerCase() == 'bestaetigt' &&
-                  !t.startAt!.isBefore(now),
-            )
+                      t.status.toLowerCase() == 'bestaetigt' &&
+                      !t.startAt!.isBefore(now),
+                )
                 .toList();
             final past = items
                 .where(
                   (t) =>
-              t.status.toLowerCase() != 'bestaetigt' ||
-                  t.startAt!.isBefore(now),
-            )
+                      t.status.toLowerCase() != 'bestaetigt' ||
+                      t.startAt!.isBefore(now),
+                )
                 .toList()
               ..sort((a, b) => b.startAt!.compareTo(a.startAt!));
 
@@ -146,7 +148,10 @@ class _TerminCard extends StatelessWidget {
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => KundenTerminDetailPage(termin: termin),
+              builder: (_) => KundenTerminDetailPage(
+                terminId: termin.id,
+                initialData: termin.toInitialData(),
+              ),
             ),
           );
         },
@@ -229,192 +234,6 @@ class _TerminCard extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class KundenTerminDetailPage extends StatefulWidget {
-  final _Termin termin;
-
-  const KundenTerminDetailPage({super.key, required this.termin});
-
-  @override
-  State<KundenTerminDetailPage> createState() => _KundenTerminDetailPageState();
-}
-
-class _KundenTerminDetailPageState extends State<KundenTerminDetailPage> {
-  bool _isCancelling = false;
-
-  bool get _isPast {
-    final startAt = widget.termin.startAt;
-    if (startAt == null) return true;
-    return startAt.isBefore(DateTime.now());
-  }
-
-  bool get _canCancel {
-    return widget.termin.status.toLowerCase() == 'bestaetigt' && !_isPast;
-  }
-
-  Future<void> _onCancelPressed() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          content: const Text('Möchtest du den Termin wirklich absagen?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Abbrechen'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              child: const Text('Absagen'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed != true) {
-      return;
-    }
-
-    setState(() => _isCancelling = true);
-    try {
-      await FirebaseFirestore.instance.collection('termine').doc(widget.termin.id).update({
-        'status': 'storniert',
-        'storniertVon': 'kunde',
-        'updatedAt': Timestamp.now(),
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Termin wurde abgesagt')),
-      );
-      Navigator.of(context).pop();
-    } finally {
-      if (mounted) {
-        setState(() => _isCancelling = false);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final startAt = widget.termin.startAt;
-    final dateText = startAt != null
-        ? _capitalize(DateFormat('EEEE, d. MMMM y', 'de_DE').format(startAt))
-        : widget.termin.datum;
-    final startText = startAt != null
-        ? DateFormat('HH:mm', 'de_DE').format(startAt)
-        : widget.termin.startZeit;
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Termindetails')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-        child: Card(
-          elevation: 0.5,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.termin.titel,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                _DetailRow(label: 'Status', value: widget.termin.status),
-                _DetailRow(label: 'Datum', value: dateText),
-                _DetailRow(label: 'Von', value: startText),
-                _DetailRow(
-                  label: 'Bis',
-                  value: widget.termin.endZeit.isNotEmpty ? widget.termin.endZeit : '-',
-                ),
-                _DetailRow(label: 'Dienstleister', value: widget.termin.dienstleisterName),
-                _DetailRow(label: 'Mitarbeiter', value: widget.termin.mitarbeiterName),
-              ],
-            ),
-          ),
-        ),
-      ),
-      bottomNavigationBar: _canCancel
-          ? SafeArea(
-        minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isCancelling ? null : _onCancelPressed,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                ),
-                child: _isCancelling
-                    ? const SizedBox(
-                  height: 18,
-                  width: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                )
-                    : const Text(
-                  'Termin absagen',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-            ),
-          ),
-        ),
-      )
-          : null,
-    );
-  }
-}
-
-class _DetailRow extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _DetailRow({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 110,
-            child: Text(
-              label,
-              style: TextStyle(
-                color: Colors.grey.shade700,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value.isNotEmpty ? value : '-',
-              style: const TextStyle(fontWeight: FontWeight.w500),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -510,6 +329,20 @@ class _Termin {
       dienstleisterName: _readString(data['dienstleisterName'], 'Dienstleister'),
       mitarbeiterName: _readString(data['mitarbeiterName'], 'Mitarbeiter'),
     );
+  }
+
+  Map<String, dynamic> toInitialData() {
+    return {
+      'titel': titel,
+      'startAt': startAt,
+      'datum': datum,
+      'startZeit': startZeit,
+      'endZeit': endZeit,
+      'status': status,
+      'mitarbeiterId': mitarbeiterId,
+      'dienstleisterName': dienstleisterName,
+      'mitarbeiterName': mitarbeiterName,
+    };
   }
 
   static DateTime? _parseTerminStartAt({
@@ -612,7 +445,7 @@ String _capitalize(String text) {
 
 String _initialsFromName(String name) {
   final parts =
-  name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+      name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
   if (parts.isEmpty) return '?';
   if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
   return '${parts.first.substring(0, 1)}${parts.last.substring(0, 1)}'
