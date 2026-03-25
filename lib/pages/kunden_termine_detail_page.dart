@@ -2,7 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-class KundenTermineDetailPage extends StatelessWidget {
+class KundenTermineDetailPage extends StatefulWidget {
+  final String terminId;
   final DateTime startAt;
   final String? mitarbeiterId;
   final String dienstleisterName;
@@ -11,6 +12,7 @@ class KundenTermineDetailPage extends StatelessWidget {
 
   const KundenTermineDetailPage({
     super.key,
+    required this.terminId,
     required this.startAt,
     required this.mitarbeiterId,
     required this.dienstleisterName,
@@ -19,9 +21,40 @@ class KundenTermineDetailPage extends StatelessWidget {
   });
 
   @override
+  State<KundenTermineDetailPage> createState() => _KundenTermineDetailPageState();
+}
+
+class _KundenTermineDetailPageState extends State<KundenTermineDetailPage> {
+  bool _isCancelling = false;
+
+  Future<void> _cancelTermin() async {
+    if (_isCancelling) return;
+
+    setState(() {
+      _isCancelling = true;
+    });
+
+    try {
+      await FirebaseFirestore.instance.collection('termine').doc(widget.terminId).update({
+        'status': 'abgesagt',
+        'abgesagtAm': Timestamp.now(),
+        'abgesagtVon': 'kunde',
+      });
+
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isCancelling = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final dateText = _capitalize(DateFormat('EEEE, d. MMMM', 'de_DE').format(startAt));
-    final timeText = DateFormat('HH:mm', 'de_DE').format(startAt);
+    final dateText = _capitalize(DateFormat('EEEE, d. MMMM', 'de_DE').format(widget.startAt));
+    final timeText = DateFormat('HH:mm', 'de_DE').format(widget.startAt);
 
     final theme = Theme.of(context);
     const headerColor = Color(0xFF1F3A57);
@@ -78,8 +111,8 @@ class KundenTermineDetailPage extends StatelessWidget {
                       child: Row(
                         children: [
                           _MitarbeiterAvatar(
-                            mitarbeiterId: mitarbeiterId,
-                            fallbackName: mitarbeiterName,
+                            mitarbeiterId: widget.mitarbeiterId,
+                            fallbackName: widget.mitarbeiterName,
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -87,21 +120,21 @@ class KundenTermineDetailPage extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  dienstleisterName,
+                                  widget.dienstleisterName,
                                   style: theme.textTheme.titleMedium?.copyWith(
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  mitarbeiterName,
+                                  widget.mitarbeiterName,
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     color: Colors.grey.shade700,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  status,
+                                  widget.status,
                                   style: theme.textTheme.bodySmall?.copyWith(
                                     color: Colors.grey.shade700,
                                     fontWeight: FontWeight.w600,
@@ -125,14 +158,12 @@ class KundenTermineDetailPage extends StatelessWidget {
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('TODO: Termin absagen')),
-                    );
-                  },
+                  onPressed: _isCancelling ? null : _cancelTermin,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFFF443A),
                     foregroundColor: Colors.white,
+                    disabledBackgroundColor: const Color(0xFFFF443A),
+                    disabledForegroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -142,7 +173,16 @@ class KundenTermineDetailPage extends StatelessWidget {
                       fontSize: 16,
                     ),
                   ),
-                  child: const Text('Termin absagen'),
+                  child: _isCancelling
+                      ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                      : const Text('Termin absagen'),
                 ),
               ),
             ),

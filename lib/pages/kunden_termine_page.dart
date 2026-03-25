@@ -28,7 +28,7 @@ class KundenTerminePage extends StatelessWidget {
     }
 
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Meine Termine'),
@@ -36,6 +36,7 @@ class KundenTerminePage extends StatelessWidget {
             tabs: [
               Tab(text: 'Anstehende Termine'),
               Tab(text: 'Vergangene Termine'),
+              Tab(text: 'Abgesagte Termine'),
             ],
           ),
         ),
@@ -61,8 +62,30 @@ class KundenTerminePage extends StatelessWidget {
             items.sort((a, b) => a.startAt!.compareTo(b.startAt!));
 
             final now = DateTime.now();
-            final upcoming = items.where((t) => !t.startAt!.isBefore(now)).toList();
-            final past = items.where((t) => t.startAt!.isBefore(now)).toList().reversed.toList();
+
+            final upcoming = items
+                .where(
+                  (t) =>
+              !t.startAt!.isBefore(now) &&
+                  t.status.toLowerCase() != 'abgesagt',
+            )
+                .toList();
+
+            final past = items
+                .where(
+                  (t) =>
+              t.startAt!.isBefore(now) &&
+                  t.status.toLowerCase() != 'abgesagt',
+            )
+                .toList()
+                .reversed
+                .toList();
+
+            final cancelled = items
+                .where((t) => t.status.toLowerCase() == 'abgesagt')
+                .toList()
+                .reversed
+                .toList();
 
             return TabBarView(
               children: [
@@ -73,6 +96,10 @@ class KundenTerminePage extends StatelessWidget {
                 _TermineList(
                   termine: past,
                   emptyText: 'Du hast keine vergangenen Termine.',
+                ),
+                _TermineList(
+                  termine: cancelled,
+                  emptyText: 'Du hast keine abgesagten Termine.',
                 ),
               ],
             );
@@ -137,6 +164,7 @@ class _TerminCard extends StatelessWidget {
             context,
             MaterialPageRoute(
               builder: (_) => KundenTermineDetailPage(
+                terminId: termin.id,
                 startAt: termin.startAt!,
                 mitarbeiterId: termin.mitarbeiterId,
                 dienstleisterName: termin.dienstleisterName,
@@ -333,7 +361,9 @@ class _Termin {
   }
 
   static DateTime? _parseStoredDate(dynamic value) {
-    if (value is Timestamp) return DateTime(value.toDate().year, value.toDate().month, value.toDate().day);
+    if (value is Timestamp) {
+      return DateTime(value.toDate().year, value.toDate().month, value.toDate().day);
+    }
     if (value is DateTime) return DateTime(value.year, value.month, value.day);
     if (value is String) {
       final normalized = value.trim();
