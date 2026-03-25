@@ -8,187 +8,303 @@ class KundenTerminePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final currentUser = FirebaseAuth.instance.currentUser;
+    final user = FirebaseAuth.instance.currentUser;
 
-    if (currentUser == null) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text(
-            'Bitte melde dich an, um deine Termine zu sehen.',
-            textAlign: TextAlign.center,
+    if (user == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Meine Termine')),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Bitte melde dich an, um deine Termine zu sehen.',
+              textAlign: TextAlign.center,
+            ),
           ),
         ),
       );
     }
 
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('termine')
-          .where('kundeId', isEqualTo: currentUser.uid)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Text(
-                'Termine konnten nicht geladen werden.',
-                textAlign: TextAlign.center,
-              ),
-            ),
-          );
-        }
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Meine Termine'),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Anstehende Termine'),
+              Tab(text: 'Vergangene Termine'),
+            ],
+          ),
+        ),
+        body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('termine')
+              .where('kundeId', isEqualTo: user.uid)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return const Center(child: Text('Termine konnten nicht geladen werden.'));
+            }
 
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-        final docs = snapshot.data?.docs ?? const [];
-        final termine = docs
-            .map((doc) => _KundenTermin.fromMap(doc.id, doc.data()))
-            .toList();
+            final items = (snapshot.data?.docs ?? const [])
+                .map((d) => _Termin.fromMap(d.id, d.data()))
+                .where((t) => t.startAt != null)
+                .toList();
 
-        termine.sort(_sortByUpcomingThenStartAtAsc);
+            items.sort((a, b) => a.startAt!.compareTo(b.startAt!));
 
-        if (termine.isEmpty) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Text(
-                'Du hast noch keine Termine.',
-                textAlign: TextAlign.center,
-              ),
-            ),
-          );
-        }
+            final now = DateTime.now();
+            final upcoming = items.where((t) => !t.startAt!.isBefore(now)).toList();
+            final past = items.where((t) => t.startAt!.isBefore(now)).toList().reversed.toList();
 
-        return ListView.separated(
-          padding: const EdgeInsets.all(16),
-          itemCount: termine.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (context, index) {
-            final termin = termine[index];
-            return Card(
-              child: ListTile(
-                contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                title: Text(
-                  termin.titel,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+            return TabBarView(
+              children: [
+                _TermineList(
+                  termine: upcoming,
+                  emptyText: 'Du hast keine anstehenden Termine.',
                 ),
-                subtitle: Padding(
-                  padding: const EdgeInsets.only(top: 8),
+                _TermineList(
+                  termine: past,
+                  emptyText: 'Du hast keine vergangenen Termine.',
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _TermineList extends StatelessWidget {
+  final List<_Termin> termine;
+  final String emptyText;
+
+  const _TermineList({required this.termine, required this.emptyText});
+
+  @override
+  Widget build(BuildContext context) {
+    if (termine.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(emptyText, textAlign: TextAlign.center),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: termine.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 14),
+      itemBuilder: (context, index) {
+        final termin = termine[index];
+        return _TerminCard(termin: termin);
+      },
+    );
+  }
+}
+
+class _TerminCard extends StatelessWidget {
+  final _Termin termin;
+
+  const _TerminCard({required this.termin});
+
+  @override
+  Widget build(BuildContext context) {
+    final dt = termin.startAt!;
+    final dateText = _capitalize(DateFormat('EEEE, d. MMMM', 'de_DE').format(dt));
+    final timeText = DateFormat('HH:mm', 'de_DE').format(dt);
+
+    final theme = Theme.of(context);
+    const headerColor = Color(0xFF1F3A57);
+
+    return Material(
+      color: Colors.white,
+      elevation: 1,
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: const BoxDecoration(color: headerColor),
+            child: Row(
+              children: [
+                const Icon(Icons.calendar_today, size: 16, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    dateText,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Icon(Icons.access_time, size: 16, color: Colors.white),
+                const SizedBox(width: 6),
+                Text(
+                  timeText,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                _MitarbeiterAvatar(
+                  mitarbeiterId: termin.mitarbeiterId,
+                  fallbackName: termin.mitarbeiterName,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(_formatDate(termin.startAt, termin.datumFallback)),
-                      const SizedBox(height: 2),
-                      Text(_formatTime(termin.startAt, termin.startZeitFallback)),
-                      const SizedBox(height: 6),
-                      Text(termin.dienstleisterName),
-                      Text('bei ${termin.mitarbeiterName}'),
-                      if (termin.status.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Status: ${termin.status}',
-                          style: const TextStyle(color: Colors.black54),
+                      Text(
+                        termin.dienstleisterName,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
                         ),
-                      ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        termin.mitarbeiterName,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ),
-            );
-          },
-        );
+                const SizedBox(width: 8),
+                Icon(Icons.chevron_right, color: Colors.grey.shade500),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MitarbeiterAvatar extends StatelessWidget {
+  final String? mitarbeiterId;
+  final String fallbackName;
+
+  const _MitarbeiterAvatar({
+    required this.mitarbeiterId,
+    required this.fallbackName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final employeeId = mitarbeiterId?.trim() ?? '';
+    if (employeeId.isEmpty) {
+      return _buildFallbackAvatar(context);
+    }
+
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: FirebaseFirestore.instance.collection('users').doc(employeeId).get(),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data();
+        final profileImageUrl = (data?['profileImageUrl'] as String?)?.trim() ?? '';
+
+        if (profileImageUrl.isNotEmpty) {
+          return CircleAvatar(
+            radius: 22,
+            backgroundColor: Colors.grey.shade200,
+            backgroundImage: NetworkImage(profileImageUrl),
+          );
+        }
+
+        return _buildFallbackAvatar(context);
       },
     );
   }
 
-  static int _sortByUpcomingThenStartAtAsc(_KundenTermin a, _KundenTermin b) {
-    final now = DateTime.now();
-    final aDate = a.startAt;
-    final bDate = b.startAt;
-
-    if (aDate == null && bDate == null) return 0;
-    if (aDate == null) return 1;
-    if (bDate == null) return -1;
-
-    final aIsUpcoming = !aDate.isBefore(now);
-    final bIsUpcoming = !bDate.isBefore(now);
-
-    if (aIsUpcoming != bIsUpcoming) {
-      return aIsUpcoming ? -1 : 1;
-    }
-
-    return aDate.compareTo(bDate);
-  }
-
-  static String _formatDate(DateTime? startAt, String fallback) {
-    if (startAt == null) {
-      return fallback.isNotEmpty ? fallback : 'Datum unbekannt';
-    }
-    return DateFormat('EEEE, d. MMMM y', 'de_DE').format(startAt);
-  }
-
-  static String _formatTime(DateTime? startAt, String fallback) {
-    if (startAt == null) {
-      return fallback.isNotEmpty ? fallback : 'Uhrzeit unbekannt';
-    }
-    return DateFormat('HH:mm').format(startAt);
+  Widget _buildFallbackAvatar(BuildContext context) {
+    final initials = _initialsFromName(fallbackName);
+    return CircleAvatar(
+      radius: 22,
+      backgroundColor: Colors.grey.shade200,
+      child: Text(
+        initials,
+        style: const TextStyle(fontWeight: FontWeight.w700),
+      ),
+    );
   }
 }
 
-class _KundenTermin {
+class _Termin {
   final String id;
   final DateTime? startAt;
-  final String titel;
-  final String datumFallback;
-  final String startZeitFallback;
+  final String? mitarbeiterId;
   final String dienstleisterName;
   final String mitarbeiterName;
-  final String status;
 
-  const _KundenTermin({
+  const _Termin({
     required this.id,
     required this.startAt,
-    required this.titel,
-    required this.datumFallback,
-    required this.startZeitFallback,
+    required this.mitarbeiterId,
     required this.dienstleisterName,
     required this.mitarbeiterName,
-    required this.status,
   });
 
-  factory _KundenTermin.fromMap(String id, Map<String, dynamic> data) {
-    return _KundenTermin(
+  factory _Termin.fromMap(String id, Map<String, dynamic> data) {
+    return _Termin(
       id: id,
-      startAt: _parseStartAt(data['startAt']),
-      titel: _readString(data['titel'], fallback: 'Termin'),
-      datumFallback: _readString(data['datum']),
-      startZeitFallback: _readString(data['startZeit']),
-      dienstleisterName:
-      _readString(data['dienstleisterName'], fallback: 'Dienstleister unbekannt'),
-      mitarbeiterName:
-      _readString(data['mitarbeiterName'], fallback: 'Mitarbeiter unbekannt'),
-      status: _readString(data['status']),
+      startAt: _parseDateTime(data['startAt']),
+      mitarbeiterId: _readNullableString(data['mitarbeiterId']),
+      dienstleisterName: _readString(data['dienstleisterName'], 'Dienstleister'),
+      mitarbeiterName: _readString(data['mitarbeiterName'], 'Mitarbeiter'),
     );
   }
 
-  static DateTime? _parseStartAt(dynamic value) {
+  static DateTime? _parseDateTime(dynamic value) {
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
-    if (value is String) {
-      return DateTime.tryParse(value);
-    }
+    if (value is String) return DateTime.tryParse(value);
     return null;
   }
 
-  static String _readString(dynamic value, {String fallback = ''}) {
-    if (value is String && value.trim().isNotEmpty) {
-      return value.trim();
-    }
+  static String _readString(dynamic value, String fallback) {
+    if (value is String && value.trim().isNotEmpty) return value.trim();
     return fallback;
   }
+
+  static String? _readNullableString(dynamic value) {
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+    return null;
+  }
+}
+
+String _capitalize(String text) {
+  if (text.isEmpty) return text;
+  return '${text[0].toUpperCase()}${text.substring(1)}';
+}
+
+String _initialsFromName(String name) {
+  final parts = name
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((p) => p.isNotEmpty)
+      .toList();
+  if (parts.isEmpty) return '?';
+  if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+  return '${parts.first.substring(0, 1)}${parts.last.substring(0, 1)}'.toUpperCase();
 }
