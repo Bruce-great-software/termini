@@ -32,6 +32,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   static const double _timeColumnWidth = 72;
   static const double _hourRowHeight = 72;
   static const double _terminHorizontalPadding = 6;
+  static const double _terminColumnGap = 4;
   static const List<String> _weekdayLabels = [
     'Mo',
     'Di',
@@ -58,11 +59,18 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
   late DateTime _referenceDate;
   _KalenderViewMode _viewMode = _KalenderViewMode.woche;
+  final ScrollController _weekScrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _referenceDate = _dateOnly(DateTime.now());
+  }
+
+  @override
+  void dispose() {
+    _weekScrollController.dispose();
+    super.dispose();
   }
 
   @override
@@ -341,7 +349,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
             if (loadError != null)
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 color: const Color(0xFFFFF4ED),
                 child: Text(
                   loadError,
@@ -353,8 +362,10 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
               ),
             Expanded(
               child: Scrollbar(
+                controller: _weekScrollController,
                 thumbVisibility: true,
                 child: SingleChildScrollView(
+                  controller: _weekScrollController,
                   padding: const EdgeInsets.only(bottom: 16),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -520,99 +531,246 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     required ThemeData theme,
   }) {
     final startOfWeek = _startOfWeek(_referenceDate);
-    final blockWidth = (dayColumnWidth - (_terminHorizontalPadding * 2))
-        .clamp(40.0, dayColumnWidth)
-        .toDouble();
+    final perDay = List.generate(7, (_) => <_TerminEntry>[]);
 
-    return termine.map((termin) {
-      final minutesFromMidnight =
-          (termin.startAt.hour * 60) + termin.startAt.minute;
-      final durationMinutes = termin.endAt.difference(termin.startAt).inMinutes;
-      final top = (minutesFromMidnight / 60) * _hourRowHeight;
-      final height = ((durationMinutes / 60) * _hourRowHeight)
-          .clamp(32.0, _hourRowHeight * 24)
-          .toDouble();
+    for (final termin in termine) {
       final dayIndex = termin.startAt.difference(startOfWeek).inDays;
-
-      if (dayIndex < 0 || dayIndex > 6) {
-        return const SizedBox.shrink();
+      if (dayIndex >= 0 && dayIndex < 7) {
+        perDay[dayIndex].add(termin);
       }
+    }
 
-      final blockHeight = (height - 4).clamp(24.0, _hourRowHeight * 24).toDouble();
-      final isCompactBlock = blockHeight < 52;
+    final widgets = <Widget>[];
 
-      return Positioned(
-        top: top + 2,
-        left: (dayIndex * dayColumnWidth) + _terminHorizontalPadding,
-        width: blockWidth,
-        height: blockHeight,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => _showEditAppointmentDialog(termin),
-            child: Ink(
-              padding: EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: isCompactBlock ? 4 : 8,
-              ),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEAF2FF),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFB2CCFF)),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x12101828),
-                    blurRadius: 10,
-                    offset: Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: ClipRect(
-                child: isCompactBlock
-                    ? Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    termin.titel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF175CD3),
-                      fontWeight: FontWeight.w700,
+    for (var dayIndex = 0; dayIndex < perDay.length; dayIndex++) {
+      final dayTermine = perDay[dayIndex]..sort(_compareTerminEntries);
+      final clusters = _buildOverlapClusters(dayTermine);
+
+      for (final cluster in clusters) {
+        final positionedEvents = _layoutCluster(cluster);
+
+        for (final item in positionedEvents) {
+          final termin = item.termin;
+          final minutesFromMidnight =
+              (termin.startAt.hour * 60) + termin.startAt.minute;
+          final durationMinutes =
+              termin.endAt.difference(termin.startAt).inMinutes;
+          final top = (minutesFromMidnight / 60) * _hourRowHeight;
+          final height = ((durationMinutes / 60) * _hourRowHeight)
+              .clamp(32.0, _hourRowHeight * 24)
+              .toDouble();
+
+          final blockHeight =
+          (height - 4).clamp(24.0, _hourRowHeight * 24).toDouble();
+          final availableWidth =
+          (dayColumnWidth - (_terminHorizontalPadding * 2))
+              .clamp(40.0, dayColumnWidth);
+          final totalGap = (item.totalColumns - 1) * _terminColumnGap;
+          final columnWidth = ((availableWidth - totalGap) / item.totalColumns)
+              .clamp(28.0, availableWidth)
+              .toDouble();
+
+          final left = (dayIndex * dayColumnWidth) +
+              _terminHorizontalPadding +
+              (item.columnIndex * (columnWidth + _terminColumnGap));
+
+          final displayName =
+          (termin.mitarbeiterName?.trim().isNotEmpty ?? false)
+              ? termin.mitarbeiterName!.trim()
+              : termin.titel;
+          final timeLabel = '${termin.startZeit} bis ${termin.endZeit}';
+
+          widgets.add(
+            Positioned(
+              top: top + 2,
+              left: left,
+              width: columnWidth,
+              height: blockHeight,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => _showEditAppointmentDialog(termin),
+                  child: Ink(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEAF2FF),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFB2CCFF)),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x12101828),
+                          blurRadius: 10,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final availableHeight = constraints.maxHeight;
+                        final showTime = availableHeight >= 40;
+                        final verticalPadding = availableHeight < 34 ? 4.0 : 8.0;
+                        final horizontalPadding =
+                        constraints.maxWidth < 70 ? 6.0 : 8.0;
+
+                        return Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: horizontalPadding,
+                            vertical: verticalPadding,
+                          ),
+                          child: ClipRect(
+                            child: showTime
+                                ? Column(
+                              crossAxisAlignment:
+                              CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.start,
+                              children: [
+                                Text(
+                                  displayName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style:
+                                  theme.textTheme.bodyMedium?.copyWith(
+                                    color: const Color(0xFF175CD3),
+                                    fontWeight: FontWeight.w700,
+                                    fontSize:
+                                    availableHeight < 48 ? 11 : 13,
+                                    height: 1.0,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  timeLabel,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style:
+                                  theme.textTheme.bodySmall?.copyWith(
+                                    color: const Color(0xFF175CD3),
+                                    fontWeight: FontWeight.w600,
+                                    fontSize:
+                                    availableHeight < 48 ? 9 : 11,
+                                    height: 1.0,
+                                  ),
+                                ),
+                              ],
+                            )
+                                : Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                displayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style:
+                                theme.textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFF175CD3),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 10,
+                                  height: 1.0,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
-                )
-                    : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      termin.titel,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFF175CD3),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${termin.startZeit} - ${termin.endZeit}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF175CD3),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
                 ),
               ),
             ),
-          ),
+          );
+        }
+      }
+    }
+
+    return widgets;
+  }
+
+  int _compareTerminEntries(_TerminEntry a, _TerminEntry b) {
+    final startCompare = a.startAt.compareTo(b.startAt);
+    if (startCompare != 0) return startCompare;
+
+    final endCompare = a.endAt.compareTo(b.endAt);
+    if (endCompare != 0) return endCompare;
+
+    return a.id.compareTo(b.id);
+  }
+
+  List<List<_TerminEntry>> _buildOverlapClusters(List<_TerminEntry> termine) {
+    if (termine.isEmpty) return const [];
+
+    final clusters = <List<_TerminEntry>>[];
+    var currentCluster = <_TerminEntry>[];
+    DateTime? clusterEnd;
+
+    for (final termin in termine) {
+      if (currentCluster.isEmpty) {
+        currentCluster = [termin];
+        clusterEnd = termin.endAt;
+        continue;
+      }
+
+      final overlapsCurrentCluster =
+          clusterEnd != null && termin.startAt.isBefore(clusterEnd);
+      if (overlapsCurrentCluster) {
+        currentCluster.add(termin);
+        if (termin.endAt.isAfter(clusterEnd)) {
+          clusterEnd = termin.endAt;
+        }
+      } else {
+        clusters.add(currentCluster);
+        currentCluster = [termin];
+        clusterEnd = termin.endAt;
+      }
+    }
+
+    if (currentCluster.isNotEmpty) {
+      clusters.add(currentCluster);
+    }
+
+    return clusters;
+  }
+
+  List<_PositionedTermin> _layoutCluster(List<_TerminEntry> cluster) {
+    if (cluster.isEmpty) return const [];
+
+    final columnEndTimes = <DateTime>[];
+    final items = <_PositionedTermin>[];
+
+    for (final termin in cluster) {
+      var assignedColumn = -1;
+
+      for (var index = 0; index < columnEndTimes.length; index++) {
+        final columnEnd = columnEndTimes[index];
+        if (!termin.startAt.isBefore(columnEnd)) {
+          assignedColumn = index;
+          columnEndTimes[index] = termin.endAt;
+          break;
+        }
+      }
+
+      if (assignedColumn == -1) {
+        assignedColumn = columnEndTimes.length;
+        columnEndTimes.add(termin.endAt);
+      }
+
+      items.add(
+        _PositionedTermin(
+          termin: termin,
+          columnIndex: assignedColumn,
+          totalColumns: 0,
         ),
       );
-    }).toList();
+    }
+
+    final totalColumns = columnEndTimes.length;
+    return items
+        .map(
+          (item) => _PositionedTermin(
+        termin: item.termin,
+        columnIndex: item.columnIndex,
+        totalColumns: totalColumns,
+      ),
+    )
+        .toList(growable: false);
   }
 
   Future<void> _showCreateAppointmentDialog() async {
@@ -818,7 +976,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                         mitarbeiterSnapshot.data ?? const <_MitarbeiterOption>[];
                     hasMitarbeiter = mitarbeiter.isNotEmpty;
                     isLoadingMitarbeiter =
-                        mitarbeiterSnapshot.connectionState == ConnectionState.waiting;
+                        mitarbeiterSnapshot.connectionState ==
+                            ConnectionState.waiting;
                     final mitarbeiterError = mitarbeiterSnapshot.hasError
                         ? 'Mitarbeiter konnten nicht geladen werden.'
                         : null;
@@ -869,7 +1028,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                                 SizedBox(
                                   width: 18,
                                   height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 ),
                                 SizedBox(width: 12),
                                 Expanded(
@@ -1053,7 +1214,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
           .whereType<_MitarbeiterOption>()
           .toList(growable: false);
 
-      mitarbeiter.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      mitarbeiter.sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
       return mitarbeiter;
     } on FirebaseException {
       return const <_MitarbeiterOption>[];
@@ -1502,5 +1665,17 @@ class _TerminEntry {
     required this.mitarbeiterName,
     required this.startZeit,
     required this.endZeit,
+  });
+}
+
+class _PositionedTermin {
+  final _TerminEntry termin;
+  final int columnIndex;
+  final int totalColumns;
+
+  const _PositionedTermin({
+    required this.termin,
+    required this.columnIndex,
+    required this.totalColumns,
   });
 }
