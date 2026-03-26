@@ -45,6 +45,20 @@ class _LeistungsPosition {
   });
 }
 
+class _KundenSuggestion {
+  final String id;
+  final String name;
+  final String email;
+  final String phone;
+
+  const _KundenSuggestion({
+    required this.id,
+    required this.name,
+    required this.email,
+    required this.phone,
+  });
+}
+
 class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   static const double _calendarSidebarWidth = 188;
   static const double _timeColumnWidth = 72;
@@ -1201,8 +1215,11 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   Future<void> _showAppointmentDialog({
     _TerminEntry? initialTermin,
   }) async {
-    final titleController = TextEditingController();
+    final kundeNameController = TextEditingController();
+    final kundePhoneController = TextEditingController();
+    final kundeEmailController = TextEditingController();
     final mitarbeiterFuture = _loadActiveMitarbeiter();
+
     final isEditMode = initialTermin != null;
     var selectedDate =
     initialTermin != null ? _dateOnly(initialTermin.startAt) : _referenceDate;
@@ -1212,6 +1229,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     var toTime = initialTermin != null
         ? TimeOfDay.fromDateTime(initialTermin.endAt)
         : const TimeOfDay(hour: 10, minute: 0);
+
     _MitarbeiterOption? selectedMitarbeiter =
     _buildInitialMitarbeiterOption(initialTermin);
     String? validationMessage;
@@ -1219,7 +1237,116 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     bool isDeleting = false;
     bool isLoadingMitarbeiter = true;
     bool hasMitarbeiter = false;
-    titleController.text = initialTermin?.titel ?? '';
+
+    List<_KundenSuggestion> emailSuggestions = <_KundenSuggestion>[];
+    bool isLoadingSuggestions = false;
+    String? selectedKundeId = initialTermin?.kundeId;
+    int emailRequestCounter = 0;
+
+    kundeNameController.text = initialTermin?.kundeName ?? '';
+    kundePhoneController.text = initialTermin?.kundePhone ?? '';
+    kundeEmailController.text = initialTermin?.kundeEmail ?? '';
+
+    Future<void> loadEmailSuggestions(
+        String rawValue,
+        void Function(void Function()) setDialogState,
+        ) async {
+      final query = rawValue.trim().toLowerCase();
+
+      if (query.isEmpty || query.length < 1) {
+        setDialogState(() {
+          emailSuggestions = <_KundenSuggestion>[];
+          isLoadingSuggestions = false;
+          if (kundeEmailController.text.trim() !=
+              (initialTermin?.kundeEmail ?? '').trim()) {
+            selectedKundeId = null;
+          }
+        });
+        return;
+      }
+
+      final currentRequest = ++emailRequestCounter;
+
+      setDialogState(() {
+        isLoadingSuggestions = true;
+        if (selectedKundeId != null) {
+          final selectedEmail = (initialTermin?.kundeEmail ?? '').trim();
+          if (selectedEmail.toLowerCase() != query) {
+            selectedKundeId = null;
+          }
+        }
+      });
+
+      try {
+        final snapshot = await FirebaseFirestore.instance
+            .collection('users')
+            .where('rolle', isEqualTo: 'kunde')
+            .get();
+
+        if (!mounted || currentRequest != emailRequestCounter) {
+          return;
+        }
+
+        final suggestions = snapshot.docs
+            .map((doc) {
+          final data = doc.data();
+
+          final email = _readFirstNonEmptyString([
+            data['emailLc'],
+            data['email'],
+            data['kundeEmail'],
+          ]);
+
+          if (email.isEmpty) {
+            return null;
+          }
+
+          if (!email.toLowerCase().startsWith(query)) {
+            return null;
+          }
+
+          final name = _readFirstNonEmptyString([
+            data['name'],
+            data['kundeName'],
+            data['anzeigeName'],
+          ]);
+
+          final phone = _readFirstNonEmptyString([
+            data['phone'],
+            data['telefon'],
+            data['kundePhone'],
+            data['handynummer'],
+          ]);
+
+          return _KundenSuggestion(
+            id: doc.id,
+            name: name,
+            email: email,
+            phone: phone,
+          );
+        })
+            .whereType<_KundenSuggestion>()
+            .toList();
+
+        suggestions.sort(
+              (a, b) => a.email.toLowerCase().compareTo(b.email.toLowerCase()),
+        );
+
+        setDialogState(() {
+          emailSuggestions = suggestions.take(6).toList();
+          isLoadingSuggestions = false;
+        });
+      } catch (_) {
+        if (!mounted || currentRequest != emailRequestCounter) {
+          return;
+        }
+
+        setDialogState(() {
+          emailSuggestions = <_KundenSuggestion>[];
+          isLoadingSuggestions = false;
+        });
+      }
+    }
 
     await showDialog<void>(
       context: context,
@@ -1262,16 +1389,18 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
             }
 
             Future<void> handleSave() async {
-              final titel = titleController.text.trim();
+              final kundeName = kundeNameController.text.trim();
+              final kundePhone = kundePhoneController.text.trim();
+              final kundeEmail = kundeEmailController.text.trim();
               final startAt = _combineDateAndTime(selectedDate, fromTime);
               final endAt = _combineDateAndTime(selectedDate, toTime);
               final mitarbeiter = selectedMitarbeiter;
 
-              if (titel.isEmpty) {
+              if (kundeName.isEmpty) {
                 setDialogState(() {
-                  validationMessage = 'Bitte gib einen Titel ein.';
+                  validationMessage = 'Bitte gib einen Kundennamen ein.';
                 });
-                _showSnackBar('Titel darf nicht leer sein.');
+                _showSnackBar('Kundenname darf nicht leer sein.');
                 return;
               }
 
@@ -1313,6 +1442,11 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 validationMessage = null;
               });
 
+              final titel = _buildAutomaticTerminTitle(
+                kundeName: kundeName,
+                initialTermin: initialTermin,
+              );
+
               final saveResult = isEditMode
                   ? await _updateTermin(
                 terminId: initialTermin!.id,
@@ -1321,6 +1455,10 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 fromTime: fromTime,
                 toTime: toTime,
                 mitarbeiter: mitarbeiter,
+                kundeId: selectedKundeId,
+                kundeName: kundeName,
+                kundePhone: kundePhone,
+                kundeEmail: kundeEmail,
               )
                   : await _saveTermin(
                 titel: titel,
@@ -1328,11 +1466,13 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 fromTime: fromTime,
                 toTime: toTime,
                 mitarbeiter: mitarbeiter,
+                kundeId: selectedKundeId,
+                kundeName: kundeName,
+                kundePhone: kundePhone,
+                kundeEmail: kundeEmail,
               );
 
-              if (!mounted) {
-                return;
-              }
+              if (!mounted) return;
 
               if (saveResult == null) {
                 Navigator.of(dialogContext).pop();
@@ -1363,9 +1503,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
               final deleteResult = await _deleteTermin(initialTermin!.id);
 
-              if (!mounted) {
-                return;
-              }
+              if (!mounted) return;
 
               if (deleteResult == null) {
                 Navigator.of(dialogContext).pop();
@@ -1385,7 +1523,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 isEditMode ? 'Termin bearbeiten' : 'Termin eintragen',
               ),
               content: SizedBox(
-                width: 420,
+                width: 440,
                 child: FutureBuilder<List<_MitarbeiterOption>>(
                   future: mitarbeiterFuture,
                   builder: (context, mitarbeiterSnapshot) {
@@ -1405,9 +1543,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
                     if (selectedMitarbeiter?.id != ausgewahlterMitarbeiter?.id) {
                       WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (!mounted) {
-                          return;
-                        }
+                        if (!mounted) return;
                         setDialogState(() {
                           selectedMitarbeiter = ausgewahlterMitarbeiter;
                         });
@@ -1419,13 +1555,143 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         TextField(
-                          controller: titleController,
+                          controller: kundeNameController,
                           textInputAction: TextInputAction.next,
                           decoration: const InputDecoration(
-                            labelText: 'Titel *',
+                            labelText: 'Kundenname *',
                             border: OutlineInputBorder(),
                           ),
+                          onChanged: (_) {
+                            if (selectedKundeId != null) {
+                              setDialogState(() {
+                                selectedKundeId = null;
+                              });
+                            }
+                          },
                         ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: kundePhoneController,
+                          keyboardType: TextInputType.phone,
+                          textInputAction: TextInputAction.next,
+                          decoration: const InputDecoration(
+                            labelText: 'Handynummer',
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (_) {
+                            if (selectedKundeId != null) {
+                              setDialogState(() {
+                                selectedKundeId = null;
+                              });
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: kundeEmailController,
+                          keyboardType: TextInputType.emailAddress,
+                          textInputAction: TextInputAction.next,
+                          decoration: InputDecoration(
+                            labelText: 'E-Mail',
+                            border: const OutlineInputBorder(),
+                            suffixIcon: isLoadingSuggestions
+                                ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            )
+                                : selectedKundeId != null
+                                ? const Icon(
+                              Icons.check_circle,
+                              color: Colors.green,
+                            )
+                                : null,
+                          ),
+                          onChanged: (value) async {
+                            final normalized = value.trim().toLowerCase();
+                            if (selectedKundeId != null &&
+                                normalized !=
+                                    (initialTermin?.kundeEmail ?? '')
+                                        .trim()
+                                        .toLowerCase()) {
+                              setDialogState(() {
+                                selectedKundeId = null;
+                              });
+                            }
+
+                            await loadEmailSuggestions(value, setDialogState);
+                          },
+                        ),
+                        if (emailSuggestions.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            constraints: const BoxConstraints(maxHeight: 180),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              border: Border.all(
+                                color: const Color(0xFFD0D5DD),
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: emailSuggestions.length,
+                              separatorBuilder: (_, __) =>
+                              const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final suggestion = emailSuggestions[index];
+                                return ListTile(
+                                  dense: true,
+                                  title: Text(
+                                    suggestion.email,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: Text(
+                                    suggestion.name.isNotEmpty
+                                        ? suggestion.name
+                                        : 'Ohne Namen',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  onTap: () {
+                                    setDialogState(() {
+                                      selectedKundeId = suggestion.id;
+                                      kundeEmailController.text =
+                                          suggestion.email;
+                                      if (suggestion.name.isNotEmpty) {
+                                        kundeNameController.text =
+                                            suggestion.name;
+                                      }
+                                      if (suggestion.phone.isNotEmpty) {
+                                        kundePhoneController.text =
+                                            suggestion.phone;
+                                      }
+                                      emailSuggestions = <_KundenSuggestion>[];
+                                      validationMessage = null;
+                                    });
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                        if (selectedKundeId != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Bestehender Kunde ausgewählt.',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                              color: Colors.green.shade700,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 16),
                         _buildDialogPickerField(
                           label: 'Datum',
@@ -1577,7 +1843,36 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       },
     );
 
-    titleController.dispose();
+    kundeNameController.dispose();
+    kundePhoneController.dispose();
+    kundeEmailController.dispose();
+  }
+
+  String _buildAutomaticTerminTitle({
+    required String kundeName,
+    _TerminEntry? initialTermin,
+  }) {
+    if (initialTermin != null &&
+        initialTermin.quelle.trim().toLowerCase() == 'kunde' &&
+        initialTermin.titel.trim().isNotEmpty) {
+      return initialTermin.titel.trim();
+    }
+
+    final trimmedName = kundeName.trim();
+    if (trimmedName.isNotEmpty) {
+      return trimmedName;
+    }
+
+    return 'Termin';
+  }
+
+  String _readFirstNonEmptyString(List<dynamic> values) {
+    for (final value in values) {
+      if (value is String && value.trim().isNotEmpty) {
+        return value.trim();
+      }
+    }
+    return '';
   }
 
   Widget _buildDialogPickerField({
@@ -1692,6 +1987,10 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     required TimeOfDay fromTime,
     required TimeOfDay toTime,
     required _MitarbeiterOption mitarbeiter,
+    required String? kundeId,
+    required String kundeName,
+    required String kundePhone,
+    required String kundeEmail,
   }) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -1713,6 +2012,10 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         'mitarbeiterId': mitarbeiter.id,
         'mitarbeiterName': mitarbeiter.name,
         'titel': titel,
+        'kundeId': kundeId,
+        'kundeName': kundeName,
+        'kundePhone': kundePhone,
+        'kundeEmail': kundeEmail,
         'datum': _formatDate(datum),
         'startZeit': _formatTime(fromTime),
         'endZeit': _formatTime(toTime),
@@ -1739,6 +2042,10 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     required TimeOfDay fromTime,
     required TimeOfDay toTime,
     required _MitarbeiterOption mitarbeiter,
+    required String? kundeId,
+    required String kundeName,
+    required String kundePhone,
+    required String kundeEmail,
   }) async {
     try {
       final cleanedTerminId = terminId.trim();
@@ -1756,6 +2063,10 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         'mitarbeiterId': mitarbeiter.id,
         'mitarbeiterName': mitarbeiter.name,
         'titel': titel,
+        'kundeId': kundeId,
+        'kundeName': kundeName,
+        'kundePhone': kundePhone,
+        'kundeEmail': kundeEmail,
         'datum': _formatDate(datum),
         'startZeit': _formatTime(fromTime),
         'endZeit': _formatTime(toTime),
@@ -1844,6 +2155,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     }
 
     final status = (data['status'] as String?)?.trim() ?? 'bestaetigt';
+    final quelle = (data['quelle'] as String?)?.trim() ?? '';
+    final kundeId = (data['kundeId'] as String?)?.trim();
     final kundeName = (data['kundeName'] as String?)?.trim();
     final kundePhone = (data['kundePhone'] as String?)?.trim();
     final kundeEmail = (data['kundeEmail'] as String?)?.trim();
@@ -1866,6 +2179,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
           ? endZeit!
           : _formatTime(TimeOfDay.fromDateTime(endAt)),
       status: status,
+      quelle: quelle,
+      kundeId: kundeId,
       kundeName: kundeName,
       kundePhone: kundePhone,
       kundeEmail: kundeEmail,
@@ -2120,6 +2435,8 @@ class _TerminEntry {
   final String startZeit;
   final String endZeit;
   final String status;
+  final String quelle;
+  final String? kundeId;
   final String? kundeName;
   final String? kundePhone;
   final String? kundeEmail;
@@ -2137,6 +2454,8 @@ class _TerminEntry {
     required this.startZeit,
     required this.endZeit,
     required this.status,
+    required this.quelle,
+    required this.kundeId,
     required this.kundeName,
     required this.kundePhone,
     required this.kundeEmail,
