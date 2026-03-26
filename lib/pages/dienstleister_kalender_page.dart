@@ -792,6 +792,22 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                         ),
                       ),
                       IconButton(
+                        onPressed: () async {
+                          Navigator.of(dialogContext).pop();
+                          await _showEditAppointmentDialog(termin);
+                        },
+                        icon: const Icon(Icons.edit_outlined),
+                        tooltip: 'Bearbeiten',
+                      ),
+                      IconButton(
+                        onPressed: () async {
+                          Navigator.of(dialogContext).pop();
+                          await _deleteTerminWithFeedback(termin.id);
+                        },
+                        icon: const Icon(Icons.delete_outline),
+                        tooltip: 'Löschen',
+                      ),
+                      IconButton(
                         onPressed: () => Navigator.of(dialogContext).pop(),
                         icon: const Icon(Icons.close),
                         tooltip: 'Schließen',
@@ -891,35 +907,6 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 18),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () async {
-                          Navigator.of(dialogContext).pop();
-                          await _deleteTerminWithFeedback(termin.id);
-                        },
-                        style: TextButton.styleFrom(
-                          foregroundColor: const Color(0xFFB42318),
-                        ),
-                        child: const Text('Löschen'),
-                      ),
-                      const SizedBox(width: 8),
-                      TextButton(
-                        onPressed: () => Navigator.of(dialogContext).pop(),
-                        child: const Text('Schließen'),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        onPressed: () async {
-                          Navigator.of(dialogContext).pop();
-                          await _showEditAppointmentDialog(termin);
-                        },
-                        child: const Text('Bearbeiten'),
-                      ),
-                    ],
-                  ),
                 ],
               ),
             ),
@@ -1001,7 +988,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   }) {
     final grouped = <String, List<_LeistungsPosition>>{};
     for (final item in termin.leistungsPositionen) {
-      final key = item.category.trim().isNotEmpty ? item.category.trim() : 'Leistungen';
+      final key =
+      item.category.trim().isNotEmpty ? item.category.trim() : 'Leistungen';
       grouped.putIfAbsent(key, () => <_LeistungsPosition>[]).add(item);
     }
 
@@ -1890,7 +1878,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   List<_LeistungsPosition> _parseLeistungsPositionen(dynamic value) {
     if (value is! List) return const <_LeistungsPosition>[];
 
-    return value.map((item) {
+    return value
+        .map((item) {
       if (item is! Map) return null;
       final map = Map<String, dynamic>.from(item);
       return _LeistungsPosition(
@@ -1901,7 +1890,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         originalPrice: _readDouble(map['originalPrice']),
         duration: _readInt(map['duration']),
       );
-    }).whereType<_LeistungsPosition>().toList(growable: false);
+    })
+        .whereType<_LeistungsPosition>()
+        .toList(growable: false);
   }
 
   double? _readDouble(dynamic value) {
