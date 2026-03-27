@@ -63,6 +63,7 @@ class VornameBearbeitenPage extends StatefulWidget {
 
 class _VornameBearbeitenPageState extends State<VornameBearbeitenPage> {
   final _controller = TextEditingController();
+  String? _selectedGeschlecht;
   bool isLoading = true;
 
   @override
@@ -75,7 +76,14 @@ class _VornameBearbeitenPageState extends State<VornameBearbeitenPage> {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      _controller.text = doc.data()?['name'] ?? '';
+      final data = doc.data();
+      _controller.text = (data?['name'] as String?) ?? '';
+      final geschlechtRaw = (data?['geschlecht'] as String?)?.trim().toLowerCase();
+      if (geschlechtRaw == 'frau' || geschlechtRaw == 'herr') {
+        _selectedGeschlecht = geschlechtRaw;
+      } else {
+        _selectedGeschlecht = null;
+      }
     }
     setState(() => isLoading = false);
   }
@@ -83,17 +91,37 @@ class _VornameBearbeitenPageState extends State<VornameBearbeitenPage> {
   Future<void> _speichern() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+      final updateData = <String, dynamic>{
         'name': _controller.text.trim(),
-      });
+      };
+
+      if (_selectedGeschlecht != null) {
+        updateData['geschlecht'] = _selectedGeschlecht;
+      }
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .update(updateData);
     }
     Navigator.pop(context);
+  }
+
+  String? _zielgruppeAusGeschlecht(String? geschlecht) {
+    switch (geschlecht) {
+      case 'frau':
+        return 'Damen';
+      case 'herr':
+        return 'Herren';
+      default:
+        return null;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Vorname bearbeiten')),
+      appBar: AppBar(title: const Text('Profil bearbeiten')),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : Padding(
@@ -110,6 +138,40 @@ class _VornameBearbeitenPageState extends State<VornameBearbeitenPage> {
                 hintText: 'Dein Vorname',
               ),
             ),
+            const SizedBox(height: 20),
+            const Text('Geschlecht'),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                ChoiceChip(
+                  label: const Text('Frau'),
+                  selected: _selectedGeschlecht == 'frau',
+                  onSelected: (selected) {
+                    if (!selected) return;
+                    setState(() => _selectedGeschlecht = 'frau');
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('Herr'),
+                  selected: _selectedGeschlecht == 'herr',
+                  onSelected: (selected) {
+                    if (!selected) return;
+                    setState(() => _selectedGeschlecht = 'herr');
+                  },
+                ),
+              ],
+            ),
+            if (_zielgruppeAusGeschlecht(_selectedGeschlecht) != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Abgeleitete Zielgruppe: ${_zielgruppeAusGeschlecht(_selectedGeschlecht)}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.black54,
+                ),
+              ),
+            ],
             const SizedBox(height: 24),
             ElevatedButton(
               onPressed: _speichern,
