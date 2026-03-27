@@ -20,10 +20,12 @@ enum _KalenderViewMode { tag, woche, monat }
 class _MitarbeiterOption {
   final String id;
   final String name;
+  final int kalenderFarbeValue;
 
   const _MitarbeiterOption({
     required this.id,
     required this.name,
+    required this.kalenderFarbeValue,
   });
 }
 
@@ -65,6 +67,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   static const double _hourRowHeight = 72;
   static const double _terminHorizontalPadding = 6;
   static const double _terminColumnGap = 4;
+  static const int _defaultKalenderFarbeValue = 0xFF4285F4;
 
   static const List<String> _weekdayLabels = [
     'Mo',
@@ -95,6 +98,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
   late DateTime _referenceDate;
   _KalenderViewMode _viewMode = _KalenderViewMode.woche;
+  bool _alleMitarbeiterAnzeigen = true;
+  final Set<String> _selectedMitarbeiterIds = <String>{};
 
   @override
   void initState() {
@@ -162,9 +167,156 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         children: [
           _buildCreateButton(),
           const SizedBox(height: 12),
-          const Expanded(child: SizedBox()),
+          Expanded(
+            child: _buildMitarbeiterFilterSection(theme),
+          ),
         ],
       ),
+    );
+  }
+
+  Widget _buildMitarbeiterFilterSection(ThemeData theme) {
+    return StreamBuilder<List<_MitarbeiterOption>>(
+      stream: _watchActiveMitarbeiter(),
+      builder: (context, snapshot) {
+        final mitarbeiter = snapshot.data ?? const <_MitarbeiterOption>[];
+        final allIds = mitarbeiter.map((item) => item.id).toSet();
+        final hasError = snapshot.hasError;
+
+        return Container(
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 2),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF9FAFB),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Mitarbeiter',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: const Color(0xFF344054),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
+                value: _alleMitarbeiterAnzeigen,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: const Text(
+                  'Alle anzeigen',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF101828),
+                  ),
+                ),
+                onChanged: mitarbeiter.isEmpty
+                    ? null
+                    : (value) {
+                  if (value == null) return;
+                  setState(() {
+                    _alleMitarbeiterAnzeigen = value;
+                    if (value) {
+                      _selectedMitarbeiterIds.clear();
+                    } else if (_selectedMitarbeiterIds.isEmpty) {
+                      _selectedMitarbeiterIds
+                        ..clear()
+                        ..addAll(allIds);
+                    }
+                  });
+                },
+              ),
+              const Divider(height: 1, color: Color(0xFFE5E7EB)),
+              const SizedBox(height: 6),
+              if (snapshot.connectionState == ConnectionState.waiting &&
+                  mitarbeiter.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Center(
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                )
+              else if (hasError)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'Mitarbeiter konnten nicht geladen werden.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFFB42318),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                )
+              else if (mitarbeiter.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      'Keine aktiven Mitarbeiter',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF667085),
+                      ),
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: ListView.builder(
+                      padding: EdgeInsets.zero,
+                      itemCount: mitarbeiter.length,
+                      itemBuilder: (context, index) {
+                        final item = mitarbeiter[index];
+                        final isChecked = _alleMitarbeiterAnzeigen
+                            ? true
+                            : _selectedMitarbeiterIds.contains(item.id);
+
+                        return CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          visualDensity:
+                          const VisualDensity(horizontal: -4, vertical: -4),
+                          dense: true,
+                          value: isChecked,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          secondary: Container(
+                            width: 10,
+                            height: 10,
+                            decoration: BoxDecoration(
+                              color: Color(item.kalenderFarbeValue),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          title: Text(
+                            item.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF101828),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          onChanged: (value) {
+                            if (value == null) return;
+                            _handleMitarbeiterSelectionChanged(
+                              mitarbeiter: mitarbeiter,
+                              mitarbeiterId: item.id,
+                              isSelected: value,
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -367,62 +519,78 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   Widget _buildWeekView(ThemeData theme) {
     final weekDates = _weekDates;
 
-    return StreamBuilder<List<_TerminEntry>>(
-      stream: _loadWeekTermine(),
+    return StreamBuilder<List<_MitarbeiterOption>>(
+      stream: _watchActiveMitarbeiter(),
       builder: (context, snapshot) {
-        final termine = snapshot.data ?? const <_TerminEntry>[];
-        final loadError = snapshot.hasError
-            ? 'Termine konnten nicht geladen werden.'
+        final mitarbeiter = snapshot.data ?? const <_MitarbeiterOption>[];
+        final mitarbeiterFarben = <String, int>{
+          for (final item in mitarbeiter) item.id: item.kalenderFarbeValue,
+        };
+        final mitarbeiterLoadError = snapshot.hasError
+            ? 'Mitarbeiter konnten nicht geladen werden.'
             : null;
 
-        return Column(
-          children: [
-            _buildWeekHeader(theme, weekDates),
-            const Divider(height: 1, color: Color(0xFFE4E7EC)),
-            if (loadError != null)
-              Container(
-                width: double.infinity,
-                padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                color: const Color(0xFFFFF4ED),
-                child: Text(
-                  loadError,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFFB42318),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final gridWidth = constraints.maxWidth - _timeColumnWidth;
+        return StreamBuilder<List<_TerminEntry>>(
+          stream: _loadWeekTermine(),
+          builder: (context, terminSnapshot) {
+            final termine = terminSnapshot.data ?? const <_TerminEntry>[];
+            final gefilterteTermine = _applyMitarbeiterFilter(termine);
+            final terminLoadError = terminSnapshot.hasError
+                ? 'Termine konnten nicht geladen werden.'
+                : null;
+            final loadError = mitarbeiterLoadError ?? terminLoadError;
 
-                  return Scrollbar(
-                    controller: _weekScrollController,
-                    thumbVisibility: true,
-                    child: SingleChildScrollView(
-                      controller: _weekScrollController,
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildTimeColumn(theme),
-                          SizedBox(
-                            width: gridWidth > 0 ? gridWidth : 0,
-                            child: _buildWeekGrid(
-                              termine: termine,
-                              theme: theme,
-                            ),
-                          ),
-                        ],
+            return Column(
+              children: [
+                _buildWeekHeader(theme, weekDates),
+                const Divider(height: 1, color: Color(0xFFE4E7EC)),
+                if (loadError != null)
+                  Container(
+                    width: double.infinity,
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    color: const Color(0xFFFFF4ED),
+                    child: Text(
+                      loadError,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFFB42318),
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  );
-                },
-              ),
-            ),
-          ],
+                  ),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final gridWidth = constraints.maxWidth - _timeColumnWidth;
+
+                      return Scrollbar(
+                        controller: _weekScrollController,
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          controller: _weekScrollController,
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildTimeColumn(theme),
+                              SizedBox(
+                                width: gridWidth > 0 ? gridWidth : 0,
+                                child: _buildWeekGrid(
+                                  termine: gefilterteTermine,
+                                  mitarbeiterFarben: mitarbeiterFarben,
+                                  theme: theme,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -508,6 +676,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
   Widget _buildWeekGrid({
     required List<_TerminEntry> termine,
+    required Map<String, int> mitarbeiterFarben,
     required ThemeData theme,
   }) {
     final totalHeight = _hourRowHeight * 24;
@@ -558,6 +727,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 ),
                 ..._buildTerminBlocks(
                   termine: termine,
+                  mitarbeiterFarben: mitarbeiterFarben,
                   dayColumnWidth: dayColumnWidth,
                   theme: theme,
                 ),
@@ -571,6 +741,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
   List<Widget> _buildTerminBlocks({
     required List<_TerminEntry> termine,
+    required Map<String, int> mitarbeiterFarben,
     required double dayColumnWidth,
     required ThemeData theme,
   }) {
@@ -623,107 +794,114 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
               ? termin.mitarbeiterName!.trim()
               : termin.titel;
           final timeLabel = '${termin.startZeit} bis ${termin.endZeit}';
-
+          final terminColorValue = _resolveTerminFarbe(
+            termin: termin,
+            mitarbeiterFarben: mitarbeiterFarben,
+          );
+          final baseColor = Color(terminColorValue);
+          final blockFillColor = baseColor.withOpacity(0.16);
+          final blockBorderColor = baseColor.withOpacity(0.58);
+          final blockTextColor = baseColor.withOpacity(0.95);
 
           widgets.add(
-              Positioned(
-                  top: top + 2,
-                  left: left,
-                  width: columnWidth,
-                  height: blockHeight,
-                  child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: () => _showTerminPreviewDialog(termin),
-                          child: Ink(
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFEAF2FF),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: const Color(0xFFB2CCFF)),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Color(0x12101828),
-                                    blurRadius: 10,
-                                    offset: Offset(0, 4),
+            Positioned(
+              top: top + 2,
+              left: left,
+              width: columnWidth,
+              height: blockHeight,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => _showTerminPreviewDialog(termin),
+                  child: Ink(
+                    decoration: BoxDecoration(
+                      color: blockFillColor,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: blockBorderColor),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x12101828),
+                          blurRadius: 10,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: LayoutBuilder(
+                      builder: (context, blockConstraints) {
+                        final innerHeight = blockConstraints
+                            .maxHeight;
+                        final showNothing = innerHeight < 24;
+                        final showTitleAndTime = innerHeight >= 52;
+                        final verticalPadding = showTitleAndTime
+                            ? 8.0
+                            : 4.0;
+
+                        if (showNothing) {
+                          return const SizedBox.shrink();
+                        }
+
+                        return Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: verticalPadding,
+                          ),
+                          child: ClipRect(
+                            child: showTitleAndTime
+                                ? Column(
+                              mainAxisAlignment: MainAxisAlignment
+                                  .center,
+                              crossAxisAlignment:
+                              CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  displayName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodyMedium
+                                      ?.copyWith(
+                                    color: blockTextColor,
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.0,
                                   ),
-                                ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  timeLabel,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall
+                                      ?.copyWith(
+                                    color: blockTextColor,
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.0,
+                                  ),
+                                ),
+                              ],
+                            )
+                                : Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                displayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodyMedium
+                                    ?.copyWith(
+                                  color: blockTextColor,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.0,
+                                ),
                               ),
-                              child: LayoutBuilder(
-                                  builder: (context, blockConstraints) {
-                                    final innerHeight = blockConstraints
-                                        .maxHeight;
-                                    final showNothing = innerHeight < 24;
-                                    final showTitleAndTime = innerHeight >= 52;
-                                    final verticalPadding = showTitleAndTime
-                                        ? 8.0
-                                        : 4.0;
+                            ),
 
-                                    if (showNothing) {
-                                      return const SizedBox.shrink();
-                                    }
-
-                                    return Padding(
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: verticalPadding,
-                                      ),
-                                      child: ClipRect(
-                                        child: showTitleAndTime
-                                            ? Column(
-                                          mainAxisAlignment: MainAxisAlignment
-                                              .center,
-                                          crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              displayName,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: theme.textTheme.bodyMedium
-                                                  ?.copyWith(
-                                                color: const Color(0xFF175CD3),
-                                                fontWeight: FontWeight.w700,
-                                                height: 1.0,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              timeLabel,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: theme.textTheme.bodySmall
-                                                  ?.copyWith(
-                                                color: const Color(0xFF175CD3),
-                                                fontWeight: FontWeight.w600,
-                                                height: 1.0,
-                                              ),
-                                            ),
-                                          ],
-                                        )
-                                            : Align(
-                                          alignment: Alignment.centerLeft,
-                                          child: Text(
-                                            displayName,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: theme.textTheme.bodyMedium
-                                                ?.copyWith(
-                                              color: const Color(0xFF175CD3),
-                                              fontWeight: FontWeight.w700,
-                                              height: 1.0,
-                                            ),
-                                          ),
-                                        ),
-
-                                      ),
-                                    );
-                                  },
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                 ),
               ),
             ),
-                                    ),
-              ),
 
           );
         }
@@ -901,7 +1079,21 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                     ),
                   ),
                   const SizedBox(height: 12),
-
+                  Container(
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _statusBackgroundColor(termin.status),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      statusText,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: _statusTextColor(termin.status),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 18),
                   Flexible(
                     child: SingleChildScrollView(
@@ -1243,7 +1435,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       case 'abgesagt':
         return const Color(0xFFFEE4E2);
       case 'bestaetigt':
-        return const Color(0xFF2B9745); // hellgrün
+        return const Color(0xFFEAF2FF);
       default:
         return const Color(0xFFF2F4F7);
     }
@@ -1255,7 +1447,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       case 'abgesagt':
         return const Color(0xFFB42318);
       case 'bestaetigt':
-        return const Color(0xFF2B9745);
+        return const Color(0xFF175CD3);
       default:
         return const Color(0xFF344054);
     }
@@ -2309,6 +2501,144 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     );
   }
 
+  int _resolveKalenderFarbeValue(dynamic rawValue) {
+    if (rawValue is int) {
+      return rawValue;
+    }
+
+    if (rawValue is String) {
+      final parsed = int.tryParse(rawValue.trim());
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+
+    return _defaultKalenderFarbeValue;
+  }
+
+  Stream<List<_MitarbeiterOption>> _watchActiveMitarbeiter() {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final dienstleisterId = currentUser?.uid.trim().isNotEmpty == true
+        ? currentUser!.uid.trim()
+        : widget.dienstleisterId.trim();
+
+    if (dienstleisterId.isEmpty) {
+      return Stream<List<_MitarbeiterOption>>.value(const <_MitarbeiterOption>[]);
+    }
+
+    return FirebaseFirestore.instance
+        .collection('users')
+        .where('rolle', isEqualTo: 'mitarbeiter')
+        .where('dienstleisterId', isEqualTo: dienstleisterId)
+        .where('aktiv', isEqualTo: true)
+        .snapshots()
+        .map((snapshot) {
+      final mitarbeiter = snapshot.docs
+          .map((doc) {
+        final data = doc.data();
+        final name = (data['name'] as String?)?.trim();
+        if (name == null || name.isEmpty) {
+          return null;
+        }
+
+        return _MitarbeiterOption(
+          id: doc.id,
+          name: name,
+          kalenderFarbeValue: _resolveKalenderFarbeValue(data['kalenderFarbe']),
+        );
+      })
+          .whereType<_MitarbeiterOption>()
+          .toList(growable: false);
+
+      mitarbeiter.sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+
+      final activeIds = mitarbeiter.map((item) => item.id).toSet();
+      if (!_alleMitarbeiterAnzeigen) {
+        final idsToRemove = _selectedMitarbeiterIds
+            .where((id) => !activeIds.contains(id))
+            .toList(growable: false);
+
+        if (idsToRemove.isNotEmpty && mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() {
+              _selectedMitarbeiterIds.removeAll(idsToRemove);
+            });
+          });
+        }
+      }
+
+      return mitarbeiter;
+    });
+  }
+
+  void _handleMitarbeiterSelectionChanged({
+    required List<_MitarbeiterOption> mitarbeiter,
+    required String mitarbeiterId,
+    required bool isSelected,
+  }) {
+    final allIds = mitarbeiter.map((item) => item.id).toSet();
+
+    setState(() {
+      if (_alleMitarbeiterAnzeigen) {
+        if (!isSelected) {
+          _alleMitarbeiterAnzeigen = false;
+          _selectedMitarbeiterIds
+            ..clear()
+            ..addAll(allIds)
+            ..remove(mitarbeiterId);
+        }
+        return;
+      }
+
+      if (isSelected) {
+        _selectedMitarbeiterIds.add(mitarbeiterId);
+      } else {
+        _selectedMitarbeiterIds.remove(mitarbeiterId);
+      }
+
+      if (_selectedMitarbeiterIds.length >= allIds.length && allIds.isNotEmpty) {
+        _alleMitarbeiterAnzeigen = true;
+        _selectedMitarbeiterIds.clear();
+      }
+    });
+  }
+
+  List<_TerminEntry> _applyMitarbeiterFilter(List<_TerminEntry> termine) {
+    if (_alleMitarbeiterAnzeigen) {
+      return termine;
+    }
+
+    if (_selectedMitarbeiterIds.isEmpty) {
+      return const <_TerminEntry>[];
+    }
+
+    return termine.where((termin) {
+      final mitarbeiterId = termin.mitarbeiterId?.trim();
+      if (mitarbeiterId == null || mitarbeiterId.isEmpty) {
+        return false;
+      }
+      return _selectedMitarbeiterIds.contains(mitarbeiterId);
+    }).toList(growable: false);
+  }
+
+  int _resolveTerminFarbe({
+    required _TerminEntry termin,
+    required Map<String, int> mitarbeiterFarben,
+  }) {
+    final mitarbeiterId = termin.mitarbeiterId?.trim();
+    if (mitarbeiterId != null && mitarbeiterId.isNotEmpty) {
+      final mitarbeiterFarbe = mitarbeiterFarben[mitarbeiterId];
+      if (mitarbeiterFarbe != null) {
+        return mitarbeiterFarbe;
+      }
+    }
+
+    return _defaultKalenderFarbeValue;
+  }
+
   Future<List<_MitarbeiterOption>> _loadActiveMitarbeiter() async {
     final currentUser = FirebaseAuth.instance.currentUser;
     final dienstleisterId = currentUser?.uid.trim().isNotEmpty == true
@@ -2335,7 +2665,11 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
           return null;
         }
 
-        return _MitarbeiterOption(id: doc.id, name: name);
+        return _MitarbeiterOption(
+          id: doc.id,
+          name: name,
+          kalenderFarbeValue: _resolveKalenderFarbeValue(data['kalenderFarbe']),
+        );
       })
           .whereType<_MitarbeiterOption>()
           .toList(growable: false);
@@ -2380,6 +2714,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       name: mitarbeiterName != null && mitarbeiterName.isNotEmpty
           ? mitarbeiterName
           : 'Unbekannter Mitarbeiter',
+      kalenderFarbeValue: _defaultKalenderFarbeValue,
     );
   }
 
