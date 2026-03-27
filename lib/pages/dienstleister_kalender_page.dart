@@ -61,6 +61,16 @@ class _KundenSuggestion {
   });
 }
 
+class _LeistungAuswahlItem {
+  final String id;
+  final _LeistungsPosition position;
+
+  const _LeistungAuswahlItem({
+    required this.id,
+    required this.position,
+  });
+}
+
 class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   static const double _calendarSidebarWidth = 188;
   static const double _timeColumnWidth = 72;
@@ -1482,6 +1492,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     bool isDeleting = false;
     bool isLoadingMitarbeiter = true;
     bool hasMitarbeiter = false;
+    var selectedLeistungen = List<_LeistungsPosition>.from(
+      initialTermin?.leistungsPositionen ?? const <_LeistungsPosition>[],
+    );
 
     List<_KundenSuggestion> emailSuggestions = <_KundenSuggestion>[];
     List<_KundenSuggestion> phoneSuggestions = <_KundenSuggestion>[];
@@ -1498,6 +1511,28 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         ? _formatPhoneDisplay(initialTermin!.kundePhone!)
         : '';
     kundeEmailController.text = initialTermin?.kundeEmail ?? '';
+
+    int berechneGesamtDauer(List<_LeistungsPosition> items) {
+      var total = 0;
+      for (final item in items) {
+        final duration = item.duration;
+        if (duration != null && duration > 0) {
+          total += duration;
+        }
+      }
+      return total;
+    }
+
+    double berechneGesamtPreis(List<_LeistungsPosition> items) {
+      var total = 0.0;
+      for (final item in items) {
+        final price = item.price;
+        if (price != null && price > 0) {
+          total += price;
+        }
+      }
+      return total;
+    }
 
     Future<void> loadEmailSuggestions(
         String rawValue,
@@ -1751,6 +1786,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
               final startAt = _combineDateAndTime(selectedDate, fromTime);
               final endAt = _combineDateAndTime(selectedDate, toTime);
               final mitarbeiter = selectedMitarbeiter;
+              final preisGesamt = berechneGesamtPreis(selectedLeistungen);
+              final dauerGesamt = berechneGesamtDauer(selectedLeistungen);
 
               if (kundeName.isEmpty) {
                 setDialogState(() {
@@ -1815,6 +1852,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 kundeName: kundeName,
                 kundePhone: kundePhone,
                 kundeEmail: kundeEmail,
+                leistungsPositionen: selectedLeistungen,
+                preisGesamt: preisGesamt > 0 ? preisGesamt : null,
+                dauerGesamt: dauerGesamt > 0 ? dauerGesamt : null,
               )
                   : await _saveTermin(
                 titel: titel,
@@ -1826,6 +1866,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 kundeName: kundeName,
                 kundePhone: kundePhone,
                 kundeEmail: kundeEmail,
+                leistungsPositionen: selectedLeistungen,
+                preisGesamt: preisGesamt > 0 ? preisGesamt : null,
+                dauerGesamt: dauerGesamt > 0 ? dauerGesamt : null,
               );
 
               if (!mounted) return;
@@ -2150,6 +2193,136 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                             ],
                           ],
                           const SizedBox(height: 12),
+                          InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Gebuchte Leistungen',
+                              border: OutlineInputBorder(),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: isSaving || isDeleting
+                                      ? null
+                                      : () async {
+                                          final ausgewaehlt =
+                                              await _showLeistungAuswahlSheet(
+                                            context: context,
+                                            initialSelected: selectedLeistungen,
+                                          );
+                                          if (ausgewaehlt == null) return;
+
+                                          setDialogState(() {
+                                            selectedLeistungen = ausgewaehlt;
+                                            validationMessage = null;
+                                          });
+                                        },
+                                  icon: const Icon(Icons.add),
+                                  label: const Text('+ Leistung auswählen'),
+                                ),
+                                if (selectedLeistungen.isNotEmpty) ...[
+                                  const SizedBox(height: 10),
+                                  ...selectedLeistungen.asMap().entries.map((entry) {
+                                    final index = entry.key;
+                                    final item = entry.value;
+                                    final subtitleParts = <String>[
+                                      if (item.subtitle.trim().isNotEmpty)
+                                        item.subtitle.trim(),
+                                      if (item.duration != null && item.duration! > 0)
+                                        '${item.duration} Min',
+                                      if (item.price != null && item.price! > 0)
+                                        _formatEuro(item.price!),
+                                    ];
+
+                                    return Padding(
+                                      padding: EdgeInsets.only(
+                                        bottom: index == selectedLeistungen.length - 1 ? 0 : 8,
+                                      ),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  item.category.trim().isNotEmpty
+                                                      ? item.category.trim()
+                                                      : 'Leistungen',
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .labelSmall
+                                                      ?.copyWith(
+                                                        color: const Color(0xFF667085),
+                                                        fontWeight: FontWeight.w700,
+                                                      ),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  item.title,
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .bodyMedium
+                                                      ?.copyWith(
+                                                        color: const Color(0xFF101828),
+                                                        fontWeight: FontWeight.w600,
+                                                      ),
+                                                ),
+                                                if (subtitleParts.isNotEmpty) ...[
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    subtitleParts.join(' • '),
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          color: const Color(0xFF667085),
+                                                        ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Leistung entfernen',
+                                            onPressed: isSaving || isDeleting
+                                                ? null
+                                                : () {
+                                                    setDialogState(() {
+                                                      selectedLeistungen.removeAt(index);
+                                                    });
+                                                  },
+                                            icon: const Icon(
+                                              Icons.close,
+                                              size: 18,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }),
+                                  const Divider(height: 18),
+                                  Text(
+                                    'Gesamtdauer: ${berechneGesamtDauer(selectedLeistungen)} Min',
+                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF344054),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Gesamtpreis: ${_formatEuro(berechneGesamtPreis(selectedLeistungen))}',
+                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF344054),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
                           Row(
                             children: [
                               Expanded(
@@ -2231,6 +2404,317 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     kundeNameController.dispose();
     kundePhoneController.dispose();
     kundeEmailController.dispose();
+  }
+
+  Future<List<_LeistungsPosition>?> _showLeistungAuswahlSheet({
+    required BuildContext context,
+    required List<_LeistungsPosition> initialSelected,
+  }) async {
+    final angebote = await _loadLeistungAuswahlAngebote();
+    final selectedIds = <String>{};
+
+    for (final initial in initialSelected) {
+      for (final angebot in angebote) {
+        final isSameCategory = angebot.position.category == initial.category;
+        final isSameTitle = angebot.position.title == initial.title;
+        final isSameSubtitle = angebot.position.subtitle == initial.subtitle;
+        if (isSameCategory && isSameTitle && isSameSubtitle) {
+          selectedIds.add(angebot.id);
+        }
+      }
+    }
+
+    if (!mounted) return null;
+
+    return showModalBottomSheet<List<_LeistungsPosition>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final grouped = <String, List<_LeistungAuswahlItem>>{};
+        for (final item in angebote) {
+          final key = item.position.category.trim().isNotEmpty
+              ? item.position.category.trim()
+              : 'Leistungen';
+          grouped.putIfAbsent(key, () => <_LeistungAuswahlItem>[]).add(item);
+        }
+
+        final orderedCategories = grouped.keys.toList()..sort();
+
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+                ),
+                child: SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.8,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Leistungen auswählen',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (angebote.isEmpty)
+                        const Expanded(
+                          child: Center(
+                            child: Text('Keine verfügbaren Leistungen gefunden.'),
+                          ),
+                        )
+                      else
+                        Expanded(
+                          child: ListView(
+                            children: orderedCategories.map((category) {
+                              final items = grouped[category]!;
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      category,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelLarge
+                                          ?.copyWith(
+                                            color: const Color(0xFF475467),
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    ...items.map((item) {
+                                      final isSelected =
+                                          selectedIds.contains(item.id);
+                                      final subtitleParts = <String>[
+                                        if (item.position.subtitle
+                                            .trim()
+                                            .isNotEmpty)
+                                          item.position.subtitle.trim(),
+                                        if (item.position.duration != null &&
+                                            item.position.duration! > 0)
+                                          '${item.position.duration} Min',
+                                        if (item.position.price != null &&
+                                            item.position.price! > 0)
+                                          _formatEuro(item.position.price!),
+                                      ];
+
+                                      return CheckboxListTile(
+                                        contentPadding: EdgeInsets.zero,
+                                        value: isSelected,
+                                        controlAffinity:
+                                            ListTileControlAffinity.leading,
+                                        title: Text(
+                                          item.position.title,
+                                          style: const TextStyle(
+                                            color: Color(0xFF101828),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        subtitle: subtitleParts.isEmpty
+                                            ? null
+                                            : Text(
+                                                subtitleParts.join(' • '),
+                                                style: const TextStyle(
+                                                  color: Color(0xFF667085),
+                                                ),
+                                              ),
+                                        onChanged: (value) {
+                                          if (value == null) return;
+                                          setSheetState(() {
+                                            if (value) {
+                                              selectedIds.add(item.id);
+                                            } else {
+                                              selectedIds.remove(item.id);
+                                            }
+                                          });
+                                        },
+                                      );
+                                    }),
+                                  ],
+                                ),
+                              );
+                            }).toList(growable: false),
+                          ),
+                        ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.of(sheetContext).pop(),
+                              child: const Text('Abbrechen'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () {
+                                final selected = angebote
+                                    .where((item) => selectedIds.contains(item.id))
+                                    .map((item) => item.position)
+                                    .toList(growable: false);
+                                Navigator.of(sheetContext).pop(selected);
+                              },
+                              child: const Text('Übernehmen'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<List<_LeistungAuswahlItem>> _loadLeistungAuswahlAngebote() async {
+    final dienstleisterId = widget.dienstleisterId.trim();
+    if (dienstleisterId.isEmpty) {
+      return const <_LeistungAuswahlItem>[];
+    }
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(dienstleisterId)
+          .collection('angebote')
+          .get();
+
+      final items = snapshot.docs
+          .map((doc) {
+            final data = doc.data();
+            final title = _extractOfferTitle(data);
+            if (title.isEmpty) {
+              return null;
+            }
+
+            final category = (data['kategorie'] as String?)?.trim() ?? '';
+            final subtitle = _extractOfferSubtitle(data);
+            final preis = _extractOfferPrice(data);
+            final duration = _extractOfferDuration(data);
+
+            return _LeistungAuswahlItem(
+              id: doc.id,
+              position: _LeistungsPosition(
+                category: category,
+                title: title,
+                subtitle: subtitle,
+                price: preis,
+                originalPrice: preis,
+                duration: duration,
+              ),
+            );
+          })
+          .whereType<_LeistungAuswahlItem>()
+          .toList(growable: false);
+
+      items.sort((a, b) {
+        final catCompare =
+            a.position.category.toLowerCase().compareTo(b.position.category.toLowerCase());
+        if (catCompare != 0) return catCompare;
+        return a.position.title.toLowerCase().compareTo(b.position.title.toLowerCase());
+      });
+      return items;
+    } on FirebaseException {
+      return const <_LeistungAuswahlItem>[];
+    } catch (_) {
+      return const <_LeistungAuswahlItem>[];
+    }
+  }
+
+  String _extractOfferTitle(Map<String, dynamic> data) {
+    final titel = (data['titel'] as String?)?.trim();
+    if (titel != null && titel.isNotEmpty) {
+      return titel;
+    }
+
+    if (data['leistungenSortiert'] is List) {
+      final parts = (data['leistungenSortiert'] as List)
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false);
+      if (parts.isNotEmpty) {
+        return parts.join(' + ');
+      }
+    }
+
+    if (data['leistungen'] is List) {
+      final parts = (data['leistungen'] as List)
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false);
+      if (parts.isNotEmpty) {
+        return parts.join(' + ');
+      }
+    }
+
+    return '';
+  }
+
+  String _extractOfferSubtitle(Map<String, dynamic> data) {
+    if (data['varianten'] is List) {
+      final varianten = (data['varianten'] as List)
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false);
+      if (varianten.isNotEmpty) {
+        return varianten.join(' • ');
+      }
+    }
+    return '';
+  }
+
+  double? _extractOfferPrice(Map<String, dynamic> data) {
+    final direktePreise = <double>[];
+    if (data['preis'] is num) {
+      direktePreise.add((data['preis'] as num).toDouble());
+    }
+
+    final zielgruppen = data['zielgruppen'];
+    if (zielgruppen is Map) {
+      for (final value in zielgruppen.values) {
+        if (value is Map && value['preis'] is num) {
+          direktePreise.add((value['preis'] as num).toDouble());
+        }
+      }
+    }
+
+    final positive = direktePreise.where((value) => value > 0).toList(growable: false);
+    if (positive.isEmpty) return null;
+    positive.sort();
+    return positive.first;
+  }
+
+  int? _extractOfferDuration(Map<String, dynamic> data) {
+    final direkteDauern = <int>[];
+    if (data['dauer'] is num) {
+      direkteDauern.add((data['dauer'] as num).toInt());
+    }
+
+    final zielgruppen = data['zielgruppen'];
+    if (zielgruppen is Map) {
+      for (final value in zielgruppen.values) {
+        if (value is Map && value['dauer'] is num) {
+          direkteDauern.add((value['dauer'] as num).toInt());
+        }
+      }
+    }
+
+    final positive = direkteDauern.where((value) => value > 0).toList(growable: false);
+    if (positive.isEmpty) return null;
+    positive.sort();
+    return positive.first;
   }
 
   Widget _buildSuggestionList({
@@ -2774,6 +3258,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     required String kundeName,
     required String kundePhone,
     required String kundeEmail,
+    required List<_LeistungsPosition> leistungsPositionen,
+    required double? preisGesamt,
+    required int? dauerGesamt,
   }) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -2789,6 +3276,20 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       final startAt = _combineDateAndTime(datum, fromTime);
       final endAt = _combineDateAndTime(datum, toTime);
       final now = Timestamp.now();
+      final leistungen = leistungsPositionen
+          .map((item) => item.title.trim())
+          .where((title) => title.isNotEmpty)
+          .toList(growable: false);
+      final leistungenPayload = leistungsPositionen
+          .map((item) => <String, dynamic>{
+                'category': item.category,
+                'title': item.title,
+                'subtitle': item.subtitle,
+                'price': item.price,
+                'originalPrice': item.originalPrice,
+                'duration': item.duration,
+              })
+          .toList(growable: false);
 
       await FirebaseFirestore.instance.collection('termine').add({
         'dienstleisterId': dienstleisterId,
@@ -2804,6 +3305,10 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         'endZeit': _formatTime(toTime),
         'startAt': Timestamp.fromDate(startAt),
         'endAt': Timestamp.fromDate(endAt),
+        'leistungen': leistungen,
+        'leistungsPositionen': leistungenPayload,
+        'preisGesamt': preisGesamt,
+        'dauerGesamt': dauerGesamt,
         'status': 'bestaetigt',
         'quelle': 'dienstleister',
         'createdAt': now,
@@ -2829,6 +3334,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     required String kundeName,
     required String kundePhone,
     required String kundeEmail,
+    required List<_LeistungsPosition> leistungsPositionen,
+    required double? preisGesamt,
+    required int? dauerGesamt,
   }) async {
     try {
       final cleanedTerminId = terminId.trim();
@@ -2838,6 +3346,20 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
       final startAt = _combineDateAndTime(datum, fromTime);
       final endAt = _combineDateAndTime(datum, toTime);
+      final leistungen = leistungsPositionen
+          .map((item) => item.title.trim())
+          .where((title) => title.isNotEmpty)
+          .toList(growable: false);
+      final leistungenPayload = leistungsPositionen
+          .map((item) => <String, dynamic>{
+                'category': item.category,
+                'title': item.title,
+                'subtitle': item.subtitle,
+                'price': item.price,
+                'originalPrice': item.originalPrice,
+                'duration': item.duration,
+              })
+          .toList(growable: false);
 
       await FirebaseFirestore.instance
           .collection('termine')
@@ -2855,6 +3377,10 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         'endZeit': _formatTime(toTime),
         'startAt': Timestamp.fromDate(startAt),
         'endAt': Timestamp.fromDate(endAt),
+        'leistungen': leistungen,
+        'leistungsPositionen': leistungenPayload,
+        'preisGesamt': preisGesamt,
+        'dauerGesamt': dauerGesamt,
         'updatedAt': Timestamp.now(),
       });
 
