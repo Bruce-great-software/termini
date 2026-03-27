@@ -901,21 +901,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Container(
-                    padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: _statusBackgroundColor(termin.status),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      statusText,
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        color: _statusTextColor(termin.status),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
+
                   const SizedBox(height: 18),
                   Flexible(
                     child: SingleChildScrollView(
@@ -1257,7 +1243,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       case 'abgesagt':
         return const Color(0xFFFEE4E2);
       case 'bestaetigt':
-        return const Color(0xFFEAF2FF);
+        return const Color(0xFF2B9745); // hellgrün
       default:
         return const Color(0xFFF2F4F7);
     }
@@ -1269,7 +1255,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       case 'abgesagt':
         return const Color(0xFFB42318);
       case 'bestaetigt':
-        return const Color(0xFF175CD3);
+        return const Color(0xFF2B9745);
       default:
         return const Color(0xFF344054);
     }

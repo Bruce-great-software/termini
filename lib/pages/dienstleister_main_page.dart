@@ -29,6 +29,19 @@ class DienstleisterMainPage extends StatefulWidget {
 class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   static const double _desktopSidebarWidth = 188;
   static const double _desktopMitarbeiterDrawerWidth = 380;
+  static const int _defaultKalenderFarbeValue = 0xFF4285F4;
+  static const List<int> _kalenderFarbPalette = [
+    0xFF4285F4,
+    0xFF0F9D58,
+    0xFFF4B400,
+    0xFFDB4437,
+    0xFFAB47BC,
+    0xFF00ACC1,
+    0xFFFF7043,
+    0xFF7CB342,
+    0xFF5C6BC0,
+    0xFFE91E63,
+  ];
   static const List<_OeffnungszeitenTagDefinition> _tageDerWoche = [
     _OeffnungszeitenTagDefinition(key: 'montag', label: 'Montag'),
     _OeffnungszeitenTagDefinition(key: 'dienstag', label: 'Dienstag'),
@@ -49,6 +62,26 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   String? _pendingProfileImageMitarbeiterId;
   bool _isProfileImageUploading = false;
   bool _isInitializingOeffnungszeiten = false;
+
+  int _resolveKalenderFarbeValue(Map<String, dynamic> data) {
+    final rawValue = data['kalenderFarbe'];
+
+    if (rawValue is int) {
+      return rawValue;
+    }
+
+    if (rawValue is String) {
+      final trimmed = rawValue.trim();
+      if (trimmed.isNotEmpty) {
+        final parsed = int.tryParse(trimmed);
+        if (parsed != null) {
+          return parsed;
+        }
+      }
+    }
+
+    return _defaultKalenderFarbeValue;
+  }
 
   @override
   void initState() {
@@ -641,6 +674,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
               aktiv: data['aktiv'] == true,
               profileImageUrl: (data['profileImageUrl'] as String?)?.trim(),
               profileImagePath: (data['profileImagePath'] as String?)?.trim(),
+              kalenderFarbeValue: _resolveKalenderFarbeValue(data),
             );
           }
         }
@@ -797,6 +831,8 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                         final isSelected = doc.id == _selectedMitarbeiterId;
                         final profileImageUrl =
                         (data['profileImageUrl'] as String?)?.trim();
+                        final kalenderFarbeValue =
+                        _resolveKalenderFarbeValue(data);
 
                         return Column(
                           children: [
@@ -821,15 +857,19 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                                     : MouseCursor.defer,
                                 hoverColor: const Color(0xFFF5F5F5),
                                 leading: Container(
-                                  decoration: const BoxDecoration(
+                                  decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    boxShadow: [
+                                    boxShadow: const [
                                       BoxShadow(
                                         color: Color(0x14000000),
                                         blurRadius: 8,
                                         offset: Offset(0, 3),
                                       ),
                                     ],
+                                    border: Border.all(
+                                      color: Color(kalenderFarbeValue),
+                                      width: 2,
+                                    ),
                                   ),
                                   child: _MitarbeiterAvatar(
                                     radius: 24,
@@ -968,6 +1008,12 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           onStatusChanged: (istAktiv) => _speichereMitarbeiterStatus(
             docId: selection.docId,
             istAktiv: istAktiv,
+          ),
+          initialKalenderFarbeValue: selection.kalenderFarbeValue,
+          kalenderFarbPalette: _kalenderFarbPalette,
+          onKalenderFarbeChanged: (farbeValue) => _speichereMitarbeiterFarbe(
+            docId: selection.docId,
+            farbeValue: farbeValue,
           ),
           onDelete: () => _loescheMitarbeiter(
             docId: selection.docId,
@@ -1272,6 +1318,28 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     }
   }
 
+  Future<bool> _speichereMitarbeiterFarbe({
+    required String docId,
+    required int farbeValue,
+  }) async {
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(docId).update(
+        {'kalenderFarbe': farbeValue},
+      );
+
+      if (!mounted) return true;
+      return true;
+    } catch (_) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Die Kalenderfarbe konnte nicht gespeichert werden.'),
+        ),
+      );
+      return false;
+    }
+  }
+
   Future<bool> _loescheMitarbeiter({
     required String docId,
     required String name,
@@ -1338,6 +1406,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                   'createdAt': FieldValue.serverTimestamp(),
                   'aktiv': true,
                   'loginAktiviert': false,
+                  'kalenderFarbe': _defaultKalenderFarbeValue,
                 });
 
                 if (!mounted || !dialogContext.mounted) return;
@@ -1512,6 +1581,7 @@ class _SelectedMitarbeiter {
     required this.docId,
     required this.name,
     required this.aktiv,
+    required this.kalenderFarbeValue,
     this.profileImageUrl,
     this.profileImagePath,
   });
@@ -1519,6 +1589,7 @@ class _SelectedMitarbeiter {
   final String docId;
   final String name;
   final bool aktiv;
+  final int kalenderFarbeValue;
   final String? profileImageUrl;
   final String? profileImagePath;
 }
@@ -1562,6 +1633,9 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
     required this.onClose,
     required this.onNameSave,
     required this.onStatusChanged,
+    required this.initialKalenderFarbeValue,
+    required this.kalenderFarbPalette,
+    required this.onKalenderFarbeChanged,
     required this.onDelete,
     required this.onTakePhoto,
     required this.onUploadPhoto,
@@ -1578,6 +1652,9 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
   final VoidCallback onClose;
   final Future<bool> Function(String name) onNameSave;
   final Future<bool> Function(bool istAktiv) onStatusChanged;
+  final int initialKalenderFarbeValue;
+  final List<int> kalenderFarbPalette;
+  final Future<bool> Function(int farbeValue) onKalenderFarbeChanged;
   final Future<bool> Function() onDelete;
   final Future<void> Function() onTakePhoto;
   final Future<void> Function() onUploadPhoto;
@@ -1592,8 +1669,10 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
   late final TextEditingController _nameController;
   late String _initialName;
   late bool _istAktiv;
+  late int _kalenderFarbeValue;
   bool _isNameSaving = false;
   bool _isStatusSaving = false;
+  bool _isColorSaving = false;
   bool _isDeleting = false;
 
   bool get _hasNameChanged =>
@@ -1742,6 +1821,26 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     }
   }
 
+  Future<void> _handleColorSelected(int farbeValue) async {
+    if (_isColorSaving || farbeValue == _kalenderFarbeValue) return;
+
+    final vorherigeFarbe = _kalenderFarbeValue;
+    setState(() {
+      _kalenderFarbeValue = farbeValue;
+      _isColorSaving = true;
+    });
+
+    final erfolgreich = await widget.onKalenderFarbeChanged(farbeValue);
+
+    if (!mounted) return;
+    setState(() {
+      if (!erfolgreich) {
+        _kalenderFarbeValue = vorherigeFarbe;
+      }
+      _isColorSaving = false;
+    });
+  }
+
   Widget _buildSaveAction({required bool visible}) {
     if (!visible) return const SizedBox.shrink();
 
@@ -1785,6 +1884,7 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     _nameController.addListener(_handleNameChanged);
     _initialName = widget.name;
     _istAktiv = widget.istAktiv;
+    _kalenderFarbeValue = widget.initialKalenderFarbeValue;
   }
 
   @override
@@ -1799,6 +1899,9 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     }
     if (oldWidget.istAktiv != widget.istAktiv) {
       _istAktiv = widget.istAktiv;
+    }
+    if (oldWidget.initialKalenderFarbeValue != widget.initialKalenderFarbeValue) {
+      _kalenderFarbeValue = widget.initialKalenderFarbeValue;
     }
   }
 
@@ -1872,9 +1975,7 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: widget.hasPendingProfileImage
-                                ? const Color(0xFF24C552)
-                                : const Color(0xFFE5E7EB),
+                            color: Color(_kalenderFarbeValue),
                             width: 2,
                           ),
                         ),
@@ -2025,6 +2126,70 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
                         ),
                       ],
                     ),
+                  ),
+                ),
+                _MitarbeiterSidebarSection(
+                  title: 'Kalenderfarbe',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: widget.kalenderFarbPalette.map((farbeValue) {
+                          final farbe = Color(farbeValue);
+                          final isSelected = _kalenderFarbeValue == farbeValue;
+                          final iconColor = farbe.computeLuminance() > 0.5
+                              ? Colors.black87
+                              : Colors.white;
+
+                          return InkWell(
+                            onTap: _isColorSaving
+                                ? null
+                                : () => _handleColorSelected(farbeValue),
+                            borderRadius: BorderRadius.circular(999),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOutCubic,
+                              width: 34,
+                              height: 34,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: farbe,
+                                border: Border.all(
+                                  color: isSelected
+                                      ? const Color(0xFF111827)
+                                      : Colors.transparent,
+                                  width: 2.2,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.12),
+                                    blurRadius: 5,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: isSelected
+                                  ? Icon(
+                                Icons.check,
+                                size: 18,
+                                color: iconColor,
+                              )
+                                  : null,
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      if (_isColorSaving) ...[
+                        const SizedBox(height: 10),
+                        const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
