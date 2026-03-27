@@ -2579,16 +2579,18 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   }
 
   Future<List<_LeistungAuswahlItem>> _loadLeistungAuswahlAngebote() async {
-    final dienstleisterId = widget.dienstleisterId.trim();
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final dienstleisterId = currentUser?.uid.trim().isNotEmpty == true
+        ? currentUser!.uid.trim()
+        : widget.dienstleisterId.trim();
     if (dienstleisterId.isEmpty) {
       return const <_LeistungAuswahlItem>[];
     }
 
     try {
       final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(dienstleisterId)
           .collection('angebote')
+          .where('dienstleisterId', isEqualTo: dienstleisterId)
           .get();
 
       final items = snapshot.docs
