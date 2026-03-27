@@ -65,6 +65,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   static const double _hourRowHeight = 72;
   static const double _terminHorizontalPadding = 6;
   static const double _terminColumnGap = 4;
+
   static const List<String> _weekdayLabels = [
     'Mo',
     'Di',
@@ -74,6 +75,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     'Sa',
     'So',
   ];
+
   static const List<String> _monthLabels = [
     'Januar',
     'Februar',
@@ -89,6 +91,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     'Dezember',
   ];
 
+  final ScrollController _weekScrollController = ScrollController();
+
   late DateTime _referenceDate;
   _KalenderViewMode _viewMode = _KalenderViewMode.woche;
 
@@ -96,6 +100,12 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   void initState() {
     super.initState();
     _referenceDate = _dateOnly(DateTime.now());
+  }
+
+  @override
+  void dispose() {
+    _weekScrollController.dispose();
+    super.dispose();
   }
 
   @override
@@ -231,10 +241,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
             OutlinedButton(
               onPressed: _jumpToToday,
               style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 14,
-                ),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                 side: const BorderSide(color: Color(0xFFD0D5DD)),
                 foregroundColor: const Color(0xFF344054),
                 backgroundColor: Colors.white,
@@ -386,20 +394,32 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 ),
               ),
             Expanded(
-              child: Scrollbar(
-                thumbVisibility: true,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildTimeColumn(theme),
-                      Expanded(
-                        child: _buildWeekGrid(termine: termine, theme: theme),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final gridWidth = constraints.maxWidth - _timeColumnWidth;
+
+                  return Scrollbar(
+                    controller: _weekScrollController,
+                    thumbVisibility: true,
+                    child: SingleChildScrollView(
+                      controller: _weekScrollController,
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildTimeColumn(theme),
+                          SizedBox(
+                            width: gridWidth > 0 ? gridWidth : 0,
+                            child: _buildWeekGrid(
+                              termine: termine,
+                              theme: theme,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               ),
             ),
           ],
@@ -431,6 +451,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                         ),
                       ),
                       child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
                             _weekdayLabels[index],
@@ -584,7 +605,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
               .toDouble();
 
           final blockHeight =
-          (height - 4).clamp(24.0, _hourRowHeight * 24).toDouble();
+          (height - 4).clamp(40.0, _hourRowHeight * 24).toDouble();
+
           final availableWidth = (dayColumnWidth - (_terminHorizontalPadding * 2))
               .clamp(40.0, dayColumnWidth);
           final totalGap = (item.totalColumns - 1) * _terminColumnGap;
@@ -602,65 +624,107 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
               : termin.titel;
           final timeLabel = '${termin.startZeit} bis ${termin.endZeit}';
 
+
           widgets.add(
-            Positioned(
-              top: top + 2,
-              left: left,
-              width: columnWidth,
-              height: blockHeight,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: () => _showTerminPreviewDialog(termin),
-                  child: Ink(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEAF2FF),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFB2CCFF)),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x12101828),
-                          blurRadius: 10,
-                          offset: Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: ClipRect(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: const Color(0xFF175CD3),
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            timeLabel,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF175CD3),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+              Positioned(
+                  top: top + 2,
+                  left: left,
+                  width: columnWidth,
+                  height: blockHeight,
+                  child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => _showTerminPreviewDialog(termin),
+                          child: Ink(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEAF2FF),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0xFFB2CCFF)),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Color(0x12101828),
+                                    blurRadius: 10,
+                                    offset: Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: LayoutBuilder(
+                                  builder: (context, blockConstraints) {
+                                    final innerHeight = blockConstraints
+                                        .maxHeight;
+                                    final showNothing = innerHeight < 24;
+                                    final showTitleAndTime = innerHeight >= 52;
+                                    final verticalPadding = showTitleAndTime
+                                        ? 8.0
+                                        : 4.0;
+
+                                    if (showNothing) {
+                                      return const SizedBox.shrink();
+                                    }
+
+                                    return Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: verticalPadding,
+                                      ),
+                                      child: ClipRect(
+                                        child: showTitleAndTime
+                                            ? Column(
+                                          mainAxisAlignment: MainAxisAlignment
+                                              .center,
+                                          crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              displayName,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: theme.textTheme.bodyMedium
+                                                  ?.copyWith(
+                                                color: const Color(0xFF175CD3),
+                                                fontWeight: FontWeight.w700,
+                                                height: 1.0,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              timeLabel,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                color: const Color(0xFF175CD3),
+                                                fontWeight: FontWeight.w600,
+                                                height: 1.0,
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                            : Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            displayName,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: theme.textTheme.bodyMedium
+                                                ?.copyWith(
+                                              color: const Color(0xFF175CD3),
+                                              fontWeight: FontWeight.w700,
+                                              height: 1.0,
+                                            ),
+                                          ),
+                                        ),
+
+                                      ),
+                                    );
+                                  },
                 ),
               ),
             ),
+                                    ),
+              ),
+
           );
         }
       }
@@ -1052,10 +1116,10 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 width: double.infinity,
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                 decoration: BoxDecoration(
-                  border: Border(
-                    left: const BorderSide(color: Color(0xFFE4E7EC)),
-                    right: const BorderSide(color: Color(0xFFE4E7EC)),
-                    bottom: const BorderSide(color: Color(0xFFE4E7EC)),
+                  border: const Border(
+                    left: BorderSide(color: Color(0xFFE4E7EC)),
+                    right: BorderSide(color: Color(0xFFE4E7EC)),
+                    bottom: BorderSide(color: Color(0xFFE4E7EC)),
                   ),
                   borderRadius: const BorderRadius.only(
                     bottomLeft: Radius.circular(12),
@@ -1234,8 +1298,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         ? TimeOfDay.fromDateTime(initialTermin.endAt)
         : const TimeOfDay(hour: 10, minute: 0);
 
-    _MitarbeiterOption? selectedMitarbeiter =
-    _buildInitialMitarbeiterOption(initialTermin);
+    _MitarbeiterOption? selectedMitarbeiter;
     String? validationMessage;
     bool isSaving = false;
     bool isDeleting = false;
@@ -1652,15 +1715,19 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                     isLoadingMitarbeiter =
                         mitarbeiterSnapshot.connectionState ==
                             ConnectionState.waiting;
+
                     final mitarbeiterError = mitarbeiterSnapshot.hasError
                         ? 'Mitarbeiter konnten nicht geladen werden.'
                         : null;
+
                     final ausgewahlterMitarbeiter = _resolveSelectedMitarbeiter(
                       mitarbeiter: mitarbeiter,
                       selectedMitarbeiter: selectedMitarbeiter,
+                      initialTermin: initialTermin,
                     );
 
-                    if (selectedMitarbeiter?.id != ausgewahlterMitarbeiter?.id) {
+                    if (selectedMitarbeiter?.id !=
+                        ausgewahlterMitarbeiter?.id) {
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         if (!mounted) return;
                         setDialogState(() {
@@ -1669,224 +1736,267 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                       });
                     }
 
-                    return Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        TextField(
-                          controller: kundeNameController,
-                          textInputAction: TextInputAction.next,
-                          decoration: const InputDecoration(
-                            labelText: 'Kundenname *',
-                            border: OutlineInputBorder(),
-                          ),
-                          onChanged: (_) {
-                            if (selectedKundeId != null) {
-                              setDialogState(() {
-                                selectedKundeId = null;
-                              });
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: kundePhoneController,
-                          keyboardType: TextInputType.phone,
-                          textInputAction: TextInputAction.next,
-                          decoration: InputDecoration(
-                            labelText: 'Handynummer',
-                            border: const OutlineInputBorder(),
-                            suffixIcon: isLoadingPhoneSuggestions
-                                ? const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                            )
-                                : customerLinked
-                                ? const Icon(
-                              Icons.check_circle,
-                              color: Colors.green,
-                            )
-                                : null,
-                          ),
-                          onChanged: (value) async {
-                            if (selectedKundeId != null) {
-                              setDialogState(() {
-                                selectedKundeId = null;
-                              });
-                            }
-                            await loadPhoneSuggestions(value, setDialogState);
-                          },
-                        ),
-                        if (phoneSuggestions.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          _buildSuggestionList(
-                            suggestions: phoneSuggestions,
-                            query: phoneSearchQuery,
-                            matchBuilder: (suggestion) =>
-                                _formatPhoneDisplay(suggestion.phone),
-                            onTap: (suggestion) =>
-                                applyCustomerSuggestion(suggestion, setDialogState),
-                          ),
-                        ],
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: kundeEmailController,
-                          keyboardType: TextInputType.emailAddress,
-                          textInputAction: TextInputAction.next,
-                          decoration: InputDecoration(
-                            labelText: 'E-Mail',
-                            border: const OutlineInputBorder(),
-                            suffixIcon: isLoadingEmailSuggestions
-                                ? const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                            )
-                                : customerLinked
-                                ? const Icon(
-                              Icons.check_circle,
-                              color: Colors.green,
-                            )
-                                : null,
-                          ),
-                          onChanged: (value) async {
-                            if (selectedKundeId != null) {
-                              setDialogState(() {
-                                selectedKundeId = null;
-                              });
-                            }
-                            await loadEmailSuggestions(value, setDialogState);
-                          },
-                        ),
-                        if (emailSuggestions.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          _buildSuggestionList(
-                            suggestions: emailSuggestions,
-                            query: emailSearchQuery,
-                            matchBuilder: (suggestion) => suggestion.email,
-                            onTap: (suggestion) =>
-                                applyCustomerSuggestion(suggestion, setDialogState),
-                          ),
-                        ],
-                        if (kundeEmailController.text.isNotEmpty ||
-                            kundePhoneController.text.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              if (customerLinked) ...[
-                                const Icon(
-                                  Icons.check_circle,
-                                  color: Colors.green,
-                                  size: 18,
-                                ),
-                                const SizedBox(width: 6),
-                                const Text(
-                                  'Kunde erkannt',
-                                  style: TextStyle(
-                                    color: Colors.green,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ] else if (hasAnySuggestions) ...[
-                                const Icon(
-                                  Icons.info_outline,
-                                  color: Colors.blue,
-                                  size: 18,
-                                ),
-                                const SizedBox(width: 6),
-                                const Text(
-                                  'Vorschläge gefunden',
-                                  style: TextStyle(color: Colors.blue),
-                                ),
-                              ] else ...[
-                                const Icon(
-                                  Icons.error_outline,
-                                  color: Colors.red,
-                                  size: 18,
-                                ),
-                                const SizedBox(width: 6),
-                                const Text(
-                                  'Kein registrierter Kunde',
-                                  style: TextStyle(color: Colors.red),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ],
-                        const SizedBox(height: 16),
-                        _buildDialogPickerField(
-                          label: 'Datum',
-                          value: _formatDate(selectedDate),
-                          icon: Icons.calendar_today_outlined,
-                          onTap: pickDate,
-                        ),
-                        const SizedBox(height: 16),
-                        if (isLoadingMitarbeiter)
-                          const InputDecorator(
-                            decoration: InputDecoration(
-                              labelText: 'Mitarbeiter *',
+                    return SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          TextField(
+                            controller: kundeNameController,
+                            textInputAction: TextInputAction.next,
+                            decoration: const InputDecoration(
+                              labelText: 'Kundenname *',
                               border: OutlineInputBorder(),
                             ),
-                            child: Row(
-                              children: [
-                                SizedBox(
+                            onChanged: (_) {
+                              if (selectedKundeId != null) {
+                                setDialogState(() {
+                                  selectedKundeId = null;
+                                });
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          TextField(
+                            controller: kundePhoneController,
+                            keyboardType: TextInputType.phone,
+                            textInputAction: TextInputAction.next,
+                            decoration: InputDecoration(
+                              labelText: 'Handynummer',
+                              border: const OutlineInputBorder(),
+                              suffixIcon: isLoadingPhoneSuggestions
+                                  ? const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: SizedBox(
                                   width: 18,
                                   height: 18,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
                                   ),
                                 ),
-                                SizedBox(width: 12),
-                                Expanded(
-                                  child: Text('Mitarbeiter werden geladen...'),
+                              )
+                                  : customerLinked
+                                  ? const Icon(
+                                Icons.check_circle,
+                                color: Colors.green,
+                              )
+                                  : null,
+                            ),
+                            onChanged: (value) async {
+                              if (selectedKundeId != null) {
+                                setDialogState(() {
+                                  selectedKundeId = null;
+                                });
+                              }
+                              await loadPhoneSuggestions(value, setDialogState);
+                            },
+                          ),
+                          if (phoneSuggestions.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            _buildSuggestionList(
+                              suggestions: phoneSuggestions,
+                              query: phoneSearchQuery,
+                              matchBuilder: (suggestion) =>
+                                  _formatPhoneDisplay(suggestion.phone),
+                              onTap: (suggestion) => applyCustomerSuggestion(
+                                suggestion,
+                                setDialogState,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 16),
+                          TextField(
+                            controller: kundeEmailController,
+                            keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                            decoration: InputDecoration(
+                              labelText: 'E-Mail',
+                              border: const OutlineInputBorder(),
+                              suffixIcon: isLoadingEmailSuggestions
+                                  ? const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 ),
+                              )
+                                  : customerLinked
+                                  ? const Icon(
+                                Icons.check_circle,
+                                color: Colors.green,
+                              )
+                                  : null,
+                            ),
+                            onChanged: (value) async {
+                              if (selectedKundeId != null) {
+                                setDialogState(() {
+                                  selectedKundeId = null;
+                                });
+                              }
+                              await loadEmailSuggestions(value, setDialogState);
+                            },
+                          ),
+                          if (emailSuggestions.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            _buildSuggestionList(
+                              suggestions: emailSuggestions,
+                              query: emailSearchQuery,
+                              matchBuilder: (suggestion) => suggestion.email,
+                              onTap: (suggestion) => applyCustomerSuggestion(
+                                suggestion,
+                                setDialogState,
+                              ),
+                            ),
+                          ],
+                          if (kundeEmailController.text.isNotEmpty ||
+                              kundePhoneController.text.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                if (customerLinked) ...[
+                                  const Icon(
+                                    Icons.check_circle,
+                                    color: Colors.green,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  const Text(
+                                    'Kunde erkannt',
+                                    style: TextStyle(
+                                      color: Colors.green,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ] else if (hasAnySuggestions) ...[
+                                  const Icon(
+                                    Icons.info_outline,
+                                    color: Colors.blue,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  const Text(
+                                    'Vorschläge gefunden',
+                                    style: TextStyle(color: Colors.blue),
+                                  ),
+                                ] else ...[
+                                  const Icon(
+                                    Icons.error_outline,
+                                    color: Colors.red,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  const Text(
+                                    'Kein registrierter Kunde',
+                                    style: TextStyle(color: Colors.red),
+                                  ),
+                                ],
                               ],
                             ),
-                          )
-                        else ...[
-                          DropdownButtonFormField<String>(
-                            value: ausgewahlterMitarbeiter?.id,
-                            decoration: const InputDecoration(
-                              labelText: 'Mitarbeiter *',
-                              border: OutlineInputBorder(),
-                            ),
-                            isExpanded: true,
-                            items: mitarbeiter
-                                .map(
-                                  (item) => DropdownMenuItem<String>(
-                                value: item.id,
-                                child: Text(item.name),
+                          ],
+                          const SizedBox(height: 16),
+                          _buildDialogPickerField(
+                            label: 'Datum',
+                            value: _formatDate(selectedDate),
+                            icon: Icons.calendar_today_outlined,
+                            onTap: pickDate,
+                          ),
+                          const SizedBox(height: 16),
+                          if (isLoadingMitarbeiter)
+                            const InputDecorator(
+                              decoration: InputDecoration(
+                                labelText: 'Mitarbeiter *',
+                                border: OutlineInputBorder(),
+                              ),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                  SizedBox(width: 12),
+                                  Expanded(
+                                    child:
+                                    Text('Mitarbeiter werden geladen...'),
+                                  ),
+                                ],
                               ),
                             )
-                                .toList(growable: false),
-                            onChanged: hasMitarbeiter && !isSaving && !isDeleting
-                                ? (value) {
-                              setDialogState(() {
-                                selectedMitarbeiter = _findMitarbeiterById(
-                                  mitarbeiter,
-                                  value,
-                                );
-                                validationMessage = null;
-                              });
-                            }
-                                : null,
+                          else ...[
+                            DropdownButtonFormField<String>(
+                              value: ausgewahlterMitarbeiter?.id,
+                              decoration: const InputDecoration(
+                                labelText: 'Mitarbeiter *',
+                                border: OutlineInputBorder(),
+                              ),
+                              isExpanded: true,
+                              items: mitarbeiter
+                                  .map(
+                                    (item) => DropdownMenuItem<String>(
+                                  value: item.id,
+                                  child: Text(item.name),
+                                ),
+                              )
+                                  .toList(growable: false),
+                              onChanged: hasMitarbeiter && !isSaving && !isDeleting
+                                  ? (value) {
+                                setDialogState(() {
+                                  selectedMitarbeiter =
+                                      _findMitarbeiterById(
+                                        mitarbeiter,
+                                        value,
+                                      );
+                                  validationMessage = null;
+                                });
+                              }
+                                  : null,
+                            ),
+                            if (mitarbeiterError != null || !hasMitarbeiter) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                mitarbeiterError ??
+                                    'Keine aktiven Mitarbeiter verfügbar.',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                  color: const Color(0xFFB42318),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ],
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildDialogPickerField(
+                                  label: 'Von *',
+                                  value: _formatTime(fromTime),
+                                  icon: Icons.schedule,
+                                  onTap: () => pickTime(isStartTime: true),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _buildDialogPickerField(
+                                  label: 'Bis *',
+                                  value: _formatTime(toTime),
+                                  icon: Icons.schedule_outlined,
+                                  onTap: () => pickTime(isStartTime: false),
+                                ),
+                              ),
+                            ],
                           ),
-                          if (mitarbeiterError != null || !hasMitarbeiter) ...[
-                            const SizedBox(height: 8),
+                          if (validationMessage != null) ...[
+                            const SizedBox(height: 16),
                             Text(
-                              mitarbeiterError ??
-                                  'Keine aktiven Mitarbeiter verfügbar.',
+                              validationMessage!,
                               style: Theme.of(context)
                                   .textTheme
                                   .bodyMedium
@@ -1897,42 +2007,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                             ),
                           ],
                         ],
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildDialogPickerField(
-                                label: 'Von *',
-                                value: _formatTime(fromTime),
-                                icon: Icons.schedule,
-                                onTap: () => pickTime(isStartTime: true),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _buildDialogPickerField(
-                                label: 'Bis *',
-                                value: _formatTime(toTime),
-                                icon: Icons.schedule_outlined,
-                                onTap: () => pickTime(isStartTime: false),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (validationMessage != null) ...[
-                          const SizedBox(height: 16),
-                          Text(
-                            validationMessage!,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
-                                ?.copyWith(
-                              color: const Color(0xFFB42318),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ],
+                      ),
                     );
                   },
                 ),
@@ -2074,7 +2149,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          matchText == displayEmail ? displayPhone : displayEmail,
+                          matchText == displayEmail
+                              ? displayPhone
+                              : displayEmail,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -2323,13 +2400,47 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   _MitarbeiterOption? _resolveSelectedMitarbeiter({
     required List<_MitarbeiterOption> mitarbeiter,
     required _MitarbeiterOption? selectedMitarbeiter,
+    _TerminEntry? initialTermin,
   }) {
-    final selectedId = selectedMitarbeiter?.id.trim();
-    if (selectedId == null || selectedId.isEmpty) {
+    if (mitarbeiter.isEmpty) {
       return null;
     }
 
-    return _findMitarbeiterById(mitarbeiter, selectedId);
+    final selectedId = selectedMitarbeiter?.id.trim() ?? '';
+    if (selectedId.isNotEmpty) {
+      final bySelectedId = _findMitarbeiterById(mitarbeiter, selectedId);
+      if (bySelectedId != null) {
+        return bySelectedId;
+      }
+    }
+
+    final selectedName = selectedMitarbeiter?.name.trim().toLowerCase() ?? '';
+    if (selectedName.isNotEmpty) {
+      for (final item in mitarbeiter) {
+        if (item.name.trim().toLowerCase() == selectedName) {
+          return item;
+        }
+      }
+    }
+
+    final initialId = initialTermin?.mitarbeiterId?.trim() ?? '';
+    if (initialId.isNotEmpty) {
+      final byInitialId = _findMitarbeiterById(mitarbeiter, initialId);
+      if (byInitialId != null) {
+        return byInitialId;
+      }
+    }
+
+    final initialName = initialTermin?.mitarbeiterName?.trim().toLowerCase() ?? '';
+    if (initialName.isNotEmpty) {
+      for (final item in mitarbeiter) {
+        if (item.name.trim().toLowerCase() == initialName) {
+          return item;
+        }
+      }
+    }
+
+    return null;
   }
 
   Future<String?> _saveTermin({
@@ -2471,9 +2582,11 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       final termine = snapshot.docs
           .map(_parseTermin)
           .whereType<_TerminEntry>()
-          .where((termin) =>
-      !termin.startAt.isBefore(startOfWeek) &&
-          termin.startAt.isBefore(endOfWeek))
+          .where(
+            (termin) =>
+        !termin.startAt.isBefore(startOfWeek) &&
+            termin.startAt.isBefore(endOfWeek),
+      )
           .toList(growable: false);
 
       return List<_TerminEntry>.from(termine)
