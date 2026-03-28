@@ -16,7 +16,6 @@ class DienstleisterTile extends StatelessWidget {
     this.matchedOffers,
   });
 
-  // ---------------- Helper: Format ----------------
   String _fmtPreis(dynamic v) {
     if (v == null) return '';
     if (v is int) return '$v €';
@@ -34,24 +33,22 @@ class DienstleisterTile extends StatelessWidget {
     return '$v Min.';
   }
 
-  // ---------------- Helper: Farben ----------------
-  static const String _zgDamen  = 'Damen';
+  static const String _zgDamen = 'Damen';
   static const String _zgHerren = 'Herren';
   static const String _zgKinder = 'Kinder';
 
   Color _colorForZielgruppe(String? z) {
     switch (z) {
       case _zgDamen:
-        return const Color(0xFFE91E63); // Pink
+        return const Color(0xFFE91E63);
       case _zgKinder:
-        return const Color(0xFFFFC107); // Gelb (Amber)
+        return const Color(0xFFFFC107);
       case _zgHerren:
       default:
-        return Colors.blueAccent;       // Blau
+        return Colors.blueAccent;
     }
   }
 
-  /// Versucht zuerst offer['chipColor'] (Color oder int), sonst Zielgruppe, sonst Blau.
   Color _resolveChipColor(Map<String, dynamic> offer) {
     final dynamic c = offer['chipColor'];
     if (c is Color) return c;
@@ -63,15 +60,14 @@ class DienstleisterTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final distance = data['distance'];
-    final logoUrl  = data['logoUrl'];
-    final name     = (data['name'] ?? 'Kein Name').toString();
-    final adresse  = (data['adresse'] ?? '').toString();
-    final plz      = (data['plz'] ?? '').toString();
-    final ort      = (data['ort'] ?? '').toString();
+    final String logoUrl = (data['logoUrl'] ?? '').toString().trim();
+    final name = (data['name'] ?? 'Kein Name').toString();
+    final adresse = (data['adresse'] ?? '').toString();
+    final plz = (data['plz'] ?? '').toString();
+    final ort = (data['ort'] ?? '').toString();
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    // Quelle: Prop > data['matchedOffers'] > []
     final List<Map<String, dynamic>> offers =
         matchedOffers ??
             ((data['matchedOffers'] as List?)
@@ -89,11 +85,9 @@ class DienstleisterTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header: Logo + Stammdaten
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Logo links
                   Container(
                     width: 64,
                     height: 64,
@@ -104,17 +98,19 @@ class DienstleisterTile extends StatelessWidget {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(14),
-                      child: (logoUrl != null && logoUrl.toString().isNotEmpty)
+                      child: logoUrl.isNotEmpty
                           ? Image.network(
                         logoUrl,
                         width: 64,
                         height: 64,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => Icon(
-                          Icons.storefront,
-                          size: 30,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
+                        errorBuilder: (context, error, stackTrace) {
+                          return Icon(
+                            Icons.storefront,
+                            size: 30,
+                            color: colorScheme.onSurfaceVariant,
+                          );
+                        },
                       )
                           : Icon(
                         Icons.storefront,
@@ -124,8 +120,6 @@ class DienstleisterTile extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 14),
-
-                  // Name, Adresse, Entfernung
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -173,8 +167,6 @@ class DienstleisterTile extends StatelessWidget {
                   ),
                 ],
               ),
-
-              // -------------------- NEU: Angebote gruppiert pro Titel --------------------
               if (offers.isNotEmpty) ...[
                 const SizedBox(height: 14),
                 Divider(height: 1, color: colorScheme.outlineVariant),
@@ -193,69 +185,80 @@ class DienstleisterTile extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 8),
+                Builder(
+                  builder: (_) {
+                    final Map<String, Map<String, Map<String, dynamic>>> grouped = {};
+                    for (final o in offers) {
+                      final title = (o['titel'] ?? o['name'] ?? '').toString().trim();
+                      final zg = (o['zielgruppe'] ?? '').toString().trim();
+                      if (title.isEmpty) continue;
+                      grouped.putIfAbsent(title, () => {});
+                      if (zg.isNotEmpty) {
+                        grouped[title]![zg] = o;
+                      }
+                    }
 
-                // Gruppieren: title -> zielgruppe -> offer
-                Builder(builder: (_) {
-                  final Map<String, Map<String, Map<String, dynamic>>> grouped = {};
-                  for (final o in offers) {
-                    final title = (o['titel'] ?? o['name'] ?? '').toString().trim();
-                    final zg = (o['zielgruppe'] ?? '').toString().trim();
-                    if (title.isEmpty) continue;
-                    if (!grouped.containsKey(title)) grouped[title] = {};
-                    if (zg.isNotEmpty) grouped[title]![zg] = o;
-                  }
+                    const zielgruppenOrder = <String>[
+                      _zgDamen,
+                      _zgHerren,
+                      _zgKinder,
+                    ];
 
-                  const zielgruppenOrder = <String>[_zgDamen, _zgHerren, _zgKinder];
+                    return Column(
+                      children: grouped.entries.map((entry) {
+                        final title = entry.key;
+                        final byGroup = entry.value;
 
-                  return Column(
-                    children: grouped.entries.map((entry) {
-                      final title = entry.key;
-                      final byGroup = entry.value;
-
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w600,
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 6,
-                              children: zielgruppenOrder.map((zg) {
-                                final offer = byGroup[zg];
-                                if (offer == null) return const SizedBox.shrink();
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                children: zielgruppenOrder.map((zg) {
+                                  final offer = byGroup[zg];
+                                  if (offer == null) {
+                                    return const SizedBox.shrink();
+                                  }
 
-                                final dauer = _fmtDauer(offer['dauer']);
-                                final preis = _fmtPreis(offer['preis']);
-                                final chipColor = _resolveChipColor(offer);
+                                  final dauer = _fmtDauer(offer['dauer']);
+                                  final preis = _fmtPreis(offer['preis']);
+                                  final chipColor = _resolveChipColor(offer);
 
-                                return Chip(
-                                  backgroundColor: chipColor.withOpacity(0.12),
-                                  side: BorderSide(color: chipColor.withOpacity(0.4)),
-                                  label: Text(
-                                    [zg, if (dauer.isNotEmpty) dauer, if (preis.isNotEmpty) preis]
-                                        .join(' • '),
-                                    style: theme.textTheme.labelSmall?.copyWith(
-                                      color: colorScheme.onSurface,
-                                      fontWeight: FontWeight.w600,
+                                  return Chip(
+                                    backgroundColor: chipColor.withOpacity(0.12),
+                                    side: BorderSide(color: chipColor.withOpacity(0.4)),
+                                    label: Text(
+                                      [
+                                        zg,
+                                        if (dauer.isNotEmpty) dauer,
+                                        if (preis.isNotEmpty) preis,
+                                      ].join(' • '),
+                                      style: theme.textTheme.labelSmall?.copyWith(
+                                        color: colorScheme.onSurface,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
-                                  ),
-                                  visualDensity: VisualDensity.compact,
-                                );
-                              }).toList(),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                  );
-                }),
+                                    visualDensity: VisualDensity.compact,
+                                  );
+                                }).toList(),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    );
+                  },
+                ),
               ],
             ],
           ),

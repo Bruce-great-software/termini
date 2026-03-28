@@ -62,6 +62,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   String? _pendingProfileImageMitarbeiterId;
   bool _isProfileImageUploading = false;
   bool _isInitializingOeffnungszeiten = false;
+  bool _isUploadingLogo = false;
 
   int _resolveKalenderFarbeValue(Map<String, dynamic> data) {
     final rawValue = data['kalenderFarbe'];
@@ -159,6 +160,59 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
         .collection('leistungen')
         .doc(docId)
         .delete();
+  }
+
+  Future<void> _pickAndUploadLogo() async {
+    if (_isUploadingLogo) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      setState(() => _isUploadingLogo = true);
+
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 85,
+      );
+
+      if (pickedFile == null) {
+        if (mounted) {
+          setState(() => _isUploadingLogo = false);
+        }
+        return;
+      }
+
+      final bytes = await pickedFile.readAsBytes();
+      if (bytes.isEmpty) {
+        if (mounted) {
+          setState(() => _isUploadingLogo = false);
+        }
+        return;
+      }
+
+      final storagePath = 'profile_images/dienstleister_${user.uid}.jpg';
+      final storageRef = FirebaseStorage.instance.ref().child(storagePath);
+
+      await storageRef.putData(bytes);
+      final downloadUrl = await storageRef.getDownloadURL();
+
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+        'logoUrl': downloadUrl,
+        'logoPath': storagePath,
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler beim Hochladen des Profilbilds: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingLogo = false);
+      }
+    }
   }
 
   @override
@@ -361,7 +415,9 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       }
 
       final dayMap = Map<String, dynamic>.from(dayValue as Map);
-      if (dayMap['aktiv'] is! bool || dayMap['von'] is! String || dayMap['bis'] is! String) {
+      if (dayMap['aktiv'] is! bool ||
+          dayMap['von'] is! String ||
+          dayMap['bis'] is! String) {
         return true;
       }
     }
@@ -369,7 +425,9 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     return false;
   }
 
-  Future<void> _ensureOeffnungszeitenInitialized(Map<String, dynamic>? raw) async {
+  Future<void> _ensureOeffnungszeitenInitialized(
+      Map<String, dynamic>? raw,
+      ) async {
     if (_isInitializingOeffnungszeiten) return;
 
     final user = FirebaseAuth.instance.currentUser;
@@ -420,11 +478,15 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
         final rawData = snapshot.data?.data();
         final rawOeffnungszeiten = rawData?['oeffnungszeiten'];
         final normalized = _normalizeOeffnungszeiten(
-          rawOeffnungszeiten is Map ? Map<String, dynamic>.from(rawOeffnungszeiten) : null,
+          rawOeffnungszeiten is Map
+              ? Map<String, dynamic>.from(rawOeffnungszeiten)
+              : null,
         );
 
         if (_oeffnungszeitenNeedInitialization(
-          rawOeffnungszeiten is Map ? Map<String, dynamic>.from(rawOeffnungszeiten) : null,
+          rawOeffnungszeiten is Map
+              ? Map<String, dynamic>.from(rawOeffnungszeiten)
+              : null,
         )) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
@@ -948,9 +1010,8 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                 _MitarbeiterImageEditorOverlay(
                   imageBytes: _pendingProfileImageBytes!,
                   isSaving: _isProfileImageUploading,
-                  onCancel: _isProfileImageUploading
-                      ? null
-                      : _verwerfeLokalesProfilbild,
+                  onCancel:
+                  _isProfileImageUploading ? null : _verwerfeLokalesProfilbild,
                   onConfirm: _isProfileImageUploading
                       ? null
                       : (croppedBytes) => _speichereProfilbild(
@@ -1524,7 +1585,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                     if (value == 'delete') {
                       _leistungLoeschen(doc.id);
                     }
-                    // TODO: Bearbeiten-Dialog bei 'edit'
                   },
                   itemBuilder: (context) => [
                     const PopupMenuItem(
@@ -1548,30 +1608,123 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   Widget _buildProfilPage() {
     final user = FirebaseAuth.instance.currentUser;
 
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          ElevatedButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => DienstleisterEditPageEditPage(
-                    userId: user?.uid ?? '',
+    if (user == null) {
+      return const Center(child: Text('Nicht eingeloggt.'));
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final userData = snapshot.data?.data();
+        final logoUrl = (userData?['logoUrl'] as String?)?.trim() ?? '';
+
+        return Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                InkWell(
+                  onTap: _isUploadingLogo ? null : _pickAndUploadLogo,
+                  borderRadius: BorderRadius.circular(50),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Container(
+                        width: 96,
+                        height: 96,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.blueAccent,
+                            width: 2,
+                          ),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x14000000),
+                              blurRadius: 10,
+                              offset: Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: ClipOval(
+                          child: logoUrl.isNotEmpty
+                              ? Image.network(
+                            logoUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return const Icon(
+                                Icons.person,
+                                size: 42,
+                                color: Color(0xFF02152B),
+                              );
+                            },
+                          )
+                              : const Icon(
+                            Icons.person,
+                            size: 42,
+                            color: Color(0xFF02152B),
+                          ),
+                        ),
+                      ),
+                      if (_isUploadingLogo)
+                        Container(
+                          width: 96,
+                          height: 96,
+                          decoration: const BoxDecoration(
+                            color: Color(0x66000000),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Padding(
+                            padding: EdgeInsets.all(30),
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-              );
-            },
-            child: const Text('Persönliche Daten bearbeiten'),
+                const SizedBox(height: 28),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => DienstleisterEditPageEditPage(
+                          userId: user.uid,
+                        ),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    shape: const StadiumBorder(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 22,
+                      vertical: 14,
+                    ),
+                  ),
+                  child: const Text('Persönliche Daten bearbeiten'),
+                ),
+                const SizedBox(height: 18),
+                ElevatedButton(
+                  onPressed: _logout,
+                  style: ElevatedButton.styleFrom(
+                    shape: const StadiumBorder(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 22,
+                      vertical: 14,
+                    ),
+                  ),
+                  child: const Text('Abmelden'),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: _logout,
-            child: const Text('Abmelden'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -2324,7 +2477,8 @@ class _OeffnungszeitenDetailSidebarState
   }) async {
     if (isSaving) return;
 
-    final initial = _parseTimeString(currentValue) ?? const TimeOfDay(hour: 9, minute: 0);
+    final initial =
+        _parseTimeString(currentValue) ?? const TimeOfDay(hour: 9, minute: 0);
     final picked = await showTimePicker(
       context: context,
       initialTime: initial,
@@ -2518,12 +2672,14 @@ class _OeffnungszeitenDetailSidebarState
                       children: [
                         Switch(
                           value: _istAktiv,
-                          onChanged: _isStatusSaving ? null : _handleStatusChanged,
+                          onChanged:
+                          _isStatusSaving ? null : _handleStatusChanged,
                           activeColor: Colors.white,
                           activeTrackColor: const Color(0xFF2EAD62),
                           inactiveThumbColor: Colors.white,
                           inactiveTrackColor: const Color(0xFFD92D20),
-                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          materialTapTargetSize:
+                          MaterialTapTargetSize.shrinkWrap,
                         ),
                         const SizedBox(width: 12),
                         AnimatedDefaultTextStyle(
@@ -2682,8 +2838,6 @@ class _MitarbeiterImageEditorOverlayState
     _cropController.crop();
   }
 
-
-
   @override
   Widget build(BuildContext context) {
     return AnimatedOpacity(
@@ -2810,7 +2964,13 @@ class _MitarbeiterImageEditorOverlayState
                               ),
                             ],
                             selected: {_aspectRatio},
-
+                            onSelectionChanged: (values) {
+                              final nextValue = values.firstOrNull;
+                              if (nextValue == null) return;
+                              setState(() {
+                                _aspectRatio = nextValue;
+                              });
+                            },
                             style: ButtonStyle(
                               foregroundColor: MaterialStateProperty.all(
                                 Colors.white,
