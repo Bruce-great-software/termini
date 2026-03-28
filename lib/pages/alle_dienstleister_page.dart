@@ -13,6 +13,7 @@ import '../widgets/dienstleister_tile.dart';
 import 'dienstleister_detail_page.dart';
 import 'login_register_page.dart';
 import 'kunden_profil_page.dart';
+import 'kunden_favoriten_page.dart';
 
 import 'package:flutter/cupertino.dart';
 
@@ -1566,7 +1567,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           ],
         );
       case 1:
-        return const Center(child: Text('Favoriten kommen bald!'));
+        return const KundenFavoritenPage();
       case 2:
         return const Center(child: Text('Buchungen kommen bald!'));
       case 3:
@@ -1948,6 +1949,16 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           future: Future.wait(docs.map((doc) async {
             final data = doc.data() as Map<String, dynamic>;
             data['id'] = doc.id;
+            final resolvedLogoUrl = (data['logoUrl'] as String?)?.trim().isNotEmpty == true
+                ? (data['logoUrl'] as String).trim()
+                : ((data['profileImageUrl'] as String?)?.trim().isNotEmpty == true
+                    ? (data['profileImageUrl'] as String).trim()
+                    : ((data['imageUrl'] as String?)?.trim().isNotEmpty == true
+                        ? (data['imageUrl'] as String).trim()
+                        : null));
+            if (resolvedLogoUrl != null) {
+              data['logoUrl'] = resolvedLogoUrl;
+            }
 
             if (data['geo'] != null) {
               final geo = data['geo'] as GeoPoint;
