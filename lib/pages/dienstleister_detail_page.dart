@@ -1037,6 +1037,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     _selectedBookingDate = _dateOnly(DateTime.now());
     _availableBookingTimes = const <String>[];
     _bookingTimesHint = null;
+    _ladeZielgruppeAusProfil();
   }
 
   @override
@@ -1047,6 +1048,37 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     _bookingLoginEmailController.dispose();
     _bookingLoginPasswordController.dispose();
     super.dispose();
+  }
+
+  String? _mapGeschlechtZuZielgruppe(String? geschlechtRaw) {
+    final geschlecht = geschlechtRaw?.trim().toLowerCase();
+    if (geschlecht == 'frau') return 'Damen';
+    if (geschlecht == 'herr') return 'Herren';
+    return null;
+  }
+
+  Future<void> _ladeZielgruppeAusProfil() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      final data = doc.data();
+      final zielgruppe = _mapGeschlechtZuZielgruppe(data?['geschlecht'] as String?);
+
+      if (!mounted || zielgruppe == null || _zielgruppe == zielgruppe) {
+        return;
+      }
+
+      setState(() {
+        _zielgruppe = zielgruppe;
+      });
+    } catch (_) {
+      // Profil-Zielgruppe ist optional; bei Fehler bleibt die bestehende Auswahl aktiv.
+    }
   }
 
   Map<String, Widget> _zielgruppenSegments() {
