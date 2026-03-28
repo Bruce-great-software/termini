@@ -241,6 +241,10 @@ class _AngeboteViewState extends State<AngeboteView> {
     Map<String, dynamic> data,
     String zielgruppe,
   ) {
+    if (!_hasZielgruppenData(data, zielgruppe)) {
+      return null;
+    }
+
     final title = _extractOfferTitle(data);
     if (title.isEmpty) return null;
 
@@ -257,6 +261,22 @@ class _AngeboteViewState extends State<AngeboteView> {
       originalPrice: price,
       duration: duration,
     );
+  }
+
+  bool _hasZielgruppenData(Map<String, dynamic> data, String zielgruppe) {
+    return _extractOfferPrice(data, zielgruppe) != null ||
+        _extractOfferDuration(data, zielgruppe) != null ||
+        _hasSizeOptions(data, zielgruppe);
+  }
+
+  bool _hasSizeOptions(Map<String, dynamic> data, String zielgruppe) {
+    final zgMap = data['zielgruppen'];
+    if (zgMap is! Map || zgMap[zielgruppe] is! Map) {
+      return false;
+    }
+    final values = zgMap[zielgruppe] as Map;
+    final varianten = values['varianten'];
+    return varianten is Map && varianten.isNotEmpty;
   }
 
   String _buildSelectionKey(AngebotSelectionItem item) {
@@ -298,35 +318,69 @@ class _AngeboteViewState extends State<AngeboteView> {
   }
 
   double? _extractOfferPrice(Map<String, dynamic> data, String zielgruppe) {
-    final direct = <double>[];
-    if (data['preis'] is num) {
-      direct.add((data['preis'] as num).toDouble());
-    }
     final zgMap = data['zielgruppen'];
-    if (zgMap is Map && zgMap[zielgruppe] is Map) {
-      final value = (zgMap[zielgruppe] as Map)['preis'];
-      if (value is num) direct.add(value.toDouble());
+    if (zgMap is! Map || zgMap[zielgruppe] is! Map) {
+      return null;
     }
-    final positive = direct.where((entry) => entry > 0).toList(growable: false);
-    if (positive.isEmpty) return null;
-    positive.sort();
-    return positive.first;
+    final values = zgMap[zielgruppe] as Map;
+
+    final preis = values['preis'];
+    if (preis is num && preis.toDouble() > 0) {
+      return preis.toDouble();
+    }
+
+    final varianten = values['varianten'];
+    if (varianten is Map) {
+      final variantPrices = varianten.values
+          .map((entry) {
+            if (entry is Map && entry['preis'] is num) {
+              final price = (entry['preis'] as num).toDouble();
+              return price > 0 ? price : null;
+            }
+            return null;
+          })
+          .whereType<double>()
+          .toList(growable: false);
+      if (variantPrices.isNotEmpty) {
+        variantPrices.sort();
+        return variantPrices.first;
+      }
+    }
+
+    return null;
   }
 
   int? _extractOfferDuration(Map<String, dynamic> data, String zielgruppe) {
-    final direct = <int>[];
-    if (data['dauer'] is num) {
-      direct.add((data['dauer'] as num).toInt());
-    }
     final zgMap = data['zielgruppen'];
-    if (zgMap is Map && zgMap[zielgruppe] is Map) {
-      final value = (zgMap[zielgruppe] as Map)['dauer'];
-      if (value is num) direct.add(value.toInt());
+    if (zgMap is! Map || zgMap[zielgruppe] is! Map) {
+      return null;
     }
-    final positive = direct.where((entry) => entry > 0).toList(growable: false);
-    if (positive.isEmpty) return null;
-    positive.sort();
-    return positive.first;
+    final values = zgMap[zielgruppe] as Map;
+
+    final dauer = values['dauer'];
+    if (dauer is num && dauer.toInt() > 0) {
+      return dauer.toInt();
+    }
+
+    final varianten = values['varianten'];
+    if (varianten is Map) {
+      final variantDurations = varianten.values
+          .map((entry) {
+            if (entry is Map && entry['dauer'] is num) {
+              final duration = (entry['dauer'] as num).toInt();
+              return duration > 0 ? duration : null;
+            }
+            return null;
+          })
+          .whereType<int>()
+          .toList(growable: false);
+      if (variantDurations.isNotEmpty) {
+        variantDurations.sort();
+        return variantDurations.first;
+      }
+    }
+
+    return null;
   }
 
   String _formatEuro(double value) {
