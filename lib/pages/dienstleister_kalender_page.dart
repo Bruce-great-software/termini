@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../widgets/angebote_view.dart';
 
 class DienstleisterKalenderPage extends StatefulWidget {
   final String dienstleisterId;
@@ -58,16 +59,6 @@ class _KundenSuggestion {
     required this.name,
     required this.email,
     required this.phone,
-  });
-}
-
-class _LeistungAuswahlItem {
-  final String id;
-  final _LeistungsPosition position;
-
-  const _LeistungAuswahlItem({
-    required this.id,
-    required this.position,
   });
 }
 
@@ -1141,6 +1132,15 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                             context: dialogContext,
                             title: 'Kunde',
                             children: [
+                              FutureBuilder<String?>(
+                                future: _loadKundeGeschlecht(termin.kundeId),
+                                builder: (context, snapshot) {
+                                  return _buildPreviewRow(
+                                    label: 'Anrede',
+                                    value: _anredeAusGeschlecht(snapshot.data),
+                                  );
+                                },
+                              ),
                               _buildPreviewRow(
                                 label: 'Name',
                                 value: termin.kundeName?.trim().isNotEmpty ==
@@ -1466,6 +1466,36 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   String _formatEuro(double value) {
     final asString = value.toStringAsFixed(2).replaceAll('.', ',');
     return '$asString €';
+  }
+
+  String _anredeAusGeschlecht(String? geschlechtRaw) {
+    final geschlecht = geschlechtRaw?.trim().toLowerCase();
+    if (geschlecht == 'herr') return 'Herr';
+    if (geschlecht == 'frau') return 'Frau';
+    return 'Nicht hinterlegt';
+  }
+
+  String? _zielgruppeAusGeschlecht(String? geschlechtRaw) {
+    final geschlecht = geschlechtRaw?.trim().toLowerCase();
+    if (geschlecht == 'herr') return 'Herren';
+    if (geschlecht == 'frau') return 'Damen';
+    return null;
+  }
+
+  Future<String?> _loadKundeGeschlecht(String? kundeId) async {
+    final cleanedId = kundeId?.trim() ?? '';
+    if (cleanedId.isEmpty) return null;
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(cleanedId)
+          .get();
+      final data = doc.data();
+      return (data?['geschlecht'] as String?)?.trim().toLowerCase();
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _showAppointmentDialog({
@@ -2205,10 +2235,16 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                                   onPressed: isSaving || isDeleting
                                       ? null
                                       : () async {
+                                    final geschlecht = await _loadKundeGeschlecht(
+                                      selectedKundeId,
+                                    );
+                                    final initialZielgruppe =
+                                    _zielgruppeAusGeschlecht(geschlecht);
                                     final ausgewaehlt =
                                     await _showLeistungAuswahlSheet(
                                       context: context,
                                       initialSelected: selectedLeistungen,
+                                      initialZielgruppe: initialZielgruppe,
                                     );
                                     if (ausgewaehlt == null) return;
 
@@ -2409,37 +2445,25 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   Future<List<_LeistungsPosition>?> _showLeistungAuswahlSheet({
     required BuildContext context,
     required List<_LeistungsPosition> initialSelected,
+    String? initialZielgruppe,
   }) async {
-    final angebote = await _loadLeistungAuswahlAngebote();
-    final selectedIds = <String>{};
-
-    for (final initial in initialSelected) {
-      for (final angebot in angebote) {
-        final isSameCategory = angebot.position.category == initial.category;
-        final isSameTitle = angebot.position.title == initial.title;
-        final isSameSubtitle = angebot.position.subtitle == initial.subtitle;
-        if (isSameCategory && isSameTitle && isSameSubtitle) {
-          selectedIds.add(angebot.id);
-        }
-      }
-    }
-
-    if (!mounted) return null;
+    var selectedItems = initialSelected
+        .map(
+          (item) => AngebotSelectionItem(
+        category: item.category,
+        title: item.title,
+        subtitle: item.subtitle,
+        price: item.price,
+        originalPrice: item.originalPrice,
+        duration: item.duration,
+      ),
+    )
+        .toList(growable: false);
 
     return showModalBottomSheet<List<_LeistungsPosition>>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) {
-        final grouped = <String, List<_LeistungAuswahlItem>>{};
-        for (final item in angebote) {
-          final key = item.position.category.trim().isNotEmpty
-              ? item.position.category.trim()
-              : 'Leistungen';
-          grouped.putIfAbsent(key, () => <_LeistungAuswahlItem>[]).add(item);
-        }
-
-        final orderedCategories = grouped.keys.toList()..sort();
-
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return SafeArea(
@@ -2462,87 +2486,18 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      if (angebote.isEmpty)
-                        const Expanded(
-                          child: Center(
-                            child: Text('Keine verfügbaren Leistungen gefunden.'),
-                          ),
-                        )
-                      else
-                        Expanded(
-                          child: ListView(
-                            children: orderedCategories.map((category) {
-                              final items = grouped[category]!;
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      category,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelLarge
-                                          ?.copyWith(
-                                        color: const Color(0xFF475467),
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    ...items.map((item) {
-                                      final isSelected =
-                                      selectedIds.contains(item.id);
-                                      final subtitleParts = <String>[
-                                        if (item.position.subtitle
-                                            .trim()
-                                            .isNotEmpty)
-                                          item.position.subtitle.trim(),
-                                        if (item.position.duration != null &&
-                                            item.position.duration! > 0)
-                                          '${item.position.duration} Min',
-                                        if (item.position.price != null &&
-                                            item.position.price! > 0)
-                                          _formatEuro(item.position.price!),
-                                      ];
-
-                                      return CheckboxListTile(
-                                        contentPadding: EdgeInsets.zero,
-                                        value: isSelected,
-                                        controlAffinity:
-                                        ListTileControlAffinity.leading,
-                                        title: Text(
-                                          item.position.title,
-                                          style: const TextStyle(
-                                            color: Color(0xFF101828),
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                        subtitle: subtitleParts.isEmpty
-                                            ? null
-                                            : Text(
-                                          subtitleParts.join(' • '),
-                                          style: const TextStyle(
-                                            color: Color(0xFF667085),
-                                          ),
-                                        ),
-                                        onChanged: (value) {
-                                          if (value == null) return;
-                                          setSheetState(() {
-                                            if (value) {
-                                              selectedIds.add(item.id);
-                                            } else {
-                                              selectedIds.remove(item.id);
-                                            }
-                                          });
-                                        },
-                                      );
-                                    }),
-                                  ],
-                                ),
-                              );
-                            }).toList(growable: false),
-                          ),
+                      Expanded(
+                        child: AngeboteView.selection(
+                          dienstleisterId: widget.dienstleisterId,
+                          initialSelection: selectedItems,
+                          initialZielgruppe: initialZielgruppe ?? 'Damen',
+                          onSelectionChanged: (items) {
+                            setSheetState(() {
+                              selectedItems = items;
+                            });
+                          },
                         ),
+                      ),
                       const SizedBox(height: 8),
                       Row(
                         children: [
@@ -2556,9 +2511,17 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                           Expanded(
                             child: FilledButton(
                               onPressed: () {
-                                final selected = angebote
-                                    .where((item) => selectedIds.contains(item.id))
-                                    .map((item) => item.position)
+                                final selected = selectedItems
+                                    .map(
+                                      (item) => _LeistungsPosition(
+                                    category: item.category,
+                                    title: item.title,
+                                    subtitle: item.subtitle,
+                                    price: item.price,
+                                    originalPrice: item.originalPrice,
+                                    duration: item.duration,
+                                  ),
+                                )
                                     .toList(growable: false);
                                 Navigator.of(sheetContext).pop(selected);
                               },
@@ -2576,147 +2539,6 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         );
       },
     );
-  }
-
-  Future<List<_LeistungAuswahlItem>> _loadLeistungAuswahlAngebote() async {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    final dienstleisterId = currentUser?.uid.trim().isNotEmpty == true
-        ? currentUser!.uid.trim()
-        : widget.dienstleisterId.trim();
-    if (dienstleisterId.isEmpty) {
-      return const <_LeistungAuswahlItem>[];
-    }
-
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('angebote')
-          .where('dienstleisterId', isEqualTo: dienstleisterId)
-          .get();
-
-      final items = snapshot.docs
-          .map((doc) {
-        final data = doc.data();
-        final title = _extractOfferTitle(data);
-        if (title.isEmpty) {
-          return null;
-        }
-
-        final category = (data['kategorie'] as String?)?.trim() ?? '';
-        final subtitle = _extractOfferSubtitle(data);
-        final preis = _extractOfferPrice(data);
-        final duration = _extractOfferDuration(data);
-
-        return _LeistungAuswahlItem(
-          id: doc.id,
-          position: _LeistungsPosition(
-            category: category,
-            title: title,
-            subtitle: subtitle,
-            price: preis,
-            originalPrice: preis,
-            duration: duration,
-          ),
-        );
-      })
-          .whereType<_LeistungAuswahlItem>()
-          .toList(growable: false);
-
-      items.sort((a, b) {
-        final catCompare =
-        a.position.category.toLowerCase().compareTo(b.position.category.toLowerCase());
-        if (catCompare != 0) return catCompare;
-        return a.position.title.toLowerCase().compareTo(b.position.title.toLowerCase());
-      });
-      return items;
-    } on FirebaseException {
-      return const <_LeistungAuswahlItem>[];
-    } catch (_) {
-      return const <_LeistungAuswahlItem>[];
-    }
-  }
-
-  String _extractOfferTitle(Map<String, dynamic> data) {
-    final titel = (data['titel'] as String?)?.trim();
-    if (titel != null && titel.isNotEmpty) {
-      return titel;
-    }
-
-    if (data['leistungenSortiert'] is List) {
-      final parts = (data['leistungenSortiert'] as List)
-          .map((item) => item.toString().trim())
-          .where((item) => item.isNotEmpty)
-          .toList(growable: false);
-      if (parts.isNotEmpty) {
-        return parts.join(' + ');
-      }
-    }
-
-    if (data['leistungen'] is List) {
-      final parts = (data['leistungen'] as List)
-          .map((item) => item.toString().trim())
-          .where((item) => item.isNotEmpty)
-          .toList(growable: false);
-      if (parts.isNotEmpty) {
-        return parts.join(' + ');
-      }
-    }
-
-    return '';
-  }
-
-  String _extractOfferSubtitle(Map<String, dynamic> data) {
-    if (data['varianten'] is List) {
-      final varianten = (data['varianten'] as List)
-          .map((item) => item.toString().trim())
-          .where((item) => item.isNotEmpty)
-          .toList(growable: false);
-      if (varianten.isNotEmpty) {
-        return varianten.join(' • ');
-      }
-    }
-    return '';
-  }
-
-  double? _extractOfferPrice(Map<String, dynamic> data) {
-    final direktePreise = <double>[];
-    if (data['preis'] is num) {
-      direktePreise.add((data['preis'] as num).toDouble());
-    }
-
-    final zielgruppen = data['zielgruppen'];
-    if (zielgruppen is Map) {
-      for (final value in zielgruppen.values) {
-        if (value is Map && value['preis'] is num) {
-          direktePreise.add((value['preis'] as num).toDouble());
-        }
-      }
-    }
-
-    final positive = direktePreise.where((value) => value > 0).toList(growable: false);
-    if (positive.isEmpty) return null;
-    positive.sort();
-    return positive.first;
-  }
-
-  int? _extractOfferDuration(Map<String, dynamic> data) {
-    final direkteDauern = <int>[];
-    if (data['dauer'] is num) {
-      direkteDauern.add((data['dauer'] as num).toInt());
-    }
-
-    final zielgruppen = data['zielgruppen'];
-    if (zielgruppen is Map) {
-      for (final value in zielgruppen.values) {
-        if (value is Map && value['dauer'] is num) {
-          direkteDauern.add((value['dauer'] as num).toInt());
-        }
-      }
-    }
-
-    final positive = direkteDauern.where((value) => value > 0).toList(growable: false);
-    if (positive.isEmpty) return null;
-    positive.sort();
-    return positive.first;
   }
 
   Widget _buildSuggestionList({
