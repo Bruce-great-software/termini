@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:flutter/cupertino.dart';
 import 'login_register_page.dart';
+import '../widgets/angebote/angebote_view.dart';
 
 import 'dart:ui' show FontFeature;
 
@@ -5557,21 +5558,14 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           ),
         ),
       ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
+      body: AngeboteView(
+        angeboteStream: FirebaseFirestore.instance
             .collection('angebote')
             .where('dienstleisterId', isEqualTo: dienstleisterId)
             .snapshots(),
-        builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (!snap.hasData || snap.data!.docs.isEmpty) {
-            return const Center(child: Text('Keine Angebote vorhanden.'));
-          }
-
+        builder: (context, docs) {
           // ---- Docs in Modelle umwandeln, Singles/Bundles trennen ----
-          final all = snap.data!.docs.map((d) => Offer.fromDoc(d)).toList();
+          final all = docs.map((d) => Offer.fromDoc(d)).toList();
 
           // Singles = genau 1 Leistung
           final singles = all.where((o) => !o.isBundle && o.leistungen.length == 1).toList();
