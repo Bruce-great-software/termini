@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../widgets/angebote/angebote_view.dart';
 
 class DienstleisterKalenderPage extends StatefulWidget {
   final String dienstleisterId;
@@ -20,10 +21,12 @@ enum _KalenderViewMode { tag, woche, monat }
 class _MitarbeiterOption {
   final String id;
   final String name;
+  final int kalenderFarbeValue;
 
   const _MitarbeiterOption({
     required this.id,
     required this.name,
+    required this.kalenderFarbeValue,
   });
 }
 
@@ -65,6 +68,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   static const double _hourRowHeight = 72;
   static const double _terminHorizontalPadding = 6;
   static const double _terminColumnGap = 4;
+  static const int _defaultKalenderFarbeValue = 0xFF4285F4;
 
   static const List<String> _weekdayLabels = [
     'Mo',
@@ -95,6 +99,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
   late DateTime _referenceDate;
   _KalenderViewMode _viewMode = _KalenderViewMode.woche;
+  bool _alleMitarbeiterAnzeigen = true;
+  final Set<String> _selectedMitarbeiterIds = <String>{};
 
   @override
   void initState() {
@@ -162,9 +168,156 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         children: [
           _buildCreateButton(),
           const SizedBox(height: 12),
-          const Expanded(child: SizedBox()),
+          Expanded(
+            child: _buildMitarbeiterFilterSection(theme),
+          ),
         ],
       ),
+    );
+  }
+
+  Widget _buildMitarbeiterFilterSection(ThemeData theme) {
+    return StreamBuilder<List<_MitarbeiterOption>>(
+      stream: _watchActiveMitarbeiter(),
+      builder: (context, snapshot) {
+        final mitarbeiter = snapshot.data ?? const <_MitarbeiterOption>[];
+        final allIds = mitarbeiter.map((item) => item.id).toSet();
+        final hasError = snapshot.hasError;
+
+        return Container(
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 2),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF9FAFB),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Mitarbeiter',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: const Color(0xFF344054),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
+                value: _alleMitarbeiterAnzeigen,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: const Text(
+                  'Alle anzeigen',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF101828),
+                  ),
+                ),
+                onChanged: mitarbeiter.isEmpty
+                    ? null
+                    : (value) {
+                        if (value == null) return;
+                        setState(() {
+                          _alleMitarbeiterAnzeigen = value;
+                          if (value) {
+                            _selectedMitarbeiterIds.clear();
+                          } else if (_selectedMitarbeiterIds.isEmpty) {
+                            _selectedMitarbeiterIds
+                              ..clear()
+                              ..addAll(allIds);
+                          }
+                        });
+                      },
+              ),
+              const Divider(height: 1, color: Color(0xFFE5E7EB)),
+              const SizedBox(height: 6),
+              if (snapshot.connectionState == ConnectionState.waiting &&
+                  mitarbeiter.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Center(
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                )
+              else if (hasError)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'Mitarbeiter konnten nicht geladen werden.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFFB42318),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                )
+              else if (mitarbeiter.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'Keine aktiven Mitarbeiter',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF667085),
+                    ),
+                  ),
+                )
+              else
+                Expanded(
+                  child: ListView.builder(
+                    padding: EdgeInsets.zero,
+                    itemCount: mitarbeiter.length,
+                    itemBuilder: (context, index) {
+                      final item = mitarbeiter[index];
+                      final isChecked = _alleMitarbeiterAnzeigen
+                          ? true
+                          : _selectedMitarbeiterIds.contains(item.id);
+
+                      return CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        visualDensity:
+                            const VisualDensity(horizontal: -4, vertical: -4),
+                        dense: true,
+                        value: isChecked,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        secondary: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: Color(item.kalenderFarbeValue),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        title: Text(
+                          item.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF101828),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          _handleMitarbeiterSelectionChanged(
+                            mitarbeiter: mitarbeiter,
+                            mitarbeiterId: item.id,
+                            isSelected: value,
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -367,62 +520,78 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   Widget _buildWeekView(ThemeData theme) {
     final weekDates = _weekDates;
 
-    return StreamBuilder<List<_TerminEntry>>(
-      stream: _loadWeekTermine(),
+    return StreamBuilder<List<_MitarbeiterOption>>(
+      stream: _watchActiveMitarbeiter(),
       builder: (context, snapshot) {
-        final termine = snapshot.data ?? const <_TerminEntry>[];
-        final loadError = snapshot.hasError
-            ? 'Termine konnten nicht geladen werden.'
+        final mitarbeiter = snapshot.data ?? const <_MitarbeiterOption>[];
+        final mitarbeiterFarben = <String, int>{
+          for (final item in mitarbeiter) item.id: item.kalenderFarbeValue,
+        };
+        final mitarbeiterLoadError = snapshot.hasError
+            ? 'Mitarbeiter konnten nicht geladen werden.'
             : null;
 
-        return Column(
-          children: [
-            _buildWeekHeader(theme, weekDates),
-            const Divider(height: 1, color: Color(0xFFE4E7EC)),
-            if (loadError != null)
-              Container(
-                width: double.infinity,
-                padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                color: const Color(0xFFFFF4ED),
-                child: Text(
-                  loadError,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFFB42318),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final gridWidth = constraints.maxWidth - _timeColumnWidth;
+        return StreamBuilder<List<_TerminEntry>>(
+          stream: _loadWeekTermine(),
+          builder: (context, terminSnapshot) {
+            final termine = terminSnapshot.data ?? const <_TerminEntry>[];
+            final gefilterteTermine = _applyMitarbeiterFilter(termine);
+            final terminLoadError = terminSnapshot.hasError
+                ? 'Termine konnten nicht geladen werden.'
+                : null;
+            final loadError = mitarbeiterLoadError ?? terminLoadError;
 
-                  return Scrollbar(
-                    controller: _weekScrollController,
-                    thumbVisibility: true,
-                    child: SingleChildScrollView(
-                      controller: _weekScrollController,
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildTimeColumn(theme),
-                          SizedBox(
-                            width: gridWidth > 0 ? gridWidth : 0,
-                            child: _buildWeekGrid(
-                              termine: termine,
-                              theme: theme,
-                            ),
-                          ),
-                        ],
+            return Column(
+              children: [
+                _buildWeekHeader(theme, weekDates),
+                const Divider(height: 1, color: Color(0xFFE4E7EC)),
+                if (loadError != null)
+                  Container(
+                    width: double.infinity,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    color: const Color(0xFFFFF4ED),
+                    child: Text(
+                      loadError,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFFB42318),
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  );
-                },
-              ),
-            ),
-          ],
+                  ),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final gridWidth = constraints.maxWidth - _timeColumnWidth;
+
+                      return Scrollbar(
+                        controller: _weekScrollController,
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          controller: _weekScrollController,
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildTimeColumn(theme),
+                              SizedBox(
+                                width: gridWidth > 0 ? gridWidth : 0,
+                                child: _buildWeekGrid(
+                                  termine: gefilterteTermine,
+                                  mitarbeiterFarben: mitarbeiterFarben,
+                                  theme: theme,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -508,6 +677,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
   Widget _buildWeekGrid({
     required List<_TerminEntry> termine,
+    required Map<String, int> mitarbeiterFarben,
     required ThemeData theme,
   }) {
     final totalHeight = _hourRowHeight * 24;
@@ -558,6 +728,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 ),
                 ..._buildTerminBlocks(
                   termine: termine,
+                  mitarbeiterFarben: mitarbeiterFarben,
                   dayColumnWidth: dayColumnWidth,
                   theme: theme,
                 ),
@@ -571,6 +742,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
   List<Widget> _buildTerminBlocks({
     required List<_TerminEntry> termine,
+    required Map<String, int> mitarbeiterFarben,
     required double dayColumnWidth,
     required ThemeData theme,
   }) {
@@ -619,11 +791,26 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
               (item.columnIndex * (columnWidth + _terminColumnGap));
 
           final displayName =
-          (termin.mitarbeiterName?.trim().isNotEmpty ?? false)
+              (termin.mitarbeiterName?.trim().isNotEmpty ?? false)
               ? termin.mitarbeiterName!.trim()
               : termin.titel;
           final timeLabel = '${termin.startZeit} bis ${termin.endZeit}';
-
+          final terminColorValue = _resolveTerminFarbe(
+            termin: termin,
+            mitarbeiterFarben: mitarbeiterFarben,
+          );
+          final baseColor = Color(terminColorValue);
+          final hslBase = HSLColor.fromColor(baseColor);
+          final headerColor = hslBase
+              .withLightness((hslBase.lightness * 0.72).clamp(0.18, 0.45))
+              .toColor();
+          final bodyColor = hslBase
+              .withLightness((hslBase.lightness * 0.92).clamp(0.28, 0.62))
+              .toColor();
+          final blockBorderColor = hslBase
+              .withLightness((hslBase.lightness * 0.55).clamp(0.14, 0.35))
+              .toColor();
+          const blockTextColor = Colors.white;
 
           widgets.add(
               Positioned(
@@ -638,9 +825,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                           onTap: () => _showTerminPreviewDialog(termin),
                           child: Ink(
                               decoration: BoxDecoration(
-                                color: const Color(0xFFEAF2FF),
+                                color: bodyColor,
                                 borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: const Color(0xFFB2CCFF)),
+                                border: Border.all(color: blockBorderColor),
                                 boxShadow: const [
                                   BoxShadow(
                                     color: Color(0x12101828),
@@ -655,68 +842,87 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                                         .maxHeight;
                                     final showNothing = innerHeight < 24;
                                     final showTitleAndTime = innerHeight >= 52;
-                                    final verticalPadding = showTitleAndTime
-                                        ? 8.0
-                                        : 4.0;
 
                                     if (showNothing) {
                                       return const SizedBox.shrink();
                                     }
 
-                                    return Padding(
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: verticalPadding,
-                                      ),
-                                      child: ClipRect(
-                                        child: showTitleAndTime
-                                            ? Column(
-                                          mainAxisAlignment: MainAxisAlignment
-                                              .center,
-                                          crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              displayName,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: theme.textTheme.bodyMedium
-                                                  ?.copyWith(
-                                                color: const Color(0xFF175CD3),
-                                                fontWeight: FontWeight.w700,
-                                                height: 1.0,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              timeLabel,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: theme.textTheme.bodySmall
-                                                  ?.copyWith(
-                                                color: const Color(0xFF175CD3),
-                                                fontWeight: FontWeight.w600,
-                                                height: 1.0,
-                                              ),
-                                            ),
-                                          ],
-                                        )
-                                            : Align(
+                                    if (!showTitleAndTime) {
+                                      return Container(
+                                        width: double.infinity,
+                                        color: headerColor,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 5,
+                                        ),
+                                        alignment: Alignment.centerLeft,
+                                        child: Text(
+                                          displayName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.bodyMedium
+                                              ?.copyWith(
+                                            color: blockTextColor,
+                                            fontWeight: FontWeight.w700,
+                                            height: 1.0,
+                                          ),
+                                        ),
+                                      );
+                                    }
+
+                                    final headerHeight = (innerHeight * 0.44)
+                                        .clamp(20.0, 28.0)
+                                        .toDouble();
+
+                                    return Column(
+                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      children: [
+                                        Container(
+                                          height: headerHeight,
+                                          color: headerColor,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
                                           alignment: Alignment.centerLeft,
                                           child: Text(
                                             displayName,
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
-                                            style: theme.textTheme.bodyMedium
+                                            style: theme.textTheme.bodySmall
                                                 ?.copyWith(
-                                              color: const Color(0xFF175CD3),
+                                              color: blockTextColor,
                                               fontWeight: FontWeight.w700,
                                               height: 1.0,
                                             ),
                                           ),
                                         ),
-
-                                      ),
+                                        Container(
+                                          height: 1,
+                                          color: Colors.white.withOpacity(0.35),
+                                        ),
+                                        Expanded(
+                                          child: Container(
+                                            color: bodyColor,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 4,
+                                            ),
+                                            alignment: Alignment.centerLeft,
+                                            child: Text(
+                                              timeLabel,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                color: blockTextColor,
+                                                fontWeight: FontWeight.w600,
+                                                height: 1.0,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     );
                                   },
                 ),
@@ -953,6 +1159,15 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                             context: dialogContext,
                             title: 'Kunde',
                             children: [
+                              FutureBuilder<String?>(
+                                future: _loadKundeGeschlecht(termin.kundeId),
+                                builder: (context, snapshot) {
+                                  return _buildPreviewRow(
+                                    label: 'Anrede',
+                                    value: _anredeAusGeschlecht(snapshot.data),
+                                  );
+                                },
+                              ),
                               _buildPreviewRow(
                                 label: 'Name',
                                 value: termin.kundeName?.trim().isNotEmpty ==
@@ -1280,6 +1495,36 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     return '$asString €';
   }
 
+  String _anredeAusGeschlecht(String? geschlechtRaw) {
+    final geschlecht = geschlechtRaw?.trim().toLowerCase();
+    if (geschlecht == 'herr') return 'Herr';
+    if (geschlecht == 'frau') return 'Frau';
+    return 'Nicht hinterlegt';
+  }
+
+  String? _zielgruppeAusGeschlecht(String? geschlechtRaw) {
+    final geschlecht = geschlechtRaw?.trim().toLowerCase();
+    if (geschlecht == 'herr') return 'Herren';
+    if (geschlecht == 'frau') return 'Damen';
+    return null;
+  }
+
+  Future<String?> _loadKundeGeschlecht(String? kundeId) async {
+    final cleanedId = kundeId?.trim() ?? '';
+    if (cleanedId.isEmpty) return null;
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(cleanedId)
+          .get();
+      final data = doc.data();
+      return (data?['geschlecht'] as String?)?.trim().toLowerCase();
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _showAppointmentDialog({
     _TerminEntry? initialTermin,
   }) async {
@@ -1304,6 +1549,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     bool isDeleting = false;
     bool isLoadingMitarbeiter = true;
     bool hasMitarbeiter = false;
+    var selectedLeistungen = List<_LeistungsPosition>.from(
+      initialTermin?.leistungsPositionen ?? const <_LeistungsPosition>[],
+    );
 
     List<_KundenSuggestion> emailSuggestions = <_KundenSuggestion>[];
     List<_KundenSuggestion> phoneSuggestions = <_KundenSuggestion>[];
@@ -1320,6 +1568,28 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         ? _formatPhoneDisplay(initialTermin!.kundePhone!)
         : '';
     kundeEmailController.text = initialTermin?.kundeEmail ?? '';
+
+    int berechneGesamtDauer(List<_LeistungsPosition> items) {
+      var total = 0;
+      for (final item in items) {
+        final duration = item.duration;
+        if (duration != null && duration > 0) {
+          total += duration;
+        }
+      }
+      return total;
+    }
+
+    double berechneGesamtPreis(List<_LeistungsPosition> items) {
+      var total = 0.0;
+      for (final item in items) {
+        final price = item.price;
+        if (price != null && price > 0) {
+          total += price;
+        }
+      }
+      return total;
+    }
 
     Future<void> loadEmailSuggestions(
         String rawValue,
@@ -1573,6 +1843,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
               final startAt = _combineDateAndTime(selectedDate, fromTime);
               final endAt = _combineDateAndTime(selectedDate, toTime);
               final mitarbeiter = selectedMitarbeiter;
+              final preisGesamt = berechneGesamtPreis(selectedLeistungen);
+              final dauerGesamt = berechneGesamtDauer(selectedLeistungen);
 
               if (kundeName.isEmpty) {
                 setDialogState(() {
@@ -1637,6 +1909,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 kundeName: kundeName,
                 kundePhone: kundePhone,
                 kundeEmail: kundeEmail,
+                leistungsPositionen: selectedLeistungen,
+                preisGesamt: preisGesamt > 0 ? preisGesamt : null,
+                dauerGesamt: dauerGesamt > 0 ? dauerGesamt : null,
               )
                   : await _saveTermin(
                 titel: titel,
@@ -1648,6 +1923,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                 kundeName: kundeName,
                 kundePhone: kundePhone,
                 kundeEmail: kundeEmail,
+                leistungsPositionen: selectedLeistungen,
+                preisGesamt: preisGesamt > 0 ? preisGesamt : null,
+                dauerGesamt: dauerGesamt > 0 ? dauerGesamt : null,
               );
 
               if (!mounted) return;
@@ -1972,6 +2250,142 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                             ],
                           ],
                           const SizedBox(height: 12),
+                          InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Gebuchte Leistungen',
+                              border: OutlineInputBorder(),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: isSaving || isDeleting
+                                      ? null
+                                      : () async {
+                                          final geschlecht = await _loadKundeGeschlecht(
+                                            selectedKundeId,
+                                          );
+                                          final initialZielgruppe =
+                                              _zielgruppeAusGeschlecht(geschlecht);
+                                          final ausgewaehlt =
+                                              await _showLeistungAuswahlSheet(
+                                            context: context,
+                                            initialSelected: selectedLeistungen,
+                                            initialZielgruppe: initialZielgruppe,
+                                          );
+                                          if (ausgewaehlt == null) return;
+
+                                          setDialogState(() {
+                                            selectedLeistungen = ausgewaehlt;
+                                            validationMessage = null;
+                                          });
+                                        },
+                                  icon: const Icon(Icons.add),
+                                  label: const Text('+ Leistung auswählen'),
+                                ),
+                                if (selectedLeistungen.isNotEmpty) ...[
+                                  const SizedBox(height: 10),
+                                  ...selectedLeistungen.asMap().entries.map((entry) {
+                                    final index = entry.key;
+                                    final item = entry.value;
+                                    final subtitleParts = <String>[
+                                      if (item.subtitle.trim().isNotEmpty)
+                                        item.subtitle.trim(),
+                                      if (item.duration != null && item.duration! > 0)
+                                        '${item.duration} Min',
+                                      if (item.price != null && item.price! > 0)
+                                        _formatEuro(item.price!),
+                                    ];
+
+                                    return Padding(
+                                      padding: EdgeInsets.only(
+                                        bottom: index == selectedLeistungen.length - 1 ? 0 : 8,
+                                      ),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  item.category.trim().isNotEmpty
+                                                      ? item.category.trim()
+                                                      : 'Leistungen',
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .labelSmall
+                                                      ?.copyWith(
+                                                        color: const Color(0xFF667085),
+                                                        fontWeight: FontWeight.w700,
+                                                      ),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  item.title,
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .bodyMedium
+                                                      ?.copyWith(
+                                                        color: const Color(0xFF101828),
+                                                        fontWeight: FontWeight.w600,
+                                                      ),
+                                                ),
+                                                if (subtitleParts.isNotEmpty) ...[
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    subtitleParts.join(' • '),
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          color: const Color(0xFF667085),
+                                                        ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Leistung entfernen',
+                                            onPressed: isSaving || isDeleting
+                                                ? null
+                                                : () {
+                                                    setDialogState(() {
+                                                      selectedLeistungen.removeAt(index);
+                                                    });
+                                                  },
+                                            icon: const Icon(
+                                              Icons.close,
+                                              size: 18,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }),
+                                  const Divider(height: 18),
+                                  Text(
+                                    'Gesamtdauer: ${berechneGesamtDauer(selectedLeistungen)} Min',
+                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF344054),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Gesamtpreis: ${_formatEuro(berechneGesamtPreis(selectedLeistungen))}',
+                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF344054),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
                           Row(
                             children: [
                               Expanded(
@@ -2053,6 +2467,105 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     kundeNameController.dispose();
     kundePhoneController.dispose();
     kundeEmailController.dispose();
+  }
+
+  Future<List<_LeistungsPosition>?> _showLeistungAuswahlSheet({
+    required BuildContext context,
+    required List<_LeistungsPosition> initialSelected,
+    String? initialZielgruppe,
+  }) async {
+    var selectedItems = initialSelected
+        .map(
+          (item) => AngebotSelectionItem(
+            category: item.category,
+            title: item.title,
+            subtitle: item.subtitle,
+            price: item.price,
+            originalPrice: item.originalPrice,
+            duration: item.duration,
+          ),
+        )
+        .toList(growable: false);
+
+    return showModalBottomSheet<List<_LeistungsPosition>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+                ),
+                child: SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.8,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Leistungen auswählen',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: AngeboteView.selection(
+                          dienstleisterId: widget.dienstleisterId,
+                          initialSelection: selectedItems,
+                          initialZielgruppe: initialZielgruppe ?? 'Damen',
+                          onSelectionChanged: (items) {
+                            setSheetState(() {
+                              selectedItems = items;
+                            });
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.of(sheetContext).pop(),
+                              child: const Text('Abbrechen'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () {
+                                final selected = selectedItems
+                                    .map(
+                                      (item) => _LeistungsPosition(
+                                        category: item.category,
+                                        title: item.title,
+                                        subtitle: item.subtitle,
+                                        price: item.price,
+                                        originalPrice: item.originalPrice,
+                                        duration: item.duration,
+                                      ),
+                                    )
+                                    .toList(growable: false);
+                                Navigator.of(sheetContext).pop(selected);
+                              },
+                              child: const Text('Übernehmen'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Widget _buildSuggestionList({
@@ -2323,6 +2836,144 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     );
   }
 
+  int _resolveKalenderFarbeValue(dynamic rawValue) {
+    if (rawValue is int) {
+      return rawValue;
+    }
+
+    if (rawValue is String) {
+      final parsed = int.tryParse(rawValue.trim());
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+
+    return _defaultKalenderFarbeValue;
+  }
+
+  Stream<List<_MitarbeiterOption>> _watchActiveMitarbeiter() {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final dienstleisterId = currentUser?.uid.trim().isNotEmpty == true
+        ? currentUser!.uid.trim()
+        : widget.dienstleisterId.trim();
+
+    if (dienstleisterId.isEmpty) {
+      return Stream<List<_MitarbeiterOption>>.value(const <_MitarbeiterOption>[]);
+    }
+
+    return FirebaseFirestore.instance
+        .collection('users')
+        .where('rolle', isEqualTo: 'mitarbeiter')
+        .where('dienstleisterId', isEqualTo: dienstleisterId)
+        .where('aktiv', isEqualTo: true)
+        .snapshots()
+        .map((snapshot) {
+      final mitarbeiter = snapshot.docs
+          .map((doc) {
+            final data = doc.data();
+            final name = (data['name'] as String?)?.trim();
+            if (name == null || name.isEmpty) {
+              return null;
+            }
+
+            return _MitarbeiterOption(
+              id: doc.id,
+              name: name,
+              kalenderFarbeValue: _resolveKalenderFarbeValue(data['kalenderFarbe']),
+            );
+          })
+          .whereType<_MitarbeiterOption>()
+          .toList(growable: false);
+
+      mitarbeiter.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+
+      final activeIds = mitarbeiter.map((item) => item.id).toSet();
+      if (!_alleMitarbeiterAnzeigen) {
+        final idsToRemove = _selectedMitarbeiterIds
+            .where((id) => !activeIds.contains(id))
+            .toList(growable: false);
+
+        if (idsToRemove.isNotEmpty && mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() {
+              _selectedMitarbeiterIds.removeAll(idsToRemove);
+            });
+          });
+        }
+      }
+
+      return mitarbeiter;
+    });
+  }
+
+  void _handleMitarbeiterSelectionChanged({
+    required List<_MitarbeiterOption> mitarbeiter,
+    required String mitarbeiterId,
+    required bool isSelected,
+  }) {
+    final allIds = mitarbeiter.map((item) => item.id).toSet();
+
+    setState(() {
+      if (_alleMitarbeiterAnzeigen) {
+        if (!isSelected) {
+          _alleMitarbeiterAnzeigen = false;
+          _selectedMitarbeiterIds
+            ..clear()
+            ..addAll(allIds)
+            ..remove(mitarbeiterId);
+        }
+        return;
+      }
+
+      if (isSelected) {
+        _selectedMitarbeiterIds.add(mitarbeiterId);
+      } else {
+        _selectedMitarbeiterIds.remove(mitarbeiterId);
+      }
+
+      if (_selectedMitarbeiterIds.length >= allIds.length && allIds.isNotEmpty) {
+        _alleMitarbeiterAnzeigen = true;
+        _selectedMitarbeiterIds.clear();
+      }
+    });
+  }
+
+  List<_TerminEntry> _applyMitarbeiterFilter(List<_TerminEntry> termine) {
+    if (_alleMitarbeiterAnzeigen) {
+      return termine;
+    }
+
+    if (_selectedMitarbeiterIds.isEmpty) {
+      return const <_TerminEntry>[];
+    }
+
+    return termine.where((termin) {
+      final mitarbeiterId = termin.mitarbeiterId?.trim();
+      if (mitarbeiterId == null || mitarbeiterId.isEmpty) {
+        return false;
+      }
+      return _selectedMitarbeiterIds.contains(mitarbeiterId);
+    }).toList(growable: false);
+  }
+
+  int _resolveTerminFarbe({
+    required _TerminEntry termin,
+    required Map<String, int> mitarbeiterFarben,
+  }) {
+    final mitarbeiterId = termin.mitarbeiterId?.trim();
+    if (mitarbeiterId != null && mitarbeiterId.isNotEmpty) {
+      final mitarbeiterFarbe = mitarbeiterFarben[mitarbeiterId];
+      if (mitarbeiterFarbe != null) {
+        return mitarbeiterFarbe;
+      }
+    }
+
+    return _defaultKalenderFarbeValue;
+  }
+
   Future<List<_MitarbeiterOption>> _loadActiveMitarbeiter() async {
     final currentUser = FirebaseAuth.instance.currentUser;
     final dienstleisterId = currentUser?.uid.trim().isNotEmpty == true
@@ -2349,7 +3000,11 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
           return null;
         }
 
-        return _MitarbeiterOption(id: doc.id, name: name);
+        return _MitarbeiterOption(
+          id: doc.id,
+          name: name,
+          kalenderFarbeValue: _resolveKalenderFarbeValue(data['kalenderFarbe']),
+        );
       })
           .whereType<_MitarbeiterOption>()
           .toList(growable: false);
@@ -2394,6 +3049,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       name: mitarbeiterName != null && mitarbeiterName.isNotEmpty
           ? mitarbeiterName
           : 'Unbekannter Mitarbeiter',
+      kalenderFarbeValue: _defaultKalenderFarbeValue,
     );
   }
 
@@ -2453,6 +3109,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     required String kundeName,
     required String kundePhone,
     required String kundeEmail,
+    required List<_LeistungsPosition> leistungsPositionen,
+    required double? preisGesamt,
+    required int? dauerGesamt,
   }) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -2468,6 +3127,20 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       final startAt = _combineDateAndTime(datum, fromTime);
       final endAt = _combineDateAndTime(datum, toTime);
       final now = Timestamp.now();
+      final leistungen = leistungsPositionen
+          .map((item) => item.title.trim())
+          .where((title) => title.isNotEmpty)
+          .toList(growable: false);
+      final leistungenPayload = leistungsPositionen
+          .map((item) => <String, dynamic>{
+                'category': item.category,
+                'title': item.title,
+                'subtitle': item.subtitle,
+                'price': item.price,
+                'originalPrice': item.originalPrice,
+                'duration': item.duration,
+              })
+          .toList(growable: false);
 
       await FirebaseFirestore.instance.collection('termine').add({
         'dienstleisterId': dienstleisterId,
@@ -2483,6 +3156,10 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         'endZeit': _formatTime(toTime),
         'startAt': Timestamp.fromDate(startAt),
         'endAt': Timestamp.fromDate(endAt),
+        'leistungen': leistungen,
+        'leistungsPositionen': leistungenPayload,
+        'preisGesamt': preisGesamt,
+        'dauerGesamt': dauerGesamt,
         'status': 'bestaetigt',
         'quelle': 'dienstleister',
         'createdAt': now,
@@ -2508,6 +3185,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
     required String kundeName,
     required String kundePhone,
     required String kundeEmail,
+    required List<_LeistungsPosition> leistungsPositionen,
+    required double? preisGesamt,
+    required int? dauerGesamt,
   }) async {
     try {
       final cleanedTerminId = terminId.trim();
@@ -2517,6 +3197,20 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
       final startAt = _combineDateAndTime(datum, fromTime);
       final endAt = _combineDateAndTime(datum, toTime);
+      final leistungen = leistungsPositionen
+          .map((item) => item.title.trim())
+          .where((title) => title.isNotEmpty)
+          .toList(growable: false);
+      final leistungenPayload = leistungsPositionen
+          .map((item) => <String, dynamic>{
+                'category': item.category,
+                'title': item.title,
+                'subtitle': item.subtitle,
+                'price': item.price,
+                'originalPrice': item.originalPrice,
+                'duration': item.duration,
+              })
+          .toList(growable: false);
 
       await FirebaseFirestore.instance
           .collection('termine')
@@ -2534,6 +3228,10 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         'endZeit': _formatTime(toTime),
         'startAt': Timestamp.fromDate(startAt),
         'endAt': Timestamp.fromDate(endAt),
+        'leistungen': leistungen,
+        'leistungsPositionen': leistungenPayload,
+        'preisGesamt': preisGesamt,
+        'dauerGesamt': dauerGesamt,
         'updatedAt': Timestamp.now(),
       });
 
