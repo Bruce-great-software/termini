@@ -996,6 +996,7 @@ class DienstleisterDetailPage extends StatefulWidget {
 
 class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String _zielgruppe = 'Damen';
+  bool _isFavoriteUpdating = false;
 
   /// Auswahl als ValueNotifier -> verhindert kompletten Rebuild der Liste
   final ValueNotifier<Map<String, _CartItem>> _selectedVN =
@@ -1049,6 +1050,148 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     _bookingLoginEmailController.dispose();
     _bookingLoginPasswordController.dispose();
     super.dispose();
+  }
+
+  String get _dienstleisterId {
+    final dynamic explicitId = widget.dienstleister['dienstleisterId'];
+    if (explicitId is String && explicitId.trim().isNotEmpty) {
+      return explicitId.trim();
+    }
+
+    final dynamic fallbackId = widget.dienstleister['id'];
+    if (fallbackId is String && fallbackId.trim().isNotEmpty) {
+      return fallbackId.trim();
+    }
+
+    return '';
+  }
+
+  Future<void> _toggleFavorite({
+    required String userId,
+    required bool isCurrentlyFavorite,
+  }) async {
+    if (_isFavoriteUpdating || _dienstleisterId.isEmpty) return;
+
+    setState(() => _isFavoriteUpdating = true);
+    try {
+      final userRef = FirebaseFirestore.instance.collection('users').doc(userId);
+      await userRef.set(
+        {
+          'favoriten': isCurrentlyFavorite
+              ? FieldValue.arrayRemove([_dienstleisterId])
+              : FieldValue.arrayUnion([_dienstleisterId]),
+        },
+        SetOptions(merge: true),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Favorit konnte nicht aktualisiert werden.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isFavoriteUpdating = false);
+    }
+  }
+
+  Widget _buildDetailHeader() {
+    final String name =
+        ((widget.dienstleister['name'] as String?)?.trim().isNotEmpty ?? false)
+            ? (widget.dienstleister['name'] as String).trim()
+            : 'Dienstleister';
+    final String logoUrl =
+        ((widget.dienstleister['logoUrl'] as String?)?.trim().isNotEmpty ?? false)
+            ? (widget.dienstleister['logoUrl'] as String).trim()
+            : '';
+
+    final User? user = FirebaseAuth.instance.currentUser;
+
+    return Container(
+      color: Colors.white,
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            height: 88,
+            width: 88,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: logoUrl.isNotEmpty
+                  ? Image.network(
+                      logoUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: const Color(0xFFF3F4F6),
+                          alignment: Alignment.center,
+                          child: const Icon(Icons.storefront, color: Colors.black54, size: 34),
+                        );
+                      },
+                    )
+                  : Container(
+                      color: const Color(0xFFF3F4F6),
+                      alignment: Alignment.center,
+                      child: const Icon(Icons.storefront, color: Colors.black54, size: 34),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (user == null)
+                const Icon(Icons.favorite_border, color: Colors.black45)
+              else if (_dienstleisterId.isEmpty)
+                const Icon(Icons.favorite_border, color: Colors.black45)
+              else
+                StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(user.uid)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    final List<dynamic> favRaw =
+                        (snapshot.data?.data()?['favoriten'] as List<dynamic>?) ?? const [];
+                    final bool isFavorite = favRaw
+                        .map((e) => e.toString())
+                        .contains(_dienstleisterId);
+
+                    return IconButton(
+                      tooltip: 'Favorit umschalten',
+                      onPressed: _isFavoriteUpdating
+                          ? null
+                          : () => _toggleFavorite(
+                                userId: user.uid,
+                                isCurrentlyFavorite: isFavorite,
+                              ),
+                      icon: Icon(
+                        isFavorite ? Icons.favorite : Icons.favorite_border,
+                        color: isFavorite ? Colors.redAccent : Colors.black54,
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+        ],
+      ),
+    );
   }
 
   String? _mapGeschlechtZuZielgruppe(String? geschlechtRaw) {
@@ -5523,7 +5666,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final String dienstleisterId = widget.dienstleister['id'] as String;
+    final String dienstleisterId = _dienstleisterId;
 
     return Scaffold(
       appBar: AppBar(
@@ -5558,12 +5701,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           ),
         ),
       ),
-      body: AngeboteView(
-        angeboteStream: FirebaseFirestore.instance
-            .collection('angebote')
-            .where('dienstleisterId', isEqualTo: dienstleisterId)
-            .snapshots(),
-        builder: (context, docs) {
+      body: Column(
+        children: [
+          _buildDetailHeader(),
+          Expanded(
+            child: AngeboteView(
+              angeboteStream: FirebaseFirestore.instance
+                  .collection('angebote')
+                  .where('dienstleisterId', isEqualTo: dienstleisterId)
+                  .snapshots(),
+              builder: (context, docs) {
           // ---- Docs in Modelle umwandeln, Singles/Bundles trennen ----
           final all = docs.map((d) => Offer.fromDoc(d)).toList();
 
@@ -7176,7 +7323,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               ),
             ],
           );
-        },
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
