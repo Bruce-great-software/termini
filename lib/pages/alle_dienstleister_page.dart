@@ -11,6 +11,7 @@ import 'package:geocoding/geocoding.dart';
 import '../services/location_service.dart';
 import '../widgets/dienstleister_tile.dart';
 import 'dienstleister_detail_page.dart';
+import 'kunden_termine_page.dart';
 import 'login_register_page.dart';
 import 'kunden_profil_page.dart';
 
@@ -20,7 +21,9 @@ import 'package:flutter/cupertino.dart';
 enum SortOrder { none, priceAsc, priceDesc, distanceAsc }
 
 class AlleDienstleisterPage extends StatefulWidget {
-  const AlleDienstleisterPage({super.key});
+  final int initialTabIndex;
+
+  const AlleDienstleisterPage({super.key, this.initialTabIndex = 0});
 
   @override
   State<AlleDienstleisterPage> createState() => _AlleDienstleisterPageState();
@@ -612,6 +615,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   @override
   void initState() {
     super.initState();
+    _selectedIndex = widget.initialTabIndex.clamp(0, 3);
     WidgetsBinding.instance.addObserver(this);
     _initLocation();
   }
@@ -816,7 +820,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: const StadiumBorder(),
-                          backgroundColor: Colors.blueAccent,
+                          backgroundColor: Colors.white,
                           foregroundColor: Colors.white,
                         ),
                         child: Text(
@@ -1031,7 +1035,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                           if (mounted) Navigator.of(ctx).pop();
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent,
+                          backgroundColor: Colors.white,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: const StadiumBorder(),
@@ -1549,6 +1553,13 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           dienstleister: geoeffneterDienstleister!,
           selektierteZielgruppe: 'alle',
           selektierteKategorie: 'alle',
+          onNavigateToTermine: () {
+            if (!mounted) return;
+            setState(() {
+              geoeffneterDienstleister = null;
+              _selectedIndex = 2;
+            });
+          },
         )
             : Column(
           children: [
@@ -1568,7 +1579,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       case 1:
         return const Center(child: Text('Favoriten kommen bald!'));
       case 2:
-        return const Center(child: Text('Buchungen kommen bald!'));
+        return const KundenTerminePage();
       case 3:
         final user = FirebaseAuth.instance.currentUser;
         return user == null ? const LoginRegisterPage() : const KundenProfilPage();
@@ -1857,7 +1868,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         _filterBadgeCount > 99 ? '99+' : '$_filterBadgeCount',
                         textAlign: TextAlign.center,
                         style: const TextStyle(
-                          color: Colors.white,
+                          color: Colors.black,
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                         ),
@@ -1948,7 +1959,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           future: Future.wait(docs.map((doc) async {
             final data = doc.data() as Map<String, dynamic>;
             data['id'] = doc.id;
-            data['logoUrl'] = (data['logoUrl'] ?? '').toString();
 
             if (data['geo'] != null) {
               final geo = data['geo'] as GeoPoint;
@@ -2098,19 +2108,19 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.blueAccent,
+        backgroundColor: Colors.white,
         centerTitle: true,
         title: Text(
           currentCity != null ? currentCity! : 'Ort wird geladen...',
           style: const TextStyle(
-            color: Colors.white,
+            color: Colors.black,
             fontWeight: FontWeight.bold,
             fontSize: 20,
           ),
         ),
         leading: geoeffneterDienstleister != null
             ? IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
           onPressed: () {
             setState(() {
               geoeffneterDienstleister = null;
