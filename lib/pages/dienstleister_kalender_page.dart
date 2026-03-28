@@ -800,9 +800,17 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
             mitarbeiterFarben: mitarbeiterFarben,
           );
           final baseColor = Color(terminColorValue);
-          final blockFillColor = baseColor.withOpacity(0.16);
-          final blockBorderColor = baseColor.withOpacity(0.58);
-          final blockTextColor = baseColor.withOpacity(0.95);
+          final hslBase = HSLColor.fromColor(baseColor);
+          final headerColor = hslBase
+              .withLightness((hslBase.lightness * 0.72).clamp(0.18, 0.45))
+              .toColor();
+          final bodyColor = hslBase
+              .withLightness((hslBase.lightness * 0.92).clamp(0.28, 0.62))
+              .toColor();
+          final blockBorderColor = hslBase
+              .withLightness((hslBase.lightness * 0.55).clamp(0.14, 0.35))
+              .toColor();
+          const blockTextColor = Colors.white;
 
           widgets.add(
               Positioned(
@@ -817,7 +825,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                           onTap: () => _showTerminPreviewDialog(termin),
                           child: Ink(
                               decoration: BoxDecoration(
-                                color: blockFillColor,
+                                color: bodyColor,
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(color: blockBorderColor),
                                 boxShadow: const [
@@ -834,40 +842,74 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                                         .maxHeight;
                                     final showNothing = innerHeight < 24;
                                     final showTitleAndTime = innerHeight >= 52;
-                                    final verticalPadding = showTitleAndTime
-                                        ? 8.0
-                                        : 4.0;
 
                                     if (showNothing) {
                                       return const SizedBox.shrink();
                                     }
 
-                                    return Padding(
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: verticalPadding,
-                                      ),
-                                      child: ClipRect(
-                                        child: showTitleAndTime
-                                            ? Column(
-                                          mainAxisAlignment: MainAxisAlignment
-                                              .center,
-                                          crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              displayName,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: theme.textTheme.bodyMedium
-                                                  ?.copyWith(
-                                                color: blockTextColor,
-                                                fontWeight: FontWeight.w700,
-                                                height: 1.0,
-                                              ),
+                                    if (!showTitleAndTime) {
+                                      return Container(
+                                        width: double.infinity,
+                                        color: headerColor,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 5,
+                                        ),
+                                        alignment: Alignment.centerLeft,
+                                        child: Text(
+                                          displayName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.bodyMedium
+                                              ?.copyWith(
+                                            color: blockTextColor,
+                                            fontWeight: FontWeight.w700,
+                                            height: 1.0,
+                                          ),
+                                        ),
+                                      );
+                                    }
+
+                                    final headerHeight = (innerHeight * 0.44)
+                                        .clamp(20.0, 28.0)
+                                        .toDouble();
+
+                                    return Column(
+                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      children: [
+                                        Container(
+                                          height: headerHeight,
+                                          color: headerColor,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            displayName,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                              color: blockTextColor,
+                                              fontWeight: FontWeight.w700,
+                                              height: 1.0,
                                             ),
-                                            const SizedBox(height: 2),
-                                            Text(
+                                          ),
+                                        ),
+                                        Container(
+                                          height: 1,
+                                          color: Colors.white.withOpacity(0.35),
+                                        ),
+                                        Expanded(
+                                          child: Container(
+                                            color: bodyColor,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 4,
+                                            ),
+                                            alignment: Alignment.centerLeft,
+                                            child: Text(
                                               timeLabel,
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
@@ -878,24 +920,9 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                                                 height: 1.0,
                                               ),
                                             ),
-                                          ],
-                                        )
-                                            : Align(
-                                          alignment: Alignment.centerLeft,
-                                          child: Text(
-                                            displayName,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: theme.textTheme.bodyMedium
-                                                ?.copyWith(
-                                              color: blockTextColor,
-                                              fontWeight: FontWeight.w700,
-                                              height: 1.0,
-                                            ),
                                           ),
                                         ),
-
-                                      ),
+                                      ],
                                     );
                                   },
                 ),
