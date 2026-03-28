@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'dart:ui' show FontFeature;
 
@@ -605,6 +606,182 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   /// Auswahlreihenfolge hochzählen
   int _selectionTicker = 0;
+
+  String _resolveLogoUrl(Map<String, dynamic> data) {
+    final logoUrl = (data['logoUrl'] as String?)?.trim();
+    if (logoUrl != null && logoUrl.isNotEmpty) return logoUrl;
+
+    final profileImageUrl = (data['profileImageUrl'] as String?)?.trim();
+    if (profileImageUrl != null && profileImageUrl.isNotEmpty) {
+      return profileImageUrl;
+    }
+
+    final imageUrl = (data['imageUrl'] as String?)?.trim();
+    if (imageUrl != null && imageUrl.isNotEmpty) return imageUrl;
+
+    return '';
+  }
+
+  String _resolveAddressLine(Map<String, dynamic> data) {
+    final adresse = (data['adresse'] as String?)?.trim() ?? '';
+    final plz = (data['plz'] as String?)?.trim() ?? '';
+    final ort = (data['ort'] as String?)?.trim() ?? '';
+    final city = [plz, ort].where((v) => v.isNotEmpty).join(' ');
+    return [adresse, city].where((v) => v.isNotEmpty).join(', ');
+  }
+
+  Future<void> _toggleFavorite({
+    required bool isFavorite,
+    required String dienstleisterId,
+  }) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bitte melde dich an, um Favoriten zu speichern.')),
+      );
+      return;
+    }
+
+    final data = widget.dienstleister;
+    final name = (data['name'] as String?)?.trim() ?? '';
+    final adresse = (data['adresse'] as String?)?.trim() ?? '';
+    final plz = (data['plz'] as String?)?.trim() ?? '';
+    final ort = (data['ort'] as String?)?.trim() ?? '';
+    final logoUrl = _resolveLogoUrl(data);
+
+    final favoriteRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(currentUser.uid)
+        .collection('favoriten')
+        .doc(dienstleisterId);
+
+    try {
+      if (isFavorite) {
+        await favoriteRef.delete();
+      } else {
+        await favoriteRef.set({
+          'dienstleisterId': dienstleisterId,
+          'name': name,
+          'adresse': adresse,
+          'plz': plz,
+          'ort': ort,
+          'logoUrl': logoUrl,
+          'createdAt': Timestamp.now(),
+        });
+      }
+
+      if (logoUrl.isNotEmpty &&
+          ((data['logoUrl'] as String?)?.trim().isEmpty ?? true)) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(dienstleisterId)
+            .set({'logoUrl': logoUrl}, SetOptions(merge: true));
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Favorit konnte nicht aktualisiert werden.')),
+      );
+    }
+  }
+
+  Widget _buildDienstleisterHeader({
+    required String dienstleisterId,
+    required String logoUrl,
+    required String name,
+    required String addressLine,
+  }) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    Widget heartButton(bool isFavorite) {
+      return IconButton(
+        tooltip: isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen',
+        onPressed: () => _toggleFavorite(
+          isFavorite: isFavorite,
+          dienstleisterId: dienstleisterId,
+        ),
+        icon: Icon(
+          isFavorite ? Icons.favorite : Icons.favorite_border,
+          color: isFavorite ? Colors.redAccent : Colors.black54,
+          size: 28,
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: logoUrl.isNotEmpty
+                  ? Image.network(
+                      logoUrl,
+                      width: 96,
+                      height: 96,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        width: 96,
+                        height: 96,
+                        color: Colors.grey.shade200,
+                        child: const Icon(Icons.store, size: 42, color: Colors.grey),
+                      ),
+                    )
+                  : Container(
+                      width: 96,
+                      height: 96,
+                      color: Colors.grey.shade200,
+                      child: const Icon(Icons.store, size: 42, color: Colors.grey),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                ),
+              ),
+              if (currentUser == null)
+                heartButton(false)
+              else
+                StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(currentUser.uid)
+                      .collection('favoriten')
+                      .doc(dienstleisterId)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    final isFavorite = snapshot.data?.exists == true;
+                    return heartButton(isFavorite);
+                  },
+                ),
+            ],
+          ),
+          if (addressLine.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                addressLine,
+                style: const TextStyle(color: Colors.black54),
+              ),
+            ),
+          const SizedBox(height: 4),
+        ],
+      ),
+    );
+  }
 
   Map<String, Widget> _zielgruppenSegments() {
     TextStyle label(String value) => TextStyle(
@@ -1211,26 +1388,24 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           pressedColor: Colors.white.withAlpha(38),
           padding: EdgeInsets.zero,
         ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(40),
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 8.0),
-            child: Text(
-              (widget.dienstleister['name'] as String?) ?? 'Profil',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ),
       ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection('angebote')
-            .where('dienstleisterId', isEqualTo: dienstleisterId)
-            .snapshots(),
-        builder: (context, snap) {
+      body: Column(
+        children: [
+          _buildDienstleisterHeader(
+            dienstleisterId: dienstleisterId,
+            logoUrl: _resolveLogoUrl(widget.dienstleister),
+            name: ((widget.dienstleister['name'] as String?)?.trim().isNotEmpty ?? false)
+                ? (widget.dienstleister['name'] as String).trim()
+                : 'Profil',
+            addressLine: _resolveAddressLine(widget.dienstleister),
+          ),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('angebote')
+                  .where('dienstleisterId', isEqualTo: dienstleisterId)
+                  .snapshots(),
+              builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -1996,7 +2171,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               ),
             ],
           );
-        },
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
