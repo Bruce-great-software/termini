@@ -1,10 +1,16 @@
-import 'package:flutter/material.dart';
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+
+import '../widgets/leistung_erstellen_dialog.dart';
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_angebote_page.dart';
 import 'dienstleister_edit_page.dart';
-import '../widgets/leistung_erstellen_dialog.dart';
 
 class DienstleisterMainPage extends StatefulWidget {
   final String branche;
@@ -23,6 +29,7 @@ class DienstleisterMainPage extends StatefulWidget {
 class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   int _selectedIndex = 0;
   String? dienstleisterName;
+  bool _isUploadingLogo = false;
 
   @override
   void initState() {
@@ -35,10 +42,8 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
+      final snapshot =
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
 
       final data = snapshot.data();
       final name = data?['name'];
@@ -55,6 +60,55 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     }
   }
 
+  Future<void> _pickAndUploadLogo() async {
+    if (_isUploadingLogo) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      setState(() => _isUploadingLogo = true);
+
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 85,
+      );
+
+      if (pickedFile == null) {
+        setState(() => _isUploadingLogo = false);
+        return;
+      }
+
+      final fileName = '${user.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final storageRef =
+          FirebaseStorage.instance.ref().child('profile_images').child(fileName);
+
+      if (kIsWeb) {
+        final bytes = await pickedFile.readAsBytes();
+        await storageRef.putData(bytes);
+      } else {
+        await storageRef.putFile(File(pickedFile.path));
+      }
+
+      final downloadUrl = await storageRef.getDownloadURL();
+
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+        'logoUrl': downloadUrl,
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler beim Hochladen des Logos: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingLogo = false);
+      }
+    }
+  }
+
   void _onTabTapped(int index) {
     setState(() => _selectedIndex = index);
   }
@@ -65,7 +119,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const AlleDienstleisterPage()),
-            (route) => false,
+        (route) => false,
       );
     }
   }
@@ -94,28 +148,27 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       appBar: AppBar(
         title: Text(
           _selectedIndex == 0
-              ? "Hallo, ${dienstleisterName ?? '...'}"
+              ? 'Hallo, ${dienstleisterName ?? '...'}'
               : _selectedIndex == 1
-              ? 'Kalender'
-              : _selectedIndex == 2
-              ? 'Leistungen'
-              : 'Profil',
+                  ? 'Kalender'
+                  : _selectedIndex == 2
+                      ? 'Leistungen'
+                      : 'Profil',
         ),
       ),
       body: pages[_selectedIndex],
       floatingActionButton: _selectedIndex == 2
           ? FloatingActionButton.extended(
-        onPressed: () {
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (_) => const LeistungErstellenDialog(),
-
-          );
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('Leistungen erstellen'),
-      )
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (_) => const LeistungErstellenDialog(),
+                );
+              },
+              icon: const Icon(Icons.add),
+              label: const Text('Leistungen erstellen'),
+            )
           : null,
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
@@ -136,7 +189,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   Widget _buildHomePage() {
     return Center(
       child: Text(
-        "Willkommen zurück, ${dienstleisterName ?? 'Dienstleister'}!",
+        'Willkommen zurück, ${dienstleisterName ?? 'Dienstleister'}!',
         style: const TextStyle(fontSize: 20),
       ),
     );
@@ -210,28 +263,80 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   Widget _buildProfilPage() {
     final user = FirebaseAuth.instance.currentUser;
 
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          ElevatedButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => DienstleisterEditPageEditPage(userId: user?.uid ?? ''),
+    if (user == null) {
+      return const Center(child: Text('Nicht eingeloggt.'));
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots(),
+      builder: (context, snapshot) {
+        final logoUrl = snapshot.data?.data()?['logoUrl']?.toString() ?? '';
+
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              InkWell(
+                onTap: _pickAndUploadLogo,
+                borderRadius: BorderRadius.circular(44),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      width: 88,
+                      height: 88,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.blueAccent, width: 2),
+                      ),
+                      child: ClipOval(
+                        child: logoUrl.isNotEmpty
+                            ? Image.network(
+                                logoUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    const Icon(Icons.store, size: 40),
+                              )
+                            : const Icon(Icons.store, size: 40),
+                      ),
+                    ),
+                    if (_isUploadingLogo)
+                      Container(
+                        width: 88,
+                        height: 88,
+                        decoration: const BoxDecoration(
+                          color: Color(0x88000000),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Padding(
+                          padding: EdgeInsets.all(28),
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                  ],
                 ),
-              );
-            },
-            child: const Text('Persönliche Daten bearbeiten'),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => DienstleisterEditPageEditPage(userId: user.uid),
+                    ),
+                  );
+                },
+                child: const Text('Persönliche Daten bearbeiten'),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: _logout,
+                child: const Text('Abmelden'),
+              ),
+            ],
           ),
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: _logout,
-            child: const Text('Abmelden'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

@@ -1948,6 +1948,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           future: Future.wait(docs.map((doc) async {
             final data = doc.data() as Map<String, dynamic>;
             data['id'] = doc.id;
+            data['logoUrl'] = (data['logoUrl'] ?? '').toString();
 
             if (data['geo'] != null) {
               final geo = data['geo'] as GeoPoint;
