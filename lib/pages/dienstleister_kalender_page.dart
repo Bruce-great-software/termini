@@ -800,9 +800,18 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
             mitarbeiterFarben: mitarbeiterFarben,
           );
           final baseColor = Color(terminColorValue);
-          final blockFillColor = baseColor.withOpacity(0.16);
-          final blockBorderColor = baseColor.withOpacity(0.58);
-          final blockTextColor = baseColor.withOpacity(0.95);
+
+// Hintergrund (kräftig, aber nicht komplett 100%)
+          final blockFillColor = baseColor.withOpacity(0.85);
+
+// 🔥 Rahmen deutlich dunkler machen
+          final hsl = HSLColor.fromColor(baseColor);
+          final blockBorderColor = hsl
+              .withLightness((hsl.lightness - 0.4).clamp(0.0, 1.0))
+              .toColor();
+
+// Text weiß
+          final blockTextColor = Colors.white;
 
           widgets.add(
             Positioned(
@@ -819,7 +828,11 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                     decoration: BoxDecoration(
                       color: blockFillColor,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: blockBorderColor),
+                      border: Border.all(
+                        color: blockBorderColor,
+                        width: 1.4,
+                        strokeAlign: BorderSide.strokeAlignOutside,
+                      ),
                       boxShadow: const [
                         BoxShadow(
                           color: Color(0x12101828),
@@ -830,71 +843,81 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                     ),
                     child: LayoutBuilder(
                       builder: (context, blockConstraints) {
-                        final innerHeight = blockConstraints
-                            .maxHeight;
-                        final showNothing = innerHeight < 24;
-                        final showTitleAndTime = innerHeight >= 52;
-                        final verticalPadding = showTitleAndTime
-                            ? 8.0
-                            : 4.0;
+                        final innerHeight = blockConstraints.maxHeight;
+                        final showNothing = innerHeight < 22;
+                        final showHeaderAndBody = innerHeight >= 44;
 
                         if (showNothing) {
                           return const SizedBox.shrink();
                         }
 
-                        return Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: verticalPadding,
-                          ),
-                          child: ClipRect(
-                            child: showTitleAndTime
-                                ? Column(
-                              mainAxisAlignment: MainAxisAlignment
-                                  .center,
-                              crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                              children: [
-                                Text(
+                        final headerColor = hsl
+                            .withLightness((hsl.lightness - 0.14).clamp(0.0, 1.0))
+                            .toColor();
+
+                        final bodyColor = blockFillColor;
+
+                        return ClipRRect(
+                          borderRadius: BorderRadius.circular(11),
+                          child: showHeaderAndBody
+                              ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Container(
+                                height: 22,
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                alignment: Alignment.centerLeft,
+                                color: headerColor,
+                                child: Text(
                                   displayName,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodyMedium
-                                      ?.copyWith(
-                                    color: blockTextColor,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: Colors.white,
                                     fontWeight: FontWeight.w700,
+                                    fontSize: 12,
                                     height: 1.0,
                                   ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  timeLabel,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodySmall
-                                      ?.copyWith(
-                                    color: blockTextColor,
-                                    fontWeight: FontWeight.w600,
-                                    height: 1.0,
-                                  ),
-                                ),
-                              ],
-                            )
-                                : Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                displayName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodyMedium
-                                    ?.copyWith(
-                                  color: blockTextColor,
-                                  fontWeight: FontWeight.w700,
-                                  height: 1.0,
                                 ),
                               ),
+                              Expanded(
+                                child: Container(
+                                  color: bodyColor,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 6,
+                                  ),
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    timeLabel,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 11,
+                                      height: 1.0,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )
+                              : Container(
+                            color: headerColor,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              displayName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                                height: 1.0,
+                              ),
                             ),
-
                           ),
                         );
                       },
@@ -1445,7 +1468,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       case 'abgesagt':
         return const Color(0xFFFEE4E2);
       case 'bestaetigt':
-        return const Color(0xFFEAF2FF);
+        return const Color(0xFFDFF6DB);
       default:
         return const Color(0xFFF2F4F7);
     }
@@ -1457,7 +1480,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       case 'abgesagt':
         return const Color(0xFFB42318);
       case 'bestaetigt':
-        return const Color(0xFF175CD3);
+        return const Color(0xFF2B9745);
       default:
         return const Color(0xFF344054);
     }
@@ -1495,6 +1518,31 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
       return (data?['geschlecht'] as String?)?.trim().toLowerCase();
     } catch (_) {
       return null;
+    }
+  }
+
+  Future<String> _loadDienstleisterName() async {
+    final cleanedId = widget.dienstleisterId.trim();
+    if (cleanedId.isEmpty) {
+      return 'Dienstleister';
+    }
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(cleanedId)
+          .get();
+
+      final data = doc.data();
+      final name = (data?['name'] as String?)?.trim();
+
+      if (name != null && name.isNotEmpty) {
+        return name;
+      }
+
+      return 'Dienstleister';
+    } catch (_) {
+      return 'Dienstleister';
     }
   }
 
@@ -3092,6 +3140,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         return 'Du bist nicht angemeldet.';
       }
 
+      final dienstleisterName = await _loadDienstleisterName();
+
       final dienstleisterId = widget.dienstleisterId.trim();
       if (dienstleisterId.isEmpty) {
         return 'Dienstleister-ID konnte nicht ermittelt werden.';
@@ -3117,6 +3167,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
 
       await FirebaseFirestore.instance.collection('termine').add({
         'dienstleisterId': dienstleisterId,
+        'dienstleisterName': dienstleisterName,
         'mitarbeiterId': mitarbeiter.id,
         'mitarbeiterName': mitarbeiter.name,
         'titel': titel,
@@ -3168,6 +3219,8 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
         return 'Termin konnte nicht aktualisiert werden.';
       }
 
+      final dienstleisterName = await _loadDienstleisterName();
+
       final startAt = _combineDateAndTime(datum, fromTime);
       final endAt = _combineDateAndTime(datum, toTime);
       final leistungen = leistungsPositionen
@@ -3189,6 +3242,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
           .collection('termine')
           .doc(cleanedTerminId)
           .update({
+        'dienstleisterName': dienstleisterName,
         'mitarbeiterId': mitarbeiter.id,
         'mitarbeiterName': mitarbeiter.name,
         'titel': titel,
