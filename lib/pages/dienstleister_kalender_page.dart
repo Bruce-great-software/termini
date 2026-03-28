@@ -1132,6 +1132,15 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                             context: dialogContext,
                             title: 'Kunde',
                             children: [
+                              FutureBuilder<String?>(
+                                future: _loadKundeGeschlecht(termin.kundeId),
+                                builder: (context, snapshot) {
+                                  return _buildPreviewRow(
+                                    label: 'Anrede',
+                                    value: _anredeAusGeschlecht(snapshot.data),
+                                  );
+                                },
+                              ),
                               _buildPreviewRow(
                                 label: 'Name',
                                 value: termin.kundeName?.trim().isNotEmpty ==
@@ -1457,6 +1466,36 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   String _formatEuro(double value) {
     final asString = value.toStringAsFixed(2).replaceAll('.', ',');
     return '$asString €';
+  }
+
+  String _anredeAusGeschlecht(String? geschlechtRaw) {
+    final geschlecht = geschlechtRaw?.trim().toLowerCase();
+    if (geschlecht == 'herr') return 'Herr';
+    if (geschlecht == 'frau') return 'Frau';
+    return 'Nicht hinterlegt';
+  }
+
+  String? _zielgruppeAusGeschlecht(String? geschlechtRaw) {
+    final geschlecht = geschlechtRaw?.trim().toLowerCase();
+    if (geschlecht == 'herr') return 'Herren';
+    if (geschlecht == 'frau') return 'Damen';
+    return null;
+  }
+
+  Future<String?> _loadKundeGeschlecht(String? kundeId) async {
+    final cleanedId = kundeId?.trim() ?? '';
+    if (cleanedId.isEmpty) return null;
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(cleanedId)
+          .get();
+      final data = doc.data();
+      return (data?['geschlecht'] as String?)?.trim().toLowerCase();
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _showAppointmentDialog({
@@ -2196,10 +2235,16 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                                   onPressed: isSaving || isDeleting
                                       ? null
                                       : () async {
+                                          final geschlecht = await _loadKundeGeschlecht(
+                                            selectedKundeId,
+                                          );
+                                          final initialZielgruppe =
+                                              _zielgruppeAusGeschlecht(geschlecht);
                                           final ausgewaehlt =
                                               await _showLeistungAuswahlSheet(
                                             context: context,
                                             initialSelected: selectedLeistungen,
+                                            initialZielgruppe: initialZielgruppe,
                                           );
                                           if (ausgewaehlt == null) return;
 
@@ -2400,6 +2445,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
   Future<List<_LeistungsPosition>?> _showLeistungAuswahlSheet({
     required BuildContext context,
     required List<_LeistungsPosition> initialSelected,
+    String? initialZielgruppe,
   }) async {
     var selectedItems = initialSelected
         .map(
@@ -2444,6 +2490,7 @@ class _DienstleisterKalenderPageState extends State<DienstleisterKalenderPage> {
                         child: AngeboteView.selection(
                           dienstleisterId: widget.dienstleisterId,
                           initialSelection: selectedItems,
+                          initialZielgruppe: initialZielgruppe ?? 'Damen',
                           onSelectionChanged: (items) {
                             setSheetState(() {
                               selectedItems = items;

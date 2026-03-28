@@ -32,12 +32,14 @@ class AngeboteView extends StatefulWidget {
   })  : mode = AngeboteViewMode.customer,
         dienstleisterId = null,
         initialSelection = const <AngebotSelectionItem>[],
+        initialZielgruppe = 'Damen',
         onSelectionChanged = null;
 
   const AngeboteView.selection({
     super.key,
     required this.dienstleisterId,
     this.initialSelection = const <AngebotSelectionItem>[],
+    this.initialZielgruppe = 'Damen',
     this.onSelectionChanged,
     this.emptyText = 'Keine Angebote vorhanden.',
   })  : mode = AngeboteViewMode.selection,
@@ -54,6 +56,7 @@ class AngeboteView extends StatefulWidget {
 
   final String? dienstleisterId;
   final List<AngebotSelectionItem> initialSelection;
+  final String initialZielgruppe;
   final ValueChanged<List<AngebotSelectionItem>>? onSelectionChanged;
 
   @override
@@ -68,6 +71,12 @@ class _AngeboteViewState extends State<AngeboteView> {
   @override
   void initState() {
     super.initState();
+    final initialZielgruppe = widget.initialZielgruppe.trim();
+    if (initialZielgruppe == 'Damen' ||
+        initialZielgruppe == 'Herren' ||
+        initialZielgruppe == 'Kinder') {
+      _zielgruppe = initialZielgruppe;
+    }
     for (final item in widget.initialSelection) {
       _selectedKeys.add(_buildSelectionKey(item));
     }
