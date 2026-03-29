@@ -973,6 +973,37 @@ class _SectionBlock extends StatelessWidget {
   }
 }
 
+class _PinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final double minHeight;
+  final double maxHeight;
+  final Widget child;
+
+  _PinnedHeaderDelegate({
+    required this.minHeight,
+    required this.maxHeight,
+    required this.child,
+  });
+
+  @override
+  double get minExtent => minHeight;
+
+  @override
+  double get maxExtent => maxHeight;
+
+  @override
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return SizedBox.expand(child: child);
+  }
+
+  @override
+  bool shouldRebuild(covariant _PinnedHeaderDelegate oldDelegate) {
+    return minHeight != oldDelegate.minHeight ||
+        maxHeight != oldDelegate.maxHeight ||
+        child != oldDelegate.child;
+  }
+}
+
 /// ---------------------------------------------------------------
 /// Detailseite
 /// ---------------------------------------------------------------
@@ -1095,101 +1126,138 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     }
   }
 
-  Widget _buildDetailHeader() {
-    final String name =
-        ((widget.dienstleister['name'] as String?)?.trim().isNotEmpty ?? false)
-            ? (widget.dienstleister['name'] as String).trim()
-            : 'Dienstleister';
-    final String logoUrl =
-        ((widget.dienstleister['logoUrl'] as String?)?.trim().isNotEmpty ?? false)
-            ? (widget.dienstleister['logoUrl'] as String).trim()
-            : '';
+  Widget _buildFavoriteIconButton({required User user}) {
+    if (_dienstleisterId.isEmpty) {
+      return const Icon(Icons.favorite_border, color: Colors.black45);
+    }
 
-    final User? user = FirebaseAuth.instance.currentUser;
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots(),
+      builder: (context, snapshot) {
+        final List<dynamic> favRaw =
+            (snapshot.data?.data()?['favoriten'] as List<dynamic>?) ?? const [];
+        final bool isFavorite = favRaw.map((e) => e.toString()).contains(_dienstleisterId);
 
-    return Container(
-      color: Colors.white,
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            height: 88,
-            width: 88,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: logoUrl.isNotEmpty
-                  ? Image.network(
-                      logoUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
+        return IconButton(
+          tooltip: 'Favorit umschalten',
+          onPressed: _isFavoriteUpdating
+              ? null
+              : () => _toggleFavorite(
+            userId: user.uid,
+            isCurrentlyFavorite: isFavorite,
+          ),
+          icon: Icon(
+            isFavorite ? Icons.favorite : Icons.favorite_border,
+            color: isFavorite ? Colors.redAccent : Colors.black54,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildExpandedLogoArea({
+    required String name,
+    required String logoUrl,
+  }) {
+    final double topInset = MediaQuery.of(context).padding.top;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double currentHeight = constraints.maxHeight;
+        const double minHeight = kToolbarHeight;
+        const double maxHeight = 300.0;
+        final double progress = ((currentHeight - minHeight) / (maxHeight - minHeight))
+            .clamp(0.0, 1.0);
+
+        final double imageScale = 0.70 + (0.30 * progress);
+        final double imageOpacity = 0.25 + (0.75 * progress);
+        final double titleOpacity = (1.0 - progress).clamp(0.0, 1.0);
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Container(color: Colors.white),
+            SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(16, topInset + 40, 16, 14),
+                child: Transform.scale(
+                  scale: imageScale,
+                  alignment: Alignment.topCenter,
+                  child: Opacity(
+                    opacity: imageOpacity,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: AspectRatio(
+                        aspectRatio: 16 / 9,
+                        child: logoUrl.isNotEmpty
+                            ? Image.network(
+                          logoUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            color: const Color(0xFFF3F4F6),
+                            alignment: Alignment.center,
+                            child: const Icon(
+                              Icons.storefront,
+                              color: Colors.black54,
+                              size: 56,
+                            ),
+                          ),
+                        )
+                            : Container(
                           color: const Color(0xFFF3F4F6),
                           alignment: Alignment.center,
-                          child: const Icon(Icons.storefront, color: Colors.black54, size: 34),
-                        );
-                      },
-                    )
-                  : Container(
-                      color: const Color(0xFFF3F4F6),
-                      alignment: Alignment.center,
-                      child: const Icon(Icons.storefront, color: Colors.black54, size: 34),
+                          child: const Icon(
+                            Icons.storefront,
+                            color: Colors.black54,
+                            size: 56,
+                          ),
+                        ),
+                      ),
                     ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.black,
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              if (user == null)
-                const Icon(Icons.favorite_border, color: Colors.black45)
-              else if (_dienstleisterId.isEmpty)
-                const Icon(Icons.favorite_border, color: Colors.black45)
-              else
-                StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                  stream: FirebaseFirestore.instance
-                      .collection('users')
-                      .doc(user.uid)
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    final List<dynamic> favRaw =
-                        (snapshot.data?.data()?['favoriten'] as List<dynamic>?) ?? const [];
-                    final bool isFavorite = favRaw
-                        .map((e) => e.toString())
-                        .contains(_dienstleisterId);
-
-                    return IconButton(
-                      tooltip: 'Favorit umschalten',
-                      onPressed: _isFavoriteUpdating
-                          ? null
-                          : () => _toggleFavorite(
-                                userId: user.uid,
-                                isCurrentlyFavorite: isFavorite,
-                              ),
-                      icon: Icon(
-                        isFavorite ? Icons.favorite : Icons.favorite_border,
-                        color: isFavorite ? Colors.redAccent : Colors.black54,
-                      ),
-                    );
-                  },
+            ),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Opacity(
+                  opacity: titleOpacity,
+                  child: Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
-            ],
-          ),
-          const SizedBox(height: 4),
-        ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildZielgruppenStickyBar() {
+    return Container(
+      color: Colors.white,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.only(top: 6, bottom: 8),
+      child: CupertinoSegmentedControl<String>(
+        children: _zielgruppenSegments(),
+        groupValue: _zielgruppe,
+        onValueChanged: (v) => setState(() => _zielgruppe = v),
+        borderColor: const Color(0xFF1A1A1A),
+        selectedColor: Colors.black,
+        unselectedColor: Colors.white,
+        pressedColor: const Color(0xFFECECEC),
+        padding: EdgeInsets.zero,
       ),
     );
   }
@@ -5667,45 +5735,63 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   @override
   Widget build(BuildContext context) {
     final String dienstleisterId = _dienstleisterId;
+    final String name =
+        ((widget.dienstleister['name'] as String?)?.trim().isNotEmpty ?? false)
+            ? (widget.dienstleister['name'] as String).trim()
+            : 'Profil';
+    final String logoUrl =
+        ((widget.dienstleister['logoUrl'] as String?)?.trim().isNotEmpty ?? false)
+            ? (widget.dienstleister['logoUrl'] as String).trim()
+            : '';
+    final User? user = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.black),
-        title: CupertinoSegmentedControl<String>(
-          children: _zielgruppenSegments(),
-          groupValue: _zielgruppe,
-          onValueChanged: (v) => setState(() => _zielgruppe = v),
-          borderColor: const Color(0xFF1A1A1A),
-          selectedColor: Colors.black,
-          unselectedColor: Colors.white,
-          pressedColor: const Color(0xFFECECEC),
-          padding: EdgeInsets.zero,
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(40),
-          child: Container(
-            width: double.infinity,
-            color: Colors.white,
-            padding: const EdgeInsets.only(bottom: 8.0),
-            alignment: Alignment.center,
-            child: Text(
-              (widget.dienstleister['name'] as String?) ?? 'Profil',
-              style: const TextStyle(
-                color: Colors.black,
-                fontWeight: FontWeight.bold,
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) {
+          return [
+            SliverAppBar(
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.black,
+              surfaceTintColor: Colors.white,
+              elevation: innerBoxIsScrolled ? 0.5 : 0,
+              pinned: true,
+              expandedHeight: 300,
+              automaticallyImplyLeading: false,
+              titleSpacing: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => Navigator.maybePop(context),
+              ),
+              title: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              centerTitle: true,
+              actions: [
+                user == null
+                    ? const Padding(
+                  padding: EdgeInsets.only(right: 8),
+                  child: Icon(Icons.favorite_border, color: Colors.black45),
+                )
+                    : _buildFavoriteIconButton(user: user),
+              ],
+              flexibleSpace: FlexibleSpaceBar(
+                background: _buildExpandedLogoArea(name: name, logoUrl: logoUrl),
               ),
             ),
-          ),
-        ),
-      ),
-      body: Column(
-        children: [
-          _buildDetailHeader(),
-          Expanded(
-            child: AngeboteView(
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: _PinnedHeaderDelegate(
+                minHeight: 58,
+                maxHeight: 58,
+                child: _buildZielgruppenStickyBar(),
+              ),
+            ),
+          ];
+        },
+        body: AngeboteView(
               angeboteStream: FirebaseFirestore.instance
                   .collection('angebote')
                   .where('dienstleisterId', isEqualTo: dienstleisterId)
@@ -7325,8 +7411,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           );
               },
             ),
-          ),
-        ],
+      ),
       ),
     );
   }
