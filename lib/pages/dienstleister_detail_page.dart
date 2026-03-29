@@ -1024,6 +1024,24 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return '';
   }
 
+  Set<String> _normalizeFavoriten(dynamic rawFavoriten) {
+    if (rawFavoriten is List) {
+      return rawFavoriten
+          .map((e) => e.toString().trim())
+          .where((id) => id.isNotEmpty)
+          .toSet();
+    }
+
+    if (rawFavoriten is Map) {
+      return rawFavoriten.keys
+          .map((e) => e.toString().trim())
+          .where((id) => id.isNotEmpty)
+          .toSet();
+    }
+
+    return <String>{};
+  }
+
   Future<void> _toggleFavorite({
     required String userId,
     required bool isCurrentlyFavorite,
@@ -1033,12 +1051,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     setState(() => _isFavoriteUpdating = true);
     try {
       final userRef = FirebaseFirestore.instance.collection('users').doc(userId);
+      final userSnap = await userRef.get();
+      final favorites = _normalizeFavoriten(userSnap.data()?['favoriten']);
+      if (isCurrentlyFavorite) {
+        favorites.remove(_dienstleisterId);
+      } else {
+        favorites.add(_dienstleisterId);
+      }
+
       await userRef.set(
-        {
-          'favoriten': isCurrentlyFavorite
-              ? FieldValue.arrayRemove([_dienstleisterId])
-              : FieldValue.arrayUnion([_dienstleisterId]),
-        },
+        {'favoriten': favorites.toList()},
         SetOptions(merge: true),
       );
     } catch (_) {
@@ -1061,9 +1083,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots(),
       builder: (context, snapshot) {
-        final List<dynamic> favRaw =
-            (snapshot.data?.data()?['favoriten'] as List<dynamic>?) ?? const [];
-        final bool isFavorite = favRaw.map((e) => e.toString()).contains(_dienstleisterId);
+        final favRaw = snapshot.data?.data()?['favoriten'];
+        final favorites = _normalizeFavoriten(favRaw);
+        final bool isFavorite = favorites.contains(_dienstleisterId);
 
         return IconButton(
           tooltip: 'Favorit umschalten',

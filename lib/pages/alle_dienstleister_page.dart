@@ -1548,25 +1548,27 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     }
 
     final dienstleisterId = geoeffneterDienstleister!['id']?.toString() ?? '';
-    final dienstleisterName =
-        geoeffneterDienstleister!['name']?.toString() ?? 'Dienstleister';
-    final logoUrl = geoeffneterDienstleister!['logoUrl']?.toString() ?? '';
-    final branche = geoeffneterDienstleister!['branche']?.toString() ?? '';
 
     if (dienstleisterId.isEmpty) {
       return const SizedBox.shrink();
     }
 
-    final favDocRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .collection('favoriten')
-        .doc(dienstleisterId);
-
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: favDocRef.snapshots(),
+      stream: FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots(),
       builder: (context, snapshot) {
-        final isFavorite = snapshot.data?.exists ?? false;
+        final data = snapshot.data?.data();
+        final rawFavoriten = data?['favoriten'];
+        final favoriteIds = <String>{
+          if (rawFavoriten is List)
+            ...rawFavoriten
+                .map((e) => e.toString().trim())
+                .where((id) => id.isNotEmpty),
+          if (rawFavoriten is Map)
+            ...rawFavoriten.keys
+                .map((e) => e.toString().trim())
+                .where((id) => id.isNotEmpty),
+        };
+        final isFavorite = favoriteIds.contains(dienstleisterId);
 
         return IconButton(
           tooltip: isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen',
@@ -1576,17 +1578,20 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           ),
           onPressed: () async {
             try {
+              final updatedFavorites = favoriteIds.toSet();
               if (isFavorite) {
-                await favDocRef.delete();
+                updatedFavorites.remove(dienstleisterId);
               } else {
-                await favDocRef.set({
-                  'dienstleisterId': dienstleisterId,
-                  'name': dienstleisterName,
-                  'logoUrl': logoUrl,
-                  'branche': branche,
-                  'createdAt': FieldValue.serverTimestamp(),
-                });
+                updatedFavorites.add(dienstleisterId);
               }
+
+              await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(user.uid)
+                  .set(
+                {'favoriten': updatedFavorites.toList()},
+                SetOptions(merge: true),
+              );
             } catch (e) {
               if (!mounted) return;
 

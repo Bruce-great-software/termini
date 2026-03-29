@@ -8,6 +8,24 @@ import 'login_register_page.dart';
 class KundenFavoritenPage extends StatelessWidget {
   const KundenFavoritenPage({super.key});
 
+  List<String> _normalizeFavoritenIds(dynamic rawFavoriten) {
+    if (rawFavoriten is List) {
+      return rawFavoriten
+          .map((e) => e.toString().trim())
+          .where((id) => id.isNotEmpty)
+          .toList(growable: false);
+    }
+
+    if (rawFavoriten is Map) {
+      return rawFavoriten.keys
+          .map((e) => e.toString().trim())
+          .where((id) => id.isNotEmpty)
+          .toList(growable: false);
+    }
+
+    return const <String>[];
+  }
+
   Future<List<Map<String, dynamic>>> _loadFavoriten(
       List<String> favoritenIds,
       ) async {
@@ -70,12 +88,7 @@ class KundenFavoritenPage extends StatelessWidget {
         }
 
         final favoritenRaw = userSnapshot.data?.data()?['favoriten'];
-        final favoritenIds = (favoritenRaw is List)
-            ? favoritenRaw
-            .map((e) => e.toString().trim())
-            .where((id) => id.isNotEmpty)
-            .toList()
-            : <String>[];
+        final favoritenIds = _normalizeFavoritenIds(favoritenRaw);
 
         if (favoritenIds.isEmpty) {
           return Center(
