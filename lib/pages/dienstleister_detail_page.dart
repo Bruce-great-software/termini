@@ -1086,13 +1086,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required String name,
     required String logoUrl,
   }) {
-    final double topInset = MediaQuery.of(context).padding.top;
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final double currentHeight = constraints.maxHeight;
-        const double minHeight = kToolbarHeight;
-        const double maxHeight = 300.0;
+        const double minHeight = 0.0;
+        const double maxHeight = 240.0;
         final double progress = ((currentHeight - minHeight) / (maxHeight - minHeight))
             .clamp(0.0, 1.0);
 
@@ -1104,34 +1102,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           fit: StackFit.expand,
           children: [
             Container(color: Colors.white),
-            SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(16, topInset + 40, 16, 14),
-                child: Transform.scale(
-                  scale: imageScale,
-                  alignment: Alignment.topCenter,
-                  child: Opacity(
-                    opacity: imageOpacity,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(18),
-                      child: AspectRatio(
-                        aspectRatio: 16 / 9,
-                        child: logoUrl.isNotEmpty
-                            ? Image.network(
-                          logoUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
-                            color: const Color(0xFFF3F4F6),
-                            alignment: Alignment.center,
-                            child: const Icon(
-                              Icons.storefront,
-                              color: Colors.black54,
-                              size: 56,
-                            ),
-                          ),
-                        )
-                            : Container(
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
+              child: Transform.scale(
+                scale: imageScale,
+                alignment: Alignment.topCenter,
+                child: Opacity(
+                  opacity: imageOpacity,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: AspectRatio(
+                      aspectRatio: 16 / 9,
+                      child: logoUrl.isNotEmpty
+                          ? Image.network(
+                        logoUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
                           color: const Color(0xFFF3F4F6),
                           alignment: Alignment.center,
                           child: const Icon(
@@ -1139,6 +1125,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                             color: Colors.black54,
                             size: 56,
                           ),
+                        ),
+                      )
+                          : Container(
+                        color: const Color(0xFFF3F4F6),
+                        alignment: Alignment.center,
+                        child: const Icon(
+                          Icons.storefront,
+                          color: Colors.black54,
+                          size: 56,
                         ),
                       ),
                     ),
@@ -1168,6 +1163,48 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildInlineTopHeader({
+    required String name,
+    required User? user,
+  }) {
+    return Container(
+      color: Colors.white,
+      child: SafeArea(
+        bottom: false,
+        child: SizedBox(
+          height: kToolbarHeight,
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: 'Zurück',
+                icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                onPressed: () => Navigator.of(context).maybePop(),
+              ),
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 25,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 48,
+                child: user == null
+                    ? const Icon(Icons.favorite_border, color: Colors.black45)
+                    : _buildFavoriteIconButton(user: user),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -5674,39 +5711,21 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     return Scaffold(
       body: NestedScrollView(
-        headerSliverBuilder: (context, innerBoxIsScrolled) {
+        headerSliverBuilder: (context, _) {
           return [
-            SliverAppBar(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.black,
-              surfaceTintColor: Colors.white,
-              elevation: innerBoxIsScrolled ? 0.5 : 0,
+            SliverPersistentHeader(
               pinned: true,
-              expandedHeight: 300,
-              automaticallyImplyLeading: false,
-              leading: IconButton(
-                tooltip: 'Zurück',
-                icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                onPressed: () => Navigator.of(context).maybePop(),
+              delegate: _PinnedHeaderDelegate(
+                minHeight: kToolbarHeight + MediaQuery.of(context).padding.top,
+                maxHeight: kToolbarHeight + MediaQuery.of(context).padding.top,
+                child: _buildInlineTopHeader(name: name, user: user),
               ),
-              titleSpacing: 0,
-              title: Text(
-                name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              centerTitle: true,
-              actions: [
-                user == null
-                    ? const Padding(
-                  padding: EdgeInsets.only(right: 8),
-                  child: Icon(Icons.favorite_border, color: Colors.black45),
-                )
-                    : _buildFavoriteIconButton(user: user),
-              ],
-              flexibleSpace: FlexibleSpaceBar(
-                background: _buildExpandedLogoArea(name: name, logoUrl: logoUrl),
+            ),
+            SliverPersistentHeader(
+              delegate: _PinnedHeaderDelegate(
+                minHeight: 0,
+                maxHeight: 240,
+                child: _buildExpandedLogoArea(name: name, logoUrl: logoUrl),
               ),
             ),
             SliverPersistentHeader(
