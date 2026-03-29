@@ -861,20 +861,24 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               const double stickyHeaderHeight = 44;
+              const double sectionTopSpacing = 10;
 
               return Stack(
                 children: [
-                  ScrollablePositionedList.builder(
-                    itemScrollController: itemScrollController,
-                    itemPositionsListener: itemPositionsListener,
-                    itemCount: widget.sections.length + 1,
-                    itemBuilder: (context, index) {
-                      if (index == _spacerIndex) {
-                        return SizedBox(height: widget.extraBottom);
-                      }
-                      final section = widget.sections[index];
-                      return _SectionBlock(section: section);
-                    },
+                  Padding(
+                    padding: const EdgeInsets.only(top: sectionTopSpacing),
+                    child: ScrollablePositionedList.builder(
+                      itemScrollController: itemScrollController,
+                      itemPositionsListener: itemPositionsListener,
+                      itemCount: widget.sections.length + 1,
+                      itemBuilder: (context, index) {
+                        if (index == _spacerIndex) {
+                          return SizedBox(height: widget.extraBottom);
+                        }
+                        final section = widget.sections[index];
+                        return _SectionBlock(section: section);
+                      },
+                    ),
                   ),
                   if (widget.sections.isNotEmpty)
                     ValueListenableBuilder<Iterable<ItemPosition>>(
@@ -914,20 +918,25 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
                           return const SizedBox.shrink();
                         }
 
-                        return IgnorePointer(
-                          child: Transform.translate(
-                            offset: Offset(0, translateY),
-                            child: Container(
-                              height: stickyHeaderHeight,
-                              width: double.infinity,
-                              color: Colors.black,
-                              alignment: Alignment.centerLeft,
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              child: Text(
-                                widget.sections[activeChip].title,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
+                        return Positioned(
+                          top: sectionTopSpacing,
+                          left: 0,
+                          right: 0,
+                          child: IgnorePointer(
+                            child: Transform.translate(
+                              offset: Offset(0, translateY),
+                              child: Container(
+                                height: stickyHeaderHeight,
+                                width: double.infinity,
+                                color: Colors.black,
+                                alignment: Alignment.centerLeft,
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: Text(
+                                  widget.sections[activeChip].title,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
                             ),
@@ -973,6 +982,36 @@ class _SectionBlock extends StatelessWidget {
   }
 }
 
+class _BildNavButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  const _BildNavButton({
+    required this.icon,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0x73000000),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(
+            icon,
+            color: onTap == null ? Colors.white54 : Colors.white,
+            size: 22,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// ---------------------------------------------------------------
 /// Detailseite
 /// ---------------------------------------------------------------
@@ -996,6 +1035,8 @@ class DienstleisterDetailPage extends StatefulWidget {
 
 class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String _zielgruppe = 'Damen';
+  final PageController _bilderPageController = PageController();
+  int _aktuellerBildIndex = 0;
 
   /// Auswahl als ValueNotifier -> verhindert kompletten Rebuild der Liste
   final ValueNotifier<Map<String, _CartItem>> _selectedVN =
@@ -1043,12 +1084,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   @override
   void dispose() {
+    _bilderPageController.dispose();
     _selectedVN.dispose();
     _selectedCombosVN.dispose();
     _expandedVariantGroupsVN.dispose();
     _bookingLoginEmailController.dispose();
     _bookingLoginPasswordController.dispose();
     super.dispose();
+  }
+
+  void _zurBildSeite(int index) {
+    if (!_bilderPageController.hasClients) return;
+    _bilderPageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   String? _mapGeschlechtZuZielgruppe(String? geschlechtRaw) {
@@ -5526,6 +5577,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     final String dienstleisterId = widget.dienstleister['id'] as String;
     final String logoUrl = (widget.dienstleister['logoUrl'] ?? '').toString().trim();
 
+    final bilderStream = FirebaseFirestore.instance
+        .collection('users')
+        .doc(dienstleisterId)
+        .collection('bilder')
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.white,
@@ -5542,36 +5600,115 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           pressedColor: const Color(0xFFECECEC),
           padding: EdgeInsets.zero,
         ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(40),
-          child: Container(
-            width: double.infinity,
-            color: Colors.white,
-            padding: const EdgeInsets.only(bottom: 8.0),
-            alignment: Alignment.center,
-            child: Text(
-              (widget.dienstleister['name'] as String?) ?? 'Profil',
-              style: const TextStyle(
-                color: Colors.black,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ),
       ),
       body: Column(
         children: [
-          if (logoUrl.isNotEmpty)
-            SizedBox(
-              width: double.infinity,
-              height: 190,
-              child: Image.network(
-                logoUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) =>
-                    Container(color: const Color(0xFFF2F2F2)),
-              ),
+          SizedBox(
+            width: double.infinity,
+            height: 190,
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: bilderStream,
+              builder: (context, snapshot) {
+                final bildUrls = <String>[];
+                if (logoUrl.isNotEmpty) {
+                  bildUrls.add(logoUrl);
+                }
+                if (snapshot.hasData) {
+                  for (final doc in snapshot.data!.docs) {
+                    final url = (doc.data()['url'] ?? '').toString().trim();
+                    if (url.isEmpty) continue;
+                    if (url == logoUrl) continue;
+                    bildUrls.add(url);
+                  }
+                }
+
+                if (bildUrls.isEmpty) {
+                  return Container(color: const Color(0xFFF2F2F2));
+                }
+
+                final pageCount = bildUrls.length;
+                if (_aktuellerBildIndex >= pageCount) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    setState(() => _aktuellerBildIndex = 0);
+                    _zurBildSeite(0);
+                  });
+                }
+
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    PageView.builder(
+                      controller: _bilderPageController,
+                      itemCount: pageCount,
+                      onPageChanged: (index) {
+                        if (!mounted) return;
+                        setState(() => _aktuellerBildIndex = index);
+                      },
+                      itemBuilder: (context, index) {
+                        return Image.network(
+                          bildUrls[index],
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(color: const Color(0xFFF2F2F2)),
+                        );
+                      },
+                    ),
+                    if (pageCount > 1)
+                      Positioned(
+                        left: 10,
+                        top: 0,
+                        bottom: 0,
+                        child: Center(
+                          child: _BildNavButton(
+                            icon: Icons.chevron_left,
+                            onTap: _aktuellerBildIndex > 0
+                                ? () => _zurBildSeite(_aktuellerBildIndex - 1)
+                                : null,
+                          ),
+                        ),
+                      ),
+                    if (pageCount > 1)
+                      Positioned(
+                        right: 10,
+                        top: 0,
+                        bottom: 0,
+                        child: Center(
+                          child: _BildNavButton(
+                            icon: Icons.chevron_right,
+                            onTap: _aktuellerBildIndex < pageCount - 1
+                                ? () => _zurBildSeite(_aktuellerBildIndex + 1)
+                                : null,
+                          ),
+                        ),
+                      ),
+                    Positioned(
+                      right: 10,
+                      bottom: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0x99000000),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '${(_aktuellerBildIndex + 1).clamp(1, pageCount)}/$pageCount',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
+          ),
           Expanded(
             child: AngeboteView(
               angeboteStream: FirebaseFirestore.instance

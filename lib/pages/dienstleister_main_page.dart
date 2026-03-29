@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_angebote_page.dart';
+import 'dienstleister_bilder_page.dart';
 import 'dienstleister_edit_page.dart';
 import 'dienstleister_kalender_page.dart';
 
@@ -54,6 +55,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
 
   int _selectedIndex = 0;
   int _selectedHomeSidebarIndex = 0;
+  int _selectedProfilSidebarIndex = 0;
   String? dienstleisterName;
   String? _selectedMitarbeiterId;
   String? _selectedOeffnungszeitenTagKey;
@@ -130,6 +132,9 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       if (index != 0) {
         _selectedHomeSidebarIndex = 0;
       }
+      if (index != 3) {
+        _selectedProfilSidebarIndex = 0;
+      }
     });
   }
 
@@ -137,6 +142,13 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     setState(() {
       _selectedIndex = 0;
       _selectedHomeSidebarIndex = index;
+    });
+  }
+
+  void _onProfilSidebarTapped(int index) {
+    setState(() {
+      _selectedIndex = 3;
+      _selectedProfilSidebarIndex = index;
     });
   }
 
@@ -221,7 +233,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       _buildCurrentHomeContent(),
       DienstleisterKalenderPage(dienstleisterId: widget.dienstleisterId),
       const DienstleisterAngebotePage(showScaffold: false),
-      _buildProfilPage(),
+      _buildCurrentProfilContent(),
     ];
     final sidebarItems = _buildSidebarItems();
 
@@ -286,7 +298,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       case 2:
         return 'Leistungen';
       case 3:
-        return 'Profil';
+        return _selectedProfilSidebarIndex == 1 ? 'Bilder' : 'Profil';
       default:
         return '';
     }
@@ -350,12 +362,28 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           _SidebarItemData(
             title: 'Profil',
             icon: Icons.person_outline,
-            isSelected: true,
-            onTap: () => _onTabTapped(3),
+            isSelected: _selectedProfilSidebarIndex == 0,
+            onTap: () => _onProfilSidebarTapped(0),
+          ),
+          _SidebarItemData(
+            title: 'Bilder',
+            icon: Icons.photo_library_outlined,
+            isSelected: _selectedProfilSidebarIndex == 1,
+            onTap: () => _onProfilSidebarTapped(1),
           ),
         ];
       default:
         return const [];
+    }
+  }
+
+  Widget _buildCurrentProfilContent() {
+    switch (_selectedProfilSidebarIndex) {
+      case 1:
+        return const DienstleisterBilderPage();
+      case 0:
+      default:
+        return _buildProfilPage();
     }
   }
 
