@@ -1166,48 +1166,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     );
   }
 
-  Widget _buildInlineTopHeader({
-    required String name,
-    required User? user,
-  }) {
-    return Container(
-      color: Colors.white,
-      child: SafeArea(
-        bottom: false,
-        child: SizedBox(
-          height: kToolbarHeight,
-          child: Row(
-            children: [
-              IconButton(
-                tooltip: 'Zurück',
-                icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                onPressed: () => Navigator.of(context).maybePop(),
-              ),
-              Expanded(
-                child: Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 25,
-                  ),
-                ),
-              ),
-              SizedBox(
-                width: 48,
-                child: user == null
-                    ? const Icon(Icons.favorite_border, color: Colors.black45)
-                    : _buildFavoriteIconButton(user: user),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildZielgruppenStickyBar() {
     return Container(
       color: Colors.white,
@@ -5707,20 +5665,23 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     ((widget.dienstleister['logoUrl'] as String?)?.trim().isNotEmpty ?? false)
         ? (widget.dienstleister['logoUrl'] as String).trim()
         : '';
-    final User? user = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.dienstleister['name'] ?? ''),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.favorite_border, color: Colors.white),
+            onPressed: () {
+              // TODO Favoriten-Logik
+            },
+          ),
+        ],
+      ),
       body: NestedScrollView(
         headerSliverBuilder: (context, _) {
           return [
-            SliverPersistentHeader(
-              pinned: true,
-              delegate: _PinnedHeaderDelegate(
-                minHeight: kToolbarHeight + MediaQuery.of(context).padding.top,
-                maxHeight: kToolbarHeight + MediaQuery.of(context).padding.top,
-                child: _buildInlineTopHeader(name: name, user: user),
-              ),
-            ),
             SliverPersistentHeader(
               delegate: _PinnedHeaderDelegate(
                 minHeight: 0,
