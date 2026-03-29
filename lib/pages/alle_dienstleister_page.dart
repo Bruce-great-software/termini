@@ -2111,7 +2111,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         backgroundColor: Colors.white,
         centerTitle: true,
         title: Text(
-          currentCity != null ? currentCity! : 'Ort wird geladen...',
+          geoeffneterDienstleister != null
+              ? ((geoeffneterDienstleister!['name'] ?? '').toString().trim().isNotEmpty
+                  ? geoeffneterDienstleister!['name'].toString().trim()
+                  : 'Dienstleister')
+              : (currentCity != null ? currentCity! : 'Ort wird geladen...'),
           style: const TextStyle(
             color: Colors.black,
             fontWeight: FontWeight.bold,
