@@ -861,20 +861,24 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               const double stickyHeaderHeight = 44;
+              const double sectionTopSpacing = 10;
 
               return Stack(
                 children: [
-                  ScrollablePositionedList.builder(
-                    itemScrollController: itemScrollController,
-                    itemPositionsListener: itemPositionsListener,
-                    itemCount: widget.sections.length + 1,
-                    itemBuilder: (context, index) {
-                      if (index == _spacerIndex) {
-                        return SizedBox(height: widget.extraBottom);
-                      }
-                      final section = widget.sections[index];
-                      return _SectionBlock(section: section);
-                    },
+                  Padding(
+                    padding: const EdgeInsets.only(top: sectionTopSpacing),
+                    child: ScrollablePositionedList.builder(
+                      itemScrollController: itemScrollController,
+                      itemPositionsListener: itemPositionsListener,
+                      itemCount: widget.sections.length + 1,
+                      itemBuilder: (context, index) {
+                        if (index == _spacerIndex) {
+                          return SizedBox(height: widget.extraBottom);
+                        }
+                        final section = widget.sections[index];
+                        return _SectionBlock(section: section);
+                      },
+                    ),
                   ),
                   if (widget.sections.isNotEmpty)
                     ValueListenableBuilder<Iterable<ItemPosition>>(
@@ -914,20 +918,25 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
                           return const SizedBox.shrink();
                         }
 
-                        return IgnorePointer(
-                          child: Transform.translate(
-                            offset: Offset(0, translateY),
-                            child: Container(
-                              height: stickyHeaderHeight,
-                              width: double.infinity,
-                              color: Colors.black,
-                              alignment: Alignment.centerLeft,
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              child: Text(
-                                widget.sections[activeChip].title,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
+                        return Positioned(
+                          top: sectionTopSpacing,
+                          left: 0,
+                          right: 0,
+                          child: IgnorePointer(
+                            child: Transform.translate(
+                              offset: Offset(0, translateY),
+                              child: Container(
+                                height: stickyHeaderHeight,
+                                width: double.infinity,
+                                color: Colors.black,
+                                alignment: Alignment.centerLeft,
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: Text(
+                                  widget.sections[activeChip].title,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
                             ),
@@ -5541,22 +5550,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           unselectedColor: Colors.white,
           pressedColor: const Color(0xFFECECEC),
           padding: EdgeInsets.zero,
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(40),
-          child: Container(
-            width: double.infinity,
-            color: Colors.white,
-            padding: const EdgeInsets.only(bottom: 8.0),
-            alignment: Alignment.center,
-            child: Text(
-              (widget.dienstleister['name'] as String?) ?? 'Profil',
-              style: const TextStyle(
-                color: Colors.black,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
         ),
       ),
       body: Column(
