@@ -1096,7 +1096,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
         final double imageScale = 0.70 + (0.30 * progress);
         final double imageOpacity = 0.25 + (0.75 * progress);
-        final double titleOpacity = (1.0 - progress).clamp(0.0, 1.0);
 
         return Stack(
           fit: StackFit.expand,
@@ -1136,25 +1135,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           size: 56,
                         ),
                       ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Opacity(
-                  opacity: titleOpacity,
-                  child: Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.black,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
@@ -5668,11 +5648,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.dienstleister['name'] ?? ''),
+        title: Text(
+          widget.dienstleister['name'] ?? '',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w500,
+            fontSize: 36,
+          ),
+        ),
         centerTitle: true,
         actions: [
           IconButton(
-            icon: const Icon(Icons.favorite_border, color: Colors.white),
+            icon: const Icon(Icons.favorite, color: Colors.redAccent),
             onPressed: () {
               // TODO Favoriten-Logik
             },
