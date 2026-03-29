@@ -611,6 +611,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   bool filterChipOffen = false;
   Map<String, dynamic>? geoeffneterDienstleister;
+  bool _dienstleisterFavorisiert = false;
 
   @override
   void initState() {
@@ -2087,6 +2088,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                   onTap: () {
                     setState(() {
                       geoeffneterDienstleister = data;
+                      _dienstleisterFavorisiert = false;
                     });
                   },
                 );
@@ -2128,9 +2130,41 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           onPressed: () {
             setState(() {
               geoeffneterDienstleister = null;
+              _dienstleisterFavorisiert = false;
             });
           },
         )
+            : null,
+        actions: geoeffneterDienstleister != null
+            ? [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: IconButton(
+              onPressed: () {
+                setState(() {
+                  _dienstleisterFavorisiert = !_dienstleisterFavorisiert;
+                });
+              },
+              icon: _dienstleisterFavorisiert
+                  ? const Icon(Icons.favorite, color: Colors.red)
+                  : Container(
+                width: 24,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border.all(color: Colors.black),
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.favorite_border,
+                  size: 16,
+                  color: Colors.black,
+                ),
+              ),
+            ),
+          ),
+        ]
             : null,
       ),
       body: _buildBodyByIndex(_selectedIndex),
@@ -2140,6 +2174,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         onTap: (index) {
           setState(() {
             geoeffneterDienstleister = null;
+            _dienstleisterFavorisiert = false;
             _selectedIndex = index;
           });
         },
