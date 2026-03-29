@@ -2,7 +2,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:flutter/cupertino.dart';
 import 'login_register_page.dart';
 import 'package:termini/widgets/angebote_view.dart';
@@ -743,14 +742,9 @@ class LinkedChipsWithSections extends StatefulWidget {
 }
 
 class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
-  final itemScrollController = ItemScrollController();
-  final itemPositionsListener = ItemPositionsListener.create();
-  final chipScrollController = ItemScrollController();
-
   late int activeChip;
-  bool _programmaticScroll = false;
-
-  int get _spacerIndex => widget.sections.length;
+  final ScrollController _scrollController = ScrollController();
+  final Map<int, GlobalKey> _sectionKeys = <int, GlobalKey>{};
 
   @override
   void initState() {
@@ -760,64 +754,29 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
         : 0;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (activeChip != 0) {
-        _scrollTo(activeChip);
-      } else {
-        _scrollChipTo(activeChip);
-      }
-    });
-
-    const double kTopTolerance = 0.02;
-    itemPositionsListener.itemPositions.addListener(() {
-      if (_programmaticScroll) return;
-      final positions = itemPositionsListener.itemPositions.value;
-      if (positions.isEmpty) return;
-
-      final visible = positions.where((p) => p.index < widget.sections.length).toList();
-      if (visible.isEmpty) return;
-
-      final atTopOrBeyond = visible.where((p) => p.itemLeadingEdge <= kTopTolerance).toList();
-
-      int? idx;
-      if (atTopOrBeyond.isNotEmpty) {
-        final best = atTopOrBeyond.reduce((a, b) => a.index > b.index ? a : b);
-        idx = best.index;
-      } else {
-        idx = null;
-      }
-
-      if (idx != null && idx != activeChip) {
-        setState(() => activeChip = idx!);
-        _scrollChipTo(activeChip);
-      }
+      if (activeChip != 0) _scrollTo(activeChip);
     });
   }
 
-  Future<void> _scrollChipTo(int index) async {
-    if (!chipScrollController.isAttached) return;
-    await chipScrollController.scrollTo(
-      index: index,
-      alignment: 0.0,
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOutCubic,
-    );
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _scrollTo(int index) async {
-    final clamped = index.clamp(0, widget.sections.length - 1);
+    if (widget.sections.isEmpty) return;
+    final int clamped = index.clamp(0, widget.sections.length - 1);
     setState(() => activeChip = clamped);
-    _scrollChipTo(clamped);
-
-    _programmaticScroll = true;
-    try {
-      await itemScrollController.scrollTo(
-        index: clamped,
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOutCubic,
-      );
-    } finally {
-      _programmaticScroll = false;
-    }
+    final targetKey = _sectionKeys[clamped];
+    final targetContext = targetKey?.currentContext;
+    if (targetContext == null) return;
+    await Scrollable.ensureVisible(
+      targetContext,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+      alignment: 0.02,
+    );
   }
 
   @override
@@ -826,29 +785,27 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
       children: [
         SizedBox(
           height: 48,
-          child: ScrollablePositionedList.builder(
+          child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            itemScrollController: chipScrollController,
+            padding: EdgeInsets.zero,
             itemCount: widget.sections.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
             itemBuilder: (context, i) {
               final title = widget.sections[i].title;
               final sel = activeChip == i;
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: ChoiceChip(
-                  label: Text(title),
-                  selected: sel,
-                  onSelected: (_) => _scrollTo(i),
-                  selectedColor: Colors.black,
-                  backgroundColor: Colors.white,
-                  labelStyle: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: sel ? Colors.white : Colors.black,
-                  ),
-                  shape: StadiumBorder(
-                    side: BorderSide(
-                      color: sel ? Colors.black : Colors.black54,
-                    ),
+              return ChoiceChip(
+                label: Text(title),
+                selected: sel,
+                onSelected: (_) => _scrollTo(i),
+                selectedColor: Colors.black,
+                backgroundColor: Colors.white,
+                labelStyle: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: sel ? Colors.white : Colors.black,
+                ),
+                shape: StadiumBorder(
+                  side: BorderSide(
+                    color: sel ? Colors.black : Colors.black54,
                   ),
                 ),
               );
@@ -856,86 +813,21 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
           ),
         ),
         const SizedBox(height: 8),
-
         Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              const double stickyHeaderHeight = 44;
+          child: ListView.builder(
+            controller: _scrollController,
+            primary: false,
+            itemCount: widget.sections.length + 1,
+            itemBuilder: (context, index) {
+              if (index == widget.sections.length) {
+                return SizedBox(height: widget.extraBottom);
+              }
 
-              return Stack(
-                children: [
-                  ScrollablePositionedList.builder(
-                    itemScrollController: itemScrollController,
-                    itemPositionsListener: itemPositionsListener,
-                    itemCount: widget.sections.length + 1,
-                    itemBuilder: (context, index) {
-                      if (index == _spacerIndex) {
-                        return SizedBox(height: widget.extraBottom);
-                      }
-                      final section = widget.sections[index];
-                      return _SectionBlock(section: section);
-                    },
-                  ),
-                  if (widget.sections.isNotEmpty)
-                    ValueListenableBuilder<Iterable<ItemPosition>>(
-                      valueListenable: itemPositionsListener.itemPositions,
-                      builder: (_, positions, __) {
-                        ItemPosition? currentPosition;
-                        for (final p in positions) {
-                          if (p.index == activeChip) {
-                            currentPosition = p;
-                            break;
-                          }
-                        }
-                        final showSticky =
-                            currentPosition != null && currentPosition.itemLeadingEdge < 0;
-
-                        final nextIndex = activeChip + 1;
-                        ItemPosition? nextPosition;
-                        if (nextIndex < widget.sections.length) {
-                          for (final p in positions) {
-                            if (p.index == nextIndex) {
-                              nextPosition = p;
-                              break;
-                            }
-                          }
-                        }
-
-                        double translateY = 0;
-                        if (nextPosition != null) {
-                          final nextTopPx =
-                              nextPosition.itemLeadingEdge * constraints.maxHeight;
-                          if (nextTopPx < stickyHeaderHeight) {
-                            translateY = nextTopPx - stickyHeaderHeight;
-                          }
-                        }
-
-                        if (!showSticky) {
-                          return const SizedBox.shrink();
-                        }
-
-                        return IgnorePointer(
-                          child: Transform.translate(
-                            offset: Offset(0, translateY),
-                            child: Container(
-                              height: stickyHeaderHeight,
-                              width: double.infinity,
-                              color: Colors.black,
-                              alignment: Alignment.centerLeft,
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              child: Text(
-                                widget.sections[activeChip].title,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                ],
+              _sectionKeys[index] = _sectionKeys[index] ?? GlobalKey();
+              final section = widget.sections[index];
+              return KeyedSubtree(
+                key: _sectionKeys[index],
+                child: _SectionBlock(section: section),
               );
             },
           ),
@@ -5758,10 +5650,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               expandedHeight: 300,
               automaticallyImplyLeading: false,
               titleSpacing: 0,
-              leading: IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => Navigator.maybePop(context),
-              ),
               title: Text(
                 name,
                 maxLines: 1,
