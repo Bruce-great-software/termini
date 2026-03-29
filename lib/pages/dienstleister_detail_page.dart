@@ -743,7 +743,6 @@ class LinkedChipsWithSections extends StatefulWidget {
 
 class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
   late int activeChip;
-  final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _sectionKeys = <int, GlobalKey>{};
 
   @override
@@ -759,10 +758,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
   }
 
   @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
+  void dispose() => super.dispose();
 
   Future<void> _scrollTo(int index) async {
     if (widget.sections.isEmpty) return;
@@ -779,60 +775,99 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
     );
   }
 
+  void _updateActiveChipFromScroll() {
+    if (!mounted || widget.sections.isEmpty) return;
+    int bestIndex = activeChip;
+    double bestDistance = double.infinity;
+
+    for (int i = 0; i < widget.sections.length; i++) {
+      final ctx = _sectionKeys[i]?.currentContext;
+      if (ctx == null) continue;
+      final box = ctx.findRenderObject() as RenderBox?;
+      if (box == null || !box.attached) continue;
+      final dy = box.localToGlobal(Offset.zero).dy;
+      final distance = (dy - 180).abs();
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = i;
+      }
+    }
+
+    if (bestIndex != activeChip) {
+      setState(() => activeChip = bestIndex);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        SizedBox(
-          height: 48,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: EdgeInsets.zero,
-            itemCount: widget.sections.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (context, i) {
-              final title = widget.sections[i].title;
-              final sel = activeChip == i;
-              return ChoiceChip(
-                label: Text(title),
-                selected: sel,
-                onSelected: (_) => _scrollTo(i),
-                selectedColor: Colors.black,
-                backgroundColor: Colors.white,
-                labelStyle: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: sel ? Colors.white : Colors.black,
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        if (notification is ScrollUpdateNotification ||
+            notification is UserScrollNotification) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _updateActiveChipFromScroll();
+          });
+        }
+        return false;
+      },
+      child: CustomScrollView(
+        primary: true,
+        slivers: [
+          SliverPersistentHeader(
+            pinned: true,
+            delegate: _PinnedHeaderDelegate(
+              minHeight: 56,
+              maxHeight: 56,
+              child: Container(
+                color: Colors.white,
+                alignment: Alignment.centerLeft,
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: widget.sections.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, i) {
+                    final title = widget.sections[i].title;
+                    final sel = activeChip == i;
+                    return ChoiceChip(
+                      label: Text(title),
+                      selected: sel,
+                      onSelected: (_) => _scrollTo(i),
+                      selectedColor: Colors.black,
+                      backgroundColor: Colors.white,
+                      labelStyle: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: sel ? Colors.white : Colors.black,
+                      ),
+                      shape: StadiumBorder(
+                        side: BorderSide(
+                          color: sel ? Colors.black : Colors.black54,
+                        ),
+                      ),
+                    );
+                  },
                 ),
-                shape: StadiumBorder(
-                  side: BorderSide(
-                    color: sel ? Colors.black : Colors.black54,
-                  ),
-                ),
-              );
-            },
+              ),
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: ListView.builder(
-            controller: _scrollController,
-            primary: false,
-            itemCount: widget.sections.length + 1,
-            itemBuilder: (context, index) {
-              if (index == widget.sections.length) {
-                return SizedBox(height: widget.extraBottom);
-              }
-
-              _sectionKeys[index] = _sectionKeys[index] ?? GlobalKey();
-              final section = widget.sections[index];
-              return KeyedSubtree(
-                key: _sectionKeys[index],
-                child: _SectionBlock(section: section),
-              );
-            },
+          for (int index = 0; index < widget.sections.length; index++)
+            SliverToBoxAdapter(
+              child: Builder(
+                builder: (context) {
+                  _sectionKeys[index] = _sectionKeys[index] ?? GlobalKey();
+                  final section = widget.sections[index];
+                  return KeyedSubtree(
+                    key: _sectionKeys[index],
+                    child: _SectionBlock(section: section),
+                  );
+                },
+              ),
+            ),
+          SliverToBoxAdapter(
+            child: SizedBox(height: widget.extraBottom),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -5649,6 +5684,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               pinned: true,
               expandedHeight: 300,
               automaticallyImplyLeading: false,
+              leading: IconButton(
+                tooltip: 'Zurück',
+                icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                onPressed: () => Navigator.of(context).maybePop(),
+              ),
               titleSpacing: 0,
               title: Text(
                 name,
@@ -7234,8 +7274,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             // Inhalt + fixierte Bottom-Bar
             return Stack(
               children: [
-                const LinkedChipsWithSections(sections: []),
-
                 LinkedChipsWithSections(
                   sections: sections,
                   initialIndex: initialIndex,
