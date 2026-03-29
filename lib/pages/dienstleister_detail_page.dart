@@ -1083,9 +1083,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   }
 
   Widget _buildExpandedLogoArea({
-    required String name,
     required String logoUrl,
-    required User? user,
   }) {
     final double topInset = MediaQuery.of(context).padding.top;
 
@@ -1104,44 +1102,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           fit: StackFit.expand,
           children: [
             Container(color: Colors.white),
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: topInset + kToolbarHeight,
-              child: const ColoredBox(
-                color: Color(0xFF4A86E8),
-              ),
-            ),
-            Positioned(
-              top: topInset,
-              left: 56,
-              right: 56,
-              height: kToolbarHeight,
-              child: Center(
-                child: Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 31,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              top: topInset,
-              right: 8,
-              height: kToolbarHeight,
-              child: Center(
-                child: user == null
-                    ? const Icon(Icons.favorite, color: Color(0xFFFF5A5F))
-                    : _buildFavoriteIconButton(user: user),
-              ),
-            ),
             SafeArea(
               bottom: false,
               child: Padding(
@@ -5709,15 +5669,24 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 onPressed: () => Navigator.of(context).maybePop(),
               ),
               titleSpacing: 0,
-              title: null,
+              title: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
               centerTitle: true,
-              actions: const [],
+              actions: [
+                user == null
+                    ? const Padding(
+                  padding: EdgeInsets.only(right: 8),
+                  child: Icon(Icons.favorite, color: Color(0xFFFF5A5F)),
+                )
+                    : _buildFavoriteIconButton(user: user),
+              ],
               flexibleSpace: FlexibleSpaceBar(
-                background: _buildExpandedLogoArea(
-                  name: name,
-                  logoUrl: logoUrl,
-                  user: user,
-                ),
+                collapseMode: CollapseMode.pin,
+                background: _buildExpandedLogoArea(logoUrl: logoUrl),
               ),
             ),
             SliverPersistentHeader(
