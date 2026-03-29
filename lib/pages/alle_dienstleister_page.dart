@@ -11,6 +11,7 @@ import 'package:geocoding/geocoding.dart';
 import '../services/location_service.dart';
 import '../widgets/dienstleister_tile.dart';
 import 'dienstleister_detail_page.dart';
+import 'kunden_favoriten_page.dart';
 import 'login_register_page.dart';
 import 'kunden_profil_page.dart';
 
@@ -1566,7 +1567,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           ],
         );
       case 1:
-        return const Center(child: Text('Favoriten kommen bald!'));
+        return const KundenFavoritenPage();
       case 2:
         return const Center(child: Text('Buchungen kommen bald!'));
       case 3:
@@ -2101,7 +2102,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         backgroundColor: Colors.blueAccent,
         centerTitle: true,
         title: Text(
-          currentCity != null ? currentCity! : 'Ort wird geladen...',
+          geoeffneterDienstleister != null
+              ? ''
+              : (currentCity != null ? currentCity! : 'Ort wird geladen...'),
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,

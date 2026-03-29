@@ -2,7 +2,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:flutter/cupertino.dart';
 import 'login_register_page.dart';
 import 'package:termini/widgets/angebote_view.dart';
@@ -743,14 +742,9 @@ class LinkedChipsWithSections extends StatefulWidget {
 }
 
 class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
-  final itemScrollController = ItemScrollController();
-  final itemPositionsListener = ItemPositionsListener.create();
-  final chipScrollController = ItemScrollController();
-
   late int activeChip;
-  bool _programmaticScroll = false;
-
-  int get _spacerIndex => widget.sections.length;
+  final ScrollController _scrollController = ScrollController();
+  final Map<int, GlobalKey> _sectionKeys = <int, GlobalKey>{};
 
   @override
   void initState() {
@@ -760,64 +754,29 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
         : 0;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (activeChip != 0) {
-        _scrollTo(activeChip);
-      } else {
-        _scrollChipTo(activeChip);
-      }
-    });
-
-    const double kTopTolerance = 0.02;
-    itemPositionsListener.itemPositions.addListener(() {
-      if (_programmaticScroll) return;
-      final positions = itemPositionsListener.itemPositions.value;
-      if (positions.isEmpty) return;
-
-      final visible = positions.where((p) => p.index < widget.sections.length).toList();
-      if (visible.isEmpty) return;
-
-      final atTopOrBeyond = visible.where((p) => p.itemLeadingEdge <= kTopTolerance).toList();
-
-      int? idx;
-      if (atTopOrBeyond.isNotEmpty) {
-        final best = atTopOrBeyond.reduce((a, b) => a.index > b.index ? a : b);
-        idx = best.index;
-      } else {
-        idx = null;
-      }
-
-      if (idx != null && idx != activeChip) {
-        setState(() => activeChip = idx!);
-        _scrollChipTo(activeChip);
-      }
+      if (activeChip != 0) _scrollTo(activeChip);
     });
   }
 
-  Future<void> _scrollChipTo(int index) async {
-    if (!chipScrollController.isAttached) return;
-    await chipScrollController.scrollTo(
-      index: index,
-      alignment: 0.0,
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOutCubic,
-    );
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _scrollTo(int index) async {
-    final clamped = index.clamp(0, widget.sections.length - 1);
+    if (widget.sections.isEmpty) return;
+    final int clamped = index.clamp(0, widget.sections.length - 1);
     setState(() => activeChip = clamped);
-    _scrollChipTo(clamped);
-
-    _programmaticScroll = true;
-    try {
-      await itemScrollController.scrollTo(
-        index: clamped,
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOutCubic,
-      );
-    } finally {
-      _programmaticScroll = false;
-    }
+    final targetKey = _sectionKeys[clamped];
+    final targetContext = targetKey?.currentContext;
+    if (targetContext == null) return;
+    await Scrollable.ensureVisible(
+      targetContext,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+      alignment: 0.02,
+    );
   }
 
   @override
@@ -826,29 +785,27 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
       children: [
         SizedBox(
           height: 48,
-          child: ScrollablePositionedList.builder(
+          child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            itemScrollController: chipScrollController,
+            padding: EdgeInsets.zero,
             itemCount: widget.sections.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
             itemBuilder: (context, i) {
               final title = widget.sections[i].title;
               final sel = activeChip == i;
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: ChoiceChip(
-                  label: Text(title),
-                  selected: sel,
-                  onSelected: (_) => _scrollTo(i),
-                  selectedColor: Colors.black,
-                  backgroundColor: Colors.white,
-                  labelStyle: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: sel ? Colors.white : Colors.black,
-                  ),
-                  shape: StadiumBorder(
-                    side: BorderSide(
-                      color: sel ? Colors.black : Colors.black54,
-                    ),
+              return ChoiceChip(
+                label: Text(title),
+                selected: sel,
+                onSelected: (_) => _scrollTo(i),
+                selectedColor: Colors.black,
+                backgroundColor: Colors.white,
+                labelStyle: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: sel ? Colors.white : Colors.black,
+                ),
+                shape: StadiumBorder(
+                  side: BorderSide(
+                    color: sel ? Colors.black : Colors.black54,
                   ),
                 ),
               );
@@ -856,86 +813,21 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
           ),
         ),
         const SizedBox(height: 8),
-
         Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              const double stickyHeaderHeight = 44;
+          child: ListView.builder(
+            controller: _scrollController,
+            primary: false,
+            itemCount: widget.sections.length + 1,
+            itemBuilder: (context, index) {
+              if (index == widget.sections.length) {
+                return SizedBox(height: widget.extraBottom);
+              }
 
-              return Stack(
-                children: [
-                  ScrollablePositionedList.builder(
-                    itemScrollController: itemScrollController,
-                    itemPositionsListener: itemPositionsListener,
-                    itemCount: widget.sections.length + 1,
-                    itemBuilder: (context, index) {
-                      if (index == _spacerIndex) {
-                        return SizedBox(height: widget.extraBottom);
-                      }
-                      final section = widget.sections[index];
-                      return _SectionBlock(section: section);
-                    },
-                  ),
-                  if (widget.sections.isNotEmpty)
-                    ValueListenableBuilder<Iterable<ItemPosition>>(
-                      valueListenable: itemPositionsListener.itemPositions,
-                      builder: (_, positions, __) {
-                        ItemPosition? currentPosition;
-                        for (final p in positions) {
-                          if (p.index == activeChip) {
-                            currentPosition = p;
-                            break;
-                          }
-                        }
-                        final showSticky =
-                            currentPosition != null && currentPosition.itemLeadingEdge < 0;
-
-                        final nextIndex = activeChip + 1;
-                        ItemPosition? nextPosition;
-                        if (nextIndex < widget.sections.length) {
-                          for (final p in positions) {
-                            if (p.index == nextIndex) {
-                              nextPosition = p;
-                              break;
-                            }
-                          }
-                        }
-
-                        double translateY = 0;
-                        if (nextPosition != null) {
-                          final nextTopPx =
-                              nextPosition.itemLeadingEdge * constraints.maxHeight;
-                          if (nextTopPx < stickyHeaderHeight) {
-                            translateY = nextTopPx - stickyHeaderHeight;
-                          }
-                        }
-
-                        if (!showSticky) {
-                          return const SizedBox.shrink();
-                        }
-
-                        return IgnorePointer(
-                          child: Transform.translate(
-                            offset: Offset(0, translateY),
-                            child: Container(
-                              height: stickyHeaderHeight,
-                              width: double.infinity,
-                              color: Colors.black,
-                              alignment: Alignment.centerLeft,
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              child: Text(
-                                widget.sections[activeChip].title,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                ],
+              _sectionKeys[index] = _sectionKeys[index] ?? GlobalKey();
+              final section = widget.sections[index];
+              return KeyedSubtree(
+                key: _sectionKeys[index],
+                child: _SectionBlock(section: section),
               );
             },
           ),
@@ -973,6 +865,37 @@ class _SectionBlock extends StatelessWidget {
   }
 }
 
+class _PinnedHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final double minHeight;
+  final double maxHeight;
+  final Widget child;
+
+  _PinnedHeaderDelegate({
+    required this.minHeight,
+    required this.maxHeight,
+    required this.child,
+  });
+
+  @override
+  double get minExtent => minHeight;
+
+  @override
+  double get maxExtent => maxHeight;
+
+  @override
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return SizedBox.expand(child: child);
+  }
+
+  @override
+  bool shouldRebuild(covariant _PinnedHeaderDelegate oldDelegate) {
+    return minHeight != oldDelegate.minHeight ||
+        maxHeight != oldDelegate.maxHeight ||
+        child != oldDelegate.child;
+  }
+}
+
 /// ---------------------------------------------------------------
 /// Detailseite
 /// ---------------------------------------------------------------
@@ -996,6 +919,7 @@ class DienstleisterDetailPage extends StatefulWidget {
 
 class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String _zielgruppe = 'Damen';
+  bool _isFavoriteUpdating = false;
 
   /// Auswahl als ValueNotifier -> verhindert kompletten Rebuild der Liste
   final ValueNotifier<Map<String, _CartItem>> _selectedVN =
@@ -1049,6 +973,185 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     _bookingLoginEmailController.dispose();
     _bookingLoginPasswordController.dispose();
     super.dispose();
+  }
+
+  String get _dienstleisterId {
+    final dynamic explicitId = widget.dienstleister['dienstleisterId'];
+    if (explicitId is String && explicitId.trim().isNotEmpty) {
+      return explicitId.trim();
+    }
+
+    final dynamic fallbackId = widget.dienstleister['id'];
+    if (fallbackId is String && fallbackId.trim().isNotEmpty) {
+      return fallbackId.trim();
+    }
+
+    return '';
+  }
+
+  Future<void> _toggleFavorite({
+    required String userId,
+    required bool isCurrentlyFavorite,
+  }) async {
+    if (_isFavoriteUpdating || _dienstleisterId.isEmpty) return;
+
+    setState(() => _isFavoriteUpdating = true);
+    try {
+      final userRef = FirebaseFirestore.instance.collection('users').doc(userId);
+      await userRef.set(
+        {
+          'favoriten': isCurrentlyFavorite
+              ? FieldValue.arrayRemove([_dienstleisterId])
+              : FieldValue.arrayUnion([_dienstleisterId]),
+        },
+        SetOptions(merge: true),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Favorit konnte nicht aktualisiert werden.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isFavoriteUpdating = false);
+    }
+  }
+
+  Widget _buildFavoriteIconButton({required User user}) {
+    if (_dienstleisterId.isEmpty) {
+      return const Icon(Icons.favorite_border, color: Colors.black45);
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots(),
+      builder: (context, snapshot) {
+        final List<dynamic> favRaw =
+            (snapshot.data?.data()?['favoriten'] as List<dynamic>?) ?? const [];
+        final bool isFavorite = favRaw.map((e) => e.toString()).contains(_dienstleisterId);
+
+        return IconButton(
+          tooltip: 'Favorit umschalten',
+          onPressed: _isFavoriteUpdating
+              ? null
+              : () => _toggleFavorite(
+            userId: user.uid,
+            isCurrentlyFavorite: isFavorite,
+          ),
+          icon: Icon(
+            isFavorite ? Icons.favorite : Icons.favorite_border,
+            color: isFavorite ? Colors.redAccent : Colors.black54,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildExpandedLogoArea({
+    required String name,
+    required String logoUrl,
+  }) {
+    final double topInset = MediaQuery.of(context).padding.top;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double currentHeight = constraints.maxHeight;
+        const double minHeight = kToolbarHeight;
+        const double maxHeight = 300.0;
+        final double progress = ((currentHeight - minHeight) / (maxHeight - minHeight))
+            .clamp(0.0, 1.0);
+
+        final double imageScale = 0.70 + (0.30 * progress);
+        final double imageOpacity = 0.25 + (0.75 * progress);
+        final double titleOpacity = (1.0 - progress).clamp(0.0, 1.0);
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Container(color: Colors.white),
+            SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(16, topInset + 40, 16, 14),
+                child: Transform.scale(
+                  scale: imageScale,
+                  alignment: Alignment.topCenter,
+                  child: Opacity(
+                    opacity: imageOpacity,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: AspectRatio(
+                        aspectRatio: 16 / 9,
+                        child: logoUrl.isNotEmpty
+                            ? Image.network(
+                          logoUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            color: const Color(0xFFF3F4F6),
+                            alignment: Alignment.center,
+                            child: const Icon(
+                              Icons.storefront,
+                              color: Colors.black54,
+                              size: 56,
+                            ),
+                          ),
+                        )
+                            : Container(
+                          color: const Color(0xFFF3F4F6),
+                          alignment: Alignment.center,
+                          child: const Icon(
+                            Icons.storefront,
+                            color: Colors.black54,
+                            size: 56,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Opacity(
+                  opacity: titleOpacity,
+                  child: Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildZielgruppenStickyBar() {
+    return Container(
+      color: Colors.white,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.only(top: 6, bottom: 8),
+      child: CupertinoSegmentedControl<String>(
+        children: _zielgruppenSegments(),
+        groupValue: _zielgruppe,
+        onValueChanged: (v) => setState(() => _zielgruppe = v),
+        borderColor: const Color(0xFF1A1A1A),
+        selectedColor: Colors.black,
+        unselectedColor: Colors.white,
+        pressedColor: const Color(0xFFECECEC),
+        padding: EdgeInsets.zero,
+      ),
+    );
   }
 
   String? _mapGeschlechtZuZielgruppe(String? geschlechtRaw) {
@@ -5523,47 +5626,65 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final String dienstleisterId = widget.dienstleister['id'] as String;
+    final String dienstleisterId = _dienstleisterId;
+    final String name =
+        ((widget.dienstleister['name'] as String?)?.trim().isNotEmpty ?? false)
+            ? (widget.dienstleister['name'] as String).trim()
+            : 'Profil';
+    final String logoUrl =
+        ((widget.dienstleister['logoUrl'] as String?)?.trim().isNotEmpty ?? false)
+            ? (widget.dienstleister['logoUrl'] as String).trim()
+            : '';
+    final User? user = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.black),
-        title: CupertinoSegmentedControl<String>(
-          children: _zielgruppenSegments(),
-          groupValue: _zielgruppe,
-          onValueChanged: (v) => setState(() => _zielgruppe = v),
-          borderColor: const Color(0xFF1A1A1A),
-          selectedColor: Colors.black,
-          unselectedColor: Colors.white,
-          pressedColor: const Color(0xFFECECEC),
-          padding: EdgeInsets.zero,
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(40),
-          child: Container(
-            width: double.infinity,
-            color: Colors.white,
-            padding: const EdgeInsets.only(bottom: 8.0),
-            alignment: Alignment.center,
-            child: Text(
-              (widget.dienstleister['name'] as String?) ?? 'Profil',
-              style: const TextStyle(
-                color: Colors.black,
-                fontWeight: FontWeight.bold,
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) {
+          return [
+            SliverAppBar(
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.black,
+              surfaceTintColor: Colors.white,
+              elevation: innerBoxIsScrolled ? 0.5 : 0,
+              pinned: true,
+              expandedHeight: 300,
+              automaticallyImplyLeading: false,
+              titleSpacing: 0,
+              title: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              centerTitle: true,
+              actions: [
+                user == null
+                    ? const Padding(
+                  padding: EdgeInsets.only(right: 8),
+                  child: Icon(Icons.favorite_border, color: Colors.black45),
+                )
+                    : _buildFavoriteIconButton(user: user),
+              ],
+              flexibleSpace: FlexibleSpaceBar(
+                background: _buildExpandedLogoArea(name: name, logoUrl: logoUrl),
               ),
             ),
-          ),
-        ),
-      ),
-      body: AngeboteView(
-        angeboteStream: FirebaseFirestore.instance
-            .collection('angebote')
-            .where('dienstleisterId', isEqualTo: dienstleisterId)
-            .snapshots(),
-        builder: (context, docs) {
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: _PinnedHeaderDelegate(
+                minHeight: 58,
+                maxHeight: 58,
+                child: _buildZielgruppenStickyBar(),
+              ),
+            ),
+          ];
+        },
+        body: AngeboteView(
+              angeboteStream: FirebaseFirestore.instance
+                  .collection('angebote')
+                  .where('dienstleisterId', isEqualTo: dienstleisterId)
+                  .snapshots(),
+              builder: (context, docs) {
           // ---- Docs in Modelle umwandeln, Singles/Bundles trennen ----
           final all = docs.map((d) => Offer.fromDoc(d)).toList();
 
@@ -7176,7 +7297,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               ),
             ],
           );
-        },
+              },
+            ),
+      ),
       ),
     );
   }
