@@ -11,6 +11,7 @@ import 'package:geocoding/geocoding.dart';
 import '../services/location_service.dart';
 import '../widgets/dienstleister_tile.dart';
 import 'dienstleister_detail_page.dart';
+import 'kunden_favoriten_page.dart';
 import 'kunden_termine_page.dart';
 import 'login_register_page.dart';
 import 'kunden_profil_page.dart';
@@ -611,6 +612,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   bool filterChipOffen = false;
   Map<String, dynamic>? geoeffneterDienstleister;
+  bool _dienstleisterFavorisiert = false;
+  final Set<String> _favoritenIds = <String>{};
 
   @override
   void initState() {
@@ -664,7 +667,64 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       onOpenAppSettings: () => AppSettings.openAppSettings(),
     );
     await _ermittleOrtAusKoordinaten();
+    await _ladeFavoriten();
     setState(() => isLoading = false);
+  }
+
+  String? get _aktuellerUserId => FirebaseAuth.instance.currentUser?.uid;
+
+  Future<void> _ladeFavoriten() async {
+    final userId = _aktuellerUserId;
+    if (userId == null) return;
+
+    final userSnap =
+    await FirebaseFirestore.instance.collection('users').doc(userId).get();
+    final favoritenRaw = userSnap.data()?['favoriten'];
+
+    final favoritIds = <String>{};
+    if (favoritenRaw is Map) {
+      favoritIds.addAll(
+        favoritenRaw.entries
+            .where((e) => e.value == true)
+            .map((e) => e.key.toString())
+            .where((id) => id.trim().isNotEmpty),
+      );
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _favoritenIds
+        ..clear()
+        ..addAll(favoritIds);
+      final aktuelleId = (geoeffneterDienstleister?['id'] ?? '').toString();
+      _dienstleisterFavorisiert =
+          aktuelleId.isNotEmpty && _favoritenIds.contains(aktuelleId);
+    });
+  }
+
+  Future<void> _setFavoritStatus({
+    required String dienstleisterId,
+    required bool isFavorit,
+  }) async {
+    final userId = _aktuellerUserId;
+    if (userId == null || dienstleisterId.trim().isEmpty) return;
+
+    await FirebaseFirestore.instance.collection('users').doc(userId).update({
+      'favoriten.$dienstleisterId': isFavorit ? true : FieldValue.delete(),
+    });
+
+    if (!mounted) return;
+    setState(() {
+      if (isFavorit) {
+        _favoritenIds.add(dienstleisterId);
+      } else {
+        _favoritenIds.remove(dienstleisterId);
+      }
+      final aktuelleId = (geoeffneterDienstleister?['id'] ?? '').toString();
+      if (aktuelleId == dienstleisterId) {
+        _dienstleisterFavorisiert = isFavorit;
+      }
+    });
   }
 
   Future<void> _ladeZielgruppenUndKategorien() async {
@@ -1577,7 +1637,23 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           ],
         );
       case 1:
-        return const Center(child: Text('Favoriten kommen bald!'));
+        final userId = _aktuellerUserId;
+        if (userId == null) return const LoginRegisterPage();
+        return KundenFavoritenPage(
+          userId: userId,
+          onFavoritStatusChanged: (dienstleisterId, isFavorit) =>
+              _setFavoritStatus(
+                dienstleisterId: dienstleisterId,
+                isFavorit: isFavorit,
+              ),
+          onOpenDienstleister: (dienstleister) {
+            setState(() {
+              _selectedIndex = 0;
+              geoeffneterDienstleister = dienstleister;
+              _dienstleisterFavorisiert = true;
+            });
+          },
+        );
       case 2:
         return const KundenTerminePage();
       case 3:
@@ -2085,8 +2161,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                   matchedOffers:
                   (data['matchedOffers'] as List<Map<String, dynamic>>?),
                   onTap: () {
+                    final id = (data['id'] ?? '').toString();
                     setState(() {
                       geoeffneterDienstleister = data;
+                      _dienstleisterFavorisiert = _favoritenIds.contains(id);
                     });
                   },
                 );
@@ -2128,9 +2206,31 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           onPressed: () {
             setState(() {
               geoeffneterDienstleister = null;
+              _dienstleisterFavorisiert = false;
             });
           },
         )
+            : null,
+        actions: geoeffneterDienstleister != null
+            ? [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: IconButton(
+              onPressed: () {
+                final dienstleisterId =
+                (geoeffneterDienstleister?['id'] ?? '').toString();
+                final next = !_dienstleisterFavorisiert;
+                _setFavoritStatus(
+                  dienstleisterId: dienstleisterId,
+                  isFavorit: next,
+                );
+              },
+              icon: _dienstleisterFavorisiert
+                  ? const Icon(Icons.favorite, color: Colors.red)
+                  : const Icon(Icons.favorite_border, color: Colors.black),
+            ),
+          ),
+        ]
             : null,
       ),
       body: _buildBodyByIndex(_selectedIndex),
@@ -2140,6 +2240,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         onTap: (index) {
           setState(() {
             geoeffneterDienstleister = null;
+            _dienstleisterFavorisiert = false;
             _selectedIndex = index;
           });
         },
