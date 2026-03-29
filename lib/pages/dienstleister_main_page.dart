@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 
 import 'alle_dienstleister_page.dart';
 import 'dienstleister_angebote_page.dart';
+import 'dienstleister_bilder_page.dart';
 import 'dienstleister_edit_page.dart';
 import 'dienstleister_kalender_page.dart';
 
@@ -54,6 +55,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
 
   int _selectedIndex = 0;
   int _selectedHomeSidebarIndex = 0;
+  int _selectedProfilSidebarIndex = 0;
   String? dienstleisterName;
   String? _selectedMitarbeiterId;
   String? _selectedOeffnungszeitenTagKey;
@@ -130,6 +132,9 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       if (index != 0) {
         _selectedHomeSidebarIndex = 0;
       }
+      if (index != 3) {
+        _selectedProfilSidebarIndex = 0;
+      }
     });
   }
 
@@ -137,6 +142,13 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     setState(() {
       _selectedIndex = 0;
       _selectedHomeSidebarIndex = index;
+    });
+  }
+
+  void _onProfilSidebarTapped(int index) {
+    setState(() {
+      _selectedIndex = 3;
+      _selectedProfilSidebarIndex = index;
     });
   }
 
@@ -221,7 +233,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       _buildCurrentHomeContent(),
       DienstleisterKalenderPage(dienstleisterId: widget.dienstleisterId),
       const DienstleisterAngebotePage(showScaffold: false),
-      _buildProfilPage(),
+      _buildCurrentProfilContent(),
     ];
     final sidebarItems = _buildSidebarItems();
 
@@ -286,7 +298,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       case 2:
         return 'Leistungen';
       case 3:
-        return 'Profil';
+        return _selectedProfilSidebarIndex == 1 ? 'Bilder' : 'Profil';
       default:
         return '';
     }
@@ -350,12 +362,28 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           _SidebarItemData(
             title: 'Profil',
             icon: Icons.person_outline,
-            isSelected: true,
-            onTap: () => _onTabTapped(3),
+            isSelected: _selectedProfilSidebarIndex == 0,
+            onTap: () => _onProfilSidebarTapped(0),
+          ),
+          _SidebarItemData(
+            title: 'Bilder',
+            icon: Icons.photo_library_outlined,
+            isSelected: _selectedProfilSidebarIndex == 1,
+            onTap: () => _onProfilSidebarTapped(1),
           ),
         ];
       default:
         return const [];
+    }
+  }
+
+  Widget _buildCurrentProfilContent() {
+    switch (_selectedProfilSidebarIndex) {
+      case 1:
+        return const DienstleisterBilderPage();
+      case 0:
+      default:
+        return _buildProfilPage();
     }
   }
 
@@ -369,6 +397,18 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   }
 
   Map<String, dynamic> _defaultOeffnungszeitenMap() {
+    return {
+      'montag': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
+      'dienstag': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
+      'mittwoch': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
+      'donnerstag': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
+      'freitag': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
+      'samstag': {'aktiv': false, 'von': '', 'bis': ''},
+      'sonntag': {'aktiv': false, 'von': '', 'bis': ''},
+    };
+  }
+
+  Map<String, dynamic> _defaultArbeitszeitenMap() {
     return {
       'montag': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
       'dienstag': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
@@ -405,7 +445,52 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     return normalized;
   }
 
+  Map<String, dynamic> _normalizeArbeitszeiten(Map<String, dynamic>? raw) {
+    final defaults = _defaultArbeitszeitenMap();
+    final source = raw ?? const <String, dynamic>{};
+    final normalized = <String, dynamic>{};
+
+    for (final tag in _tageDerWoche) {
+      final defaultTag =
+          Map<String, dynamic>.from(defaults[tag.key] as Map<String, dynamic>);
+      final currentValue = source[tag.key];
+      final currentTag = currentValue is Map
+          ? Map<String, dynamic>.from(currentValue as Map)
+          : const <String, dynamic>{};
+
+      normalized[tag.key] = {
+        'aktiv': currentTag['aktiv'] is bool
+            ? currentTag['aktiv']
+            : defaultTag['aktiv'],
+        'von': (currentTag['von'] as String?)?.trim() ?? defaultTag['von'],
+        'bis': (currentTag['bis'] as String?)?.trim() ?? defaultTag['bis'],
+      };
+    }
+
+    return normalized;
+  }
+
   bool _oeffnungszeitenNeedInitialization(Map<String, dynamic>? raw) {
+    if (raw == null) return true;
+
+    for (final tag in _tageDerWoche) {
+      final dayValue = raw[tag.key];
+      if (dayValue is! Map) {
+        return true;
+      }
+
+      final dayMap = Map<String, dynamic>.from(dayValue as Map);
+      if (dayMap['aktiv'] is! bool ||
+          dayMap['von'] is! String ||
+          dayMap['bis'] is! String) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool _arbeitszeitenNeedInitialization(Map<String, dynamic>? raw) {
     if (raw == null) return true;
 
     for (final tag in _tageDerWoche) {
@@ -445,6 +530,18 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
         setState(() => _isInitializingOeffnungszeiten = false);
       }
     }
+  }
+
+  Future<void> _ensureMitarbeiterArbeitszeitenInitialized({
+    required String docId,
+    required Map<String, dynamic>? raw,
+  }) async {
+    if (_arbeitszeitenNeedInitialization(raw) == false) return;
+
+    final normalized = _normalizeArbeitszeiten(raw);
+    await FirebaseFirestore.instance.collection('users').doc(docId).set({
+      'arbeitszeiten': normalized,
+    }, SetOptions(merge: true));
   }
 
   String _buildOeffnungszeitenSubtitle(_OeffnungszeitenTag tag) {
@@ -730,6 +827,12 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
         for (final doc in mitarbeiterDocs) {
           final data = doc.data();
           if (_selectedMitarbeiterId == doc.id) {
+            final rawArbeitszeiten = data['arbeitszeiten'];
+            final normalizedArbeitszeiten = _normalizeArbeitszeiten(
+              rawArbeitszeiten is Map
+                  ? Map<String, dynamic>.from(rawArbeitszeiten)
+                  : null,
+            );
             selectedMitarbeiter = _SelectedMitarbeiter(
               docId: doc.id,
               name: (data['name'] as String?)?.trim() ?? '',
@@ -737,7 +840,24 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
               profileImageUrl: (data['profileImageUrl'] as String?)?.trim(),
               profileImagePath: (data['profileImagePath'] as String?)?.trim(),
               kalenderFarbeValue: _resolveKalenderFarbeValue(data),
+              arbeitszeiten: normalizedArbeitszeiten,
             );
+
+            if (_arbeitszeitenNeedInitialization(
+              rawArbeitszeiten is Map
+                  ? Map<String, dynamic>.from(rawArbeitszeiten)
+                  : null,
+            )) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                _ensureMitarbeiterArbeitszeitenInitialized(
+                  docId: doc.id,
+                  raw: rawArbeitszeiten is Map
+                      ? Map<String, dynamic>.from(rawArbeitszeiten)
+                      : null,
+                );
+              });
+            }
           }
         }
 
@@ -1076,6 +1196,20 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             docId: selection.docId,
             farbeValue: farbeValue,
           ),
+          arbeitszeiten: selection.arbeitszeiten,
+          onArbeitszeitStatusChanged: (tagKey, aktiv) =>
+              _speichereMitarbeiterArbeitszeitStatus(
+            docId: selection.docId,
+            tagKey: tagKey,
+            aktiv: aktiv,
+          ),
+          onArbeitszeitZeitChanged: (tagKey, feld, zeit) =>
+              _speichereMitarbeiterArbeitszeitZeit(
+            docId: selection.docId,
+            tagKey: tagKey,
+            feld: feld,
+            zeit: zeit,
+          ),
           onDelete: () => _loescheMitarbeiter(
             docId: selection.docId,
             name: selection.name,
@@ -1395,6 +1529,55 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Die Kalenderfarbe konnte nicht gespeichert werden.'),
+        ),
+      );
+      return false;
+    }
+  }
+
+  Future<bool> _speichereMitarbeiterArbeitszeitStatus({
+    required String docId,
+    required String tagKey,
+    required bool aktiv,
+  }) async {
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(docId).set({
+        'arbeitszeiten': {
+          tagKey: {'aktiv': aktiv},
+        },
+      }, SetOptions(merge: true));
+
+      return true;
+    } catch (_) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Der Arbeitszeiten-Status konnte nicht gespeichert werden.'),
+        ),
+      );
+      return false;
+    }
+  }
+
+  Future<bool> _speichereMitarbeiterArbeitszeitZeit({
+    required String docId,
+    required String tagKey,
+    required String feld,
+    required String zeit,
+  }) async {
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(docId).set({
+        'arbeitszeiten': {
+          tagKey: {feld: zeit},
+        },
+      }, SetOptions(merge: true));
+
+      return true;
+    } catch (_) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Die Arbeitszeit konnte nicht gespeichert werden.'),
         ),
       );
       return false;
@@ -1735,6 +1918,7 @@ class _SelectedMitarbeiter {
     required this.name,
     required this.aktiv,
     required this.kalenderFarbeValue,
+    required this.arbeitszeiten,
     this.profileImageUrl,
     this.profileImagePath,
   });
@@ -1743,6 +1927,7 @@ class _SelectedMitarbeiter {
   final String name;
   final bool aktiv;
   final int kalenderFarbeValue;
+  final Map<String, dynamic> arbeitszeiten;
   final String? profileImageUrl;
   final String? profileImagePath;
 }
@@ -1773,6 +1958,18 @@ class _OeffnungszeitenTag {
   final String bis;
 }
 
+class _ArbeitszeitTagDefinition {
+  const _ArbeitszeitTagDefinition({
+    required this.key,
+    required this.label,
+    required this.shortLabel,
+  });
+
+  final String key;
+  final String label;
+  final String shortLabel;
+}
+
 class _MitarbeiterDetailSidebar extends StatefulWidget {
   const _MitarbeiterDetailSidebar({
     super.key,
@@ -1789,6 +1986,9 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
     required this.initialKalenderFarbeValue,
     required this.kalenderFarbPalette,
     required this.onKalenderFarbeChanged,
+    required this.arbeitszeiten,
+    required this.onArbeitszeitStatusChanged,
+    required this.onArbeitszeitZeitChanged,
     required this.onDelete,
     required this.onTakePhoto,
     required this.onUploadPhoto,
@@ -1808,6 +2008,11 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
   final int initialKalenderFarbeValue;
   final List<int> kalenderFarbPalette;
   final Future<bool> Function(int farbeValue) onKalenderFarbeChanged;
+  final Map<String, dynamic> arbeitszeiten;
+  final Future<bool> Function(String tagKey, bool aktiv)
+      onArbeitszeitStatusChanged;
+  final Future<bool> Function(String tagKey, String feld, String zeit)
+      onArbeitszeitZeitChanged;
   final Future<bool> Function() onDelete;
   final Future<void> Function() onTakePhoto;
   final Future<void> Function() onUploadPhoto;
@@ -1819,14 +2024,31 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
 }
 
 class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
+  static const List<_ArbeitszeitTagDefinition> _arbeitszeitTage = [
+    _ArbeitszeitTagDefinition(key: 'montag', label: 'Montag', shortLabel: 'Mo'),
+    _ArbeitszeitTagDefinition(key: 'dienstag', label: 'Dienstag', shortLabel: 'Di'),
+    _ArbeitszeitTagDefinition(key: 'mittwoch', label: 'Mittwoch', shortLabel: 'Mi'),
+    _ArbeitszeitTagDefinition(
+      key: 'donnerstag',
+      label: 'Donnerstag',
+      shortLabel: 'Do',
+    ),
+    _ArbeitszeitTagDefinition(key: 'freitag', label: 'Freitag', shortLabel: 'Fr'),
+    _ArbeitszeitTagDefinition(key: 'samstag', label: 'Samstag', shortLabel: 'Sa'),
+    _ArbeitszeitTagDefinition(key: 'sonntag', label: 'Sonntag', shortLabel: 'So'),
+  ];
+
   late final TextEditingController _nameController;
   late String _initialName;
   late bool _istAktiv;
   late int _kalenderFarbeValue;
+  late Map<String, dynamic> _arbeitszeiten;
   bool _isNameSaving = false;
   bool _isStatusSaving = false;
   bool _isColorSaving = false;
   bool _isDeleting = false;
+  bool _zeigtArbeitszeitenPanel = false;
+  final Set<String> _arbeitszeitSavingKeys = <String>{};
 
   bool get _hasNameChanged =>
       _nameController.text.trim() != _initialName.trim();
@@ -1834,6 +2056,135 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
   String get _deleteDialogName {
     final name = _initialName.trim();
     return name.isEmpty ? 'Unbenannt' : name;
+  }
+
+  Map<String, dynamic> _normalizeArbeitszeiten(Map<String, dynamic>? raw) {
+    const defaults = <String, Map<String, dynamic>>{
+      'montag': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
+      'dienstag': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
+      'mittwoch': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
+      'donnerstag': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
+      'freitag': {'aktiv': true, 'von': '09:00', 'bis': '18:00'},
+      'samstag': {'aktiv': false, 'von': '', 'bis': ''},
+      'sonntag': {'aktiv': false, 'von': '', 'bis': ''},
+    };
+
+    final source = raw ?? const <String, dynamic>{};
+    final normalized = <String, dynamic>{};
+
+    for (final tag in _arbeitszeitTage) {
+      final fallback = defaults[tag.key]!;
+      final current = source[tag.key];
+      final currentMap = current is Map
+          ? Map<String, dynamic>.from(current as Map)
+          : const <String, dynamic>{};
+
+      normalized[tag.key] = {
+        'aktiv': currentMap['aktiv'] is bool ? currentMap['aktiv'] : fallback['aktiv'],
+        'von': (currentMap['von'] as String?)?.trim() ?? (fallback['von'] as String),
+        'bis': (currentMap['bis'] as String?)?.trim() ?? (fallback['bis'] as String),
+      };
+    }
+
+    return normalized;
+  }
+
+  String _arbeitszeitenPreviewText() {
+    final lines = <String>[];
+    for (final tag in _arbeitszeitTage) {
+      final map = Map<String, dynamic>.from(
+        (_arbeitszeiten[tag.key] as Map?) ?? const <String, dynamic>{},
+      );
+      final aktiv = map['aktiv'] == true;
+      final von = (map['von'] as String?)?.trim() ?? '';
+      final bis = (map['bis'] as String?)?.trim() ?? '';
+      final zeitText =
+          aktiv && von.isNotEmpty && bis.isNotEmpty ? '$von–$bis' : 'Geschlossen';
+      lines.add('${tag.shortLabel}: $zeitText');
+    }
+    if (lines.isEmpty) return 'Nicht konfiguriert';
+    return lines.join('\n');
+  }
+
+  Future<void> _handleArbeitszeitStatusChanged({
+    required String tagKey,
+    required bool value,
+  }) async {
+    final savingKey = '$tagKey:aktiv';
+    if (_arbeitszeitSavingKeys.contains(savingKey)) return;
+
+    final vorher = Map<String, dynamic>.from(
+      (_arbeitszeiten[tagKey] as Map?) ?? const <String, dynamic>{},
+    );
+    setState(() {
+      _arbeitszeitSavingKeys.add(savingKey);
+      _arbeitszeiten[tagKey] = {
+        ...vorher,
+        'aktiv': value,
+      };
+    });
+
+    final ok = await widget.onArbeitszeitStatusChanged(tagKey, value);
+    if (!mounted) return;
+
+    if (!ok) {
+      setState(() {
+        _arbeitszeiten[tagKey] = vorher;
+      });
+    }
+    setState(() {
+      _arbeitszeitSavingKeys.remove(savingKey);
+    });
+  }
+
+  Future<void> _pickArbeitszeit({
+    required String tagKey,
+    required String feld,
+  }) async {
+    final map = Map<String, dynamic>.from(
+      (_arbeitszeiten[tagKey] as Map?) ?? const <String, dynamic>{},
+    );
+    final current = (map[feld] as String?)?.trim() ?? '09:00';
+    final parts = current.split(':');
+    final hour = parts.isNotEmpty ? int.tryParse(parts[0]) : 9;
+    final minute = parts.length > 1 ? int.tryParse(parts[1]) : 0;
+    final initial = TimeOfDay(
+      hour: hour == null ? 9 : hour.clamp(0, 23),
+      minute: minute == null ? 0 : minute.clamp(0, 59),
+    );
+
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: initial,
+    );
+    if (selected == null || !mounted) return;
+
+    final formatted =
+        '${selected.hour.toString().padLeft(2, '0')}:${selected.minute.toString().padLeft(2, '0')}';
+    final savingKey = '$tagKey:$feld';
+    if (_arbeitszeitSavingKeys.contains(savingKey)) return;
+
+    final vorher = Map<String, dynamic>.from(
+      (_arbeitszeiten[tagKey] as Map?) ?? const <String, dynamic>{},
+    );
+    setState(() {
+      _arbeitszeitSavingKeys.add(savingKey);
+      _arbeitszeiten[tagKey] = {
+        ...vorher,
+        feld: formatted,
+      };
+    });
+
+    final ok = await widget.onArbeitszeitZeitChanged(tagKey, feld, formatted);
+    if (!mounted) return;
+    if (!ok) {
+      setState(() {
+        _arbeitszeiten[tagKey] = vorher;
+      });
+    }
+    setState(() {
+      _arbeitszeitSavingKeys.remove(savingKey);
+    });
   }
 
   void _handleNameChanged() {
@@ -2030,6 +2381,452 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     );
   }
 
+  Widget _buildMitarbeiterHauptPanel({required bool hasProfileImage}) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _MitarbeiterSidebarSection(
+            title: 'Profilbild',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Color(_kalenderFarbeValue),
+                      width: 2,
+                    ),
+                  ),
+                  child: _MitarbeiterAvatar(
+                    radius: 42,
+                    name: widget.name,
+                    imageUrl: widget.profileImageUrl,
+                    imageBytes: widget.localProfileImageBytes,
+                    usePlaceholderIcon: true,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                PopupMenuButton<_ProfileImageMenuAction>(
+                  enabled: !widget.isProfileImageBusy,
+                  tooltip: 'Profilbild bearbeiten',
+                  onSelected: _handleProfileImageMenuSelection,
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: _ProfileImageMenuAction.takePhoto,
+                      child: ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.photo_camera_outlined),
+                        title: Text('Foto aufnehmen'),
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: _ProfileImageMenuAction.uploadPhoto,
+                      child: ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.upload_outlined),
+                        title: Text('Bild hochladen'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: _ProfileImageMenuAction.removePhoto,
+                      enabled: hasProfileImage,
+                      child: const ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.delete_outline),
+                        title: Text('Bild entfernen'),
+                      ),
+                    ),
+                  ],
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF3F4F6),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        widget.isProfileImageBusy
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.edit_outlined, size: 18),
+                        const SizedBox(width: 8),
+                        Text(
+                          widget.hasPendingProfileImage
+                              ? 'Bearbeiten fortsetzen'
+                              : 'Bearbeiten',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF111827),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _MitarbeiterSidebarSection(
+            title: 'Name',
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _nameController,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => _saveName(),
+                    decoration: const InputDecoration(
+                      hintText: 'Name des Mitarbeiters',
+                    ),
+                  ),
+                ),
+                _buildSaveAction(visible: _hasNameChanged),
+              ],
+            ),
+          ),
+          _MitarbeiterSidebarSection(
+            title: 'Status',
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 140),
+              curve: Curves.easeInOut,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: _istAktiv
+                    ? const Color(0x142EAD62)
+                    : const Color(0x14D92D20),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: _istAktiv
+                      ? const Color(0xFF2EAD62)
+                      : const Color(0xFFD92D20),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Switch(
+                    value: _istAktiv,
+                    onChanged: _isStatusSaving ? null : _handleStatusChanged,
+                    activeColor: Colors.white,
+                    activeTrackColor: const Color(0xFF2EAD62),
+                    inactiveThumbColor: Colors.white,
+                    inactiveTrackColor: const Color(0xFFD92D20),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  const SizedBox(width: 12),
+                  AnimatedDefaultTextStyle(
+                    duration: const Duration(milliseconds: 140),
+                    curve: Curves.easeInOut,
+                    style: Theme.of(context).textTheme.titleSmall!.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: _istAktiv
+                              ? const Color(0xFF1F7A42)
+                              : const Color(0xFFB42318),
+                        ),
+                    child: Text(_istAktiv ? 'Aktiv' : 'Inaktiv'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          _MitarbeiterSidebarSection(
+            title: 'Kalenderfarbe',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: widget.kalenderFarbPalette.map((farbeValue) {
+                    final farbe = Color(farbeValue);
+                    final isSelected = _kalenderFarbeValue == farbeValue;
+                    final iconColor =
+                        farbe.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
+
+                    return InkWell(
+                      onTap: _isColorSaving
+                          ? null
+                          : () => _handleColorSelected(farbeValue),
+                      borderRadius: BorderRadius.circular(999),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOutCubic,
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: farbe,
+                          border: Border.all(
+                            color: isSelected
+                                ? const Color(0xFF111827)
+                                : Colors.transparent,
+                            width: 2.2,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.12),
+                              blurRadius: 5,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: isSelected
+                            ? Icon(
+                                Icons.check,
+                                size: 18,
+                                color: iconColor,
+                              )
+                            : null,
+                      ),
+                    );
+                  }).toList(),
+                ),
+                if (_isColorSaving) ...[
+                  const SizedBox(height: 10),
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          _MitarbeiterSidebarSection(
+            title: 'Arbeitszeiten',
+            child: InkWell(
+              onTap: () => setState(() => _zeigtArbeitszeitenPanel = true),
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE5E7EB)),
+                  color: Colors.white,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 2),
+                      child: Icon(Icons.access_time, size: 18),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Arbeitszeiten',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF111827),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _arbeitszeitenPreviewText(),
+                            style: const TextStyle(
+                              color: Color(0xFF6B7280),
+                              fontSize: 12.5,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Padding(
+                      padding: EdgeInsets.only(top: 2),
+                      child: Icon(Icons.chevron_right),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildArbeitszeitenSubPanel() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+          child: Row(
+            children: [
+              IconButton(
+                onPressed: () => setState(() => _zeigtArbeitszeitenPanel = false),
+                icon: const Icon(Icons.arrow_back),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Arbeitszeiten',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.name.isNotEmpty ? widget.name : 'Unbenannt',
+                      style: const TextStyle(color: Colors.black54),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+            itemCount: _arbeitszeitTage.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final tag = _arbeitszeitTage[index];
+              final map = Map<String, dynamic>.from(
+                (_arbeitszeiten[tag.key] as Map?) ?? const <String, dynamic>{},
+              );
+              final aktiv = map['aktiv'] == true;
+              final von = (map['von'] as String?)?.trim() ?? '';
+              final bis = (map['bis'] as String?)?.trim() ?? '';
+              final isStatusSaving = _arbeitszeitSavingKeys.contains('${tag.key}:aktiv');
+              final isVonSaving = _arbeitszeitSavingKeys.contains('${tag.key}:von');
+              final isBisSaving = _arbeitszeitSavingKeys.contains('${tag.key}:bis');
+
+              return Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE5E7EB)),
+                  color: Colors.white,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            tag.label,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF111827),
+                            ),
+                          ),
+                        ),
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 140),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: aktiv
+                                ? const Color(0x142EAD62)
+                                : const Color(0x14D92D20),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: aktiv
+                                  ? const Color(0xFF2EAD62)
+                                  : const Color(0xFFD92D20),
+                            ),
+                          ),
+                          child: Text(
+                            aktiv ? 'Aktiv' : 'Inaktiv',
+                            style: TextStyle(
+                              color: aktiv
+                                  ? const Color(0xFF1F7A42)
+                                  : const Color(0xFFB42318),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Switch(
+                          value: aktiv,
+                          onChanged: isStatusSaving
+                              ? null
+                              : (v) => _handleArbeitszeitStatusChanged(
+                                    tagKey: tag.key,
+                                    value: v,
+                                  ),
+                          activeColor: Colors.white,
+                          activeTrackColor: const Color(0xFF2EAD62),
+                          inactiveThumbColor: Colors.white,
+                          inactiveTrackColor: const Color(0xFFD92D20),
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _ArbeitszeitZeitfeld(
+                            label: 'Von',
+                            value: von.isNotEmpty ? von : '--:--',
+                            isEnabled: aktiv,
+                            isSaving: isVonSaving,
+                            onTap: !aktiv
+                                ? null
+                                : () => _pickArbeitszeit(
+                                      tagKey: tag.key,
+                                      feld: 'von',
+                                    ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _ArbeitszeitZeitfeld(
+                            label: 'Bis',
+                            value: bis.isNotEmpty ? bis : '--:--',
+                            isEnabled: aktiv,
+                            isSaving: isBisSaving,
+                            onTap: !aktiv
+                                ? null
+                                : () => _pickArbeitszeit(
+                                      tagKey: tag.key,
+                                      feld: 'bis',
+                                    ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -2038,6 +2835,7 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     _initialName = widget.name;
     _istAktiv = widget.istAktiv;
     _kalenderFarbeValue = widget.initialKalenderFarbeValue;
+    _arbeitszeiten = _normalizeArbeitszeiten(widget.arbeitszeiten);
   }
 
   @override
@@ -2055,6 +2853,9 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     }
     if (oldWidget.initialKalenderFarbeValue != widget.initialKalenderFarbeValue) {
       _kalenderFarbeValue = widget.initialKalenderFarbeValue;
+    }
+    if (oldWidget.arbeitszeiten != widget.arbeitszeiten) {
+      _arbeitszeiten = _normalizeArbeitszeiten(widget.arbeitszeiten);
     }
   }
 
@@ -2111,243 +2912,9 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
         ),
         const Divider(height: 1),
         Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _MitarbeiterSidebarSection(
-                  title: 'Profilbild',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 220),
-                        curve: Curves.easeOutCubic,
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Color(_kalenderFarbeValue),
-                            width: 2,
-                          ),
-                        ),
-                        child: _MitarbeiterAvatar(
-                          radius: 42,
-                          name: widget.name,
-                          imageUrl: widget.profileImageUrl,
-                          imageBytes: widget.localProfileImageBytes,
-                          usePlaceholderIcon: true,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      PopupMenuButton<_ProfileImageMenuAction>(
-                        enabled: !widget.isProfileImageBusy,
-                        tooltip: 'Profilbild bearbeiten',
-                        onSelected: _handleProfileImageMenuSelection,
-                        itemBuilder: (context) => [
-                          const PopupMenuItem(
-                            value: _ProfileImageMenuAction.takePhoto,
-                            child: ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              leading: Icon(Icons.photo_camera_outlined),
-                              title: Text('Foto aufnehmen'),
-                            ),
-                          ),
-                          const PopupMenuItem(
-                            value: _ProfileImageMenuAction.uploadPhoto,
-                            child: ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              leading: Icon(Icons.upload_outlined),
-                              title: Text('Bild hochladen'),
-                            ),
-                          ),
-                          PopupMenuItem(
-                            value: _ProfileImageMenuAction.removePhoto,
-                            enabled: hasProfileImage,
-                            child: const ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              leading: Icon(Icons.delete_outline),
-                              title: Text('Bild entfernen'),
-                            ),
-                          ),
-                        ],
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF3F4F6),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              widget.isProfileImageBusy
-                                  ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                                  : const Icon(Icons.edit_outlined, size: 18),
-                              const SizedBox(width: 8),
-                              Text(
-                                widget.hasPendingProfileImage
-                                    ? 'Bearbeiten fortsetzen'
-                                    : 'Bearbeiten',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF111827),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                _MitarbeiterSidebarSection(
-                  title: 'Name',
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _nameController,
-                          textInputAction: TextInputAction.done,
-                          onSubmitted: (_) => _saveName(),
-                          decoration: const InputDecoration(
-                            hintText: 'Name des Mitarbeiters',
-                          ),
-                        ),
-                      ),
-                      _buildSaveAction(visible: _hasNameChanged),
-                    ],
-                  ),
-                ),
-                _MitarbeiterSidebarSection(
-                  title: 'Status',
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 140),
-                    curve: Curves.easeInOut,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _istAktiv
-                          ? const Color(0x142EAD62)
-                          : const Color(0x14D92D20),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: _istAktiv
-                            ? const Color(0xFF2EAD62)
-                            : const Color(0xFFD92D20),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Switch(
-                          value: _istAktiv,
-                          onChanged:
-                          _isStatusSaving ? null : _handleStatusChanged,
-                          activeColor: Colors.white,
-                          activeTrackColor: const Color(0xFF2EAD62),
-                          inactiveThumbColor: Colors.white,
-                          inactiveTrackColor: const Color(0xFFD92D20),
-                          materialTapTargetSize:
-                          MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        const SizedBox(width: 12),
-                        AnimatedDefaultTextStyle(
-                          duration: const Duration(milliseconds: 140),
-                          curve: Curves.easeInOut,
-                          style: Theme.of(context).textTheme.titleSmall!.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: _istAktiv
-                                ? const Color(0xFF1F7A42)
-                                : const Color(0xFFB42318),
-                          ),
-                          child: Text(_istAktiv ? 'Aktiv' : 'Inaktiv'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                _MitarbeiterSidebarSection(
-                  title: 'Kalenderfarbe',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: widget.kalenderFarbPalette.map((farbeValue) {
-                          final farbe = Color(farbeValue);
-                          final isSelected = _kalenderFarbeValue == farbeValue;
-                          final iconColor = farbe.computeLuminance() > 0.5
-                              ? Colors.black87
-                              : Colors.white;
-
-                          return InkWell(
-                            onTap: _isColorSaving
-                                ? null
-                                : () => _handleColorSelected(farbeValue),
-                            borderRadius: BorderRadius.circular(999),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 180),
-                              curve: Curves.easeOutCubic,
-                              width: 34,
-                              height: 34,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: farbe,
-                                border: Border.all(
-                                  color: isSelected
-                                      ? const Color(0xFF111827)
-                                      : Colors.transparent,
-                                  width: 2.2,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.12),
-                                    blurRadius: 5,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: isSelected
-                                  ? Icon(
-                                Icons.check,
-                                size: 18,
-                                color: iconColor,
-                              )
-                                  : null,
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      if (_isColorSaving) ...[
-                        const SizedBox(height: 10),
-                        const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+          child: _zeigtArbeitszeitenPanel
+              ? _buildArbeitszeitenSubPanel()
+              : _buildMitarbeiterHauptPanel(hasProfileImage: hasProfileImage),
         ),
         const Divider(height: 1),
         Padding(
@@ -2413,6 +2980,82 @@ class _MitarbeiterSidebarSection extends StatelessWidget {
           child,
         ],
       ),
+    );
+  }
+}
+
+class _ArbeitszeitZeitfeld extends StatelessWidget {
+  const _ArbeitszeitZeitfeld({
+    required this.label,
+    required this.value,
+    required this.isEnabled,
+    required this.onTap,
+    this.isSaving = false,
+  });
+
+  final String label;
+  final String value;
+  final bool isEnabled;
+  final VoidCallback? onTap;
+  final bool isSaving;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF6B7280),
+          ),
+        ),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: isEnabled ? onTap : null,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFD1D5DB)),
+              color: isEnabled ? Colors.white : const Color(0xFFF3F4F6),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: isEnabled
+                          ? const Color(0xFF111827)
+                          : const Color(0xFF9CA3AF),
+                    ),
+                  ),
+                ),
+                if (isSaving)
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  Icon(
+                    Icons.schedule,
+                    size: 16,
+                    color: isEnabled
+                        ? const Color(0xFF4B5563)
+                        : const Color(0xFF9CA3AF),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
