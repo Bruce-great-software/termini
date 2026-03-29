@@ -1075,7 +1075,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           ),
           icon: Icon(
             isFavorite ? Icons.favorite : Icons.favorite_border,
-            color: isFavorite ? Colors.redAccent : Colors.black54,
+            color: isFavorite ? const Color(0xFFFF5A5F) : Colors.white70,
           ),
         );
       },
@@ -1083,7 +1083,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   }
 
   Widget _buildExpandedLogoArea({
-    required String name,
     required String logoUrl,
   }) {
     final double topInset = MediaQuery.of(context).padding.top;
@@ -1098,7 +1097,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
         final double imageScale = 0.70 + (0.30 * progress);
         final double imageOpacity = 0.25 + (0.75 * progress);
-        final double titleOpacity = (1.0 - progress).clamp(0.0, 1.0);
 
         return Stack(
           fit: StackFit.expand,
@@ -1107,7 +1105,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             SafeArea(
               bottom: false,
               child: Padding(
-                padding: EdgeInsets.fromLTRB(16, topInset + 40, 16, 14),
+                padding: EdgeInsets.fromLTRB(16, topInset + kToolbarHeight + 14, 16, 14),
                 child: Transform.scale(
                   scale: imageScale,
                   alignment: Alignment.topCenter,
@@ -1141,25 +1139,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Opacity(
-                  opacity: titleOpacity,
-                  child: Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.black,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
@@ -5677,9 +5656,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         headerSliverBuilder: (context, innerBoxIsScrolled) {
           return [
             SliverAppBar(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.black,
-              surfaceTintColor: Colors.white,
+              backgroundColor: const Color(0xFF2A9143),
+              foregroundColor: Colors.white,
+              surfaceTintColor: const Color(0xFF872F86),
               elevation: innerBoxIsScrolled ? 0.5 : 0,
               pinned: true,
               expandedHeight: 300,
@@ -5701,12 +5680,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 user == null
                     ? const Padding(
                   padding: EdgeInsets.only(right: 8),
-                  child: Icon(Icons.favorite_border, color: Colors.black45),
+                  child: Icon(Icons.favorite, color: Color(0xFFFF5A5F)),
                 )
                     : _buildFavoriteIconButton(user: user),
               ],
               flexibleSpace: FlexibleSpaceBar(
-                background: _buildExpandedLogoArea(name: name, logoUrl: logoUrl),
+                collapseMode: CollapseMode.pin,
+                background: _buildExpandedLogoArea(logoUrl: logoUrl),
               ),
             ),
             SliverPersistentHeader(

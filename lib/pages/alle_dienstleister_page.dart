@@ -1542,6 +1542,66 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   // ----------------------------------------------------------
 
+  Widget _buildFavoriteIconButton({required User user}) {
+    if (geoeffneterDienstleister == null) {
+      return const SizedBox.shrink();
+    }
+
+    final dienstleisterId = geoeffneterDienstleister!['id']?.toString() ?? '';
+    final dienstleisterName =
+        geoeffneterDienstleister!['name']?.toString() ?? 'Dienstleister';
+    final logoUrl = geoeffneterDienstleister!['logoUrl']?.toString() ?? '';
+    final branche = geoeffneterDienstleister!['branche']?.toString() ?? '';
+
+    if (dienstleisterId.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final favDocRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('favoriten')
+        .doc(dienstleisterId);
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: favDocRef.snapshots(),
+      builder: (context, snapshot) {
+        final isFavorite = snapshot.data?.exists ?? false;
+
+        return IconButton(
+          tooltip: isFavorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen',
+          icon: Icon(
+            isFavorite ? Icons.favorite : Icons.favorite_border,
+            color: const Color(0xFFFF5A5F),
+          ),
+          onPressed: () async {
+            try {
+              if (isFavorite) {
+                await favDocRef.delete();
+              } else {
+                await favDocRef.set({
+                  'dienstleisterId': dienstleisterId,
+                  'name': dienstleisterName,
+                  'logoUrl': logoUrl,
+                  'branche': branche,
+                  'createdAt': FieldValue.serverTimestamp(),
+                });
+              }
+            } catch (e) {
+              if (!mounted) return;
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Favorit konnte nicht aktualisiert werden: $e'),
+                ),
+              );
+            }
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildBodyByIndex(int index) {
     switch (index) {
       case 0:
@@ -2103,8 +2163,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         centerTitle: true,
         title: Text(
           geoeffneterDienstleister != null
-              ? ''
-              : (currentCity != null ? currentCity! : 'Ort wird geladen...'),
+              ? (geoeffneterDienstleister!['name'] ?? 'Dienstleister')
+              : (currentCity ?? 'Ort wird geladen...'),
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,
@@ -2121,6 +2181,24 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           },
         )
             : null,
+        actions: geoeffneterDienstleister != null
+            ? [
+          Builder(
+            builder: (context) {
+              final user = FirebaseAuth.instance.currentUser;
+
+              if (user == null) {
+                return const Padding(
+                  padding: EdgeInsets.only(right: 8),
+                  child: Icon(Icons.favorite, color: Color(0xFFFF5A5F)),
+                );
+              }
+
+              return _buildFavoriteIconButton(user: user);
+            },
+          ),
+        ]
+            : [],
       ),
       body: _buildBodyByIndex(_selectedIndex),
       bottomNavigationBar: BottomNavigationBar(
@@ -2142,11 +2220,17 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Suchen'),
           BottomNavigationBarItem(
-              icon: Icon(Icons.favorite_border), label: 'Favoriten'),
+            icon: Icon(Icons.favorite_border),
+            label: 'Favoriten',
+          ),
           BottomNavigationBarItem(
-              icon: Icon(Icons.calendar_today), label: 'Termine'),
+            icon: Icon(Icons.calendar_today),
+            label: 'Termine',
+          ),
           BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline), label: 'Profil'),
+            icon: Icon(Icons.person_outline),
+            label: 'Profil',
+          ),
         ],
       ),
     );
