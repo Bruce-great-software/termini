@@ -5524,6 +5524,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   @override
   Widget build(BuildContext context) {
     final String dienstleisterId = widget.dienstleister['id'] as String;
+    final String logoUrl = (widget.dienstleister['logoUrl'] ?? '').toString().trim();
 
     return Scaffold(
       appBar: AppBar(
@@ -5558,12 +5559,26 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           ),
         ),
       ),
-      body: AngeboteView(
-        angeboteStream: FirebaseFirestore.instance
-            .collection('angebote')
-            .where('dienstleisterId', isEqualTo: dienstleisterId)
-            .snapshots(),
-        builder: (context, docs) {
+      body: Column(
+        children: [
+          if (logoUrl.isNotEmpty)
+            SizedBox(
+              width: double.infinity,
+              height: 190,
+              child: Image.network(
+                logoUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) =>
+                    Container(color: const Color(0xFFF2F2F2)),
+              ),
+            ),
+          Expanded(
+            child: AngeboteView(
+              angeboteStream: FirebaseFirestore.instance
+                  .collection('angebote')
+                  .where('dienstleisterId', isEqualTo: dienstleisterId)
+                  .snapshots(),
+              builder: (context, docs) {
           // ---- Docs in Modelle umwandeln, Singles/Bundles trennen ----
           final all = docs.map((d) => Offer.fromDoc(d)).toList();
 
@@ -7176,7 +7191,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               ),
             ],
           );
-        },
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
