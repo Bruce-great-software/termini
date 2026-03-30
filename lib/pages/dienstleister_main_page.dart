@@ -30,6 +30,7 @@ class DienstleisterMainPage extends StatefulWidget {
 class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   static const double _desktopSidebarWidth = 188;
   static const double _desktopMitarbeiterDrawerWidth = 380;
+  static const double _desktopMitarbeiterNavigationWidth = 340;
   static const int _defaultKalenderFarbeValue = 0xFF4285F4;
   static const List<int> _kalenderFarbPalette = [
     0xFF4285F4,
@@ -861,10 +862,21 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           }
         }
 
-        if (_selectedMitarbeiterId != null && selectedMitarbeiter == null) {
+        if (mitarbeiterDocs.isEmpty && _selectedMitarbeiterId != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
-              setState(() => _selectedMitarbeiterId = null);
+              setState(() {
+                _selectedMitarbeiterId = null;
+              });
+            }
+          });
+        } else if (mitarbeiterDocs.isNotEmpty &&
+            (_selectedMitarbeiterId == null || selectedMitarbeiter == null)) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _selectedMitarbeiterId = mitarbeiterDocs.first.id;
+              });
             }
           });
         }
@@ -880,7 +892,8 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
         }
 
         return _buildMitarbeiterDesktopContent(
-          listContent: listContent,
+          snapshot: snapshot,
+          mitarbeiterDocs: mitarbeiterDocs,
           selection: selectedMitarbeiter,
         );
       },
@@ -1110,122 +1123,289 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   }
 
   Widget _buildMitarbeiterDesktopContent({
-    required Widget listContent,
+    required AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> mitarbeiterDocs,
     required _SelectedMitarbeiter? selection,
   }) {
-    final drawerVisible = selection != null;
     final showEditor =
         selection != null &&
             _pendingProfileImageBytes != null &&
             _pendingProfileImageMitarbeiterId == selection.docId;
 
-    return Row(
+    return Stack(
+      fit: StackFit.expand,
       children: [
-        Expanded(
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              listContent,
-              if (showEditor)
-                _MitarbeiterImageEditorOverlay(
-                  imageBytes: _pendingProfileImageBytes!,
-                  isSaving: _isProfileImageUploading,
-                  onCancel:
-                  _isProfileImageUploading ? null : _verwerfeLokalesProfilbild,
-                  onConfirm: _isProfileImageUploading
-                      ? null
-                      : (croppedBytes) => _speichereProfilbild(
-                    docId: selection.docId,
-                    croppedBytes: croppedBytes,
-                    previousProfileImagePath: selection.profileImagePath,
-                  ),
-                ),
-            ],
-          ),
-        ),
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOutCubic,
-          width: drawerVisible ? _desktopMitarbeiterDrawerWidth : 0,
-          child: drawerVisible
-              ? DecoratedBox(
-            decoration: const BoxDecoration(
-              border: Border(
-                left: BorderSide(color: Color(0xFFE5E5E5)),
+        Row(
+          children: [
+            SizedBox(
+              width: _desktopMitarbeiterNavigationWidth,
+              child: _buildMitarbeiterDesktopNavigation(
+                snapshot: snapshot,
+                mitarbeiterDocs: mitarbeiterDocs,
               ),
             ),
-            child: _buildMitarbeiterDesktopDrawer(selection!),
-          )
-              : const SizedBox.shrink(),
+            const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFE5E7EB)),
+            Expanded(
+              child: selection == null
+                  ? const Center(
+                      child: Text(
+                        'Bitte wähle einen Mitarbeiter aus.',
+                        style: TextStyle(color: Colors.black54),
+                      ),
+                    )
+                  : _buildMitarbeiterDesktopManagement(selection),
+            ),
+          ],
         ),
+        if (showEditor)
+          _MitarbeiterImageEditorOverlay(
+            imageBytes: _pendingProfileImageBytes!,
+            isSaving: _isProfileImageUploading,
+            onCancel: _isProfileImageUploading ? null : _verwerfeLokalesProfilbild,
+            onConfirm: _isProfileImageUploading
+                ? null
+                : (croppedBytes) => _speichereProfilbild(
+                      docId: selection.docId,
+                      croppedBytes: croppedBytes,
+                      previousProfileImagePath: selection.profileImagePath,
+                    ),
+          ),
       ],
     );
   }
 
-  Widget _buildMitarbeiterDesktopDrawer(_SelectedMitarbeiter selection) {
+  Widget _buildMitarbeiterDesktopNavigation({
+    required AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> mitarbeiterDocs,
+  }) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Mitarbeiter',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${mitarbeiterDocs.length} im Team',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.black54,
+                ),
+          ),
+          const SizedBox(height: 16),
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: _zeigeMitarbeiterErstellenDialog,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF02152B),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.add, color: Colors.white),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Neuen Mitarbeiter erstellen',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (snapshot.connectionState == ConnectionState.waiting)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (snapshot.hasError)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Text('Die Mitarbeiter konnten nicht geladen werden.'),
+            )
+          else if (mitarbeiterDocs.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: Text('Noch keine Mitarbeiter vorhanden.'),
+            )
+          else
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Column(
+                children: [
+                  for (var index = 0; index < mitarbeiterDocs.length; index++) ...[
+                    Builder(
+                      builder: (_) {
+                        final doc = mitarbeiterDocs[index];
+                        final data = doc.data();
+                        final name = (data['name'] as String?)?.trim();
+                        final istAktiv = data['aktiv'] == true;
+                        final isSelected = doc.id == _selectedMitarbeiterId;
+                        final profileImageUrl =
+                            (data['profileImageUrl'] as String?)?.trim();
+                        final kalenderFarbeValue = _resolveKalenderFarbeValue(data);
+
+                        return MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: InkWell(
+                            onTap: () => setState(() => _selectedMitarbeiterId = doc.id),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 160),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? const Color(0xFFF1F5FF)
+                                    : Colors.transparent,
+                                border: Border(
+                                  left: BorderSide(
+                                    color: isSelected
+                                        ? const Color(0xFF02152B)
+                                        : Colors.transparent,
+                                    width: 3,
+                                  ),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Color(kalenderFarbeValue),
+                                        width: 2,
+                                      ),
+                                    ),
+                                    child: _MitarbeiterAvatar(
+                                      radius: 19,
+                                      name: name,
+                                      imageUrl: profileImageUrl,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          name?.isNotEmpty == true
+                                              ? name!
+                                              : 'Unbenannt',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFF0F172A),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          istAktiv ? 'Aktiv' : 'Inaktiv',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: istAktiv
+                                                ? const Color(0xFF1F7A42)
+                                                : const Color(0xFFB42318),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    if (index < mitarbeiterDocs.length - 1)
+                      const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMitarbeiterDesktopManagement(_SelectedMitarbeiter selection) {
     return Material(
-      color: Colors.white,
-      elevation: 14,
-      child: SafeArea(
-        child: _MitarbeiterDetailSidebar(
-          key: ValueKey(selection.docId),
+      color: const Color(0xFFF8FAFC),
+      child: _MitarbeiterDetailSidebar(
+        key: ValueKey(selection.docId),
+        docId: selection.docId,
+        name: selection.name,
+        istAktiv: selection.aktiv,
+        profileImageUrl: selection.profileImageUrl,
+        localProfileImageBytes: _pendingProfileImageMitarbeiterId == selection.docId
+            ? _pendingProfileImageBytes
+            : null,
+        hasPendingProfileImage: _pendingProfileImageMitarbeiterId == selection.docId &&
+            _pendingProfileImageBytes != null,
+        isProfileImageBusy: _isProfileImageUploading,
+        onNameSave: (name) => _speichereMitarbeiterNamen(
+          docId: selection.docId,
+          name: name,
+        ),
+        onStatusChanged: (istAktiv) => _speichereMitarbeiterStatus(
+          docId: selection.docId,
+          istAktiv: istAktiv,
+        ),
+        initialKalenderFarbeValue: selection.kalenderFarbeValue,
+        kalenderFarbPalette: _kalenderFarbPalette,
+        onKalenderFarbeChanged: (farbeValue) => _speichereMitarbeiterFarbe(
+          docId: selection.docId,
+          farbeValue: farbeValue,
+        ),
+        arbeitszeiten: selection.arbeitszeiten,
+        onArbeitszeitStatusChanged: (tagKey, aktiv) =>
+            _speichereMitarbeiterArbeitszeitStatus(
+          docId: selection.docId,
+          tagKey: tagKey,
+          aktiv: aktiv,
+        ),
+        onArbeitszeitZeitChanged: (tagKey, feld, zeit) =>
+            _speichereMitarbeiterArbeitszeitZeit(
+          docId: selection.docId,
+          tagKey: tagKey,
+          feld: feld,
+          zeit: zeit,
+        ),
+        onDelete: () => _loescheMitarbeiter(
           docId: selection.docId,
           name: selection.name,
-          istAktiv: selection.aktiv,
-          profileImageUrl: selection.profileImageUrl,
-          localProfileImageBytes:
-          _pendingProfileImageMitarbeiterId == selection.docId
-              ? _pendingProfileImageBytes
-              : null,
-          hasPendingProfileImage:
-          _pendingProfileImageMitarbeiterId == selection.docId &&
-              _pendingProfileImageBytes != null,
-          isProfileImageBusy: _isProfileImageUploading,
-          onClose: () => setState(() => _selectedMitarbeiterId = null),
-          onNameSave: (name) => _speichereMitarbeiterNamen(
-            docId: selection.docId,
-            name: name,
-          ),
-          onStatusChanged: (istAktiv) => _speichereMitarbeiterStatus(
-            docId: selection.docId,
-            istAktiv: istAktiv,
-          ),
-          initialKalenderFarbeValue: selection.kalenderFarbeValue,
-          kalenderFarbPalette: _kalenderFarbPalette,
-          onKalenderFarbeChanged: (farbeValue) => _speichereMitarbeiterFarbe(
-            docId: selection.docId,
-            farbeValue: farbeValue,
-          ),
-          arbeitszeiten: selection.arbeitszeiten,
-          onArbeitszeitStatusChanged: (tagKey, aktiv) =>
-              _speichereMitarbeiterArbeitszeitStatus(
-                docId: selection.docId,
-                tagKey: tagKey,
-                aktiv: aktiv,
-              ),
-          onArbeitszeitZeitChanged: (tagKey, feld, zeit) =>
-              _speichereMitarbeiterArbeitszeitZeit(
-                docId: selection.docId,
-                tagKey: tagKey,
-                feld: feld,
-                zeit: zeit,
-              ),
-          onDelete: () => _loescheMitarbeiter(
-            docId: selection.docId,
-            name: selection.name,
-          ),
-          onTakePhoto: () => _waehleProfilbild(
-            docId: selection.docId,
-            source: ImageSource.camera,
-          ),
-          onUploadPhoto: () => _waehleProfilbild(
-            docId: selection.docId,
-            source: ImageSource.gallery,
-          ),
-          onRemovePhoto: () => _entferneProfilbild(
-            docId: selection.docId,
-            currentProfileImagePath: selection.profileImagePath,
-          ),
+        ),
+        onTakePhoto: () => _waehleProfilbild(
+          docId: selection.docId,
+          source: ImageSource.camera,
+        ),
+        onUploadPhoto: () => _waehleProfilbild(
+          docId: selection.docId,
+          source: ImageSource.gallery,
+        ),
+        onRemovePhoto: () => _entferneProfilbild(
+          docId: selection.docId,
+          currentProfileImagePath: selection.profileImagePath,
         ),
       ),
     );
@@ -1970,6 +2150,8 @@ class _ArbeitszeitTagDefinition {
   final String shortLabel;
 }
 
+enum _MitarbeiterVerwaltungTab { profil, arbeitszeiten, leistungen }
+
 class _MitarbeiterDetailSidebar extends StatefulWidget {
   const _MitarbeiterDetailSidebar({
     super.key,
@@ -1980,7 +2162,6 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
     this.localProfileImageBytes,
     required this.hasPendingProfileImage,
     required this.isProfileImageBusy,
-    required this.onClose,
     required this.onNameSave,
     required this.onStatusChanged,
     required this.initialKalenderFarbeValue,
@@ -2002,7 +2183,6 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
   final Uint8List? localProfileImageBytes;
   final bool hasPendingProfileImage;
   final bool isProfileImageBusy;
-  final VoidCallback onClose;
   final Future<bool> Function(String name) onNameSave;
   final Future<bool> Function(bool istAktiv) onStatusChanged;
   final int initialKalenderFarbeValue;
@@ -2047,7 +2227,7 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
   bool _isStatusSaving = false;
   bool _isColorSaving = false;
   bool _isDeleting = false;
-  bool _zeigtArbeitszeitenPanel = false;
+  _MitarbeiterVerwaltungTab _activeTab = _MitarbeiterVerwaltungTab.profil;
   final Set<String> _arbeitszeitSavingKeys = <String>{};
 
   bool get _hasNameChanged =>
@@ -2381,7 +2561,7 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     );
   }
 
-  Widget _buildMitarbeiterHauptPanel({required bool hasProfileImage}) {
+  Widget _buildProfilTabContent({required bool hasProfileImage}) {
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       child: Column(
@@ -2608,104 +2788,17 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
               ],
             ),
           ),
-          _MitarbeiterSidebarSection(
-            title: 'Arbeitszeiten',
-            child: InkWell(
-              onTap: () => setState(() => _zeigtArbeitszeitenPanel = true),
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFE5E7EB)),
-                  color: Colors.white,
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(top: 2),
-                      child: Icon(Icons.access_time, size: 18),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Arbeitszeiten',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF111827),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            _arbeitszeitenPreviewText(),
-                            style: const TextStyle(
-                              color: Color(0xFF6B7280),
-                              fontSize: 12.5,
-                              height: 1.35,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Padding(
-                      padding: EdgeInsets.only(top: 2),
-                      child: Icon(Icons.chevron_right),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     );
   }
 
-  Widget _buildArbeitszeitenSubPanel() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
-          child: Row(
-            children: [
-              IconButton(
-                onPressed: () => setState(() => _zeigtArbeitszeitenPanel = false),
-                icon: const Icon(Icons.arrow_back),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Arbeitszeiten',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.name.isNotEmpty ? widget.name : 'Unbenannt',
-                      style: const TextStyle(color: Colors.black54),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
-            itemCount: _arbeitszeitTage.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
+  Widget _buildArbeitszeitenTabContent() {
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      itemCount: _arbeitszeitTage.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
               final tag = _arbeitszeitTage[index];
               final map = Map<String, dynamic>.from(
                 (_arbeitszeiten[tag.key] as Map?) ?? const <String, dynamic>{},
@@ -2821,9 +2914,42 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
                 ),
               );
             },
-          ),
+    );
+  }
+
+  Widget _buildLeistungenPlaceholder() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
         ),
-      ],
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Leistungen',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Die Leistungszuordnung für Mitarbeiter wird hier als Nächstes aufgebaut.',
+              style: TextStyle(
+                color: Color(0xFF475467),
+                height: 1.45,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2871,54 +2997,101 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     final hasProfileImage =
         (widget.profileImageUrl?.trim().isNotEmpty ?? false) ||
             widget.localProfileImageBytes != null;
+    final tabs = <({
+      _MitarbeiterVerwaltungTab tab,
+      String label,
+    })>[
+      (tab: _MitarbeiterVerwaltungTab.profil, label: 'Profil'),
+      (tab: _MitarbeiterVerwaltungTab.arbeitszeiten, label: 'Arbeitszeiten'),
+      (tab: _MitarbeiterVerwaltungTab.leistungen, label: 'Leistungen'),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Mitarbeiter bearbeiten',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
                     Text(
                       widget.name.isNotEmpty ? widget.name : 'Unbenannt',
                       style: const TextStyle(
-                        color: Colors.black54,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Mitarbeiterverwaltung',
+                      style: TextStyle(
+                        color: Color(0xFF667085),
                         fontSize: 14,
                       ),
                     ),
                   ],
                 ),
               ),
-              IconButton(
-                tooltip: 'Schließen',
-                onPressed: widget.onClose,
-                icon: const Icon(Icons.close),
-              ),
             ],
           ),
         ),
-        const Divider(height: 1),
+        const Divider(height: 1, color: Color(0xFFE5E7EB)),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
+          child: Row(
+            children: tabs.map((entry) {
+              final isActive = _activeTab == entry.tab;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: () => setState(() => _activeTab = entry.tab),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    curve: Curves.easeOutCubic,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: isActive
+                              ? const Color(0xFF02152B)
+                              : Colors.transparent,
+                          width: 2.5,
+                        ),
+                      ),
+                    ),
+                    child: Text(
+                      entry.label,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: isActive
+                            ? const Color(0xFF02152B)
+                            : const Color(0xFF64748B),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        const Divider(height: 1, color: Color(0xFFE5E7EB)),
         Expanded(
-          child: _zeigtArbeitszeitenPanel
-              ? _buildArbeitszeitenSubPanel()
-              : _buildMitarbeiterHauptPanel(hasProfileImage: hasProfileImage),
+          child: switch (_activeTab) {
+            _MitarbeiterVerwaltungTab.profil =>
+              _buildProfilTabContent(hasProfileImage: hasProfileImage),
+            _MitarbeiterVerwaltungTab.arbeitszeiten =>
+              _buildArbeitszeitenTabContent(),
+            _MitarbeiterVerwaltungTab.leistungen => _buildLeistungenPlaceholder(),
+          },
         ),
         const Divider(height: 1),
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+          padding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
           child: Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
