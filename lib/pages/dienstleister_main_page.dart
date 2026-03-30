@@ -86,6 +86,35 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     return _defaultKalenderFarbeValue;
   }
 
+  Map<String, Set<String>> _parseMitarbeiterAngebote(dynamic rawValue) {
+    final result = <String, Set<String>>{};
+    if (rawValue is! List) return result;
+
+    for (final entry in rawValue) {
+      if (entry is! Map) continue;
+      final map = Map<String, dynamic>.from(entry as Map);
+      final angebotId = (map['angebotId'] as String?)?.trim();
+      if (angebotId == null || angebotId.isEmpty) continue;
+
+      final rawZielgruppen = map['zielgruppen'];
+      final zielgruppen = <String>{};
+      if (rawZielgruppen is List) {
+        for (final value in rawZielgruppen) {
+          final text = value?.toString().trim() ?? '';
+          if (text.isNotEmpty) {
+            zielgruppen.add(text);
+          }
+        }
+      }
+
+      if (zielgruppen.isNotEmpty) {
+        result[angebotId] = zielgruppen;
+      }
+    }
+
+    return result;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -901,6 +930,8 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
               profileImagePath: (data['profileImagePath'] as String?)?.trim(),
               kalenderFarbeValue: _resolveKalenderFarbeValue(data),
               arbeitszeiten: normalizedArbeitszeiten,
+              mitarbeiterAngebote:
+              _parseMitarbeiterAngebote(data['mitarbeiterAngebote']),
             );
 
             if (_arbeitszeitenNeedInitialization(
@@ -1255,6 +1286,12 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
               tagKey: tagKey,
               feld: feld,
               zeit: zeit,
+            ),
+        mitarbeiterAngebote: selection.mitarbeiterAngebote,
+        onMitarbeiterAngeboteChanged: (zuordnung) =>
+            _speichereMitarbeiterAngebote(
+              docId: selection.docId,
+              zuordnung: zuordnung,
             ),
         onDelete: () => _loescheMitarbeiter(
           docId: selection.docId,
@@ -1629,6 +1666,40 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     }
   }
 
+  Future<bool> _speichereMitarbeiterAngebote({
+    required String docId,
+    required Map<String, Set<String>> zuordnung,
+  }) async {
+    try {
+      final payload = zuordnung.entries
+          .where((entry) => entry.value.isNotEmpty)
+          .map((entry) {
+        final zielgruppen = entry.value.toList()..sort();
+        return {
+          'angebotId': entry.key,
+          'zielgruppen': zielgruppen,
+        };
+      })
+          .toList()
+        ..sort(
+              (a, b) => (a['angebotId'] as String).compareTo(b['angebotId'] as String),
+        );
+
+      await FirebaseFirestore.instance.collection('users').doc(docId).set({
+        'mitarbeiterAngebote': payload,
+      }, SetOptions(merge: true));
+      return true;
+    } catch (_) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Die Leistungszuordnung konnte nicht gespeichert werden.'),
+        ),
+      );
+      return false;
+    }
+  }
+
   Future<bool> _loescheMitarbeiter({
     required String docId,
     required String name,
@@ -1964,6 +2035,7 @@ class _SelectedMitarbeiter {
     required this.aktiv,
     required this.kalenderFarbeValue,
     required this.arbeitszeiten,
+    required this.mitarbeiterAngebote,
     this.profileImageUrl,
     this.profileImagePath,
   });
@@ -1973,6 +2045,7 @@ class _SelectedMitarbeiter {
   final bool aktiv;
   final int kalenderFarbeValue;
   final Map<String, dynamic> arbeitszeiten;
+  final Map<String, Set<String>> mitarbeiterAngebote;
   final String? profileImageUrl;
   final String? profileImagePath;
 }
@@ -2015,6 +2088,20 @@ class _ArbeitszeitTagDefinition {
   final String shortLabel;
 }
 
+class _MitarbeiterAngebotZeile {
+  const _MitarbeiterAngebotZeile({
+    required this.id,
+    required this.name,
+    required this.kategorie,
+    required this.zielgruppen,
+  });
+
+  final String id;
+  final String name;
+  final String kategorie;
+  final List<String> zielgruppen;
+}
+
 enum _MitarbeiterVerwaltungTab { profil, arbeitszeiten, leistungen }
 
 class _MitarbeiterDetailSidebar extends StatefulWidget {
@@ -2035,6 +2122,8 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
     required this.arbeitszeiten,
     required this.onArbeitszeitStatusChanged,
     required this.onArbeitszeitZeitChanged,
+    required this.mitarbeiterAngebote,
+    required this.onMitarbeiterAngeboteChanged,
     required this.onDelete,
     required this.onTakePhoto,
     required this.onUploadPhoto,
@@ -2058,6 +2147,9 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
   onArbeitszeitStatusChanged;
   final Future<bool> Function(String tagKey, String feld, String zeit)
   onArbeitszeitZeitChanged;
+  final Map<String, Set<String>> mitarbeiterAngebote;
+  final Future<bool> Function(Map<String, Set<String>> zuordnung)
+  onMitarbeiterAngeboteChanged;
   final Future<bool> Function() onDelete;
   final Future<void> Function() onTakePhoto;
   final Future<void> Function() onUploadPhoto;
@@ -2088,12 +2180,14 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
   late bool _istAktiv;
   late int _kalenderFarbeValue;
   late Map<String, dynamic> _arbeitszeiten;
+  late Map<String, Set<String>> _mitarbeiterAngebote;
   bool _isNameSaving = false;
   bool _isStatusSaving = false;
   bool _isColorSaving = false;
   bool _isDeleting = false;
   _MitarbeiterVerwaltungTab _activeTab = _MitarbeiterVerwaltungTab.profil;
   final Set<String> _arbeitszeitSavingKeys = <String>{};
+  final Set<String> _leistungSavingKeys = <String>{};
 
   bool get _hasNameChanged =>
       _nameController.text.trim() != _initialName.trim();
@@ -2149,6 +2243,112 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     }
     if (lines.isEmpty) return 'Nicht konfiguriert';
     return lines.join('\n');
+  }
+
+  Map<String, Set<String>> _cloneAngeboteMap(Map<String, Set<String>> source) {
+    return {
+      for (final entry in source.entries) entry.key: Set<String>.from(entry.value),
+    };
+  }
+
+  List<String> _extractZielgruppen(dynamic rawValue) {
+    final values = <String>{};
+
+    if (rawValue is List) {
+      for (final item in rawValue) {
+        final text = item?.toString().trim() ?? '';
+        if (text.isNotEmpty) {
+          values.add(text);
+        }
+      }
+    } else if (rawValue is String) {
+      final text = rawValue.trim();
+      if (text.isNotEmpty) {
+        values.add(text);
+      }
+    } else if (rawValue is Map) {
+      for (final entry in rawValue.entries) {
+        final text = entry.key.toString().trim();
+        if (text.isNotEmpty) {
+          values.add(text);
+        }
+      }
+    }
+
+    final sorted = values.toList()..sort();
+    return sorted;
+  }
+
+  Future<void> _saveLeistungsZuordnung({
+    required String angebotId,
+    required Map<String, Set<String>> next,
+    required Map<String, Set<String>> previous,
+  }) async {
+    final saveKey = 'angebot:$angebotId';
+    if (_leistungSavingKeys.contains(saveKey)) return;
+
+    setState(() {
+      _leistungSavingKeys.add(saveKey);
+      _mitarbeiterAngebote = next;
+    });
+
+    final ok = await widget.onMitarbeiterAngeboteChanged(next);
+    if (!mounted) return;
+
+    setState(() {
+      if (!ok) {
+        _mitarbeiterAngebote = previous;
+      }
+      _leistungSavingKeys.remove(saveKey);
+    });
+  }
+
+  Future<void> _handleLeistungMainToggle({
+    required _MitarbeiterAngebotZeile angebot,
+    required bool value,
+  }) async {
+    final previous = _cloneAngeboteMap(_mitarbeiterAngebote);
+    final next = _cloneAngeboteMap(_mitarbeiterAngebote);
+
+    if (value) {
+      next[angebot.id] = angebot.zielgruppen.toSet();
+    } else {
+      next.remove(angebot.id);
+    }
+
+    await _saveLeistungsZuordnung(
+      angebotId: angebot.id,
+      next: next,
+      previous: previous,
+    );
+  }
+
+  Future<void> _handleLeistungZielgruppeToggle({
+    required _MitarbeiterAngebotZeile angebot,
+    required String zielgruppe,
+    required bool value,
+  }) async {
+    final previous = _cloneAngeboteMap(_mitarbeiterAngebote);
+    final next = _cloneAngeboteMap(_mitarbeiterAngebote);
+    final set = Set<String>.from(next[angebot.id] ?? <String>{});
+
+    if (value) {
+      set.add(zielgruppe);
+    } else {
+      set.remove(zielgruppe);
+    }
+
+    if (set.isEmpty) {
+      next.remove(angebot.id);
+    } else {
+      next[angebot.id] = set;
+    }
+
+    await _saveLeistungsZuordnung(
+      angebotId: angebot.id,
+      next: next,
+      previous: previous,
+    );
   }
 
   Future<void> _handleArbeitszeitStatusChanged({
@@ -2782,38 +2982,229 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     );
   }
 
-  Widget _buildLeistungenPlaceholder() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
-        ),
-        child: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildLeistungenTabContent() {
+    final dienstleisterId = FirebaseAuth.instance.currentUser?.uid;
+    if (dienstleisterId == null) {
+      return const Center(child: Text('Nicht eingeloggt.'));
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('angebote')
+          .where('dienstleisterId', isEqualTo: dienstleisterId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return const Center(
+            child: Text('Die Angebote konnten nicht geladen werden.'),
+          );
+        }
+
+        final docs = snapshot.data?.docs ?? const [];
+        final gruppen = <String, List<_MitarbeiterAngebotZeile>>{};
+
+        for (final doc in docs) {
+          final data = doc.data();
+          final name = (data['name'] as String?)?.trim();
+          final titel = (data['titel'] as String?)?.trim();
+          final zeilenName = name?.isNotEmpty == true
+              ? name!
+              : (titel?.isNotEmpty == true ? titel! : 'Unbenannt');
+          final kategorieRaw = (data['kategorie'] as String?)?.trim();
+          final kategorie =
+          kategorieRaw?.isNotEmpty == true ? kategorieRaw! : 'Ohne Kategorie';
+          final zielgruppen = _extractZielgruppen(data['zielgruppen']);
+
+          if (zielgruppen.isEmpty) {
+            continue;
+          }
+
+          gruppen.putIfAbsent(kategorie, () => <_MitarbeiterAngebotZeile>[]).add(
+            _MitarbeiterAngebotZeile(
+              id: doc.id,
+              name: zeilenName,
+              kategorie: kategorie,
+              zielgruppen: zielgruppen,
+            ),
+          );
+        }
+
+        final kategorien = gruppen.keys.toList()..sort();
+        for (final key in kategorien) {
+          gruppen[key]!.sort(
+                (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          );
+        }
+
+        if (kategorien.isEmpty) {
+          return const Center(
+            child: Text('Noch keine passenden Angebote für diesen Bereich.'),
+          );
+        }
+
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
           children: [
-            Text(
-              'Leistungen',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF0F172A),
+            for (final kategorie in kategorien) ...[
+              _buildKategorieBlock(
+                kategorie: kategorie,
+                angebote: gruppen[kategorie]!,
               ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Die Leistungszuordnung für Mitarbeiter wird hier als Nächstes aufgebaut.',
-              style: TextStyle(
-                color: Color(0xFF475467),
-                height: 1.45,
-              ),
-            ),
+              const SizedBox(height: 14),
+            ],
           ],
-        ),
+        );
+      },
+    );
+  }
+
+  Widget _buildKategorieBlock({
+    required String kategorie,
+    required List<_MitarbeiterAngebotZeile> angebote,
+  }) {
+    final zielgruppenHeaders = <String>{};
+    for (final angebot in angebote) {
+      zielgruppenHeaders.addAll(angebot.zielgruppen);
+    }
+    final sortedHeaders = zielgruppenHeaders.toList()..sort();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            child: Wrap(
+              spacing: 14,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  kategorie,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF02152B),
+                  ),
+                ),
+                ...sortedHeaders.map(
+                      (header) => Text(
+                    header,
+                    style: const TextStyle(
+                      color: Color(0xFF667085),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Color(0xFFE5E7EB)),
+          for (var i = 0; i < angebote.length; i++) ...[
+            _buildLeistungsZeile(angebote[i]),
+            if (i < angebote.length - 1)
+              const Divider(height: 1, color: Color(0xFFF1F5F9)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLeistungsZeile(_MitarbeiterAngebotZeile angebot) {
+    final aktiveZielgruppen = _mitarbeiterAngebote[angebot.id] ?? <String>{};
+    final isActive = aktiveZielgruppen.isNotEmpty;
+    final isSaving = _leistungSavingKeys.contains('angebot:${angebot.id}');
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Checkbox(
+            value: isActive,
+            onChanged: isSaving
+                ? null
+                : (value) => _handleLeistungMainToggle(
+              angebot: angebot,
+              value: value == true,
+            ),
+            activeColor: const Color(0xFF02152B),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                angebot.name,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            flex: 2,
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 8,
+              runSpacing: 4,
+              children: angebot.zielgruppen.map((zielgruppe) {
+                final checked = aktiveZielgruppen.contains(zielgruppe);
+                return FilterChip(
+                  selected: checked,
+                  onSelected: isSaving
+                      ? null
+                      : (value) => _handleLeistungZielgruppeToggle(
+                    angebot: angebot,
+                    zielgruppe: zielgruppe,
+                    value: value,
+                  ),
+                  label: Text(zielgruppe),
+                  selectedColor: const Color(0x1A02152B),
+                  checkmarkColor: const Color(0xFF02152B),
+                  side: BorderSide(
+                    color: checked
+                        ? const Color(0xFF02152B)
+                        : const Color(0xFFD1D5DB),
+                  ),
+                  labelStyle: TextStyle(
+                    color: checked
+                        ? const Color(0xFF02152B)
+                        : const Color(0xFF475467),
+                    fontWeight: FontWeight.w600,
+                  ),
+                  backgroundColor: Colors.white,
+                );
+              }).toList(),
+            ),
+          ),
+          if (isSaving)
+            const Padding(
+              padding: EdgeInsets.only(left: 8, top: 12),
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -2827,6 +3218,7 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     _istAktiv = widget.istAktiv;
     _kalenderFarbeValue = widget.initialKalenderFarbeValue;
     _arbeitszeiten = _normalizeArbeitszeiten(widget.arbeitszeiten);
+    _mitarbeiterAngebote = _cloneAngeboteMap(widget.mitarbeiterAngebote);
   }
 
   @override
@@ -2847,6 +3239,9 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     }
     if (oldWidget.arbeitszeiten != widget.arbeitszeiten) {
       _arbeitszeiten = _normalizeArbeitszeiten(widget.arbeitszeiten);
+    }
+    if (oldWidget.mitarbeiterAngebote != widget.mitarbeiterAngebote) {
+      _mitarbeiterAngebote = _cloneAngeboteMap(widget.mitarbeiterAngebote);
     }
   }
 
@@ -2951,7 +3346,7 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
                 _buildProfilTabContent(hasProfileImage: hasProfileImage),
             _MitarbeiterVerwaltungTab.arbeitszeiten =>
                 _buildArbeitszeitenTabContent(),
-            _MitarbeiterVerwaltungTab.leistungen => _buildLeistungenPlaceholder(),
+            _MitarbeiterVerwaltungTab.leistungen => _buildLeistungenTabContent(),
           },
         ),
         const Divider(height: 1),
