@@ -30,7 +30,6 @@ class DienstleisterMainPage extends StatefulWidget {
 class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   static const double _desktopSidebarWidth = 188;
   static const double _desktopMitarbeiterDrawerWidth = 380;
-  static const double _desktopMitarbeiterNavigationWidth = 340;
   static const int _defaultKalenderFarbeValue = 0xFF4285F4;
   static const List<int> _kalenderFarbPalette = [
     0xFF4285F4,
@@ -236,7 +235,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       const DienstleisterAngebotePage(showScaffold: false),
       _buildCurrentProfilContent(),
     ];
-    final sidebarItems = _buildSidebarItems();
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -251,10 +249,23 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (isDesktopLayout && _selectedIndex != 1)
-                _DesktopSidebar(
-                  width: _desktopSidebarWidth,
-                  items: sidebarItems,
-                ),
+                (_selectedIndex == 0 && _mitarbeiterStream != null)
+                    ? StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        stream: _mitarbeiterStream,
+                        builder: (context, snapshot) {
+                          final mitarbeiterDocs = snapshot.data?.docs ?? const [];
+                          return _DesktopSidebar(
+                            width: _desktopSidebarWidth,
+                            items: _buildSidebarItems(
+                              mitarbeiterDocs: mitarbeiterDocs,
+                            ),
+                          );
+                        },
+                      )
+                    : _DesktopSidebar(
+                        width: _desktopSidebarWidth,
+                        items: _buildSidebarItems(),
+                      ),
               Expanded(child: pages[_selectedIndex]),
             ],
           ),
@@ -317,9 +328,38 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     }
   }
 
-  List<_SidebarItemData> _buildSidebarItems() {
+  List<_SidebarItemData> _buildSidebarItems({
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> mitarbeiterDocs = const [],
+  }) {
     switch (_selectedIndex) {
       case 0:
+        final mitarbeiterChildren = <_SidebarItemData>[
+          ...mitarbeiterDocs.map((doc) {
+            final data = doc.data();
+            final name = (data['name'] as String?)?.trim();
+            return _SidebarItemData(
+              title: name?.isNotEmpty == true ? name! : 'Unbenannt',
+              icon: Icons.person_outline,
+              isSelected: _selectedHomeSidebarIndex == 1 && _selectedMitarbeiterId == doc.id,
+              isChild: true,
+              onTap: () {
+                setState(() {
+                  _selectedIndex = 0;
+                  _selectedHomeSidebarIndex = 1;
+                  _selectedMitarbeiterId = doc.id;
+                });
+              },
+            );
+          }),
+          _SidebarItemData(
+            title: '+ Neuer Mitarbeiter',
+            icon: Icons.add,
+            isSelected: false,
+            isChild: true,
+            onTap: _zeigeMitarbeiterErstellenDialog,
+          ),
+        ];
+
         return [
           _SidebarItemData(
             title: 'Home',
@@ -332,6 +372,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             icon: Icons.groups_2_outlined,
             isSelected: _selectedHomeSidebarIndex == 1,
             onTap: () => _onHomeSidebarTapped(1),
+            children: mitarbeiterChildren,
           ),
           _SidebarItemData(
             title: 'Öffnungszeiten',
@@ -891,11 +932,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           return listContent;
         }
 
-        return _buildMitarbeiterDesktopContent(
-          snapshot: snapshot,
-          mitarbeiterDocs: mitarbeiterDocs,
-          selection: selectedMitarbeiter,
-        );
+        return _buildMitarbeiterDesktopContent(selection: selectedMitarbeiter);
       },
     );
   }
@@ -1123,8 +1160,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   }
 
   Widget _buildMitarbeiterDesktopContent({
-    required AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
-    required List<QueryDocumentSnapshot<Map<String, dynamic>>> mitarbeiterDocs,
     required _SelectedMitarbeiter? selection,
   }) {
     final showEditor =
@@ -1135,28 +1170,14 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        Row(
-          children: [
-            SizedBox(
-              width: _desktopMitarbeiterNavigationWidth,
-              child: _buildMitarbeiterDesktopNavigation(
-                snapshot: snapshot,
-                mitarbeiterDocs: mitarbeiterDocs,
-              ),
-            ),
-            const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFE5E7EB)),
-            Expanded(
-              child: selection == null
-                  ? const Center(
-                      child: Text(
-                        'Bitte wähle einen Mitarbeiter aus.',
-                        style: TextStyle(color: Colors.black54),
-                      ),
-                    )
-                  : _buildMitarbeiterDesktopManagement(selection),
-            ),
-          ],
-        ),
+        selection == null
+            ? const Center(
+                child: Text(
+                  'Bitte wähle einen Mitarbeiter aus.',
+                  style: TextStyle(color: Colors.black54),
+                ),
+              )
+            : _buildMitarbeiterDesktopManagement(selection),
         if (showEditor)
           _MitarbeiterImageEditorOverlay(
             imageBytes: _pendingProfileImageBytes!,
@@ -1171,180 +1192,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
                     ),
           ),
       ],
-    );
-  }
-
-  Widget _buildMitarbeiterDesktopNavigation({
-    required AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
-    required List<QueryDocumentSnapshot<Map<String, dynamic>>> mitarbeiterDocs,
-  }) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Mitarbeiter',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${mitarbeiterDocs.length} im Team',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.black54,
-                ),
-          ),
-          const SizedBox(height: 16),
-          InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: _zeigeMitarbeiterErstellenDialog,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-              decoration: BoxDecoration(
-                color: const Color(0xFF02152B),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.add, color: Colors.white),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Neuen Mitarbeiter erstellen',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          if (snapshot.connectionState == ConnectionState.waiting)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (snapshot.hasError)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: Text('Die Mitarbeiter konnten nicht geladen werden.'),
-            )
-          else if (mitarbeiterDocs.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: Text('Noch keine Mitarbeiter vorhanden.'),
-            )
-          else
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFE5E7EB)),
-              ),
-              child: Column(
-                children: [
-                  for (var index = 0; index < mitarbeiterDocs.length; index++) ...[
-                    Builder(
-                      builder: (_) {
-                        final doc = mitarbeiterDocs[index];
-                        final data = doc.data();
-                        final name = (data['name'] as String?)?.trim();
-                        final istAktiv = data['aktiv'] == true;
-                        final isSelected = doc.id == _selectedMitarbeiterId;
-                        final profileImageUrl =
-                            (data['profileImageUrl'] as String?)?.trim();
-                        final kalenderFarbeValue = _resolveKalenderFarbeValue(data);
-
-                        return MouseRegion(
-                          cursor: SystemMouseCursors.click,
-                          child: InkWell(
-                            onTap: () => setState(() => _selectedMitarbeiterId = doc.id),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 160),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? const Color(0xFFF1F5FF)
-                                    : Colors.transparent,
-                                border: Border(
-                                  left: BorderSide(
-                                    color: isSelected
-                                        ? const Color(0xFF02152B)
-                                        : Colors.transparent,
-                                    width: 3,
-                                  ),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: Color(kalenderFarbeValue),
-                                        width: 2,
-                                      ),
-                                    ),
-                                    child: _MitarbeiterAvatar(
-                                      radius: 19,
-                                      name: name,
-                                      imageUrl: profileImageUrl,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          name?.isNotEmpty == true
-                                              ? name!
-                                              : 'Unbenannt',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                            color: Color(0xFF0F172A),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          istAktiv ? 'Aktiv' : 'Inaktiv',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: istAktiv
-                                                ? const Color(0xFF1F7A42)
-                                                : const Color(0xFFB42318),
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    if (index < mitarbeiterDocs.length - 1)
-                      const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                  ],
-                ],
-              ),
-            ),
-        ],
-      ),
     );
   }
 
@@ -3851,12 +3698,16 @@ class _SidebarItemData {
     required this.icon,
     required this.isSelected,
     required this.onTap,
+    this.children = const [],
+    this.isChild = false,
   });
 
   final String title;
   final IconData icon;
   final bool isSelected;
   final VoidCallback onTap;
+  final List<_SidebarItemData> children;
+  final bool isChild;
 }
 
 class _DesktopSidebar extends StatelessWidget {
@@ -3870,7 +3721,89 @@ class _DesktopSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selectedColor = Theme.of(context).colorScheme.primary;
+    final itemRows = <Widget>[];
+
+    void appendItem(_SidebarItemData item, {required bool addDividerAfter}) {
+      itemRows.add(
+        Padding(
+          padding: EdgeInsets.only(
+            left: item.isChild ? 26 : 10,
+            right: 10,
+          ),
+          child: Material(
+            color: item.isSelected ? const Color(0xFFF4F7FF) : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: item.onTap,
+              hoverColor: const Color(0xFFF5F7FA),
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border(
+                    left: BorderSide(
+                      color: item.isSelected
+                          ? const Color(0xFF02152B)
+                          : Colors.transparent,
+                      width: item.isChild ? 2.5 : 0,
+                    ),
+                  ),
+                ),
+                padding: EdgeInsets.symmetric(
+                  horizontal: item.isChild ? 10 : 12,
+                  vertical: item.isChild ? 9 : 12,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      item.icon,
+                      size: item.isChild ? 16 : 18,
+                      color: item.isSelected
+                          ? const Color(0xFF02152B)
+                          : Colors.grey.shade600,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        item.title,
+                        style: TextStyle(
+                          fontSize: item.isChild ? 13 : 14,
+                          fontWeight: item.isChild ? FontWeight.w500 : FontWeight.w600,
+                          color: item.isSelected
+                              ? const Color(0xFF02152B)
+                              : Colors.grey.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      if (item.children.isNotEmpty) {
+        for (var i = 0; i < item.children.length; i++) {
+          appendItem(
+            item.children[i],
+            addDividerAfter: false,
+          );
+          if (i < item.children.length - 1) {
+            itemRows.add(const SizedBox(height: 2));
+          }
+        }
+      }
+
+      if (addDividerAfter) {
+        itemRows.add(const SizedBox(height: 4));
+        itemRows.add(const Divider(height: 1, color: Color(0xFFEFEFEF)));
+        itemRows.add(const SizedBox(height: 4));
+      }
+    }
+
+    for (var i = 0; i < items.length; i++) {
+      appendItem(items[i], addDividerAfter: i < items.length - 1);
+    }
 
     return Container(
       width: width,
@@ -3880,58 +3813,9 @@ class _DesktopSidebar extends StatelessWidget {
           right: BorderSide(color: Color(0xFFE6E6E6)),
         ),
       ),
-      child: Column(
-        children: [
-          const SizedBox(height: 14),
-          for (var i = 0; i < items.length; i++) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Material(
-                color: items[i].isSelected
-                    ? const Color(0xFFF4F4F4)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: items[i].onTap,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          items[i].icon,
-                          size: 18,
-                          color: items[i].isSelected
-                              ? selectedColor
-                              : Colors.grey.shade600,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            items[i].title,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.grey.shade900,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            if (i < items.length - 1) ...[
-              const SizedBox(height: 4),
-              const Divider(height: 1, color: Color(0xFFEFEFEF)),
-              const SizedBox(height: 4),
-            ],
-          ],
-        ],
+      child: ListView(
+        padding: const EdgeInsets.only(top: 14, bottom: 10),
+        children: itemRows,
       ),
     );
   }
