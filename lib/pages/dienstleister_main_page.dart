@@ -3017,7 +3017,7 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
               : (titel?.isNotEmpty == true ? titel! : 'Unbenannt');
           final kategorieRaw = (data['kategorie'] as String?)?.trim();
           final kategorie =
-          kategorieRaw?.isNotEmpty == true ? kategorieRaw! : 'Ohne Kategorie';
+              kategorieRaw?.isNotEmpty == true ? kategorieRaw! : 'Ohne Kategorie';
           final zielgruppen = _extractZielgruppen(data['zielgruppen']);
 
           if (zielgruppen.isEmpty) {
@@ -3025,19 +3025,19 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
           }
 
           gruppen.putIfAbsent(kategorie, () => <_MitarbeiterAngebotZeile>[]).add(
-            _MitarbeiterAngebotZeile(
-              id: doc.id,
-              name: zeilenName,
-              kategorie: kategorie,
-              zielgruppen: zielgruppen,
-            ),
-          );
+                _MitarbeiterAngebotZeile(
+                  id: doc.id,
+                  name: zeilenName,
+                  kategorie: kategorie,
+                  zielgruppen: zielgruppen,
+                ),
+              );
         }
 
         final kategorien = gruppen.keys.toList()..sort();
         for (final key in kategorien) {
           gruppen[key]!.sort(
-                (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
           );
         }
 
@@ -3048,14 +3048,14 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
         }
 
         return ListView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
           children: [
             for (final kategorie in kategorien) ...[
               _buildKategorieBlock(
                 kategorie: kategorie,
                 angebote: gruppen[kategorie]!,
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
             ],
           ],
         );
@@ -3067,16 +3067,10 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     required String kategorie,
     required List<_MitarbeiterAngebotZeile> angebote,
   }) {
-    final zielgruppenHeaders = <String>{};
-    for (final angebot in angebote) {
-      zielgruppenHeaders.addAll(angebot.zielgruppen);
-    }
-    final sortedHeaders = zielgruppenHeaders.toList()..sort();
-
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
       child: Column(
@@ -3084,35 +3078,18 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
         children: [
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
             decoration: const BoxDecoration(
               color: Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
             ),
-            child: Wrap(
-              spacing: 14,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Text(
-                  kategorie,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF02152B),
-                  ),
-                ),
-                ...sortedHeaders.map(
-                      (header) => Text(
-                    header,
-                    style: const TextStyle(
-                      color: Color(0xFF667085),
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              ],
+            child: Text(
+              kategorie,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF02152B),
+              ),
             ),
           ),
           const Divider(height: 1, color: Color(0xFFE5E7EB)),
@@ -3132,75 +3109,90 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     final isSaving = _leistungSavingKeys.contains('angebot:${angebot.id}');
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Checkbox(
-            value: isActive,
-            onChanged: isSaving
-                ? null
-                : (value) => _handleLeistungMainToggle(
-              angebot: angebot,
-              value: value == true,
+          SizedBox(
+            width: 34,
+            child: Checkbox(
+              value: isActive,
+              visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              onChanged: isSaving
+                  ? null
+                  : (value) => _handleLeistungMainToggle(
+                        angebot: angebot,
+                        value: value == true,
+                      ),
+              activeColor: const Color(0xFF02152B),
             ),
-            activeColor: const Color(0xFF02152B),
           ),
+          const SizedBox(width: 4),
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                angebot.name,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF0F172A),
-                ),
+            child: Text(
+              angebot.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF0F172A),
+                fontSize: 13,
               ),
             ),
           ),
-          const SizedBox(width: 10),
-          Expanded(
+          const SizedBox(width: 8),
+          Flexible(
             flex: 2,
-            child: Wrap(
-              alignment: WrapAlignment.end,
-              spacing: 8,
-              runSpacing: 4,
-              children: angebot.zielgruppen.map((zielgruppe) {
-                final checked = aktiveZielgruppen.contains(zielgruppe);
-                return FilterChip(
-                  selected: checked,
-                  onSelected: isSaving
-                      ? null
-                      : (value) => _handleLeistungZielgruppeToggle(
-                    angebot: angebot,
-                    zielgruppe: zielgruppe,
-                    value: value,
-                  ),
-                  label: Text(zielgruppe),
-                  selectedColor: const Color(0x1A02152B),
-                  checkmarkColor: const Color(0xFF02152B),
-                  side: BorderSide(
-                    color: checked
-                        ? const Color(0xFF02152B)
-                        : const Color(0xFFD1D5DB),
-                  ),
-                  labelStyle: TextStyle(
-                    color: checked
-                        ? const Color(0xFF02152B)
-                        : const Color(0xFF475467),
-                    fontWeight: FontWeight.w600,
-                  ),
-                  backgroundColor: Colors.white,
-                );
-              }).toList(),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 10,
+                runSpacing: 0,
+                children: angebot.zielgruppen.map((zielgruppe) {
+                  final checked = aktiveZielgruppen.contains(zielgruppe);
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Checkbox(
+                        value: checked,
+                        visualDensity:
+                            const VisualDensity(horizontal: -3, vertical: -3),
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        onChanged: isSaving
+                            ? null
+                            : (value) => _handleLeistungZielgruppeToggle(
+                                  angebot: angebot,
+                                  zielgruppe: zielgruppe,
+                                  value: value == true,
+                                ),
+                        activeColor: const Color(0xFF02152B),
+                      ),
+                      Text(
+                        zielgruppe,
+                        style: TextStyle(
+                          color: checked
+                              ? const Color(0xFF02152B)
+                              : const Color(0xFF344054),
+                          fontWeight:
+                              checked ? FontWeight.w700 : FontWeight.w500,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  );
+                }).toList(),
+              ),
             ),
           ),
           if (isSaving)
             const Padding(
-              padding: EdgeInsets.only(left: 8, top: 12),
+              padding: EdgeInsets.only(left: 6),
               child: SizedBox(
-                width: 16,
-                height: 16,
+                width: 14,
+                height: 14,
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
