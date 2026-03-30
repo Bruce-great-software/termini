@@ -691,13 +691,27 @@ class _BookingMitarbeiterOption {
   });
 }
 
+class _BookingSlotOption {
+  final String time;
+  final String mitarbeiterId;
+  final String mitarbeiterName;
+
+  const _BookingSlotOption({
+    required this.time,
+    required this.mitarbeiterId,
+    required this.mitarbeiterName,
+  });
+}
+
 class _BookingTimeAvailability {
   final List<String> times;
   final String? message;
+  final Map<String, _BookingSlotOption> slotAssignments;
 
   const _BookingTimeAvailability({
     required this.times,
     this.message,
+    this.slotAssignments = const <String, _BookingSlotOption>{},
   });
 }
 
@@ -1058,7 +1072,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String _selectedMitarbeiterLabel = 'Beliebiger Mitarbeiter';
   late DateTime _selectedBookingDate;
   String? _selectedBookingTime;
+  _BookingSlotOption? _selectedBookingSlotOption;
   late List<String> _availableBookingTimes;
+  Map<String, _BookingSlotOption> _bookingSlotAssignments = const {};
   String? _bookingTimesHint;
   _BookingLoginState _bookingLoginState = _BookingLoginState.loginInitial;
   final TextEditingController _bookingLoginEmailController =
@@ -2100,19 +2116,250 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return _BookingTimeAvailability(times: slots);
   }
 
-  void _reloadBookingTimes({
+  Future<_BookingTimeAvailability> _buildAvailabilityFromMitarbeiter({
+    required String mitarbeiterId,
+    required DateTime selectedDate,
+    required int totalDurationMinutes,
+  }) async {
+    final trimmedMitarbeiterId = mitarbeiterId.trim();
+    if (trimmedMitarbeiterId.isEmpty) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Dieser Mitarbeiter ist an diesem Tag nicht verfügbar.',
+      );
+    }
+
+    try {
+      final userSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(trimmedMitarbeiterId)
+          .get();
+      final userData = userSnapshot.data();
+      final rawArbeitszeiten = userData?['arbeitszeiten'];
+      if (rawArbeitszeiten is! Map) {
+        return const _BookingTimeAvailability(
+          times: <String>[],
+          message: 'Dieser Mitarbeiter ist an diesem Tag nicht verfügbar.',
+        );
+      }
+
+      final arbeitszeiten = Map<String, dynamic>.from(rawArbeitszeiten);
+      final weekdayKey = _weekdayKeyFromDate(selectedDate);
+      final rawDay = arbeitszeiten[weekdayKey];
+      if (rawDay is! Map) {
+        return const _BookingTimeAvailability(
+          times: <String>[],
+          message: 'Dieser Mitarbeiter ist an diesem Tag nicht verfügbar.',
+        );
+      }
+
+      final day = Map<String, dynamic>.from(rawDay);
+      final isActive = day['aktiv'] == true;
+      final fromMinutes = _parseHourMinute(day['von'] as String?);
+      final untilMinutes = _parseHourMinute(day['bis'] as String?);
+
+      if (!isActive) {
+        return const _BookingTimeAvailability(
+          times: <String>[],
+          message: 'Dieser Mitarbeiter ist an diesem Tag nicht verfügbar.',
+        );
+      }
+
+      if (fromMinutes == null ||
+          untilMinutes == null ||
+          untilMinutes <= fromMinutes) {
+        return const _BookingTimeAvailability(
+          times: <String>[],
+          message: 'Dieser Mitarbeiter ist an diesem Tag nicht verfügbar.',
+        );
+      }
+
+      final duration = totalDurationMinutes < 0 ? 0 : totalDurationMinutes;
+      final latestStart = untilMinutes - duration;
+      if (latestStart < fromMinutes) {
+        return const _BookingTimeAvailability(
+          times: <String>[],
+          message: 'Keine freien Termine verfügbar.',
+        );
+      }
+
+      final existingAppointmentsSnapshot = await FirebaseFirestore.instance
+          .collection('termine')
+          .where('mitarbeiterId', isEqualTo: trimmedMitarbeiterId)
+          .where('datum', isEqualTo: _bookingDateIso(selectedDate))
+          .get();
+
+      final existingAppointments = existingAppointmentsSnapshot.docs
+          .map((doc) => doc.data())
+          .where((data) {
+        final status = (data['status'] as String?)?.trim().toLowerCase();
+        return status != 'abgesagt';
+      }).map((data) {
+        final startAt = _timestampOrDateTime(data['startAt']);
+        final endAt = _timestampOrDateTime(data['endAt']);
+        if (startAt == null || endAt == null) return null;
+        return DateTimeRange(start: startAt, end: endAt);
+      }).whereType<DateTimeRange>()
+          .where((range) => range.end.isAfter(range.start))
+          .toList();
+
+      final slots = <String>[];
+      for (var minutes = fromMinutes; minutes <= latestStart; minutes += 30) {
+        final slotStart = DateTime(
+          selectedDate.year,
+          selectedDate.month,
+          selectedDate.day,
+        ).add(Duration(minutes: minutes));
+        final slotEnd = slotStart.add(Duration(minutes: duration));
+        final hasCollision = existingAppointments.any(
+              (appointment) =>
+          slotStart.isBefore(appointment.end) &&
+              slotEnd.isAfter(appointment.start),
+        );
+        if (!hasCollision) {
+          slots.add(_formatHourMinute(minutes));
+        }
+      }
+
+      if (slots.isEmpty) {
+        return const _BookingTimeAvailability(
+          times: <String>[],
+          message: 'Keine freien Termine verfügbar.',
+        );
+      }
+
+      return _BookingTimeAvailability(times: slots);
+    } catch (_) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Keine freien Termine verfügbar.',
+      );
+    }
+  }
+
+  Future<_BookingTimeAvailability> _buildAvailabilityForAnyMitarbeiter({
+    required DateTime selectedDate,
+    required int totalDurationMinutes,
+  }) async {
+    final dienstleisterId = (widget.dienstleister['id'] as String? ?? '').trim();
+    if (dienstleisterId.isEmpty) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Keine freien Termine verfügbar.',
+      );
+    }
+
+    try {
+      final mitarbeiterSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('dienstleisterId', isEqualTo: dienstleisterId)
+          .where('aktiv', isEqualTo: true)
+          .get();
+
+      final mitarbeiterDocs = mitarbeiterSnapshot.docs
+          .where((doc) => _isActiveEmployee(doc.data()))
+          .toList()
+        ..sort((a, b) {
+          final nameA = (a.data()['name'] as String? ?? '').trim().toLowerCase();
+          final nameB = (b.data()['name'] as String? ?? '').trim().toLowerCase();
+          return nameA.compareTo(nameB);
+        });
+
+      if (mitarbeiterDocs.isEmpty) {
+        return const _BookingTimeAvailability(
+          times: <String>[],
+          message: 'Keine freien Termine verfügbar.',
+        );
+      }
+
+      final slotAssignments = <String, _BookingSlotOption>{};
+      for (final mitarbeiterDoc in mitarbeiterDocs) {
+        final data = mitarbeiterDoc.data();
+        final name = (data['name'] as String?)?.trim().isNotEmpty == true
+            ? (data['name'] as String).trim()
+            : 'Unbenannt';
+        final availability = await _buildAvailabilityFromMitarbeiter(
+          mitarbeiterId: mitarbeiterDoc.id,
+          selectedDate: selectedDate,
+          totalDurationMinutes: totalDurationMinutes,
+        );
+
+        for (final time in availability.times) {
+          slotAssignments.putIfAbsent(
+            time,
+            () => _BookingSlotOption(
+              time: time,
+              mitarbeiterId: mitarbeiterDoc.id,
+              mitarbeiterName: name,
+            ),
+          );
+        }
+      }
+
+      final mergedTimes = slotAssignments.keys.toList()
+        ..sort((a, b) {
+          final minuteA = _parseHourMinute(a) ?? 0;
+          final minuteB = _parseHourMinute(b) ?? 0;
+          return minuteA.compareTo(minuteB);
+        });
+
+      if (mergedTimes.isEmpty) {
+        return const _BookingTimeAvailability(
+          times: <String>[],
+          message: 'Keine freien Termine verfügbar.',
+        );
+      }
+
+      return _BookingTimeAvailability(
+        times: mergedTimes,
+        slotAssignments: slotAssignments,
+      );
+    } catch (_) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Keine freien Termine verfügbar.',
+      );
+    }
+  }
+
+  Future<void> _reloadBookingTimes({
     required Map<String, dynamic>? oeffnungszeiten,
     required int totalDurationMinutes,
-  }) {
-    final availability = _buildAvailabilityFromOpeningHours(
-      oeffnungszeiten: oeffnungszeiten,
-      selectedDate: _selectedBookingDate,
-      totalDurationMinutes: totalDurationMinutes,
-    );
+  }) async {
+    _BookingTimeAvailability availability;
+    var slotAssignments = <String, _BookingSlotOption>{};
+    if (_selectedMitarbeiterId != null &&
+        _selectedMitarbeiterId!.trim().isNotEmpty) {
+      availability = await _buildAvailabilityFromMitarbeiter(
+        mitarbeiterId: _selectedMitarbeiterId!,
+        selectedDate: _selectedBookingDate,
+        totalDurationMinutes: totalDurationMinutes,
+      );
+      for (final time in availability.times) {
+        slotAssignments[time] = _BookingSlotOption(
+          time: time,
+          mitarbeiterId: _selectedMitarbeiterId!.trim(),
+          mitarbeiterName: _selectedMitarbeiterLabel.trim(),
+        );
+      }
+    } else {
+      availability = await _buildAvailabilityForAnyMitarbeiter(
+        selectedDate: _selectedBookingDate,
+        totalDurationMinutes: totalDurationMinutes,
+      );
+      slotAssignments = Map<String, _BookingSlotOption>.from(
+        availability.slotAssignments,
+      );
+    }
 
-    _selectedBookingTime = null;
-    _availableBookingTimes = List<String>.from(availability.times);
-    _bookingTimesHint = availability.message;
+    if (!mounted) return;
+    setState(() {
+      _selectedBookingTime = null;
+      _selectedBookingSlotOption = null;
+      _availableBookingTimes = List<String>.from(availability.times);
+      _bookingSlotAssignments = slotAssignments;
+      _bookingTimesHint = availability.message;
+    });
   }
 
   String _formatBookingDate(DateTime date) {
@@ -2165,11 +2412,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     setState(() {
       _selectedBookingDate = _dateOnly(pickedDate);
-      _reloadBookingTimes(
-        oeffnungszeiten: oeffnungszeiten,
-        totalDurationMinutes: totalDurationMinutes,
-      );
     });
+    await _reloadBookingTimes(
+      oeffnungszeiten: oeffnungszeiten,
+      totalDurationMinutes: totalDurationMinutes,
+    );
   }
 
   Widget _buildDateTimeSection({
@@ -2251,6 +2498,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   onTap: () {
                     setState(() {
                       _selectedBookingTime = time;
+                      _selectedBookingSlotOption = _bookingSlotAssignments[time];
                     });
                     setSheetState(() {});
                   },
@@ -3054,11 +3302,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     setState(() {
       _selectedMitarbeiterId = selectedOption.id;
       _selectedMitarbeiterLabel = selectedOption.label;
-      _reloadBookingTimes(
-        oeffnungszeiten: oeffnungszeiten,
-        totalDurationMinutes: totalDurationMinutes,
-      );
     });
+    await _reloadBookingTimes(
+      oeffnungszeiten: oeffnungszeiten,
+      totalDurationMinutes: totalDurationMinutes,
+    );
   }
 
   Future<void> _openBookingSummaryPanel({
@@ -3394,15 +3642,13 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     final oeffnungszeiten = await _loadDienstleisterOeffnungszeiten();
 
     if (mounted) {
-      setState(() {
-        _reloadBookingTimes(
-          oeffnungszeiten: oeffnungszeiten,
-          totalDurationMinutes: _selectedDurationMinutes(
-            singles: panelSingles,
-            combos: panelCombos,
-          ),
-        );
-      });
+      await _reloadBookingTimes(
+        oeffnungszeiten: oeffnungszeiten,
+        totalDurationMinutes: _selectedDurationMinutes(
+          singles: panelSingles,
+          combos: panelCombos,
+        ),
+      );
     }
 
     await showGeneralDialog<void>(
@@ -3653,7 +3899,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                   Icons.delete_outline,
                                                   size: 20,
                                                 ),
-                                                onPressed: () {
+                                                onPressed: () async {
                                                   final singlesMap =
                                                   Map<String, _CartItem>.from(
                                                     _selectedVN.value,
@@ -3747,7 +3993,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                                   );
                                                   panelTotal = totals.optimized;
                                                   panelSavings = totals.savings;
-                                                  _reloadBookingTimes(
+                                                  await _reloadBookingTimes(
                                                     oeffnungszeiten: oeffnungszeiten,
                                                     totalDurationMinutes:
                                                     _selectedDurationMinutes(
@@ -4329,12 +4575,31 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           return;
                                         }
 
-                                        final mitarbeiterId =
+                                        String mitarbeiterId =
                                             _selectedMitarbeiterId?.trim() ?? '';
+                                        String mitarbeiterName =
+                                            _selectedMitarbeiterLabel.trim();
+                                        if (mitarbeiterId.isEmpty) {
+                                          final selectedSlotOption =
+                                              _selectedBookingSlotOption?.time ==
+                                                      selectedTime.trim()
+                                                  ? _selectedBookingSlotOption
+                                                  : _bookingSlotAssignments[
+                                                      selectedTime.trim()];
+                                          if (selectedSlotOption != null) {
+                                            mitarbeiterId =
+                                                selectedSlotOption.mitarbeiterId;
+                                            mitarbeiterName =
+                                                selectedSlotOption.mitarbeiterName;
+                                          }
+                                        }
+
                                         if (mitarbeiterId.isEmpty) {
                                           ScaffoldMessenger.of(ctx).showSnackBar(
                                             const SnackBar(
-                                              content: Text('Bitte wählen Sie einen Mitarbeiter aus.'),
+                                              content: Text(
+                                                'Dieser Termin ist leider nicht mehr verfügbar. Bitte wählen Sie eine andere Uhrzeit.',
+                                              ),
                                             ),
                                           );
                                           return;
@@ -4417,8 +4682,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                               as String? ??
                                               '')
                                               .trim();
-                                          final mitarbeiterName =
-                                          _selectedMitarbeiterLabel.trim();
                                           final kundeName =
                                           _bookingLoginName.trim().isNotEmpty
                                               ? _bookingLoginName.trim()

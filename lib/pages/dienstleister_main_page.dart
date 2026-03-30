@@ -235,7 +235,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
       const DienstleisterAngebotePage(showScaffold: false),
       _buildCurrentProfilContent(),
     ];
-    final sidebarItems = _buildSidebarItems();
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -250,10 +249,23 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (isDesktopLayout && _selectedIndex != 1)
-                _DesktopSidebar(
-                  width: _desktopSidebarWidth,
-                  items: sidebarItems,
-                ),
+                (_selectedIndex == 0 && _mitarbeiterStream != null)
+                    ? StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        stream: _mitarbeiterStream,
+                        builder: (context, snapshot) {
+                          final mitarbeiterDocs = snapshot.data?.docs ?? const [];
+                          return _DesktopSidebar(
+                            width: _desktopSidebarWidth,
+                            items: _buildSidebarItems(
+                              mitarbeiterDocs: mitarbeiterDocs,
+                            ),
+                          );
+                        },
+                      )
+                    : _DesktopSidebar(
+                        width: _desktopSidebarWidth,
+                        items: _buildSidebarItems(),
+                      ),
               Expanded(child: pages[_selectedIndex]),
             ],
           ),
@@ -316,9 +328,38 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     }
   }
 
-  List<_SidebarItemData> _buildSidebarItems() {
+  List<_SidebarItemData> _buildSidebarItems({
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> mitarbeiterDocs = const [],
+  }) {
     switch (_selectedIndex) {
       case 0:
+        final mitarbeiterChildren = <_SidebarItemData>[
+          ...mitarbeiterDocs.map((doc) {
+            final data = doc.data();
+            final name = (data['name'] as String?)?.trim();
+            return _SidebarItemData(
+              title: name?.isNotEmpty == true ? name! : 'Unbenannt',
+              icon: Icons.person_outline,
+              isSelected: _selectedHomeSidebarIndex == 1 && _selectedMitarbeiterId == doc.id,
+              isChild: true,
+              onTap: () {
+                setState(() {
+                  _selectedIndex = 0;
+                  _selectedHomeSidebarIndex = 1;
+                  _selectedMitarbeiterId = doc.id;
+                });
+              },
+            );
+          }),
+          _SidebarItemData(
+            title: '+ Neuer Mitarbeiter',
+            icon: Icons.add,
+            isSelected: false,
+            isChild: true,
+            onTap: _zeigeMitarbeiterErstellenDialog,
+          ),
+        ];
+
         return [
           _SidebarItemData(
             title: 'Home',
@@ -331,6 +372,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             icon: Icons.groups_2_outlined,
             isSelected: _selectedHomeSidebarIndex == 1,
             onTap: () => _onHomeSidebarTapped(1),
+            children: mitarbeiterChildren,
           ),
           _SidebarItemData(
             title: 'Öffnungszeiten',
@@ -861,10 +903,21 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           }
         }
 
-        if (_selectedMitarbeiterId != null && selectedMitarbeiter == null) {
+        if (mitarbeiterDocs.isEmpty && _selectedMitarbeiterId != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
-              setState(() => _selectedMitarbeiterId = null);
+              setState(() {
+                _selectedMitarbeiterId = null;
+              });
+            }
+          });
+        } else if (mitarbeiterDocs.isNotEmpty &&
+            (_selectedMitarbeiterId == null || selectedMitarbeiter == null)) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _selectedMitarbeiterId = mitarbeiterDocs.first.id;
+              });
             }
           });
         }
@@ -879,10 +932,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           return listContent;
         }
 
-        return _buildMitarbeiterDesktopContent(
-          listContent: listContent,
-          selection: selectedMitarbeiter,
-        );
+        return _buildMitarbeiterDesktopContent(selection: selectedMitarbeiter);
       },
     );
   }
@@ -1110,122 +1160,99 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   }
 
   Widget _buildMitarbeiterDesktopContent({
-    required Widget listContent,
     required _SelectedMitarbeiter? selection,
   }) {
-    final drawerVisible = selection != null;
     final showEditor =
         selection != null &&
             _pendingProfileImageBytes != null &&
             _pendingProfileImageMitarbeiterId == selection.docId;
 
-    return Row(
+    return Stack(
+      fit: StackFit.expand,
       children: [
-        Expanded(
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              listContent,
-              if (showEditor)
-                _MitarbeiterImageEditorOverlay(
-                  imageBytes: _pendingProfileImageBytes!,
-                  isSaving: _isProfileImageUploading,
-                  onCancel:
-                  _isProfileImageUploading ? null : _verwerfeLokalesProfilbild,
-                  onConfirm: _isProfileImageUploading
-                      ? null
-                      : (croppedBytes) => _speichereProfilbild(
-                    docId: selection.docId,
-                    croppedBytes: croppedBytes,
-                    previousProfileImagePath: selection.profileImagePath,
-                  ),
+        selection == null
+            ? const Center(
+                child: Text(
+                  'Bitte wähle einen Mitarbeiter aus.',
+                  style: TextStyle(color: Colors.black54),
                 ),
-            ],
+              )
+            : _buildMitarbeiterDesktopManagement(selection),
+        if (showEditor)
+          _MitarbeiterImageEditorOverlay(
+            imageBytes: _pendingProfileImageBytes!,
+            isSaving: _isProfileImageUploading,
+            onCancel: _isProfileImageUploading ? null : _verwerfeLokalesProfilbild,
+            onConfirm: _isProfileImageUploading
+                ? null
+                : (croppedBytes) => _speichereProfilbild(
+                      docId: selection.docId,
+                      croppedBytes: croppedBytes,
+                      previousProfileImagePath: selection.profileImagePath,
+                    ),
           ),
-        ),
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOutCubic,
-          width: drawerVisible ? _desktopMitarbeiterDrawerWidth : 0,
-          child: drawerVisible
-              ? DecoratedBox(
-            decoration: const BoxDecoration(
-              border: Border(
-                left: BorderSide(color: Color(0xFFE5E5E5)),
-              ),
-            ),
-            child: _buildMitarbeiterDesktopDrawer(selection!),
-          )
-              : const SizedBox.shrink(),
-        ),
       ],
     );
   }
 
-  Widget _buildMitarbeiterDesktopDrawer(_SelectedMitarbeiter selection) {
+  Widget _buildMitarbeiterDesktopManagement(_SelectedMitarbeiter selection) {
     return Material(
-      color: Colors.white,
-      elevation: 14,
-      child: SafeArea(
-        child: _MitarbeiterDetailSidebar(
-          key: ValueKey(selection.docId),
+      color: const Color(0xFFF8FAFC),
+      child: _MitarbeiterDetailSidebar(
+        key: ValueKey(selection.docId),
+        docId: selection.docId,
+        name: selection.name,
+        istAktiv: selection.aktiv,
+        profileImageUrl: selection.profileImageUrl,
+        localProfileImageBytes: _pendingProfileImageMitarbeiterId == selection.docId
+            ? _pendingProfileImageBytes
+            : null,
+        hasPendingProfileImage: _pendingProfileImageMitarbeiterId == selection.docId &&
+            _pendingProfileImageBytes != null,
+        isProfileImageBusy: _isProfileImageUploading,
+        onNameSave: (name) => _speichereMitarbeiterNamen(
+          docId: selection.docId,
+          name: name,
+        ),
+        onStatusChanged: (istAktiv) => _speichereMitarbeiterStatus(
+          docId: selection.docId,
+          istAktiv: istAktiv,
+        ),
+        initialKalenderFarbeValue: selection.kalenderFarbeValue,
+        kalenderFarbPalette: _kalenderFarbPalette,
+        onKalenderFarbeChanged: (farbeValue) => _speichereMitarbeiterFarbe(
+          docId: selection.docId,
+          farbeValue: farbeValue,
+        ),
+        arbeitszeiten: selection.arbeitszeiten,
+        onArbeitszeitStatusChanged: (tagKey, aktiv) =>
+            _speichereMitarbeiterArbeitszeitStatus(
+          docId: selection.docId,
+          tagKey: tagKey,
+          aktiv: aktiv,
+        ),
+        onArbeitszeitZeitChanged: (tagKey, feld, zeit) =>
+            _speichereMitarbeiterArbeitszeitZeit(
+          docId: selection.docId,
+          tagKey: tagKey,
+          feld: feld,
+          zeit: zeit,
+        ),
+        onDelete: () => _loescheMitarbeiter(
           docId: selection.docId,
           name: selection.name,
-          istAktiv: selection.aktiv,
-          profileImageUrl: selection.profileImageUrl,
-          localProfileImageBytes:
-          _pendingProfileImageMitarbeiterId == selection.docId
-              ? _pendingProfileImageBytes
-              : null,
-          hasPendingProfileImage:
-          _pendingProfileImageMitarbeiterId == selection.docId &&
-              _pendingProfileImageBytes != null,
-          isProfileImageBusy: _isProfileImageUploading,
-          onClose: () => setState(() => _selectedMitarbeiterId = null),
-          onNameSave: (name) => _speichereMitarbeiterNamen(
-            docId: selection.docId,
-            name: name,
-          ),
-          onStatusChanged: (istAktiv) => _speichereMitarbeiterStatus(
-            docId: selection.docId,
-            istAktiv: istAktiv,
-          ),
-          initialKalenderFarbeValue: selection.kalenderFarbeValue,
-          kalenderFarbPalette: _kalenderFarbPalette,
-          onKalenderFarbeChanged: (farbeValue) => _speichereMitarbeiterFarbe(
-            docId: selection.docId,
-            farbeValue: farbeValue,
-          ),
-          arbeitszeiten: selection.arbeitszeiten,
-          onArbeitszeitStatusChanged: (tagKey, aktiv) =>
-              _speichereMitarbeiterArbeitszeitStatus(
-                docId: selection.docId,
-                tagKey: tagKey,
-                aktiv: aktiv,
-              ),
-          onArbeitszeitZeitChanged: (tagKey, feld, zeit) =>
-              _speichereMitarbeiterArbeitszeitZeit(
-                docId: selection.docId,
-                tagKey: tagKey,
-                feld: feld,
-                zeit: zeit,
-              ),
-          onDelete: () => _loescheMitarbeiter(
-            docId: selection.docId,
-            name: selection.name,
-          ),
-          onTakePhoto: () => _waehleProfilbild(
-            docId: selection.docId,
-            source: ImageSource.camera,
-          ),
-          onUploadPhoto: () => _waehleProfilbild(
-            docId: selection.docId,
-            source: ImageSource.gallery,
-          ),
-          onRemovePhoto: () => _entferneProfilbild(
-            docId: selection.docId,
-            currentProfileImagePath: selection.profileImagePath,
-          ),
+        ),
+        onTakePhoto: () => _waehleProfilbild(
+          docId: selection.docId,
+          source: ImageSource.camera,
+        ),
+        onUploadPhoto: () => _waehleProfilbild(
+          docId: selection.docId,
+          source: ImageSource.gallery,
+        ),
+        onRemovePhoto: () => _entferneProfilbild(
+          docId: selection.docId,
+          currentProfileImagePath: selection.profileImagePath,
         ),
       ),
     );
@@ -1970,6 +1997,8 @@ class _ArbeitszeitTagDefinition {
   final String shortLabel;
 }
 
+enum _MitarbeiterVerwaltungTab { profil, arbeitszeiten, leistungen }
+
 class _MitarbeiterDetailSidebar extends StatefulWidget {
   const _MitarbeiterDetailSidebar({
     super.key,
@@ -1980,7 +2009,6 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
     this.localProfileImageBytes,
     required this.hasPendingProfileImage,
     required this.isProfileImageBusy,
-    required this.onClose,
     required this.onNameSave,
     required this.onStatusChanged,
     required this.initialKalenderFarbeValue,
@@ -2002,7 +2030,6 @@ class _MitarbeiterDetailSidebar extends StatefulWidget {
   final Uint8List? localProfileImageBytes;
   final bool hasPendingProfileImage;
   final bool isProfileImageBusy;
-  final VoidCallback onClose;
   final Future<bool> Function(String name) onNameSave;
   final Future<bool> Function(bool istAktiv) onStatusChanged;
   final int initialKalenderFarbeValue;
@@ -2047,7 +2074,7 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
   bool _isStatusSaving = false;
   bool _isColorSaving = false;
   bool _isDeleting = false;
-  bool _zeigtArbeitszeitenPanel = false;
+  _MitarbeiterVerwaltungTab _activeTab = _MitarbeiterVerwaltungTab.profil;
   final Set<String> _arbeitszeitSavingKeys = <String>{};
 
   bool get _hasNameChanged =>
@@ -2381,7 +2408,7 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     );
   }
 
-  Widget _buildMitarbeiterHauptPanel({required bool hasProfileImage}) {
+  Widget _buildProfilTabContent({required bool hasProfileImage}) {
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       child: Column(
@@ -2608,104 +2635,17 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
               ],
             ),
           ),
-          _MitarbeiterSidebarSection(
-            title: 'Arbeitszeiten',
-            child: InkWell(
-              onTap: () => setState(() => _zeigtArbeitszeitenPanel = true),
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFE5E7EB)),
-                  color: Colors.white,
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(top: 2),
-                      child: Icon(Icons.access_time, size: 18),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Arbeitszeiten',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF111827),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            _arbeitszeitenPreviewText(),
-                            style: const TextStyle(
-                              color: Color(0xFF6B7280),
-                              fontSize: 12.5,
-                              height: 1.35,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Padding(
-                      padding: EdgeInsets.only(top: 2),
-                      child: Icon(Icons.chevron_right),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     );
   }
 
-  Widget _buildArbeitszeitenSubPanel() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
-          child: Row(
-            children: [
-              IconButton(
-                onPressed: () => setState(() => _zeigtArbeitszeitenPanel = false),
-                icon: const Icon(Icons.arrow_back),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Arbeitszeiten',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.name.isNotEmpty ? widget.name : 'Unbenannt',
-                      style: const TextStyle(color: Colors.black54),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
-            itemCount: _arbeitszeitTage.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
+  Widget _buildArbeitszeitenTabContent() {
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      itemCount: _arbeitszeitTage.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
               final tag = _arbeitszeitTage[index];
               final map = Map<String, dynamic>.from(
                 (_arbeitszeiten[tag.key] as Map?) ?? const <String, dynamic>{},
@@ -2821,9 +2761,42 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
                 ),
               );
             },
-          ),
+    );
+  }
+
+  Widget _buildLeistungenPlaceholder() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
         ),
-      ],
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Leistungen',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Die Leistungszuordnung für Mitarbeiter wird hier als Nächstes aufgebaut.',
+              style: TextStyle(
+                color: Color(0xFF475467),
+                height: 1.45,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2871,54 +2844,101 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     final hasProfileImage =
         (widget.profileImageUrl?.trim().isNotEmpty ?? false) ||
             widget.localProfileImageBytes != null;
+    final tabs = <({
+      _MitarbeiterVerwaltungTab tab,
+      String label,
+    })>[
+      (tab: _MitarbeiterVerwaltungTab.profil, label: 'Profil'),
+      (tab: _MitarbeiterVerwaltungTab.arbeitszeiten, label: 'Arbeitszeiten'),
+      (tab: _MitarbeiterVerwaltungTab.leistungen, label: 'Leistungen'),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Mitarbeiter bearbeiten',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
                     Text(
                       widget.name.isNotEmpty ? widget.name : 'Unbenannt',
                       style: const TextStyle(
-                        color: Colors.black54,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Mitarbeiterverwaltung',
+                      style: TextStyle(
+                        color: Color(0xFF667085),
                         fontSize: 14,
                       ),
                     ),
                   ],
                 ),
               ),
-              IconButton(
-                tooltip: 'Schließen',
-                onPressed: widget.onClose,
-                icon: const Icon(Icons.close),
-              ),
             ],
           ),
         ),
-        const Divider(height: 1),
+        const Divider(height: 1, color: Color(0xFFE5E7EB)),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
+          child: Row(
+            children: tabs.map((entry) {
+              final isActive = _activeTab == entry.tab;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: () => setState(() => _activeTab = entry.tab),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    curve: Curves.easeOutCubic,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: isActive
+                              ? const Color(0xFF02152B)
+                              : Colors.transparent,
+                          width: 2.5,
+                        ),
+                      ),
+                    ),
+                    child: Text(
+                      entry.label,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: isActive
+                            ? const Color(0xFF02152B)
+                            : const Color(0xFF64748B),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        const Divider(height: 1, color: Color(0xFFE5E7EB)),
         Expanded(
-          child: _zeigtArbeitszeitenPanel
-              ? _buildArbeitszeitenSubPanel()
-              : _buildMitarbeiterHauptPanel(hasProfileImage: hasProfileImage),
+          child: switch (_activeTab) {
+            _MitarbeiterVerwaltungTab.profil =>
+              _buildProfilTabContent(hasProfileImage: hasProfileImage),
+            _MitarbeiterVerwaltungTab.arbeitszeiten =>
+              _buildArbeitszeitenTabContent(),
+            _MitarbeiterVerwaltungTab.leistungen => _buildLeistungenPlaceholder(),
+          },
         ),
         const Divider(height: 1),
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+          padding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
           child: Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
@@ -3678,12 +3698,16 @@ class _SidebarItemData {
     required this.icon,
     required this.isSelected,
     required this.onTap,
+    this.children = const [],
+    this.isChild = false,
   });
 
   final String title;
   final IconData icon;
   final bool isSelected;
   final VoidCallback onTap;
+  final List<_SidebarItemData> children;
+  final bool isChild;
 }
 
 class _DesktopSidebar extends StatelessWidget {
@@ -3697,7 +3721,89 @@ class _DesktopSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selectedColor = Theme.of(context).colorScheme.primary;
+    final itemRows = <Widget>[];
+
+    void appendItem(_SidebarItemData item, {required bool addDividerAfter}) {
+      itemRows.add(
+        Padding(
+          padding: EdgeInsets.only(
+            left: item.isChild ? 26 : 10,
+            right: 10,
+          ),
+          child: Material(
+            color: item.isSelected ? const Color(0xFFF4F7FF) : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: item.onTap,
+              hoverColor: const Color(0xFFF5F7FA),
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border(
+                    left: BorderSide(
+                      color: item.isSelected
+                          ? const Color(0xFF02152B)
+                          : Colors.transparent,
+                      width: item.isChild ? 2.5 : 0,
+                    ),
+                  ),
+                ),
+                padding: EdgeInsets.symmetric(
+                  horizontal: item.isChild ? 10 : 12,
+                  vertical: item.isChild ? 9 : 12,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      item.icon,
+                      size: item.isChild ? 16 : 18,
+                      color: item.isSelected
+                          ? const Color(0xFF02152B)
+                          : Colors.grey.shade600,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        item.title,
+                        style: TextStyle(
+                          fontSize: item.isChild ? 13 : 14,
+                          fontWeight: item.isChild ? FontWeight.w500 : FontWeight.w600,
+                          color: item.isSelected
+                              ? const Color(0xFF02152B)
+                              : Colors.grey.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      if (item.children.isNotEmpty) {
+        for (var i = 0; i < item.children.length; i++) {
+          appendItem(
+            item.children[i],
+            addDividerAfter: false,
+          );
+          if (i < item.children.length - 1) {
+            itemRows.add(const SizedBox(height: 2));
+          }
+        }
+      }
+
+      if (addDividerAfter) {
+        itemRows.add(const SizedBox(height: 4));
+        itemRows.add(const Divider(height: 1, color: Color(0xFFEFEFEF)));
+        itemRows.add(const SizedBox(height: 4));
+      }
+    }
+
+    for (var i = 0; i < items.length; i++) {
+      appendItem(items[i], addDividerAfter: i < items.length - 1);
+    }
 
     return Container(
       width: width,
@@ -3707,58 +3813,9 @@ class _DesktopSidebar extends StatelessWidget {
           right: BorderSide(color: Color(0xFFE6E6E6)),
         ),
       ),
-      child: Column(
-        children: [
-          const SizedBox(height: 14),
-          for (var i = 0; i < items.length; i++) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Material(
-                color: items[i].isSelected
-                    ? const Color(0xFFF4F4F4)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: items[i].onTap,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          items[i].icon,
-                          size: 18,
-                          color: items[i].isSelected
-                              ? selectedColor
-                              : Colors.grey.shade600,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            items[i].title,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.grey.shade900,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            if (i < items.length - 1) ...[
-              const SizedBox(height: 4),
-              const Divider(height: 1, color: Color(0xFFEFEFEF)),
-              const SizedBox(height: 4),
-            ],
-          ],
-        ],
+      child: ListView(
+        padding: const EdgeInsets.only(top: 14, bottom: 10),
+        children: itemRows,
       ),
     );
   }
