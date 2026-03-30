@@ -691,13 +691,27 @@ class _BookingMitarbeiterOption {
   });
 }
 
+class _BookingSlotOption {
+  final String time;
+  final String mitarbeiterId;
+  final String mitarbeiterName;
+
+  const _BookingSlotOption({
+    required this.time,
+    required this.mitarbeiterId,
+    required this.mitarbeiterName,
+  });
+}
+
 class _BookingTimeAvailability {
   final List<String> times;
   final String? message;
+  final Map<String, _BookingSlotOption> slotAssignments;
 
   const _BookingTimeAvailability({
     required this.times,
     this.message,
+    this.slotAssignments = const <String, _BookingSlotOption>{},
   });
 }
 
@@ -1058,7 +1072,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String _selectedMitarbeiterLabel = 'Beliebiger Mitarbeiter';
   late DateTime _selectedBookingDate;
   String? _selectedBookingTime;
+  _BookingSlotOption? _selectedBookingSlotOption;
   late List<String> _availableBookingTimes;
+  Map<String, _BookingSlotOption> _bookingSlotAssignments = const {};
   String? _bookingTimesHint;
   _BookingLoginState _bookingLoginState = _BookingLoginState.loginInitial;
   final TextEditingController _bookingLoginEmailController =
@@ -2221,11 +2237,97 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     }
   }
 
+  Future<_BookingTimeAvailability> _buildAvailabilityForAnyMitarbeiter({
+    required DateTime selectedDate,
+    required int totalDurationMinutes,
+  }) async {
+    final dienstleisterId = (widget.dienstleister['id'] as String? ?? '').trim();
+    if (dienstleisterId.isEmpty) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Keine freien Termine verfügbar.',
+      );
+    }
+
+    try {
+      final mitarbeiterSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('dienstleisterId', isEqualTo: dienstleisterId)
+          .where('aktiv', isEqualTo: true)
+          .get();
+
+      final mitarbeiterDocs = mitarbeiterSnapshot.docs
+          .where((doc) => _isActiveEmployee(doc.data()))
+          .toList()
+        ..sort((a, b) {
+          final nameA = (a.data()['name'] as String? ?? '').trim().toLowerCase();
+          final nameB = (b.data()['name'] as String? ?? '').trim().toLowerCase();
+          return nameA.compareTo(nameB);
+        });
+
+      if (mitarbeiterDocs.isEmpty) {
+        return const _BookingTimeAvailability(
+          times: <String>[],
+          message: 'Keine freien Termine verfügbar.',
+        );
+      }
+
+      final slotAssignments = <String, _BookingSlotOption>{};
+      for (final mitarbeiterDoc in mitarbeiterDocs) {
+        final data = mitarbeiterDoc.data();
+        final name = (data['name'] as String?)?.trim().isNotEmpty == true
+            ? (data['name'] as String).trim()
+            : 'Unbenannt';
+        final availability = await _buildAvailabilityFromMitarbeiter(
+          mitarbeiterId: mitarbeiterDoc.id,
+          selectedDate: selectedDate,
+          totalDurationMinutes: totalDurationMinutes,
+        );
+
+        for (final time in availability.times) {
+          slotAssignments.putIfAbsent(
+            time,
+                () => _BookingSlotOption(
+              time: time,
+              mitarbeiterId: mitarbeiterDoc.id,
+              mitarbeiterName: name,
+            ),
+          );
+        }
+      }
+
+      final mergedTimes = slotAssignments.keys.toList()
+        ..sort((a, b) {
+          final minuteA = _parseHourMinute(a) ?? 0;
+          final minuteB = _parseHourMinute(b) ?? 0;
+          return minuteA.compareTo(minuteB);
+        });
+
+      if (mergedTimes.isEmpty) {
+        return const _BookingTimeAvailability(
+          times: <String>[],
+          message: 'Keine freien Termine verfügbar.',
+        );
+      }
+
+      return _BookingTimeAvailability(
+        times: mergedTimes,
+        slotAssignments: slotAssignments,
+      );
+    } catch (_) {
+      return const _BookingTimeAvailability(
+        times: <String>[],
+        message: 'Keine freien Termine verfügbar.',
+      );
+    }
+  }
+
   Future<void> _reloadBookingTimes({
     required Map<String, dynamic>? oeffnungszeiten,
     required int totalDurationMinutes,
   }) async {
     _BookingTimeAvailability availability;
+    var slotAssignments = <String, _BookingSlotOption>{};
     if (_selectedMitarbeiterId != null &&
         _selectedMitarbeiterId!.trim().isNotEmpty) {
       availability = await _buildAvailabilityFromMitarbeiter(
@@ -2233,18 +2335,29 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         selectedDate: _selectedBookingDate,
         totalDurationMinutes: totalDurationMinutes,
       );
+      for (final time in availability.times) {
+        slotAssignments[time] = _BookingSlotOption(
+          time: time,
+          mitarbeiterId: _selectedMitarbeiterId!.trim(),
+          mitarbeiterName: _selectedMitarbeiterLabel.trim(),
+        );
+      }
     } else {
-      availability = _buildAvailabilityFromOpeningHours(
-        oeffnungszeiten: oeffnungszeiten,
+      availability = await _buildAvailabilityForAnyMitarbeiter(
         selectedDate: _selectedBookingDate,
         totalDurationMinutes: totalDurationMinutes,
+      );
+      slotAssignments = Map<String, _BookingSlotOption>.from(
+        availability.slotAssignments,
       );
     }
 
     if (!mounted) return;
     setState(() {
       _selectedBookingTime = null;
+      _selectedBookingSlotOption = null;
       _availableBookingTimes = List<String>.from(availability.times);
+      _bookingSlotAssignments = slotAssignments;
       _bookingTimesHint = availability.message;
     });
   }
@@ -2385,6 +2498,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   onTap: () {
                     setState(() {
                       _selectedBookingTime = time;
+                      _selectedBookingSlotOption = _bookingSlotAssignments[time];
                     });
                     setSheetState(() {});
                   },
@@ -4461,12 +4575,31 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           return;
                                         }
 
-                                        final mitarbeiterId =
+                                        String mitarbeiterId =
                                             _selectedMitarbeiterId?.trim() ?? '';
+                                        String mitarbeiterName =
+                                        _selectedMitarbeiterLabel.trim();
+                                        if (mitarbeiterId.isEmpty) {
+                                          final selectedSlotOption =
+                                          _selectedBookingSlotOption?.time ==
+                                              selectedTime.trim()
+                                              ? _selectedBookingSlotOption
+                                              : _bookingSlotAssignments[
+                                          selectedTime.trim()];
+                                          if (selectedSlotOption != null) {
+                                            mitarbeiterId =
+                                                selectedSlotOption.mitarbeiterId;
+                                            mitarbeiterName =
+                                                selectedSlotOption.mitarbeiterName;
+                                          }
+                                        }
+
                                         if (mitarbeiterId.isEmpty) {
                                           ScaffoldMessenger.of(ctx).showSnackBar(
                                             const SnackBar(
-                                              content: Text('Bitte wählen Sie einen Mitarbeiter aus.'),
+                                              content: Text(
+                                                'Dieser Termin ist leider nicht mehr verfügbar. Bitte wählen Sie eine andere Uhrzeit.',
+                                              ),
                                             ),
                                           );
                                           return;
@@ -4549,8 +4682,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                               as String? ??
                                               '')
                                               .trim();
-                                          final mitarbeiterName =
-                                          _selectedMitarbeiterLabel.trim();
                                           final kundeName =
                                           _bookingLoginName.trim().isNotEmpty
                                               ? _bookingLoginName.trim()
@@ -7538,7 +7669,7 @@ class _BookingSummarySuggestion {
 /// ---------------------------------------------------------------
 /// Bottom-Bar (Warenkorb / CTA)
 /// ---------------------------------------------------------------
-class _BookingBar extends StatelessWidget{
+class _BookingBar extends StatelessWidget {
   final int count;
   final double? total;
   final double savings;
