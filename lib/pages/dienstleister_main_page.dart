@@ -28,9 +28,8 @@ class DienstleisterMainPage extends StatefulWidget {
 }
 
 class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
-  static const double _desktopSidebarWidth = 188;
+  static const double _desktopSidebarWidth = 240;
   static const double _desktopMitarbeiterDrawerWidth = 380;
-  static const double _desktopMitarbeiterNavigationWidth = 340;
   static const int _defaultKalenderFarbeValue = 0xFF4285F4;
   static const List<int> _kalenderFarbPalette = [
     0xFF4285F4,
@@ -251,10 +250,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (isDesktopLayout && _selectedIndex != 1)
-                _DesktopSidebar(
-                  width: _desktopSidebarWidth,
-                  items: sidebarItems,
-                ),
+                _buildDesktopSidebar(sidebarItems),
               Expanded(child: pages[_selectedIndex]),
             ],
           ),
@@ -394,6 +390,69 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
         'Willkommen zurück, ${dienstleisterName ?? 'Dienstleister'}!',
         style: const TextStyle(fontSize: 20),
       ),
+    );
+  }
+
+  Widget _buildDesktopSidebar(List<_SidebarItemData> sidebarItems) {
+    final isMitarbeiterHomeSelected =
+        _selectedIndex == 0 && _selectedHomeSidebarIndex == 1;
+
+    if (!isMitarbeiterHomeSelected || _mitarbeiterStream == null) {
+      return _DesktopSidebar(width: _desktopSidebarWidth, items: sidebarItems);
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _mitarbeiterStream,
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? const [];
+        final treeItems = <_DesktopSidebarTreeEntry>[
+          _DesktopSidebarTreeEntry(
+            title: 'Home',
+            icon: Icons.home_outlined,
+            isSelected: _selectedHomeSidebarIndex == 0,
+            onTap: () => _onHomeSidebarTapped(0),
+          ),
+          _DesktopSidebarTreeEntry(
+            title: 'Mitarbeiter',
+            icon: Icons.groups_2_outlined,
+            isSelected: _selectedHomeSidebarIndex == 1,
+            onTap: () => _onHomeSidebarTapped(1),
+          ),
+          ...docs.map((doc) {
+            final data = doc.data();
+            final name = (data['name'] as String?)?.trim();
+            return _DesktopSidebarTreeEntry(
+              title: name?.isNotEmpty == true ? name! : 'Unbenannt',
+              icon: Icons.person_outline,
+              isSelected:
+                  _selectedHomeSidebarIndex == 1 && _selectedMitarbeiterId == doc.id,
+              onTap: () {
+                setState(() {
+                  _selectedHomeSidebarIndex = 1;
+                  _selectedMitarbeiterId = doc.id;
+                });
+              },
+              isChild: true,
+            );
+          }),
+          _DesktopSidebarTreeEntry(
+            title: '+ Neuer Mitarbeiter',
+            icon: Icons.add,
+            isSelected: false,
+            onTap: _zeigeMitarbeiterErstellenDialog,
+            isChild: true,
+            isPrimaryChildAction: true,
+          ),
+          _DesktopSidebarTreeEntry(
+            title: 'Öffnungszeiten',
+            icon: Icons.access_time_outlined,
+            isSelected: _selectedHomeSidebarIndex == 2,
+            onTap: () => _onHomeSidebarTapped(2),
+          ),
+        ];
+
+        return _DesktopSidebarTree(width: _desktopSidebarWidth, items: treeItems);
+      },
     );
   }
 
@@ -891,11 +950,7 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
           return listContent;
         }
 
-        return _buildMitarbeiterDesktopContent(
-          snapshot: snapshot,
-          mitarbeiterDocs: mitarbeiterDocs,
-          selection: selectedMitarbeiter,
-        );
+        return _buildMitarbeiterDesktopContent(selection: selectedMitarbeiter);
       },
     );
   }
@@ -1123,8 +1178,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
   }
 
   Widget _buildMitarbeiterDesktopContent({
-    required AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
-    required List<QueryDocumentSnapshot<Map<String, dynamic>>> mitarbeiterDocs,
     required _SelectedMitarbeiter? selection,
   }) {
     final showEditor =
@@ -1135,28 +1188,14 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        Row(
-          children: [
-            SizedBox(
-              width: _desktopMitarbeiterNavigationWidth,
-              child: _buildMitarbeiterDesktopNavigation(
-                snapshot: snapshot,
-                mitarbeiterDocs: mitarbeiterDocs,
-              ),
-            ),
-            const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFE5E7EB)),
-            Expanded(
-              child: selection == null
-                  ? const Center(
+        selection == null
+            ? const Center(
                 child: Text(
                   'Bitte wähle einen Mitarbeiter aus.',
                   style: TextStyle(color: Colors.black54),
                 ),
               )
-                  : _buildMitarbeiterDesktopManagement(selection),
-            ),
-          ],
-        ),
+            : _buildMitarbeiterDesktopManagement(selection),
         if (showEditor)
           _MitarbeiterImageEditorOverlay(
             imageBytes: _pendingProfileImageBytes!,
@@ -1171,180 +1210,6 @@ class _DienstleisterMainPageState extends State<DienstleisterMainPage> {
             ),
           ),
       ],
-    );
-  }
-
-  Widget _buildMitarbeiterDesktopNavigation({
-    required AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
-    required List<QueryDocumentSnapshot<Map<String, dynamic>>> mitarbeiterDocs,
-  }) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Mitarbeiter',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${mitarbeiterDocs.length} im Team',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.black54,
-            ),
-          ),
-          const SizedBox(height: 16),
-          InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: _zeigeMitarbeiterErstellenDialog,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-              decoration: BoxDecoration(
-                color: const Color(0xFF02152B),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.add, color: Colors.white),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Neuen Mitarbeiter erstellen',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          if (snapshot.connectionState == ConnectionState.waiting)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (snapshot.hasError)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: Text('Die Mitarbeiter konnten nicht geladen werden.'),
-            )
-          else if (mitarbeiterDocs.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 20),
-                child: Text('Noch keine Mitarbeiter vorhanden.'),
-              )
-            else
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFE5E7EB)),
-                ),
-                child: Column(
-                  children: [
-                    for (var index = 0; index < mitarbeiterDocs.length; index++) ...[
-                      Builder(
-                        builder: (_) {
-                          final doc = mitarbeiterDocs[index];
-                          final data = doc.data();
-                          final name = (data['name'] as String?)?.trim();
-                          final istAktiv = data['aktiv'] == true;
-                          final isSelected = doc.id == _selectedMitarbeiterId;
-                          final profileImageUrl =
-                          (data['profileImageUrl'] as String?)?.trim();
-                          final kalenderFarbeValue = _resolveKalenderFarbeValue(data);
-
-                          return MouseRegion(
-                            cursor: SystemMouseCursors.click,
-                            child: InkWell(
-                              onTap: () => setState(() => _selectedMitarbeiterId = doc.id),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 160),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 10,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? const Color(0xFFF1F5FF)
-                                      : Colors.transparent,
-                                  border: Border(
-                                    left: BorderSide(
-                                      color: isSelected
-                                          ? const Color(0xFF02152B)
-                                          : Colors.transparent,
-                                      width: 3,
-                                    ),
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: Color(kalenderFarbeValue),
-                                          width: 2,
-                                        ),
-                                      ),
-                                      child: _MitarbeiterAvatar(
-                                        radius: 19,
-                                        name: name,
-                                        imageUrl: profileImageUrl,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            name?.isNotEmpty == true
-                                                ? name!
-                                                : 'Unbenannt',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w600,
-                                              color: Color(0xFF0F172A),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            istAktiv ? 'Aktiv' : 'Inaktiv',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: istAktiv
-                                                  ? const Color(0xFF1F7A42)
-                                                  : const Color(0xFFB42318),
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                      if (index < mitarbeiterDocs.length - 1)
-                        const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                    ],
-                  ],
-                ),
-              ),
-        ],
-      ),
     );
   }
 
@@ -3859,6 +3724,24 @@ class _SidebarItemData {
   final VoidCallback onTap;
 }
 
+class _DesktopSidebarTreeEntry {
+  const _DesktopSidebarTreeEntry({
+    required this.title,
+    required this.icon,
+    required this.isSelected,
+    required this.onTap,
+    this.isChild = false,
+    this.isPrimaryChildAction = false,
+  });
+
+  final String title;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onTap;
+  final bool isChild;
+  final bool isPrimaryChildAction;
+}
+
 class _DesktopSidebar extends StatelessWidget {
   const _DesktopSidebar({
     required this.width,
@@ -3931,6 +3814,91 @@ class _DesktopSidebar extends StatelessWidget {
               const SizedBox(height: 4),
             ],
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopSidebarTree extends StatelessWidget {
+  const _DesktopSidebarTree({
+    required this.width,
+    required this.items,
+  });
+
+  final double width;
+  final List<_DesktopSidebarTreeEntry> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          right: BorderSide(color: Color(0xFFE6E6E6)),
+        ),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 14),
+          for (var i = 0; i < items.length; i++)
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                items[i].isChild ? 24 : 10,
+                2,
+                10,
+                2,
+              ),
+              child: Material(
+                color: items[i].isSelected
+                    ? (items[i].isChild
+                        ? const Color(0xFFF1F5FF)
+                        : const Color(0xFFF4F4F4))
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: items[i].onTap,
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: items[i].isChild ? 10 : 12,
+                      vertical: 11,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          items[i].icon,
+                          size: items[i].isChild ? 17 : 18,
+                          color: items[i].isPrimaryChildAction
+                              ? const Color(0xFF02152B)
+                              : items[i].isSelected
+                                  ? const Color(0xFF02152B)
+                                  : Colors.grey.shade600,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            items[i].title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: items[i].isChild ? 13.5 : 14,
+                              fontWeight: items[i].isSelected
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                              color: items[i].isPrimaryChildAction
+                                  ? const Color(0xFF02152B)
+                                  : Colors.grey.shade900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
