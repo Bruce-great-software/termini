@@ -3048,14 +3048,14 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
         }
 
         return ListView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
           children: [
             for (final kategorie in kategorien) ...[
               _buildKategorieBlock(
                 kategorie: kategorie,
                 angebote: gruppen[kategorie]!,
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
             ],
           ],
         );
@@ -3067,16 +3067,10 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     required String kategorie,
     required List<_MitarbeiterAngebotZeile> angebote,
   }) {
-    final zielgruppenHeaders = <String>{};
-    for (final angebot in angebote) {
-      zielgruppenHeaders.addAll(angebot.zielgruppen);
-    }
-    final sortedHeaders = zielgruppenHeaders.toList()..sort();
-
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
       child: Column(
@@ -3084,42 +3078,25 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
         children: [
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
             decoration: const BoxDecoration(
               color: Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
             ),
-            child: Wrap(
-              spacing: 14,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Text(
-                  kategorie,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF02152B),
-                  ),
-                ),
-                ...sortedHeaders.map(
-                      (header) => Text(
-                    header,
-                    style: const TextStyle(
-                      color: Color(0xFF667085),
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              ],
+            child: Text(
+              kategorie,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF02152B),
+              ),
             ),
           ),
           const Divider(height: 1, color: Color(0xFFE5E7EB)),
           for (var i = 0; i < angebote.length; i++) ...[
             _buildLeistungsZeile(angebote[i]),
             if (i < angebote.length - 1)
-              const Divider(height: 1, color: Color(0xFFF1F5F9)),
+              const Divider(height: 1, color: Color(0xFD585861)),
           ],
         ],
       ),
@@ -3131,76 +3108,101 @@ class _MitarbeiterDetailSidebarState extends State<_MitarbeiterDetailSidebar> {
     final isActive = aktiveZielgruppen.isNotEmpty;
     final isSaving = _leistungSavingKeys.contains('angebot:${angebot.id}');
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Checkbox(
-            value: isActive,
-            onChanged: isSaving
-                ? null
-                : (value) => _handleLeistungMainToggle(
-              angebot: angebot,
-              value: value == true,
+    const double nameWidth = 360;
+    const double zielgruppeWidth = 110;
+
+    bool hatZielgruppe(String zielgruppe) {
+      return angebot.zielgruppen.contains(zielgruppe);
+    }
+
+    Widget buildZielgruppeSpalte(String zielgruppe) {
+      final sichtbar = hatZielgruppe(zielgruppe);
+      final checked = aktiveZielgruppen.contains(zielgruppe);
+
+      return SizedBox(
+        width: zielgruppeWidth,
+        child: sichtbar
+            ? Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Checkbox(
+              value: checked,
+              visualDensity:
+              const VisualDensity(horizontal: -3, vertical: -3),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              onChanged: isSaving
+                  ? null
+                  : (value) => _handleLeistungZielgruppeToggle(
+                angebot: angebot,
+                zielgruppe: zielgruppe,
+                value: value == true,
+              ),
+              activeColor: const Color(0xFF02152B),
             ),
-            activeColor: const Color(0xFF02152B),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(top: 12),
+            Flexible(
               child: Text(
-                angebot.name,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF0F172A),
+                zielgruppe,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: checked
+                      ? const Color(0xFF02152B)
+                      : const Color(0xFF344054),
+                  fontWeight:
+                  checked ? FontWeight.w700 : FontWeight.w500,
+                  fontSize: 12,
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            flex: 2,
-            child: Wrap(
-              alignment: WrapAlignment.end,
-              spacing: 8,
-              runSpacing: 4,
-              children: angebot.zielgruppen.map((zielgruppe) {
-                final checked = aktiveZielgruppen.contains(zielgruppe);
-                return FilterChip(
-                  selected: checked,
-                  onSelected: isSaving
-                      ? null
-                      : (value) => _handleLeistungZielgruppeToggle(
-                    angebot: angebot,
-                    zielgruppe: zielgruppe,
-                    value: value,
-                  ),
-                  label: Text(zielgruppe),
-                  selectedColor: const Color(0x1A02152B),
-                  checkmarkColor: const Color(0xFF02152B),
-                  side: BorderSide(
-                    color: checked
-                        ? const Color(0xFF02152B)
-                        : const Color(0xFFD1D5DB),
-                  ),
-                  labelStyle: TextStyle(
-                    color: checked
-                        ? const Color(0xFF02152B)
-                        : const Color(0xFF475467),
-                    fontWeight: FontWeight.w600,
-                  ),
-                  backgroundColor: Colors.white,
-                );
-              }).toList(),
+          ],
+        )
+            : const SizedBox.shrink(),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 34,
+            child: Checkbox(
+              value: isActive,
+              visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              onChanged: isSaving
+                  ? null
+                  : (value) => _handleLeistungMainToggle(
+                angebot: angebot,
+                value: value == true,
+              ),
+              activeColor: const Color(0xFF02152B),
             ),
           ),
+          const SizedBox(width: 6),
+          SizedBox(
+            width: nameWidth,
+            child: Text(
+              angebot.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF0F172A),
+                fontSize: 13,
+              ),
+            ),
+          ),
+          const SizedBox(width: 20),
+          buildZielgruppeSpalte('Damen'),
+          buildZielgruppeSpalte('Herren'),
+          buildZielgruppeSpalte('Kinder'),
           if (isSaving)
             const Padding(
-              padding: EdgeInsets.only(left: 8, top: 12),
+              padding: EdgeInsets.only(left: 6),
               child: SizedBox(
-                width: 16,
-                height: 16,
+                width: 14,
+                height: 14,
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
