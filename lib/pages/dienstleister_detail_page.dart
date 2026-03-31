@@ -1982,6 +1982,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return DateTime(value.year, value.month, value.day);
   }
 
+  bool _isSameCalendarDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
   Future<Map<String, dynamic>?> _loadDienstleisterOeffnungszeiten() async {
     final dienstleisterId = widget.dienstleister['id'] as String?;
     if (dienstleisterId == null || dienstleisterId.trim().isEmpty) {
@@ -2216,7 +2220,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     }
 
     final slots = <String>[];
+    final now = DateTime.now();
+    final isToday = _isSameCalendarDay(selectedDate, now);
     for (var minutes = fromMinutes; minutes <= latestStart; minutes += 30) {
+      final slotStart = DateTime(
+        selectedDate.year,
+        selectedDate.month,
+        selectedDate.day,
+      ).add(Duration(minutes: minutes));
+      if (isToday && !slotStart.isAfter(now)) {
+        continue;
+      }
       slots.add(_formatHourMinute(minutes));
     }
 
@@ -2304,12 +2318,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           .toList();
 
       final slots = <String>[];
+      final now = DateTime.now();
+      final isToday = _isSameCalendarDay(selectedDate, now);
       for (var minutes = fromMinutes; minutes <= latestStart; minutes += 30) {
         final slotStart = DateTime(
           selectedDate.year,
           selectedDate.month,
           selectedDate.day,
         ).add(Duration(minutes: minutes));
+        if (isToday && !slotStart.isAfter(now)) {
+          continue;
+        }
         final slotEnd = slotStart.add(Duration(minutes: duration));
         final hasCollision = existingAppointments.any(
               (appointment) =>
@@ -3244,6 +3263,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required List<_BookingRequirement> requirements,
     String? preferredMitarbeiterId,
   }) async {
+    if (!startAt.isAfter(DateTime.now())) {
+      return null;
+    }
     final dienstleisterId = (widget.dienstleister['id'] as String? ?? '').trim();
     if (dienstleisterId.isEmpty) return null;
 
@@ -4850,6 +4872,16 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         final endAt = startAt.add(
                                           Duration(minutes: durationMinutes),
                                         );
+                                        if (!startAt.isAfter(DateTime.now())) {
+                                          ScaffoldMessenger.of(ctx).showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'Die gewählte Uhrzeit liegt bereits in der Vergangenheit. Bitte wählen Sie eine neue Uhrzeit.',
+                                              ),
+                                            ),
+                                          );
+                                          return;
+                                        }
                                         final bookingRequirements =
                                         _bookingRequirementsFromSelection(
                                           singles: panelSingles,
