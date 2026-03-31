@@ -2071,10 +2071,16 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   Widget _buildMitarbeiterAvatar(Map<String, dynamic> data) {
     final profilbild = _safeString(data['profilbild']);
     final profilbildUrl = _safeString(data['profilbildUrl']);
+    final profileImageUrl = _safeString(data['profileImageUrl']);
     final photoUrl = _safeString(data['photoUrl']);
-    final imageUrl = profilbild.isNotEmpty
-        ? profilbild
-        : (profilbildUrl.isNotEmpty ? profilbildUrl : photoUrl);
+    final photoURL = _safeString(data['photoURL']);
+    final imageUrl = [
+      profilbild,
+      profilbildUrl,
+      profileImageUrl,
+      photoUrl,
+      photoURL,
+    ].firstWhere((url) => url.isNotEmpty, orElse: () => '');
     final name = _safeString(data['name']);
     final initial = name.isNotEmpty ? name.substring(0, 1).toUpperCase() : '?';
 
