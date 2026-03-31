@@ -2471,6 +2471,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             !_mitarbeiterSupportsRequirements(
               mitarbeiterData: data,
               requirements: requirements,
+            ) ||
+            !_isMitarbeiterActiveOnDate(
+              mitarbeiterData: data,
+              date: _selectedBookingDate,
             )) {
           _selectedMitarbeiterId = null;
           _selectedMitarbeiterLabel = 'Beliebiger Mitarbeiter';
@@ -3358,6 +3362,261 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return rolle == 'mitarbeiter' ;
   }
 
+  bool _isMitarbeiterActiveOnDate({
+    required Map<String, dynamic> mitarbeiterData,
+    required DateTime date,
+  }) {
+    final rawArbeitszeiten = mitarbeiterData['arbeitszeiten'];
+    if (rawArbeitszeiten is! Map) return false;
+
+    final weekdayKey = _weekdayKeyFromDate(date);
+    final rawDay = Map<String, dynamic>.from(rawArbeitszeiten)[weekdayKey];
+    if (rawDay is! Map) return false;
+
+    final day = Map<String, dynamic>.from(rawDay);
+    return day['aktiv'] == true;
+  }
+
+  String _formatInfoOpeningHoursForDay({
+    required Map<String, dynamic>? oeffnungszeiten,
+    required String weekdayKey,
+  }) {
+    if (oeffnungszeiten == null || oeffnungszeiten.isEmpty) {
+      return 'Geschlossen';
+    }
+    final rawDay = oeffnungszeiten[weekdayKey];
+    if (rawDay is! Map) {
+      return 'Geschlossen';
+    }
+    final day = Map<String, dynamic>.from(rawDay);
+    final isActive = day['aktiv'] == true;
+    final from = (day['von'] as String?)?.trim() ?? '';
+    final to = (day['bis'] as String?)?.trim() ?? '';
+
+    if (!isActive || from.isEmpty || to.isEmpty) {
+      return 'Geschlossen';
+    }
+    return '$from - $to';
+  }
+
+  Future<void> _openInfoSheet() async {
+    final dienstleisterId = (widget.dienstleister['id'] as String?)?.trim() ?? '';
+    if (dienstleisterId.isEmpty) return;
+
+    final weekdayMeta = const <({String key, String label})>[
+      (key: 'montag', label: 'Montag'),
+      (key: 'dienstag', label: 'Dienstag'),
+      (key: 'mittwoch', label: 'Mittwoch'),
+      (key: 'donnerstag', label: 'Donnerstag'),
+      (key: 'freitag', label: 'Freitag'),
+      (key: 'samstag', label: 'Samstag'),
+      (key: 'sonntag', label: 'Sonntag'),
+    ];
+
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetContext) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Öffnungszeiten & Team',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                FutureBuilder<Map<String, dynamic>?>(
+                  future: _loadDienstleisterOeffnungszeiten(),
+                  builder: (context, openingSnapshot) {
+                    final oeffnungszeiten = openingSnapshot.data;
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF7F8FA),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFE7E9EE)),
+                          ),
+                          child: Column(
+                            children: [
+                              for (var i = 0; i < weekdayMeta.length; i++) ...[
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 12,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          weekdayMeta[i].label,
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            color: Color(0xFF475467),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                      Text(
+                                        _formatInfoOpeningHoursForDay(
+                                          oeffnungszeiten: oeffnungszeiten,
+                                          weekdayKey: weekdayMeta[i].key,
+                                        ),
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          color: _formatInfoOpeningHoursForDay(
+                                            oeffnungszeiten: oeffnungszeiten,
+                                            weekdayKey: weekdayMeta[i].key,
+                                          ) ==
+                                                  'Geschlossen'
+                                              ? const Color(0xFF98A2B3)
+                                              : const Color(0xFF111827),
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (i < weekdayMeta.length - 1)
+                                  const Divider(height: 1, color: Color(0xFFE4E7EC)),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        const Text(
+                          'Das Team',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                          stream: FirebaseFirestore.instance
+                              .collection('users')
+                              .where('dienstleisterId', isEqualTo: dienstleisterId)
+                              .where('aktiv', isEqualTo: true)
+                              .snapshots(),
+                          builder: (context, mitarbeiterSnapshot) {
+                            if (mitarbeiterSnapshot.connectionState ==
+                                ConnectionState.waiting) {
+                              return const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 20),
+                                child: Center(child: CircularProgressIndicator()),
+                              );
+                            }
+
+                            final mitarbeiterDocs = (mitarbeiterSnapshot.data?.docs ??
+                                    const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+                                .where((doc) => _isActiveEmployee(doc.data()))
+                                .toList()
+                              ..sort((a, b) {
+                                final nameA =
+                                    (a.data()['name'] as String? ?? '').trim().toLowerCase();
+                                final nameB =
+                                    (b.data()['name'] as String? ?? '').trim().toLowerCase();
+                                return nameA.compareTo(nameB);
+                              });
+
+                            if (mitarbeiterDocs.isEmpty) {
+                              return Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF7F8FA),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Text(
+                                  'Aktuell sind keine Mitarbeiter sichtbar.',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Color(0xFF667085),
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              );
+                            }
+
+                            return Column(
+                              children: mitarbeiterDocs.map((doc) {
+                                final data = doc.data();
+                                final name =
+                                    (data['name'] as String?)?.trim().isNotEmpty == true
+                                        ? (data['name'] as String).trim()
+                                        : 'Unbenannt';
+                                final imageUrl =
+                                    (data['profileImageUrl'] as String?)?.trim();
+
+                                return Container(
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(color: const Color(0xFFE4E7EC)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      _buildMitarbeiterAvatar(
+                                        name: name,
+                                        profileImageUrl: imageUrl,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          name,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFF1D2939),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                            );
+                          },
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildMitarbeiterAvatar({
     required String name,
     String? profileImageUrl,
@@ -3418,6 +3677,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
                   .where((doc) =>
               _isActiveEmployee(doc.data()) &&
+                  _isMitarbeiterActiveOnDate(
+                    mitarbeiterData: doc.data(),
+                    date: _selectedBookingDate,
+                  ) &&
                   _mitarbeiterSupportsRequirements(
                     mitarbeiterData: doc.data(),
                     requirements: requirements,
@@ -6125,6 +6388,30 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           pressedColor: const Color(0xFFECECEC),
           padding: EdgeInsets.zero,
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Infos',
+            onPressed: _openInfoSheet,
+            icon: const Icon(
+              Icons.info_outline,
+              color: Colors.black,
+            ),
+          ),
+          IconButton(
+            tooltip: 'Favorit',
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Favoriten-Funktion folgt in Kürze.'),
+                ),
+              );
+            },
+            icon: const Icon(
+              Icons.favorite,
+              color: Color(0xFFE53935),
+            ),
+          ),
+        ],
       ),
       body: Column(
         children: [
