@@ -2217,6 +2217,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     final slots = <String>[];
     for (var minutes = fromMinutes; minutes <= latestStart; minutes += 30) {
+      final slotStart = DateTime(
+        selectedDate.year,
+        selectedDate.month,
+        selectedDate.day,
+      ).add(Duration(minutes: minutes));
+
+      final now = DateTime.now();
+      final isToday = _dateOnly(selectedDate) == _dateOnly(now);
+
+      if (isToday && !slotStart.isAfter(now)) {
+        continue;
+      }
+
       slots.add(_formatHourMinute(minutes));
     }
 
@@ -2310,12 +2323,21 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           selectedDate.month,
           selectedDate.day,
         ).add(Duration(minutes: minutes));
+
+        final now = DateTime.now();
+        final isToday = _dateOnly(selectedDate) == _dateOnly(now);
+
+        if (isToday && !slotStart.isAfter(now)) {
+          continue;
+        }
+
         final slotEnd = slotStart.add(Duration(minutes: duration));
         final hasCollision = existingAppointments.any(
               (appointment) =>
           slotStart.isBefore(appointment.end) &&
               slotEnd.isAfter(appointment.start),
         );
+
         if (!hasCollision) {
           slots.add(_formatHourMinute(minutes));
         }
