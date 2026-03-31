@@ -7,6 +7,7 @@ import 'package:flutter/cupertino.dart';
 import 'login_register_page.dart';
 import 'package:termini/widgets/angebote_view.dart';
 
+import 'dart:math' as math;
 import 'dart:ui' show FontFeature;
 
 /// ---- Brand / Farben ----
@@ -2215,8 +2216,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       );
     }
 
+    final earliestBookableStart = _earliestBookableStartMinutes(
+      selectedDate: selectedDate,
+    );
+    final firstStart = earliestBookableStart == null
+        ? fromMinutes
+        : math.max(fromMinutes, earliestBookableStart);
+
     final slots = <String>[];
-    for (var minutes = fromMinutes; minutes <= latestStart; minutes += 30) {
+    for (var minutes = firstStart; minutes <= latestStart; minutes += 30) {
       slots.add(_formatHourMinute(minutes));
     }
 
@@ -2282,6 +2290,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       final fromMinutes = _parseHourMinute(day['von'] as String?)!;
       final untilMinutes = _parseHourMinute(day['bis'] as String?)!;
       final latestStart = untilMinutes - duration;
+      final earliestBookableStart = _earliestBookableStartMinutes(
+        selectedDate: selectedDate,
+      );
+      final firstStart = earliestBookableStart == null
+          ? fromMinutes
+          : math.max(fromMinutes, earliestBookableStart);
 
       final existingAppointmentsSnapshot = await FirebaseFirestore.instance
           .collection('termine')
@@ -2304,7 +2318,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           .toList();
 
       final slots = <String>[];
-      for (var minutes = fromMinutes; minutes <= latestStart; minutes += 30) {
+      for (var minutes = firstStart; minutes <= latestStart; minutes += 30) {
         final slotStart = DateTime(
           selectedDate.year,
           selectedDate.month,
@@ -3329,6 +3343,28 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     final month = date.month.toString().padLeft(2, '0');
     final day = date.day.toString().padLeft(2, '0');
     return '$year-$month-$day';
+  }
+
+  int? _earliestBookableStartMinutes({
+    required DateTime selectedDate,
+  }) {
+    final now = DateTime.now();
+    final selectedDay = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+    );
+    final today = DateTime(now.year, now.month, now.day);
+
+    if (selectedDay.isAfter(today)) {
+      return null;
+    }
+    if (selectedDay.isBefore(today)) {
+      return 24 * 60;
+    }
+
+    final nowMinutes = (now.hour * 60) + now.minute;
+    return ((nowMinutes ~/ 30) + 1) * 30;
   }
 
   bool _isActiveEmployee(Map<String, dynamic> data) {
