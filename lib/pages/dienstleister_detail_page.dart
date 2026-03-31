@@ -139,6 +139,7 @@ class SectionData {
 /// Interner Warenkorb-Eintrag
 /// ---------------------------------------------------------------
 class _CartItem {
+  final String angebotId;
   final String kategorie;
   final String leistung;
   final double? preis; // Basis-/Variantenpreis des Items
@@ -151,6 +152,7 @@ class _CartItem {
   final double? lockedDisplayPrice;
 
   const _CartItem({
+    required this.angebotId,
     required this.kategorie,
     required this.leistung,
     required this.preis,
@@ -712,6 +714,16 @@ class _BookingTimeAvailability {
     required this.times,
     this.message,
     this.slotAssignments = const <String, _BookingSlotOption>{},
+  });
+}
+
+class _BookingRequirement {
+  final String angebotId;
+  final String zielgruppe;
+
+  const _BookingRequirement({
+    required this.angebotId,
+    required this.zielgruppe,
   });
 }
 
@@ -1398,6 +1410,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             requiredBasePartsLc.contains(it.leistung.toLowerCase()) &&
             (it.varianteLabel?.toLowerCase().contains(keyLc) ?? false),
         orElse: () => const _CartItem(
+          angebotId: '',
           kategorie: '',
           leistung: '',
           preis: null,
@@ -1544,6 +1557,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       );
 
       selectionMap[key] = _CartItem(
+        angebotId: item.angebotId,
         kategorie: item.kategorie,
         leistung: item.leistung,
         preis: item.preis,
@@ -1968,6 +1982,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return DateTime(value.year, value.month, value.day);
   }
 
+  bool _isSameCalendarDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
   Future<Map<String, dynamic>?> _loadDienstleisterOeffnungszeiten() async {
     final dienstleisterId = widget.dienstleister['id'] as String?;
     if (dienstleisterId == null || dienstleisterId.trim().isEmpty) {
@@ -2050,6 +2068,106 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return totalMinutes;
   }
 
+  List<_BookingRequirement> _bookingRequirementsFromSelection({
+    required Map<String, _CartItem> singles,
+    required Map<String, _ComboSelection> combos,
+  }) {
+    final requirements = <_BookingRequirement>[];
+    final dedupe = <String>{};
+
+    for (final item in singles.values) {
+      final angebotId = item.angebotId.trim();
+      final zielgruppe = item.zielgruppe.trim();
+      if (angebotId.isEmpty || zielgruppe.isEmpty) continue;
+      final key = '${angebotId.toLowerCase()}|${zielgruppe.toLowerCase()}';
+      if (dedupe.add(key)) {
+        requirements.add(
+          _BookingRequirement(angebotId: angebotId, zielgruppe: zielgruppe),
+        );
+      }
+    }
+
+    for (final combo in combos.values) {
+      final angebotId = combo.bundle.id.trim();
+      final zielgruppe = combo.zielgruppe.trim();
+      if (angebotId.isEmpty || zielgruppe.isEmpty) continue;
+      final key = '${angebotId.toLowerCase()}|${zielgruppe.toLowerCase()}';
+      if (dedupe.add(key)) {
+        requirements.add(
+          _BookingRequirement(angebotId: angebotId, zielgruppe: zielgruppe),
+        );
+      }
+    }
+
+    return requirements;
+  }
+
+  bool _mitarbeiterSupportsRequirements({
+    required Map<String, dynamic> mitarbeiterData,
+    required List<_BookingRequirement> requirements,
+  }) {
+    if (requirements.isEmpty) return true;
+    final raw = mitarbeiterData['mitarbeiterAngebote'];
+    if (raw is! List) return false;
+
+    final assignments = raw.whereType<Map>().map((entry) {
+      final mapped = Map<String, dynamic>.from(entry);
+      final angebotId = (mapped['angebotId'] as String? ?? '').trim();
+      final zielgruppen = (mapped['zielgruppen'] is List)
+          ? List<String>.from(mapped['zielgruppen'])
+              .map((zg) => zg.trim().toLowerCase())
+              .where((zg) => zg.isNotEmpty)
+              .toSet()
+          : <String>{};
+      return (angebotId: angebotId, zielgruppen: zielgruppen);
+    }).where((entry) => entry.angebotId.isNotEmpty).toList();
+
+    for (final requirement in requirements) {
+      final requiredOffer = requirement.angebotId.trim().toLowerCase();
+      final requiredZg = requirement.zielgruppe.trim().toLowerCase();
+      final hasMatch = assignments.any(
+        (entry) =>
+            entry.angebotId.toLowerCase() == requiredOffer &&
+            entry.zielgruppen.contains(requiredZg),
+      );
+      if (!hasMatch) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _mitarbeiterWorksDuring({
+    required Map<String, dynamic> mitarbeiterData,
+    required DateTime selectedDate,
+    required int durationMinutes,
+    int? startMinutes,
+  }) {
+    final rawArbeitszeiten = mitarbeiterData['arbeitszeiten'];
+    if (rawArbeitszeiten is! Map) return false;
+    final arbeitszeiten = Map<String, dynamic>.from(rawArbeitszeiten);
+    final weekdayKey = _weekdayKeyFromDate(selectedDate);
+    final rawDay = arbeitszeiten[weekdayKey];
+    if (rawDay is! Map) return false;
+
+    final day = Map<String, dynamic>.from(rawDay);
+    final isActive = day['aktiv'] == true;
+    final fromMinutes = _parseHourMinute(day['von'] as String?);
+    final untilMinutes = _parseHourMinute(day['bis'] as String?);
+    if (!isActive ||
+        fromMinutes == null ||
+        untilMinutes == null ||
+        untilMinutes <= fromMinutes) {
+      return false;
+    }
+
+    final effectiveDuration = durationMinutes < 0 ? 0 : durationMinutes;
+    final latestStart = untilMinutes - effectiveDuration;
+    if (latestStart < fromMinutes) return false;
+    if (startMinutes == null) return true;
+    return startMinutes >= fromMinutes && startMinutes <= latestStart;
+  }
+
   _BookingTimeAvailability _buildAvailabilityFromOpeningHours({
     required Map<String, dynamic>? oeffnungszeiten,
     required DateTime selectedDate,
@@ -2102,7 +2220,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     }
 
     final slots = <String>[];
+    final now = DateTime.now();
+    final isToday = _isSameCalendarDay(selectedDate, now);
     for (var minutes = fromMinutes; minutes <= latestStart; minutes += 30) {
+      final slotStart = DateTime(
+        selectedDate.year,
+        selectedDate.month,
+        selectedDate.day,
+      ).add(Duration(minutes: minutes));
+      if (isToday && !slotStart.isAfter(now)) {
+        continue;
+      }
       slots.add(_formatHourMinute(minutes));
     }
 
@@ -2120,6 +2248,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required String mitarbeiterId,
     required DateTime selectedDate,
     required int totalDurationMinutes,
+    required List<_BookingRequirement> requirements,
+    Map<String, dynamic>? mitarbeiterData,
   }) async {
     final trimmedMitarbeiterId = mitarbeiterId.trim();
     if (trimmedMitarbeiterId.isEmpty) {
@@ -2130,44 +2260,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     }
 
     try {
-      final userSnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(trimmedMitarbeiterId)
-          .get();
-      final userData = userSnapshot.data();
-      final rawArbeitszeiten = userData?['arbeitszeiten'];
-      if (rawArbeitszeiten is! Map) {
-        return const _BookingTimeAvailability(
-          times: <String>[],
-          message: 'Dieser Mitarbeiter ist an diesem Tag nicht verfügbar.',
-        );
-      }
-
-      final arbeitszeiten = Map<String, dynamic>.from(rawArbeitszeiten);
-      final weekdayKey = _weekdayKeyFromDate(selectedDate);
-      final rawDay = arbeitszeiten[weekdayKey];
-      if (rawDay is! Map) {
-        return const _BookingTimeAvailability(
-          times: <String>[],
-          message: 'Dieser Mitarbeiter ist an diesem Tag nicht verfügbar.',
-        );
-      }
-
-      final day = Map<String, dynamic>.from(rawDay);
-      final isActive = day['aktiv'] == true;
-      final fromMinutes = _parseHourMinute(day['von'] as String?);
-      final untilMinutes = _parseHourMinute(day['bis'] as String?);
-
-      if (!isActive) {
-        return const _BookingTimeAvailability(
-          times: <String>[],
-          message: 'Dieser Mitarbeiter ist an diesem Tag nicht verfügbar.',
-        );
-      }
-
-      if (fromMinutes == null ||
-          untilMinutes == null ||
-          untilMinutes <= fromMinutes) {
+      final userData = mitarbeiterData ??
+          (await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(trimmedMitarbeiterId)
+                  .get())
+              .data();
+      if (userData == null ||
+          !_mitarbeiterSupportsRequirements(
+            mitarbeiterData: userData,
+            requirements: requirements,
+          )) {
         return const _BookingTimeAvailability(
           times: <String>[],
           message: 'Dieser Mitarbeiter ist an diesem Tag nicht verfügbar.',
@@ -2175,13 +2278,24 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       }
 
       final duration = totalDurationMinutes < 0 ? 0 : totalDurationMinutes;
-      final latestStart = untilMinutes - duration;
-      if (latestStart < fromMinutes) {
+      if (!_mitarbeiterWorksDuring(
+        mitarbeiterData: userData,
+        selectedDate: selectedDate,
+        durationMinutes: duration,
+      )) {
         return const _BookingTimeAvailability(
           times: <String>[],
-          message: 'Keine freien Termine verfügbar.',
+          message: 'Dieser Mitarbeiter ist an diesem Tag nicht verfügbar.',
         );
       }
+      final rawArbeitszeiten = userData['arbeitszeiten'] as Map;
+      final day = Map<String, dynamic>.from(
+        Map<String, dynamic>.from(rawArbeitszeiten)[_weekdayKeyFromDate(selectedDate)]
+            as Map,
+      );
+      final fromMinutes = _parseHourMinute(day['von'] as String?)!;
+      final untilMinutes = _parseHourMinute(day['bis'] as String?)!;
+      final latestStart = untilMinutes - duration;
 
       final existingAppointmentsSnapshot = await FirebaseFirestore.instance
           .collection('termine')
@@ -2204,12 +2318,17 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           .toList();
 
       final slots = <String>[];
+      final now = DateTime.now();
+      final isToday = _isSameCalendarDay(selectedDate, now);
       for (var minutes = fromMinutes; minutes <= latestStart; minutes += 30) {
         final slotStart = DateTime(
           selectedDate.year,
           selectedDate.month,
           selectedDate.day,
         ).add(Duration(minutes: minutes));
+        if (isToday && !slotStart.isAfter(now)) {
+          continue;
+        }
         final slotEnd = slotStart.add(Duration(minutes: duration));
         final hasCollision = existingAppointments.any(
               (appointment) =>
@@ -2240,6 +2359,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   Future<_BookingTimeAvailability> _buildAvailabilityForAnyMitarbeiter({
     required DateTime selectedDate,
     required int totalDurationMinutes,
+    required List<_BookingRequirement> requirements,
   }) async {
     final dienstleisterId = (widget.dienstleister['id'] as String? ?? '').trim();
     if (dienstleisterId.isEmpty) {
@@ -2257,7 +2377,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           .get();
 
       final mitarbeiterDocs = mitarbeiterSnapshot.docs
-          .where((doc) => _isActiveEmployee(doc.data()))
+          .where((doc) =>
+              _isActiveEmployee(doc.data()) &&
+              _mitarbeiterSupportsRequirements(
+                mitarbeiterData: doc.data(),
+                requirements: requirements,
+              ))
           .toList()
         ..sort((a, b) {
           final nameA = (a.data()['name'] as String? ?? '').trim().toLowerCase();
@@ -2282,6 +2407,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           mitarbeiterId: mitarbeiterDoc.id,
           selectedDate: selectedDate,
           totalDurationMinutes: totalDurationMinutes,
+          requirements: requirements,
+          mitarbeiterData: data,
         );
 
         for (final time in availability.times) {
@@ -2326,6 +2453,31 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required Map<String, dynamic>? oeffnungszeiten,
     required int totalDurationMinutes,
   }) async {
+    final requirements = _bookingRequirementsFromSelection(
+      singles: _selectedVN.value,
+      combos: _selectedCombosVN.value,
+    );
+    if (_selectedMitarbeiterId != null && _selectedMitarbeiterId!.trim().isNotEmpty) {
+      try {
+        final selectedMitarbeiter = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(_selectedMitarbeiterId!.trim())
+            .get();
+        final data = selectedMitarbeiter.data();
+        if (data == null ||
+            !_mitarbeiterSupportsRequirements(
+              mitarbeiterData: data,
+              requirements: requirements,
+            )) {
+          _selectedMitarbeiterId = null;
+          _selectedMitarbeiterLabel = 'Beliebiger Mitarbeiter';
+        }
+      } catch (_) {
+        _selectedMitarbeiterId = null;
+        _selectedMitarbeiterLabel = 'Beliebiger Mitarbeiter';
+      }
+    }
+
     _BookingTimeAvailability availability;
     var slotAssignments = <String, _BookingSlotOption>{};
     if (_selectedMitarbeiterId != null &&
@@ -2334,6 +2486,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         mitarbeiterId: _selectedMitarbeiterId!,
         selectedDate: _selectedBookingDate,
         totalDurationMinutes: totalDurationMinutes,
+        requirements: requirements,
       );
       for (final time in availability.times) {
         slotAssignments[time] = _BookingSlotOption(
@@ -2346,6 +2499,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       availability = await _buildAvailabilityForAnyMitarbeiter(
         selectedDate: _selectedBookingDate,
         totalDurationMinutes: totalDurationMinutes,
+        requirements: requirements,
       );
       slotAssignments = Map<String, _BookingSlotOption>.from(
         availability.slotAssignments,
@@ -3102,6 +3256,83 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return false;
   }
 
+  Future<_BookingSlotOption?> _resolveMitarbeiterForFinalBooking({
+    required DateTime selectedDate,
+    required DateTime startAt,
+    required DateTime endAt,
+    required List<_BookingRequirement> requirements,
+    String? preferredMitarbeiterId,
+  }) async {
+    if (!startAt.isAfter(DateTime.now())) {
+      return null;
+    }
+    final dienstleisterId = (widget.dienstleister['id'] as String? ?? '').trim();
+    if (dienstleisterId.isEmpty) return null;
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .where('dienstleisterId', isEqualTo: dienstleisterId)
+        .where('aktiv', isEqualTo: true)
+        .get();
+
+    final compatibleDocs = snapshot.docs.where((doc) {
+      final data = doc.data();
+      return _isActiveEmployee(data) &&
+          _mitarbeiterSupportsRequirements(
+            mitarbeiterData: data,
+            requirements: requirements,
+          );
+    }).toList();
+
+    if (compatibleDocs.isEmpty) return null;
+
+    final requestedId = preferredMitarbeiterId?.trim() ?? '';
+    final sortedDocs = compatibleDocs
+      ..sort((a, b) {
+        final nameA = (a.data()['name'] as String? ?? '').trim().toLowerCase();
+        final nameB = (b.data()['name'] as String? ?? '').trim().toLowerCase();
+        return nameA.compareTo(nameB);
+      });
+
+    final candidates = requestedId.isNotEmpty
+        ? sortedDocs.where((doc) => doc.id == requestedId).toList()
+        : sortedDocs;
+
+    if (candidates.isEmpty) return null;
+
+    final startMinutes = (startAt.hour * 60) + startAt.minute;
+    final duration = endAt.difference(startAt).inMinutes;
+
+    for (final doc in candidates) {
+      final data = doc.data();
+      if (!_mitarbeiterWorksDuring(
+        mitarbeiterData: data,
+        selectedDate: selectedDate,
+        durationMinutes: duration,
+        startMinutes: startMinutes,
+      )) {
+        continue;
+      }
+      final hasCollision = await _hasBookingCollision(
+        mitarbeiterId: doc.id,
+        startAt: startAt,
+        endAt: endAt,
+      );
+      if (hasCollision) continue;
+
+      final name = (data['name'] as String?)?.trim().isNotEmpty == true
+          ? (data['name'] as String).trim()
+          : 'Unbenannt';
+      return _BookingSlotOption(
+        time: _formatHourMinute(startMinutes),
+        mitarbeiterId: doc.id,
+        mitarbeiterName: name,
+      );
+    }
+
+    return null;
+  }
+
   DateTime? _bookingDateTimeFromDynamic(dynamic value) {
     if (value is Timestamp) {
       return value.toDate();
@@ -3165,6 +3396,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     required int totalDurationMinutes,
   }) async {
     final dienstleisterId = widget.dienstleister['id'] as String;
+    final requirements = _bookingRequirementsFromSelection(
+      singles: _selectedVN.value,
+      combos: _selectedCombosVN.value,
+    );
 
     final selectedOption = await showModalBottomSheet<_BookingMitarbeiterOption>(
       context: context,
@@ -3181,7 +3416,12 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             builder: (context, snapshot) {
               final mitarbeiterDocs = (snapshot.data?.docs ??
                   const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
-                  .where((doc) => _isActiveEmployee(doc.data()))
+                  .where((doc) =>
+                      _isActiveEmployee(doc.data()) &&
+                      _mitarbeiterSupportsRequirements(
+                        mitarbeiterData: doc.data(),
+                        requirements: requirements,
+                      ))
                   .toList()
                 ..sort((a, b) {
                   final nameA = (a.data()['name'] as String? ?? '').trim();
@@ -3360,6 +3600,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         price: hasDiscount ? effectiveDiscount : item.preis,
         originalPrice: hasDiscount ? item.preis : null,
         duration: item.dauer,
+        zielgruppe: item.zielgruppe,
+        angebotIds: [item.angebotId],
       );
     }
 
@@ -3394,6 +3636,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         price: comboPrice,
         originalPrice: hasDiscount ? comboOriginal : null,
         duration: selection.dauer,
+        zielgruppe: selection.zielgruppe,
+        angebotIds: [selection.bundle.id],
       );
     }
 
@@ -4373,6 +4617,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
                                                 singlesMap[selectionKey] =
                                                     _CartItem(
+                                                      angebotId: baseOffer?.id ?? '',
                                                       kategorie:
                                                       suggestion.category,
                                                       leistung: suggestion
@@ -4627,6 +4872,21 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         final endAt = startAt.add(
                                           Duration(minutes: durationMinutes),
                                         );
+                                        if (!startAt.isAfter(DateTime.now())) {
+                                          ScaffoldMessenger.of(ctx).showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'Die gewählte Uhrzeit liegt bereits in der Vergangenheit. Bitte wählen Sie eine neue Uhrzeit.',
+                                              ),
+                                            ),
+                                          );
+                                          return;
+                                        }
+                                        final bookingRequirements =
+                                        _bookingRequirementsFromSelection(
+                                          singles: panelSingles,
+                                          combos: panelCombos,
+                                        );
                                         final kundeId = currentUser.uid.trim();
                                         if (kundeId.isEmpty) {
                                           ScaffoldMessenger.of(ctx).showSnackBar(
@@ -4642,14 +4902,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                         });
 
                                         try {
-                                          final hasCollision =
-                                          await _hasBookingCollision(
-                                            mitarbeiterId: mitarbeiterId,
+                                          final resolvedMitarbeiter =
+                                          await _resolveMitarbeiterForFinalBooking(
+                                            selectedDate: _selectedBookingDate,
                                             startAt: startAt,
                                             endAt: endAt,
+                                            requirements: bookingRequirements,
+                                            preferredMitarbeiterId:
+                                            mitarbeiterId.isNotEmpty
+                                                ? mitarbeiterId
+                                                : null,
                                           );
 
-                                          if (hasCollision) {
+                                          if (resolvedMitarbeiter == null) {
                                             if (ctx.mounted) {
                                               ScaffoldMessenger.of(ctx).showSnackBar(
                                                 const SnackBar(
@@ -4661,6 +4926,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                             }
                                             return;
                                           }
+                                          mitarbeiterId =
+                                              resolvedMitarbeiter.mitarbeiterId;
+                                          mitarbeiterName =
+                                              resolvedMitarbeiter.mitarbeiterName;
 
                                           final dienstleisterId =
                                           (widget.dienstleister['id'] as String? ?? '')
@@ -4705,6 +4974,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                             'category': (entry.categoryLabel ?? '').trim(),
                                             'title': entry.title.trim(),
                                             'subtitle': entry.subtitle.trim(),
+                                            'zielgruppe': entry.zielgruppe,
+                                            'angebotIds': entry.angebotIds,
                                             'price': entry.price,
                                             'originalPrice': entry.originalPrice,
                                             'duration': entry.duration,
@@ -5204,6 +5475,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                 category: category,
                                 partLc: base.leistungenLc.first,
                               ): _CartItem(
+                                angebotId: chosen.id,
                                 kategorie: category,
                                 leistung: base.leistungen.first,
                                 preis: finalPrice,
@@ -6837,6 +7109,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           );
 
                                           currentMap[selKey] = _CartItem(
+                                            angebotId: offer.id,
                                             kategorie: kat,
                                             leistung: partDisplay,
                                             preis: variantBasePrice,
@@ -7096,6 +7369,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                             _toggleSelection(
                                               selKey,
                                               _CartItem(
+                                                angebotId: offer.id,
                                                 kategorie: kat,
                                                 leistung: partDisplay,
                                                 preis: priceForSelection,
@@ -7622,6 +7896,8 @@ class _BookingSummaryEntry {
   final double? price;
   final double? originalPrice;
   final int? duration;
+  final String zielgruppe;
+  final List<String> angebotIds;
 
   const _BookingSummaryEntry({
     required this.selectionKey,
@@ -7633,6 +7909,8 @@ class _BookingSummaryEntry {
     required this.price,
     this.originalPrice,
     required this.duration,
+    required this.zielgruppe,
+    required this.angebotIds,
   });
 }
 
