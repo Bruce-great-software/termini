@@ -2471,6 +2471,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
             !_mitarbeiterSupportsRequirements(
               mitarbeiterData: data,
               requirements: requirements,
+            ) ||
+            !_isMitarbeiterActiveOnDate(
+              mitarbeiterData: data,
+              date: _selectedBookingDate,
             )) {
           _selectedMitarbeiterId = null;
           _selectedMitarbeiterLabel = 'Beliebiger Mitarbeiter';
@@ -3358,6 +3362,21 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return rolle == 'mitarbeiter' ;
   }
 
+  bool _isMitarbeiterActiveOnDate({
+    required Map<String, dynamic> mitarbeiterData,
+    required DateTime date,
+  }) {
+    final rawArbeitszeiten = mitarbeiterData['arbeitszeiten'];
+    if (rawArbeitszeiten is! Map) return false;
+
+    final weekdayKey = _weekdayKeyFromDate(date);
+    final rawDay = Map<String, dynamic>.from(rawArbeitszeiten)[weekdayKey];
+    if (rawDay is! Map) return false;
+
+    final day = Map<String, dynamic>.from(rawDay);
+    return day['aktiv'] == true;
+  }
+
   Widget _buildMitarbeiterAvatar({
     required String name,
     String? profileImageUrl,
@@ -3418,6 +3437,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
                   .where((doc) =>
               _isActiveEmployee(doc.data()) &&
+                  _isMitarbeiterActiveOnDate(
+                    mitarbeiterData: doc.data(),
+                    date: _selectedBookingDate,
+                  ) &&
                   _mitarbeiterSupportsRequirements(
                     mitarbeiterData: doc.data(),
                     requirements: requirements,
