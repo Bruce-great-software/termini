@@ -1100,6 +1100,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String _bookingLoginPhone = '';
   bool _isBookingLoginSyncInProgress = false;
   String? _bookingLoginSyncedUid;
+  bool _isFavorite = false;
 
   @override
   void initState() {
@@ -2004,6 +2005,280 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     } catch (_) {
       return null;
     }
+  }
+
+  static const List<MapEntry<String, String>> _weekdayOrder =
+      <MapEntry<String, String>>[
+    MapEntry<String, String>('montag', 'Montag'),
+    MapEntry<String, String>('dienstag', 'Dienstag'),
+    MapEntry<String, String>('mittwoch', 'Mittwoch'),
+    MapEntry<String, String>('donnerstag', 'Donnerstag'),
+    MapEntry<String, String>('freitag', 'Freitag'),
+    MapEntry<String, String>('samstag', 'Samstag'),
+    MapEntry<String, String>('sonntag', 'Sonntag'),
+  ];
+
+  String _formatOpeningHoursForDay(
+    Map<String, dynamic>? openingTimes,
+    String weekdayKey,
+  ) {
+    if (openingTimes == null || openingTimes.isEmpty) return 'Geschlossen';
+    final dayData = openingTimes[weekdayKey];
+    if (dayData is! Map) return 'Geschlossen';
+
+    final isOpen = dayData['offen'] == true;
+    final from = (dayData['von'] as String?)?.trim() ?? '';
+    final until = (dayData['bis'] as String?)?.trim() ?? '';
+
+    if (!isOpen || from.isEmpty || until.isEmpty) return 'Geschlossen';
+    return '$from - $until';
+  }
+
+  Future<void> _showDienstleisterInfoSheet() async {
+    final dienstleisterId = (widget.dienstleister['id'] as String? ?? '').trim();
+    if (dienstleisterId.isEmpty) return;
+
+    final openingTimes = await _loadDienstleisterOeffnungszeiten();
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.76,
+          minChildSize: 0.48,
+          maxChildSize: 0.95,
+          builder: (context, scrollController) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFFF7F7F8),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 10),
+                  Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.16),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView(
+                      controller: scrollController,
+                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+                      children: [
+                        const Text(
+                          'Infos zum Salon',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(18),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x12000000),
+                                blurRadius: 14,
+                                offset: Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Öffnungszeiten',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              ..._weekdayOrder.map((entry) {
+                                final isClosed =
+                                    _formatOpeningHoursForDay(openingTimes, entry.key) ==
+                                        'Geschlossen';
+                                final value =
+                                    _formatOpeningHoursForDay(openingTimes, entry.key);
+                                return Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 9),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          entry.value,
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: entry.key == 'dienstag'
+                                                ? FontWeight.w700
+                                                : FontWeight.w500,
+                                            color: const Color(0xFF2B2D31),
+                                          ),
+                                        ),
+                                      ),
+                                      Text(
+                                        value,
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: isClosed
+                                              ? FontWeight.w500
+                                              : FontWeight.w700,
+                                          color: isClosed
+                                              ? const Color(0xFF8A9099)
+                                              : const Color(0xFF141619),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(18),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x12000000),
+                                blurRadius: 14,
+                                offset: Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                            stream: FirebaseFirestore.instance
+                                .collection('users')
+                                .where('dienstleisterId', isEqualTo: dienstleisterId)
+                                .where('aktiv', isEqualTo: true)
+                                .snapshots(),
+                            builder: (context, snapshot) {
+                              final employees = (snapshot.data?.docs ?? const [])
+                                  .where((doc) => _isActiveEmployee(doc.data()))
+                                  .toList()
+                                ..sort((a, b) {
+                                  final aName =
+                                      (a.data()['name'] as String? ?? '').trim();
+                                  final bName =
+                                      (b.data()['name'] as String? ?? '').trim();
+                                  return aName
+                                      .toLowerCase()
+                                      .compareTo(bName.toLowerCase());
+                                });
+
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Das Team',
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  if (snapshot.connectionState ==
+                                          ConnectionState.waiting &&
+                                      employees.isEmpty)
+                                    const Padding(
+                                      padding:
+                                          EdgeInsets.symmetric(vertical: 16),
+                                      child: Center(
+                                          child: CircularProgressIndicator()),
+                                    )
+                                  else if (employees.isEmpty)
+                                    const Padding(
+                                      padding:
+                                          EdgeInsets.symmetric(vertical: 8),
+                                      child: Text(
+                                        'Zurzeit sind keine Mitarbeiter sichtbar.',
+                                        style: TextStyle(
+                                          color: Color(0xFF6B7280),
+                                          fontSize: 15,
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    Wrap(
+                                      spacing: 10,
+                                      runSpacing: 10,
+                                      children: employees.map((doc) {
+                                        final data = doc.data();
+                                        final name = ((data['name'] as String?) ?? '')
+                                                .trim()
+                                                .isNotEmpty
+                                            ? (data['name'] as String).trim()
+                                            : 'Unbenannt';
+                                        final imageUrl = (data['profileImageUrl']
+                                                as String?)
+                                            ?.trim();
+
+                                        return Container(
+                                          width: 160,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 10,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFF6F7F9),
+                                            borderRadius:
+                                                BorderRadius.circular(14),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              _buildMitarbeiterAvatar(
+                                                name: name,
+                                                profileImageUrl: imageUrl,
+                                              ),
+                                              const SizedBox(width: 10),
+                                              Expanded(
+                                                child: Text(
+                                                  name,
+                                                  maxLines: 2,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }).toList(),
+                                    ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   String _weekdayKeyFromDate(DateTime date) {
@@ -6125,6 +6400,21 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           pressedColor: const Color(0xFFECECEC),
           padding: EdgeInsets.zero,
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Infos',
+            onPressed: _showDienstleisterInfoSheet,
+            icon: const Icon(Icons.info_outline_rounded),
+          ),
+          IconButton(
+            tooltip: 'Favorit',
+            onPressed: () => setState(() => _isFavorite = !_isFavorite),
+            icon: Icon(
+              _isFavorite ? Icons.favorite : Icons.favorite_border,
+              color: _isFavorite ? const Color(0xFFE53935) : Colors.black87,
+            ),
+          ),
+        ],
       ),
       body: Column(
         children: [
