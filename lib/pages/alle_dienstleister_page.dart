@@ -2017,6 +2017,260 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     );
   }
 
+  String _safeString(dynamic value) => (value ?? '').toString().trim();
+
+  Map<String, dynamic>? _mapOrNull(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) {
+      return value.map((k, v) => MapEntry(k.toString(), v));
+    }
+    return null;
+  }
+
+  String _formatAddress(Map<String, dynamic>? dienstleister) {
+    if (dienstleister == null) return 'Keine Adresse hinterlegt';
+
+    final strasse = _safeString(dienstleister['strasse']);
+    final hausnummer = _safeString(dienstleister['hausnummer']);
+    final plz = _safeString(dienstleister['plz']);
+    final ort = _safeString(dienstleister['ort']);
+
+    final line1 = [strasse, hausnummer].where((e) => e.isNotEmpty).join(' ');
+    final line2 = [plz, ort].where((e) => e.isNotEmpty).join(' ');
+
+    if (line1.isEmpty && line2.isEmpty) return 'Keine Adresse hinterlegt';
+    if (line1.isNotEmpty && line2.isNotEmpty) return '$line1\n$line2';
+    return line1.isNotEmpty ? line1 : line2;
+  }
+
+  String _formatOpeningHoursLine(Map<String, dynamic>? oeffnungszeiten, String dayKey) {
+    final dayData = _mapOrNull(oeffnungszeiten?[dayKey]);
+    final aktiv = dayData?['aktiv'] == true;
+    if (!aktiv) return 'Geschlossen';
+
+    final von = _safeString(dayData?['von']);
+    final bis = _safeString(dayData?['bis']);
+    if (von.isEmpty || bis.isEmpty) return 'Nicht verfügbar';
+    return '$von - $bis';
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.w600,
+          color: Colors.black87,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMitarbeiterAvatar(Map<String, dynamic> data) {
+    final profilbild = _safeString(data['profilbild']);
+    final profilbildUrl = _safeString(data['profilbildUrl']);
+    final profileImageUrl = _safeString(data['profileImageUrl']);
+    final photoUrl = _safeString(data['photoUrl']);
+    final photoURL = _safeString(data['photoURL']);
+    final imageUrl = [
+      profilbild,
+      profilbildUrl,
+      profileImageUrl,
+      photoUrl,
+      photoURL,
+    ].firstWhere((url) => url.isNotEmpty, orElse: () => '');
+    final name = _safeString(data['name']);
+    final initial = name.isNotEmpty ? name.substring(0, 1).toUpperCase() : '?';
+
+    return CircleAvatar(
+      radius: 22,
+      backgroundColor: Colors.grey.shade200,
+      backgroundImage: imageUrl.isNotEmpty ? NetworkImage(imageUrl) : null,
+      child: imageUrl.isEmpty
+          ? Text(
+        initial,
+        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54),
+      )
+          : null,
+    );
+  }
+
+  Future<void> _showDienstleisterInfoSheet() async {
+    final dienstleister = geoeffneterDienstleister;
+    if (dienstleister == null) return;
+
+    const dayOrder = <MapEntry<String, String>>[
+      MapEntry('montag', 'Montag'),
+      MapEntry('dienstag', 'Dienstag'),
+      MapEntry('mittwoch', 'Mittwoch'),
+      MapEntry('donnerstag', 'Donnerstag'),
+      MapEntry('freitag', 'Freitag'),
+      MapEntry('samstag', 'Samstag'),
+      MapEntry('sonntag', 'Sonntag'),
+    ];
+
+    final dienstleisterId = _safeString(dienstleister['id']);
+    final oeffnungszeiten = _mapOrNull(dienstleister['oeffnungszeiten']);
+    final adresse = _formatAddress(dienstleister);
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: const Color(0xFFF9F9F9),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 42,
+                      height: 5,
+                      margin: const EdgeInsets.only(bottom: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.black26,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  _buildSectionTitle('Öffnungszeiten'),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      children: [
+                        for (int i = 0; i < dayOrder.length; i++) ...[
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 12),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    dayOrder[i].value,
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  _formatOpeningHoursLine(
+                                      oeffnungszeiten, dayOrder[i].key),
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    color: _formatOpeningHoursLine(
+                                        oeffnungszeiten, dayOrder[i].key) ==
+                                        'Geschlossen'
+                                        ? Colors.grey
+                                        : Colors.black87,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (i < dayOrder.length - 1)
+                            const Divider(height: 1, thickness: 0.5),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  _buildSectionTitle('Das Team'),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: FirebaseFirestore.instance
+                          .collection('users')
+                          .where('rolle', isEqualTo: 'mitarbeiter')
+                          .where('dienstleisterId', isEqualTo: dienstleisterId)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+
+                        final docs = snapshot.data?.docs ?? [];
+                        if (docs.isEmpty) {
+                          return const Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Text(
+                              'Noch keine Mitarbeiter hinterlegt.',
+                              style: TextStyle(color: Colors.black54),
+                            ),
+                          );
+                        }
+
+                        return Column(
+                          children: [
+                            for (int i = 0; i < docs.length; i++) ...[
+                              ListTile(
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 6),
+                                leading: _buildMitarbeiterAvatar(docs[i].data()),
+                                title: Text(
+                                  _safeString(docs[i].data()['name']).isNotEmpty
+                                      ? _safeString(docs[i].data()['name'])
+                                      : 'Unbekannt',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                              if (i < docs.length - 1)
+                                const Divider(height: 1, thickness: 0.5),
+                            ]
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  _buildSectionTitle('Adresse'),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      adresse,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        color: Colors.black87,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget dienstleisterListeView() {
     return FutureBuilder<QuerySnapshot>(
       future: FirebaseFirestore.instance
@@ -2213,6 +2467,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             : null,
         actions: geoeffneterDienstleister != null
             ? [
+          IconButton(
+            onPressed: _showDienstleisterInfoSheet,
+            icon: const Icon(Icons.info_outline, color: Colors.black),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: IconButton(
