@@ -1,4 +1,5 @@
 import 'dart:math' as math; // für Chunking bei arrayContainsAny (<=10)
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -15,6 +16,7 @@ import 'kunden_favoriten_page.dart';
 import 'kunden_termine_page.dart';
 import 'login_register_page.dart';
 import 'kunden_profil_page.dart';
+import 'package:http/http.dart' as http;
 
 import 'package:flutter/cupertino.dart';
 
@@ -33,9 +35,71 @@ class AlleDienstleisterPage extends StatefulWidget {
 class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     with WidgetsBindingObserver {
   final TextEditingController _suchfeldController = TextEditingController();
+  static const String _googlePlacesApiKey = 'AIzaSyAAydUpc7KvbbEGeUDsw4DF8w2BkpL_Rq0';
+  bool _isSearchMode = false;
+  String _searchQuery = '';
+  bool _isExternalSearchLoading = false;
+  List<Map<String, dynamic>> _externalSearchResults = [];
 
   void _onSuchbegriffChanged(String wert) {
     if (kDebugMode) print("Suchbegriff: $wert");
+  }
+
+  Future<void> _activateSearchMode(String query) async {
+    final q = query.trim();
+    if (q.isEmpty) {
+      _clearSearchMode();
+      return;
+    }
+
+    setState(() {
+      _searchQuery = q;
+      _isSearchMode = true;
+      _isExternalSearchLoading = true;
+      _externalSearchResults = [];
+    });
+
+    final results = await _searchGooglePlaces(q);
+    if (!mounted) return;
+    setState(() {
+      _externalSearchResults = results;
+      _isExternalSearchLoading = false;
+    });
+  }
+
+  void _clearSearchMode() {
+    setState(() {
+      _isSearchMode = false;
+      _searchQuery = '';
+      _isExternalSearchLoading = false;
+      _externalSearchResults = [];
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> _searchGooglePlaces(String query) async {
+    try {
+      final uri = Uri.parse(
+        'https://maps.googleapis.com/maps/api/place/textsearch/json'
+        '?query=${Uri.encodeQueryComponent(query)}'
+        '&language=de'
+        '&key=$_googlePlacesApiKey',
+      );
+      final response = await http.get(uri);
+      if (response.statusCode != 200) return [];
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      final status = data['status']?.toString() ?? '';
+      if (status != 'OK' && status != 'ZERO_RESULTS') return [];
+      final results = (data['results'] as List?) ?? [];
+      return results.map((e) {
+        final item = Map<String, dynamic>.from(e as Map);
+        return {
+          'name': (item['name'] ?? '').toString(),
+          'address': (item['formatted_address'] ?? item['vicinity'] ?? '').toString(),
+        };
+      }).where((e) => (e['name'] as String).trim().isNotEmpty).toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   // Helper, um Tastatur/Fokus sicher zu schließen
@@ -46,12 +110,17 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   void _resetAllFiltersAndSearch([TextEditingController? c]) {
     c?.clear();
+    _suchfeldController.clear();
     _dismissKeyboard();
 
     setState(() {
       _ausgewaehlteLeistung = null;
       _gefilterteDienstleisterIds = [];
       _sortOrder = SortOrder.none;
+      _isSearchMode = false;
+      _searchQuery = '';
+      _isExternalSearchLoading = false;
+      _externalSearchResults = [];
 
       ausgewaehlteBranchen.clear();
       ausgewaehlteZielgruppen.clear();
@@ -626,6 +695,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _suchfeldController.dispose();
     super.dispose();
   }
 
@@ -1882,18 +1952,29 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                   setState(() {
                     _ausgewaehlteLeistung = auswahl;
                   });
+                  _suchfeldController.text = auswahl;
+                  _clearSearchMode();
                   await _applySelectionFromTitle(auswahl);
                   _dismissKeyboard();
                 },
                 fieldViewBuilder:
                     (context, controller, focusNode, onEditingComplete) {
+                  if (_suchfeldController.text != controller.text) {
+                    _suchfeldController.value = controller.value;
+                  }
                   return TextField(
                     controller: controller,
                     focusNode: focusNode,
                     onEditingComplete: onEditingComplete,
+                    onSubmitted: (text) async {
+                      await _activateSearchMode(text);
+                      _dismissKeyboard();
+                    },
                     onChanged: (text) {
+                      _suchfeldController.value = controller.value;
+                      _onSuchbegriffChanged(text);
                       if (text.trim().isEmpty) {
-                        _resetAllFiltersAndSearch(controller);
+                        _clearSearchMode();
                       }
                     },
                     decoration: InputDecoration(
@@ -1902,8 +1983,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       suffixIcon: controller.text.isNotEmpty
                           ? IconButton(
                         icon: const Icon(Icons.clear),
-                        onPressed: () =>
-                            _resetAllFiltersAndSearch(controller),
+                        onPressed: () {
+                          controller.clear();
+                          _suchfeldController.clear();
+                          _clearSearchMode();
+                        },
                       )
                           : null,
                     ),
@@ -2018,6 +2102,137 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   }
 
   Widget dienstleisterListeView() {
+    if (_isSearchMode) {
+      return _buildSearchResultsView();
+    }
+    return _buildDefaultDienstleisterListeView();
+  }
+
+  Widget _buildSearchResultsView() {
+    final search = _searchQuery.trim().toLowerCase();
+    return FutureBuilder<QuerySnapshot>(
+      future: FirebaseFirestore.instance
+          .collection('users')
+          .where('rolle', isEqualTo: 'dienstleister')
+          .get(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final List<Map<String, dynamic>> interneTreffer = [];
+        final docs = snapshot.data!.docs;
+
+        return FutureBuilder(
+          future: Future.wait(docs.map((doc) async {
+            final data = doc.data() as Map<String, dynamic>;
+            data['id'] = doc.id;
+
+            if (data['geo'] != null) {
+              final geo = data['geo'] as GeoPoint;
+              final distanceInMeters = Geolocator.distanceBetween(
+                userPosition!.latitude,
+                userPosition!.longitude,
+                geo.latitude,
+                geo.longitude,
+              );
+              data['distance'] = distanceInMeters / 1000;
+            } else {
+              data['distance'] = double.infinity;
+            }
+
+            final suchFelder = <String>[
+              (data['name'] ?? '').toString(),
+              (data['adresse'] ?? '').toString(),
+              (data['ort'] ?? '').toString(),
+              (data['plz'] ?? '').toString(),
+              (data['strasse'] ?? '').toString(),
+              (data['hausnummer'] ?? '').toString(),
+            ].join(' ').toLowerCase();
+
+            if (!suchFelder.contains(search)) return;
+
+            final branche = data['branche']?.toString();
+            final branchePasst = ausgewaehlteBranchen.isEmpty ||
+                ausgewaehlteBranchen.contains(branche);
+            if (!branchePasst) return;
+
+            interneTreffer.add(data);
+          })),
+          builder: (context, AsyncSnapshot<List<void>> snapshot2) {
+            if (snapshot2.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            interneTreffer.sort((a, b) =>
+                (a['distance'] as double).compareTo(b['distance'] as double));
+
+            return ListView(
+              children: [
+                if (interneTreffer.isNotEmpty)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 6, 16, 4),
+                    child: Text(
+                      'Interne Treffer',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ...interneTreffer.map((data) => DienstleisterTile(
+                  data: data,
+                  matchedOffers:
+                      (data['matchedOffers'] as List<Map<String, dynamic>>?),
+                  onTap: () {
+                    final id = (data['id'] ?? '').toString();
+                    setState(() {
+                      geoeffneterDienstleister = data;
+                      _dienstleisterFavorisiert = _favoritenIds.contains(id);
+                    });
+                  },
+                )),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Text(
+                    'Externe Treffer (Google)',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                if (_isExternalSearchLoading)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (_externalSearchResults.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 4, 16, 16),
+                    child: Text('Keine externen Treffer gefunden.'),
+                  )
+                else
+                  ..._externalSearchResults.map(
+                    (item) => ListTile(
+                      leading: const CircleAvatar(
+                        backgroundColor: Color(0xFFE0E0E0),
+                        child: Icon(Icons.store_mall_directory, color: Colors.black54),
+                      ),
+                      title: Text((item['name'] ?? '').toString()),
+                      subtitle: Text((item['address'] ?? '').toString()),
+                      onTap: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Externer Eintrag ohne Detailseite.'),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildDefaultDienstleisterListeView() {
     return FutureBuilder<QuerySnapshot>(
       future: FirebaseFirestore.instance
           .collection('users')
