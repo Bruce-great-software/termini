@@ -3119,6 +3119,47 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     );
   }
 
+  void _showDienstleisterInfoDialog() {
+    final data = geoeffneterDienstleister;
+    if (data == null) return;
+
+    final name = (data['name'] ?? 'Dienstleister').toString().trim();
+    final strasse = (data['strasse'] ?? data['adresse'] ?? '').toString().trim();
+    final hausnummer = (data['hausnummer'] ?? '').toString().trim();
+    final plz = (data['plz'] ?? '').toString().trim();
+    final ort = (data['ort'] ?? '').toString().trim();
+    final zeile1 = [strasse, hausnummer].where((e) => e.isNotEmpty).join(' ');
+    final zeile2 = [plz, ort].where((e) => e.isNotEmpty).join(' ');
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Info'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              name.isEmpty ? 'Dienstleister' : name,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            if (zeile1.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(zeile1),
+            ],
+            if (zeile2.isNotEmpty) Text(zeile2),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Schließen'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (isLoading || userPosition == null) {
@@ -3156,6 +3197,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             : null,
         actions: geoeffneterDienstleister != null
             ? [
+          IconButton(
+            tooltip: 'Info',
+            onPressed: _showDienstleisterInfoDialog,
+            icon: const Icon(Icons.info_outline, color: Colors.black),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: IconButton(
