@@ -756,12 +756,14 @@ class LinkedChipsWithSections extends StatefulWidget {
   final List<SectionData> sections;
   final int initialIndex;
   final double extraBottom;
+  final ValueChanged<bool>? onScrollPastTop;
 
   const LinkedChipsWithSections({
     super.key,
     required this.sections,
     this.initialIndex = 0,
     this.extraBottom = 0.0,
+    this.onScrollPastTop,
   });
 
   @override
@@ -775,6 +777,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
 
   late int activeChip;
   bool _programmaticScroll = false;
+  bool _isPastTop = false;
 
   int get _spacerIndex => widget.sections.length;
 
@@ -815,6 +818,19 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
       if (idx != null && idx != activeChip) {
         setState(() => activeChip = idx!);
         _scrollChipTo(activeChip);
+      }
+
+      ItemPosition? firstSection;
+      for (final p in visible) {
+        if (p.index == 0) {
+          firstSection = p;
+          break;
+        }
+      }
+      final isPastTop = firstSection != null && firstSection.itemLeadingEdge < -0.04;
+      if (isPastTop != _isPastTop) {
+        _isPastTop = isPastTop;
+        widget.onScrollPastTop?.call(isPastTop);
       }
     });
   }
@@ -1063,6 +1079,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String _zielgruppe = 'Damen';
   final PageController _bilderPageController = PageController();
   int _aktuellerBildIndex = 0;
+  bool _bildbereichEingeklappt = false;
 
   /// Auswahl als ValueNotifier -> verhindert kompletten Rebuild der Liste
   final ValueNotifier<Map<String, _CartItem>> _selectedVN =
@@ -1128,6 +1145,11 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutCubic,
     );
+  }
+
+  void _setBildbereichEingeklappt(bool value) {
+    if (_bildbereichEingeklappt == value || !mounted) return;
+    setState(() => _bildbereichEingeklappt = value);
   }
 
   String? _mapGeschlechtZuZielgruppe(String? geschlechtRaw) {
@@ -6151,110 +6173,117 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       ),
       body: Column(
         children: [
-          SizedBox(
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeOutCubic,
             width: double.infinity,
-            height: 190,
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: bilderStream,
-              builder: (context, snapshot) {
-                final bildUrls = <String>[];
-                if (logoUrl.isNotEmpty) {
-                  bildUrls.add(logoUrl);
-                }
-                if (snapshot.hasData) {
-                  for (final doc in snapshot.data!.docs) {
-                    final url = (doc.data()['url'] ?? '').toString().trim();
-                    if (url.isEmpty) continue;
-                    if (url == logoUrl) continue;
-                    bildUrls.add(url);
+            height: _bildbereichEingeklappt ? 0 : 190,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              opacity: _bildbereichEingeklappt ? 0 : 1,
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: bilderStream,
+                builder: (context, snapshot) {
+                  final bildUrls = <String>[];
+                  if (logoUrl.isNotEmpty) {
+                    bildUrls.add(logoUrl);
                   }
-                }
+                  if (snapshot.hasData) {
+                    for (final doc in snapshot.data!.docs) {
+                      final url = (doc.data()['url'] ?? '').toString().trim();
+                      if (url.isEmpty) continue;
+                      if (url == logoUrl) continue;
+                      bildUrls.add(url);
+                    }
+                  }
 
-                if (bildUrls.isEmpty) {
-                  return Container(color: const Color(0xFFF2F2F2));
-                }
+                  if (bildUrls.isEmpty) {
+                    return Container(color: const Color(0xFFF2F2F2));
+                  }
 
-                final pageCount = bildUrls.length;
-                if (_aktuellerBildIndex >= pageCount) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    setState(() => _aktuellerBildIndex = 0);
-                    _zurBildSeite(0);
-                  });
-                }
+                  final pageCount = bildUrls.length;
+                  if (_aktuellerBildIndex >= pageCount) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      setState(() => _aktuellerBildIndex = 0);
+                      _zurBildSeite(0);
+                    });
+                  }
 
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    PageView.builder(
-                      controller: _bilderPageController,
-                      itemCount: pageCount,
-                      onPageChanged: (index) {
-                        if (!mounted) return;
-                        setState(() => _aktuellerBildIndex = index);
-                      },
-                      itemBuilder: (context, index) {
-                        return Image.network(
-                          bildUrls[index],
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
-                              Container(color: const Color(0xFFF2F2F2)),
-                        );
-                      },
-                    ),
-                    if (pageCount > 1)
-                      Positioned(
-                        left: 10,
-                        top: 0,
-                        bottom: 0,
-                        child: Center(
-                          child: _BildNavButton(
-                            icon: Icons.chevron_left,
-                            onTap: _aktuellerBildIndex > 0
-                                ? () => _zurBildSeite(_aktuellerBildIndex - 1)
-                                : null,
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      PageView.builder(
+                        controller: _bilderPageController,
+                        itemCount: pageCount,
+                        onPageChanged: (index) {
+                          if (!mounted) return;
+                          setState(() => _aktuellerBildIndex = index);
+                        },
+                        itemBuilder: (context, index) {
+                          return Image.network(
+                            bildUrls[index],
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) =>
+                                Container(color: const Color(0xFFF2F2F2)),
                           ),
                         ),
                       ),
-                    if (pageCount > 1)
+                      if (pageCount > 1)
+                        Positioned(
+                          left: 10,
+                          top: 0,
+                          bottom: 0,
+                          child: Center(
+                            child: _BildNavButton(
+                              icon: Icons.chevron_left,
+                              onTap: _aktuellerBildIndex > 0
+                                  ? () => _zurBildSeite(_aktuellerBildIndex - 1)
+                                  : null,
+                            ),
+                          ),
+                        ),
+                      if (pageCount > 1)
+                        Positioned(
+                          right: 10,
+                          top: 0,
+                          bottom: 0,
+                          child: Center(
+                            child: _BildNavButton(
+                              icon: Icons.chevron_right,
+                              onTap: _aktuellerBildIndex < pageCount - 1
+                                  ? () => _zurBildSeite(_aktuellerBildIndex + 1)
+                                  : null,
+                            ),
+                          ),
+                        ),
                       Positioned(
                         right: 10,
-                        top: 0,
-                        bottom: 0,
-                        child: Center(
-                          child: _BildNavButton(
-                            icon: Icons.chevron_right,
-                            onTap: _aktuellerBildIndex < pageCount - 1
-                                ? () => _zurBildSeite(_aktuellerBildIndex + 1)
-                                : null,
+                        bottom: 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0x99000000),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '${(_aktuellerBildIndex + 1).clamp(1, pageCount)}/$pageCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ),
-                    Positioned(
-                      right: 10,
-                      bottom: 10,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0x99000000),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '${(_aktuellerBildIndex + 1).clamp(1, pageCount)}/$pageCount',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
+                    ],
+                  );
+                },
+              ),
             ),
           ),
           Expanded(
@@ -7821,6 +7850,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       sections: sections,
                       initialIndex: initialIndex,
                       extraBottom: kBottomBarHeight + 12,
+                      onScrollPastTop: _setBildbereichEingeklappt,
                     ),
 
                     Positioned(
