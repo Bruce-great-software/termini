@@ -1130,12 +1130,22 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   }
 
   void _zurBildSeite(int index) {
+    final targetIndex = index < 0 ? 0 : index;
+    if (targetIndex != _aktuellerBildIndex && mounted) {
+      setState(() => _aktuellerBildIndex = targetIndex);
+    }
     if (!_bilderPageController.hasClients) return;
-    _bilderPageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-    );
+
+    _bilderPageController
+        .animateToPage(
+          targetIndex,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+        )
+        .catchError((_) {
+          if (!_bilderPageController.hasClients) return;
+          _bilderPageController.jumpToPage(targetIndex);
+        });
   }
 
   void _naechstesBild(int pageCount) {
