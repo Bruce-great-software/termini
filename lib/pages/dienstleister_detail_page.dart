@@ -6197,32 +6197,21 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           return Stack(
             fit: StackFit.expand,
             children: [
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onHorizontalDragEnd: (details) {
-                  final velocity = details.primaryVelocity ?? 0;
-                  if (velocity < -120) {
-                    _naechstesBild(pageCount);
-                  } else if (velocity > 120) {
-                    _vorherigesBild();
-                  }
+              PageView.builder(
+                controller: _bilderPageController,
+                itemCount: pageCount,
+                onPageChanged: (index) {
+                  if (!mounted) return;
+                  setState(() => _aktuellerBildIndex = index);
                 },
-                child: PageView.builder(
-                  controller: _bilderPageController,
-                  itemCount: pageCount,
-                  onPageChanged: (index) {
-                    if (!mounted) return;
-                    setState(() => _aktuellerBildIndex = index);
-                  },
-                  itemBuilder: (context, index) {
-                    return Image.network(
-                      bildUrls[index],
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
-                          Container(color: const Color(0xFFF2F2F2)),
-                    );
-                  },
-                ),
+                itemBuilder: (context, index) {
+                  return Image.network(
+                    bildUrls[index],
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) =>
+                        Container(color: const Color(0xFFF2F2F2)),
+                  );
+                },
               ),
               if (pageCount > 1)
                 Positioned(
