@@ -3317,6 +3317,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                     final d = doc.data();
                                     final mitarbeiterName =
                                         (d['name'] ?? '').toString().trim();
+                                    final profileImageUrl =
+                                        (d['profileImageUrl'] ?? '').toString().trim();
                                     return Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 10,
@@ -3326,10 +3328,30 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                         color: const Color(0xFFF1F2F8),
                                         borderRadius: BorderRadius.circular(999),
                                       ),
-                                      child: Text(
-                                        mitarbeiterName.isEmpty
-                                            ? 'Mitarbeiter'
-                                            : mitarbeiterName,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          CircleAvatar(
+                                            radius: 12,
+                                            backgroundColor: Colors.grey.shade300,
+                                            backgroundImage: profileImageUrl.isNotEmpty
+                                                ? NetworkImage(profileImageUrl)
+                                                : null,
+                                            child: profileImageUrl.isEmpty
+                                                ? const Icon(
+                                                    Icons.person,
+                                                    size: 14,
+                                                    color: Colors.black54,
+                                                  )
+                                                : null,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            mitarbeiterName.isEmpty
+                                                ? 'Mitarbeiter'
+                                                : mitarbeiterName,
+                                          ),
+                                        ],
                                       ),
                                     );
                                   }).toList(),
