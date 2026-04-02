@@ -145,9 +145,40 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   Future<void> _showLocationSelectionSheet() async {
     final initialLocationText = _isCurrentLocationSelected
-        ? (_selectedLocationLabel ?? currentCity ?? '').trim()
+        ? (_selectedLocationValue ?? _selectedLocationLabel ?? currentCity ?? '').trim()
         : _suchfeldController.text.trim();
     final controller = TextEditingController(text: initialLocationText);
+    List<String> ortVorschlaege = [];
+    bool laedtOrtsVorschlaege = false;
+    String letzterSuchwert = initialLocationText.trim().toLowerCase();
+
+    Future<void> ladeOrtsVorschlaege(
+        String input,
+        StateSetter setModalState,
+        ) async {
+      final normalized = input.trim().toLowerCase();
+      letzterSuchwert = normalized;
+      if (normalized.isEmpty) {
+        setModalState(() {
+          ortVorschlaege = [];
+          laedtOrtsVorschlaege = false;
+        });
+        return;
+      }
+
+      setModalState(() => laedtOrtsVorschlaege = true);
+      final treffer = await _ladeOrtsVorschlaege(normalized);
+      if (!mounted) return;
+      if (letzterSuchwert != normalized) return;
+      setModalState(() {
+        ortVorschlaege = treffer;
+        laedtOrtsVorschlaege = false;
+      });
+    }
+
+    if (letzterSuchwert.isNotEmpty) {
+      ortVorschlaege = await _ladeOrtsVorschlaege(letzterSuchwert);
+    }
 
     await showModalBottomSheet(
       context: context,
@@ -186,7 +217,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
               setState(() {
                 _isCurrentLocationSelected = isCurrentLocationSelection;
-                _selectedLocationLabel = isCurrentLocationSelection ? selected : null;
+                _selectedLocationValue = isCurrentLocationSelection ? selected : null;
+                _selectedLocationLabel = isCurrentLocationSelection
+                    ? _buildLocationChipLabel(selected)
+                    : null;
               });
               _suchfeldController.text = selected;
               Navigator.of(ctx).pop();
@@ -238,8 +272,14 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                           borderSide: const BorderSide(color: Colors.white54),
                         ),
                       ),
-                      onChanged: (_) => setModalState(() {}),
-                      onSubmitted: (v) => selectLocation(v),
+                      onChanged: (value) async {
+                        setModalState(() {});
+                        await ladeOrtsVorschlaege(value, setModalState);
+                      },
+                      onSubmitted: (v) => selectLocation(
+                        v,
+                        isCurrentLocationSelection: true,
+                      ),
                     ),
                     const SizedBox(height: 14),
                     const Text(
@@ -277,6 +317,51 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             onTap: () => selectLocation('Ganz Deutschland', addToRecent: false),
                           ),
                           const Divider(color: Colors.white12, height: 1),
+                          if (controller.text.trim().isNotEmpty &&
+                              ortVorschlaege.isNotEmpty) ...[
+                            ...ortVorschlaege.map(
+                                  (eintrag) => Column(
+                                children: [
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: const Icon(
+                                      Icons.location_on_outlined,
+                                      color: Colors.white70,
+                                    ),
+                                    title: RichText(
+                                      text: TextSpan(
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 16,
+                                        ),
+                                        children: _buildHighlightedSpans(
+                                          eintrag,
+                                          controller.text.trim(),
+                                        ),
+                                      ),
+                                    ),
+                                    onTap: () => selectLocation(
+                                      eintrag,
+                                      isCurrentLocationSelection: true,
+                                    ),
+                                  ),
+                                  const Divider(color: Colors.white12, height: 1),
+                                ],
+                              ),
+                            ),
+                          ] else if (laedtOrtsVorschlaege) ...[
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 10),
+                              child: Center(
+                                child: SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              ),
+                            ),
+                            const Divider(color: Colors.white12, height: 1),
+                          ],
                           if (gefilterteLetzteSuchen.isEmpty)
                             const Padding(
                               padding: EdgeInsets.only(top: 14),
@@ -297,7 +382,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                       eintrag,
                                       style: const TextStyle(color: Colors.white),
                                     ),
-                                    onTap: () => selectLocation(eintrag),
+                                    onTap: () => selectLocation(
+                                      eintrag,
+                                      isCurrentLocationSelection: true,
+                                    ),
                                   ),
                                   const Divider(color: Colors.white12, height: 1),
                                 ],
@@ -314,6 +402,89 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         );
       },
     );
+  }
+
+  Future<List<String>> _ladeOrtsVorschlaege(String eingabe) async {
+    final query = eingabe.trim().toLowerCase();
+    if (query.isEmpty) return [];
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .where('rolle', isEqualTo: 'dienstleister')
+        .limit(200)
+        .get();
+
+    final startsWith = <String>{};
+    final contains = <String>{};
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final plz = (data['plz'] ?? '').toString().trim();
+      final ort = (data['ort'] ?? '').toString().trim();
+      if (plz.isEmpty && ort.isEmpty) continue;
+
+      final combined = [plz, ort].where((e) => e.isNotEmpty).join(' ').trim();
+      if (combined.isEmpty) continue;
+
+      final plzLower = plz.toLowerCase();
+      final ortLower = ort.toLowerCase();
+
+      final prefixMatch =
+          plzLower.startsWith(query) || ortLower.startsWith(query);
+      final containsMatch =
+          plzLower.contains(query) || ortLower.contains(query);
+
+      if (prefixMatch) {
+        startsWith.add(combined);
+      } else if (containsMatch) {
+        contains.add(combined);
+      }
+    }
+
+    final sortFn = (String a, String b) =>
+        a.toLowerCase().compareTo(b.toLowerCase());
+    final sortedStartsWith = startsWith.toList()..sort(sortFn);
+    final sortedContains = contains.toList()..sort(sortFn);
+
+    return [...sortedStartsWith, ...sortedContains].take(8).toList();
+  }
+
+  List<TextSpan> _buildHighlightedSpans(String text, String query) {
+    final normalizedQuery = query.trim();
+    if (normalizedQuery.isEmpty) {
+      return [TextSpan(text: text)];
+    }
+
+    final lowerText = text.toLowerCase();
+    final lowerQuery = normalizedQuery.toLowerCase();
+    final idx = lowerText.indexOf(lowerQuery);
+    if (idx < 0) {
+      return [TextSpan(text: text)];
+    }
+
+    final before = text.substring(0, idx);
+    final match = text.substring(idx, idx + normalizedQuery.length);
+    final after = text.substring(idx + normalizedQuery.length);
+
+    return [
+      if (before.isNotEmpty) TextSpan(text: before),
+      TextSpan(
+        text: match,
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
+      if (after.isNotEmpty) TextSpan(text: after),
+    ];
+  }
+
+  String _buildLocationChipLabel(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return trimmed;
+    final match = RegExp(r'^\d{4,6}\s+(.+)$').firstMatch(trimmed);
+    if (match != null) {
+      final cityPart = (match.group(1) ?? '').trim();
+      if (cityPart.isNotEmpty) return cityPart;
+    }
+    return trimmed;
   }
 
   Future<List<Map<String, dynamic>>> _searchGooglePlaces(String query) async {
@@ -955,6 +1126,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   String? currentCity;
   bool _isCurrentLocationSelected = false;
   String? _selectedLocationLabel;
+  String? _selectedLocationValue;
   Position? userPosition;
   bool isLoading = true;
   int _selectedIndex = 0;
@@ -2148,6 +2320,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               setState(() {
                 _isCurrentLocationSelected = false;
                 _selectedLocationLabel = null;
+                _selectedLocationValue = null;
               });
             },
             deleteIcon: const Icon(Icons.close, size: 18, color: Colors.white),
