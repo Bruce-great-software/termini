@@ -8,6 +8,7 @@ import 'package:app_settings/app_settings.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/location_service.dart';
 import '../widgets/dienstleister_tile.dart';
@@ -3131,6 +3132,54 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     return '$von - $bis';
   }
 
+  String _buildDienstleisterAddressForNavigation(Map<String, dynamic> data) {
+    final strasse = (data['strasse'] ?? data['adresse'] ?? '').toString().trim();
+    final hausnummer = (data['hausnummer'] ?? '').toString().trim();
+    final plz = (data['plz'] ?? '').toString().trim();
+    final ort = (data['ort'] ?? '').toString().trim();
+    return [strasse, hausnummer, plz, ort]
+        .where((e) => e.isNotEmpty)
+        .join(' ')
+        .trim();
+  }
+
+  Future<void> _openRouteToDienstleister() async {
+    final data = geoeffneterDienstleister;
+    if (data == null) return;
+
+    final destinationAddress = _buildDienstleisterAddressForNavigation(data);
+    if (destinationAddress.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Keine Adresse für Navigation verfügbar.')),
+      );
+      return;
+    }
+
+    final params = <String, String>{
+      'api': '1',
+      'destination': destinationAddress,
+      'travelmode': 'driving',
+    };
+
+    if (userPosition != null) {
+      params['origin'] =
+          '${userPosition!.latitude.toStringAsFixed(6)},${userPosition!.longitude.toStringAsFixed(6)}';
+    }
+
+    final directionsUri = Uri.https('www.google.com', '/maps/dir/', params);
+    final launched = await launchUrl(
+      directionsUri,
+      mode: LaunchMode.externalApplication,
+    );
+
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Navigation konnte nicht geöffnet werden.')),
+      );
+    }
+  }
+
   void _showDienstleisterInfoSheet() {
     final data = geoeffneterDienstleister;
     if (data == null) return;
@@ -3409,9 +3458,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         actions: geoeffneterDienstleister != null
             ? [
           IconButton(
-            tooltip: 'Info',
-            onPressed: _showDienstleisterInfoSheet,
-            icon: const Icon(Icons.info_outline, color: Colors.black),
+            tooltip: 'Route starten',
+            onPressed: _openRouteToDienstleister,
+            icon: const Icon(Icons.location_pin, color: Color(0xFF34C759)),
           ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
