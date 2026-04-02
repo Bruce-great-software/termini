@@ -38,6 +38,9 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
+  assets:
+      - assets/termini.png
+
 flutter_icons:
   android: true
   ios: true
