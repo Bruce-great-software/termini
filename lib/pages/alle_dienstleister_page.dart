@@ -19,6 +19,7 @@ import 'kunden_profil_page.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:flutter/cupertino.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Sortierreihenfolge für Preise / Distanz
 enum SortOrder { none, priceAsc, priceDesc, distanceAsc }
@@ -44,6 +45,45 @@ class _SearchSuggestion {
     required this.dienstleisterId,
     required this.logoUrl,
   }) : type = _SuggestionType.dienstleister;
+}
+
+class _AddressActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  const _AddressActionButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton.icon(
+      onPressed: onPressed,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFFD8F4F6),
+        foregroundColor: const Color(0xFF0B7B8A),
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(999),
+        ),
+      ),
+      icon: Icon(icon, size: 16),
+      label: Text(
+        label,
+        style: const TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
 }
 
 class AlleDienstleisterPage extends StatefulWidget {
@@ -3131,6 +3171,45 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     return '$von - $bis';
   }
 
+  Future<void> _launchExternalUri(Uri uri) async {
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Konnte Navigation nicht öffnen.')),
+      );
+    }
+  }
+
+  Future<void> _openRouteInMaps({
+    required double latitude,
+    required double longitude,
+  }) async {
+    final destination = '$latitude,$longitude';
+    final mapsUri = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination='
+      '${Uri.encodeComponent(destination)}&travelmode=driving',
+    );
+    await _launchExternalUri(mapsUri);
+  }
+
+  Future<void> _startNavigation({
+    required double latitude,
+    required double longitude,
+  }) async {
+    final destination = '$latitude,$longitude';
+    final navigationUri = Uri.parse(
+      'google.navigation:q=${Uri.encodeComponent(destination)}&mode=d',
+    );
+    if (await canLaunchUrl(navigationUri)) {
+      await _launchExternalUri(navigationUri);
+      return;
+    }
+    await _openRouteInMaps(
+      latitude: latitude,
+      longitude: longitude,
+    );
+  }
+
   void _showDienstleisterInfoSheet() {
     final data = geoeffneterDienstleister;
     if (data == null) return;
@@ -3146,6 +3225,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     final oeffnungszeiten = data['oeffnungszeiten'] is Map
         ? Map<String, dynamic>.from(data['oeffnungszeiten'] as Map)
         : <String, dynamic>{};
+    final geo = data['geo'];
+    final hasGeo = geo is GeoPoint;
+    final destinationLatitude = hasGeo ? geo.latitude : null;
+    final destinationLongitude = hasGeo ? geo.longitude : null;
 
     const tage = <MapEntry<String, String>>[
       MapEntry('montag', 'Montag'),
@@ -3201,13 +3284,35 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Row(
+                          Row(
                             children: [
-                              Icon(Icons.location_on_outlined, size: 18),
-                              SizedBox(width: 6),
-                              Text(
+                              const Icon(Icons.location_on_outlined, size: 18),
+                              const SizedBox(width: 6),
+                              const Text(
                                 'Adresse',
                                 style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                              const Spacer(),
+                              _AddressActionButton(
+                                label: 'Route',
+                                icon: Icons.directions,
+                                onPressed: hasGeo
+                                    ? () => _openRouteInMaps(
+                                  latitude: destinationLatitude!,
+                                  longitude: destinationLongitude!,
+                                )
+                                    : null,
+                              ),
+                              const SizedBox(width: 8),
+                              _AddressActionButton(
+                                label: 'Starten',
+                                icon: Icons.navigation,
+                                onPressed: hasGeo
+                                    ? () => _startNavigation(
+                                  latitude: destinationLatitude!,
+                                  longitude: destinationLongitude!,
+                                )
+                                    : null,
                               ),
                             ],
                           ),
