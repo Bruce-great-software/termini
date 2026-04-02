@@ -144,7 +144,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   }
 
   Future<void> _showLocationSelectionSheet() async {
-    final controller = TextEditingController(text: _suchfeldController.text.trim());
+    final initialLocationText = _isCurrentLocationSelected
+        ? (_selectedLocationLabel ?? currentCity ?? '').trim()
+        : _suchfeldController.text.trim();
+    final controller = TextEditingController(text: initialLocationText);
 
     await showModalBottomSheet(
       context: context,
@@ -161,7 +164,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 .where((e) => query.isEmpty || e.toLowerCase().contains(query))
                 .toList();
 
-            void selectLocation(String value, {bool addToRecent = true}) {
+            void selectLocation(
+                String value, {
+                  bool addToRecent = true,
+                  bool isCurrentLocationSelection = false,
+                }) {
               final selected = value.trim();
               if (selected.isEmpty) return;
 
@@ -177,6 +184,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 });
               }
 
+              setState(() {
+                _isCurrentLocationSelected = isCurrentLocationSelection;
+                _selectedLocationLabel = isCurrentLocationSelection ? selected : null;
+              });
               _suchfeldController.text = selected;
               Navigator.of(ctx).pop();
             }
@@ -252,6 +263,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             onTap: () => selectLocation(
                               currentCity ?? 'Aktueller Standort',
                               addToRecent: false,
+                              isCurrentLocationSelection: true,
                             ),
                           ),
                           const Divider(color: Colors.white12, height: 1),
@@ -941,6 +953,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   }
 
   String? currentCity;
+  bool _isCurrentLocationSelected = false;
+  String? _selectedLocationLabel;
   Position? userPosition;
   bool isLoading = true;
   int _selectedIndex = 0;
@@ -2115,6 +2129,36 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       ),
     );
 
+    if (_isCurrentLocationSelected) {
+      final ortLabel = (_selectedLocationLabel ?? currentCity ?? '').trim();
+      if (ortLabel.isNotEmpty) {
+        chips.add(
+          InputChip(
+            label: Text(
+              ortLabel,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            selected: true,
+            onSelected: (_) => _showLocationSelectionSheet(),
+            onDeleted: () {
+              setState(() {
+                _isCurrentLocationSelected = false;
+                _selectedLocationLabel = null;
+              });
+            },
+            deleteIcon: const Icon(Icons.close, size: 18, color: Colors.white),
+            selectedColor: const Color(0xFF34C759),
+            backgroundColor: const Color(0xFF34C759),
+            shape: const StadiumBorder(side: BorderSide(color: Color(0xFF34C759))),
+          ),
+        );
+      }
+    }
+
     // Sortieren
     chips.add(
       InputChip(
@@ -2372,7 +2416,12 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             ),
                           IconButton(
                             tooltip: 'Ort wählen',
-                            icon: const Icon(Icons.location_pin),
+                            icon: Icon(
+                              Icons.location_pin,
+                              color: _isCurrentLocationSelected
+                                  ? const Color(0xFF34C759)
+                                  : null,
+                            ),
                             onPressed: _showLocationSelectionSheet,
                           ),
                         ],
