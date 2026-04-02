@@ -23,6 +23,29 @@ import 'package:flutter/cupertino.dart';
 /// Sortierreihenfolge für Preise / Distanz
 enum SortOrder { none, priceAsc, priceDesc, distanceAsc }
 
+enum _SuggestionType { leistung, dienstleister }
+
+class _SearchSuggestion {
+  final _SuggestionType type;
+  final String title;
+  final String subtitle;
+  final String? dienstleisterId;
+  final String? logoUrl;
+
+  const _SearchSuggestion.leistung(this.title)
+      : type = _SuggestionType.leistung,
+        subtitle = '',
+        dienstleisterId = null,
+        logoUrl = null;
+
+  const _SearchSuggestion.dienstleister({
+    required this.title,
+    required this.subtitle,
+    required this.dienstleisterId,
+    required this.logoUrl,
+  }) : type = _SuggestionType.dienstleister;
+}
+
 class AlleDienstleisterPage extends StatefulWidget {
   final int initialTabIndex;
 
@@ -459,6 +482,57 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         .where((titel) => titel.toLowerCase().contains(eingabe.toLowerCase()))
         .toSet()
         .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> _ladeDienstleisterVorschlaege(String eingabe) async {
+    final search = eingabe.trim().toLowerCase();
+    if (search.isEmpty) return [];
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .where('rolle', isEqualTo: 'dienstleister')
+        .get();
+
+    final matches = snapshot.docs
+        .map((doc) {
+          final data = doc.data();
+          return {
+            'id': doc.id,
+            'name': (data['name'] ?? '').toString(),
+            'ort': (data['ort'] ?? '').toString(),
+            'plz': (data['plz'] ?? '').toString(),
+            'logoUrl': (data['logoUrl'] ?? '').toString(),
+            ...data,
+          };
+        })
+        .where((d) => (d['name'] as String).toLowerCase().contains(search))
+        .toList();
+
+    matches.sort((a, b) =>
+        (a['name'] as String).toLowerCase().compareTo((b['name'] as String).toLowerCase()));
+    return matches.take(8).toList();
+  }
+
+  Future<void> _openDienstleisterFromSuggestion(Map<String, dynamic> suggestion) async {
+    final data = Map<String, dynamic>.from(suggestion);
+    final geo = data['geo'];
+    if (geo is GeoPoint && userPosition != null) {
+      final distanceInMeters = Geolocator.distanceBetween(
+        userPosition!.latitude,
+        userPosition!.longitude,
+        geo.latitude,
+        geo.longitude,
+      );
+      data['distance'] = distanceInMeters / 1000;
+    }
+
+    if (!mounted) return;
+    _clearSearchMode();
+    setState(() {
+      geoeffneterDienstleister = data;
+      _dienstleisterFavorisiert = _favoritenIds.contains(data['id']);
+    });
+    _dismissKeyboard();
   }
 
   Future<void> _ladeDienstleisterZuLeistung(String titel) async {
@@ -1939,22 +2013,101 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         Row(
           children: [
             Expanded(
-              child: Autocomplete<String>(
+              child: Autocomplete<_SearchSuggestion>(
                 optionsBuilder: (TextEditingValue textEditingValue) async {
                   if (textEditingValue.text == '') {
-                    return const Iterable<String>.empty();
+                    return const Iterable<_SearchSuggestion>.empty();
                   }
-                  final vorschlaege =
-                  await _ladeLeistungsVorschlaege(textEditingValue.text);
-                  return vorschlaege;
+                  final vorschlaegeLeistungen =
+                      await _ladeLeistungsVorschlaege(textEditingValue.text);
+                  final vorschlaegeDienstleister =
+                      await _ladeDienstleisterVorschlaege(textEditingValue.text);
+
+                  final leistungen = vorschlaegeLeistungen
+                      .map((e) => _SearchSuggestion.leistung(e))
+                      .toList();
+                  final dienstleister = vorschlaegeDienstleister
+                      .map(
+                        (e) => _SearchSuggestion.dienstleister(
+                          title: (e['name'] ?? '').toString(),
+                          subtitle:
+                              '${(e['plz'] ?? '').toString()} ${(e['ort'] ?? '').toString()}'
+                                  .trim(),
+                          dienstleisterId: (e['id'] ?? '').toString(),
+                          logoUrl: (e['logoUrl'] ?? '').toString(),
+                        ),
+                      )
+                      .toList();
+
+                  return [...dienstleister, ...leistungen];
                 },
-                onSelected: (String auswahl) async {
+                displayStringForOption: (option) => option.title,
+                optionsViewBuilder: (context, onSelected, options) {
+                  final items = options.toList();
+                  return Align(
+                    alignment: Alignment.topLeft,
+                    child: Material(
+                      elevation: 4,
+                      borderRadius: BorderRadius.circular(12),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 320, maxWidth: 700),
+                        child: ListView.separated(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          shrinkWrap: true,
+                          itemCount: items.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final item = items[index];
+                            if (item.type == _SuggestionType.dienstleister) {
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  radius: 22,
+                                  backgroundColor: const Color(0xFFE0E0E0),
+                                  backgroundImage: (item.logoUrl ?? '').trim().isNotEmpty
+                                      ? NetworkImage(item.logoUrl!.trim())
+                                      : null,
+                                  child: (item.logoUrl ?? '').trim().isEmpty
+                                      ? const Icon(Icons.storefront, color: Colors.black54)
+                                      : null,
+                                ),
+                                title: Text(item.title),
+                                subtitle: Text(item.subtitle),
+                                onTap: () => onSelected(item),
+                              );
+                            }
+                            return ListTile(
+                              leading: const Icon(Icons.search),
+                              title: Text(item.title),
+                              onTap: () => onSelected(item),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  );
+                },
+                onSelected: (_SearchSuggestion auswahl) async {
+                  _suchfeldController.text = auswahl.title;
+                  if (auswahl.type == _SuggestionType.dienstleister &&
+                      (auswahl.dienstleisterId ?? '').isNotEmpty) {
+                    final doc = await FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(auswahl.dienstleisterId)
+                        .get();
+                    if (!doc.exists) return;
+                    final data = doc.data() ?? {};
+                    await _openDienstleisterFromSuggestion({
+                      ...data,
+                      'id': doc.id,
+                    });
+                    return;
+                  }
+
                   setState(() {
-                    _ausgewaehlteLeistung = auswahl;
+                    _ausgewaehlteLeistung = auswahl.title;
                   });
-                  _suchfeldController.text = auswahl;
                   _clearSearchMode();
-                  await _applySelectionFromTitle(auswahl);
+                  await _applySelectionFromTitle(auswahl.title);
                   _dismissKeyboard();
                 },
                 fieldViewBuilder:
