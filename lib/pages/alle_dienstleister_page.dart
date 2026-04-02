@@ -2423,13 +2423,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                   )
                 else
                   ..._externalSearchResults.map(
-                    (item) => ListTile(
-                      leading: const CircleAvatar(
-                        backgroundColor: Color(0xFFE0E0E0),
-                        child: Icon(Icons.store_mall_directory, color: Colors.black54),
-                      ),
-                      title: Text((item['name'] ?? '').toString()),
-                      subtitle: Text((item['address'] ?? '').toString()),
+                    (item) => _buildExternalResultCard(
+                      name: (item['name'] ?? '').toString(),
+                      address: (item['address'] ?? '').toString(),
                       onTap: () {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
@@ -2444,6 +2440,92 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           },
         );
       },
+    );
+  }
+
+  Widget _buildExternalResultCard({
+    required String name,
+    required String address,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(22),
+          onTap: onTap,
+          child: Ink(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: Colors.black12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 76,
+                    height: 76,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEDEDED),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: const Icon(Icons.storefront, size: 34, color: Colors.black54),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          address,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Colors.black54,
+                              ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.place_rounded,
+                                size: 15, color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 5),
+                            Text(
+                              'Externer Treffer',
+                              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                    color: Theme.of(context).colorScheme.primary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
