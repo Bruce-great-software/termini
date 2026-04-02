@@ -1062,7 +1062,7 @@ class DienstleisterDetailPage extends StatefulWidget {
 class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String _zielgruppe = 'Damen';
   final PageController _bilderPageController = PageController();
-  int _aktuellerBildIndex = 0;
+  final ValueNotifier<int> _aktuellerBildIndexVN = ValueNotifier<int>(0);
 
   /// Auswahl als ValueNotifier -> verhindert kompletten Rebuild der Liste
   final ValueNotifier<Map<String, _CartItem>> _selectedVN =
@@ -1113,6 +1113,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   @override
   void dispose() {
     _bilderPageController.dispose();
+    _aktuellerBildIndexVN.dispose();
     _selectedVN.dispose();
     _selectedCombosVN.dispose();
     _expandedVariantGroupsVN.dispose();
@@ -6175,10 +6176,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 }
 
                 final pageCount = bildUrls.length;
-                if (_aktuellerBildIndex >= pageCount) {
+                if (_aktuellerBildIndexVN.value >= pageCount) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (!mounted) return;
-                    setState(() => _aktuellerBildIndex = 0);
+                    _aktuellerBildIndexVN.value = 0;
                     _zurBildSeite(0);
                   });
                 }
@@ -6190,8 +6191,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       controller: _bilderPageController,
                       itemCount: pageCount,
                       onPageChanged: (index) {
-                        if (!mounted) return;
-                        setState(() => _aktuellerBildIndex = index);
+                        _aktuellerBildIndexVN.value = index;
                       },
                       itemBuilder: (context, index) {
                         return Image.network(
@@ -6207,12 +6207,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         left: 10,
                         top: 0,
                         bottom: 0,
-                        child: Center(
-                          child: _BildNavButton(
-                            icon: Icons.chevron_left,
-                            onTap: _aktuellerBildIndex > 0
-                                ? () => _zurBildSeite(_aktuellerBildIndex - 1)
-                                : null,
+                        child: ValueListenableBuilder<int>(
+                          valueListenable: _aktuellerBildIndexVN,
+                          builder: (context, aktuellerBildIndex, _) => Center(
+                            child: _BildNavButton(
+                              icon: Icons.chevron_left,
+                              onTap: aktuellerBildIndex > 0
+                                  ? () => _zurBildSeite(aktuellerBildIndex - 1)
+                                  : null,
+                            ),
                           ),
                         ),
                       ),
@@ -6221,12 +6224,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                         right: 10,
                         top: 0,
                         bottom: 0,
-                        child: Center(
-                          child: _BildNavButton(
-                            icon: Icons.chevron_right,
-                            onTap: _aktuellerBildIndex < pageCount - 1
-                                ? () => _zurBildSeite(_aktuellerBildIndex + 1)
-                                : null,
+                        child: ValueListenableBuilder<int>(
+                          valueListenable: _aktuellerBildIndexVN,
+                          builder: (context, aktuellerBildIndex, _) => Center(
+                            child: _BildNavButton(
+                              icon: Icons.chevron_right,
+                              onTap: aktuellerBildIndex < pageCount - 1
+                                  ? () => _zurBildSeite(aktuellerBildIndex + 1)
+                                  : null,
+                            ),
                           ),
                         ),
                       ),
@@ -6242,12 +6248,15 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                           color: const Color(0x99000000),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Text(
-                          '${(_aktuellerBildIndex + 1).clamp(1, pageCount)}/$pageCount',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                        child: ValueListenableBuilder<int>(
+                          valueListenable: _aktuellerBildIndexVN,
+                          builder: (context, aktuellerBildIndex, _) => Text(
+                            '${(aktuellerBildIndex + 1).clamp(1, pageCount)}/$pageCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ),
