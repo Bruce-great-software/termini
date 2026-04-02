@@ -1138,6 +1138,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     );
   }
 
+  void _naechstesBild(int pageCount) {
+    if (pageCount <= 1) return;
+    final nextIndex = (_aktuellerBildIndex + 1).clamp(0, pageCount - 1);
+    if (nextIndex == _aktuellerBildIndex) return;
+    _zurBildSeite(nextIndex);
+  }
+
+  void _vorherigesBild() {
+    if (_aktuellerBildIndex <= 0) return;
+    _zurBildSeite(_aktuellerBildIndex - 1);
+  }
+
   String? _mapGeschlechtZuZielgruppe(String? geschlechtRaw) {
     final geschlecht = geschlechtRaw?.trim().toLowerCase();
     if (geschlecht == 'frau') return 'Damen';
@@ -6175,21 +6187,32 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           return Stack(
             fit: StackFit.expand,
             children: [
-              PageView.builder(
-                controller: _bilderPageController,
-                itemCount: pageCount,
-                onPageChanged: (index) {
-                  if (!mounted) return;
-                  setState(() => _aktuellerBildIndex = index);
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragEnd: (details) {
+                  final velocity = details.primaryVelocity ?? 0;
+                  if (velocity < -120) {
+                    _naechstesBild(pageCount);
+                  } else if (velocity > 120) {
+                    _vorherigesBild();
+                  }
                 },
-                itemBuilder: (context, index) {
-                  return Image.network(
-                    bildUrls[index],
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) =>
-                        Container(color: const Color(0xFFF2F2F2)),
-                  );
-                },
+                child: PageView.builder(
+                  controller: _bilderPageController,
+                  itemCount: pageCount,
+                  onPageChanged: (index) {
+                    if (!mounted) return;
+                    setState(() => _aktuellerBildIndex = index);
+                  },
+                  itemBuilder: (context, index) {
+                    return Image.network(
+                      bildUrls[index],
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          Container(color: const Color(0xFFF2F2F2)),
+                    );
+                  },
+                ),
               ),
               if (pageCount > 1)
                 Positioned(
@@ -6199,9 +6222,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                   child: Center(
                     child: _BildNavButton(
                       icon: Icons.chevron_left,
-                      onTap: _aktuellerBildIndex > 0
-                          ? () => _zurBildSeite(_aktuellerBildIndex - 1)
-                          : null,
+                      onTap: _aktuellerBildIndex > 0 ? _vorherigesBild : null,
                     ),
                   ),
                 ),
@@ -6214,7 +6235,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                     child: _BildNavButton(
                       icon: Icons.chevron_right,
                       onTap: _aktuellerBildIndex < pageCount - 1
-                          ? () => _zurBildSeite(_aktuellerBildIndex + 1)
+                          ? () => _naechstesBild(pageCount)
                           : null,
                     ),
                   ),
