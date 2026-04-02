@@ -67,6 +67,9 @@ class DienstleisterTile extends StatelessWidget {
     final ort = (data['ort'] ?? '').toString();
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final rating = (data['rating'] is num) ? (data['rating'] as num).toDouble() : null;
+    final category = (data['kategorie'] ?? data['branche'] ?? '').toString().trim();
+    final bool? isOpen = data['isOpenNow'] is bool ? data['isOpenNow'] as bool : null;
 
     final List<Map<String, dynamic>> offers =
         matchedOffers ??
@@ -75,13 +78,31 @@ class DienstleisterTile extends StatelessWidget {
                 .toList() ??
                 const <Map<String, dynamic>>[]);
 
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        elevation: 0,
+        shadowColor: Colors.black.withOpacity(0.08),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(22),
+          child: Ink(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.5)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -89,32 +110,32 @@ class DienstleisterTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    width: 64,
-                    height: 64,
+                    width: 76,
+                    height: 76,
                     decoration: BoxDecoration(
                       color: colorScheme.surfaceVariant,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: colorScheme.outlineVariant),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.6)),
                     ),
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(16),
                       child: logoUrl.isNotEmpty
                           ? Image.network(
                         logoUrl,
-                        width: 64,
-                        height: 64,
+                        width: 76,
+                        height: 76,
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) {
                           return Icon(
                             Icons.storefront,
-                            size: 30,
+                            size: 34,
                             color: colorScheme.onSurfaceVariant,
                           );
                         },
                       )
                           : Icon(
                         Icons.storefront,
-                        size: 30,
+                        size: 34,
                         color: colorScheme.onSurfaceVariant,
                       ),
                     ),
@@ -126,9 +147,12 @@ class DienstleisterTile extends StatelessWidget {
                       children: [
                         Text(
                           name,
-                          style: theme.textTheme.titleMedium,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: .1,
+                          ),
                         ),
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 5),
                         Text(
                           [
                             if (adresse.isNotEmpty) adresse,
@@ -138,24 +162,58 @@ class DienstleisterTile extends StatelessWidget {
                               .join(', '),
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: colorScheme.onSurfaceVariant,
+                            height: 1.25,
                           ),
                         ),
-                        if (distance is num) ...[
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.place,
-                                  size: 16,
+                        if (rating != null || category.isNotEmpty || isOpen != null) ...[
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              if (rating != null)
+                                _MetaChip(
+                                  icon: Icons.star_rounded,
+                                  text: rating.toStringAsFixed(1),
+                                  color: const Color(0xFFFFB300),
+                                ),
+                              if (category.isNotEmpty)
+                                _MetaChip(
+                                  icon: Icons.sell_outlined,
+                                  text: category,
                                   color: colorScheme.primary,
                                 ),
-                                const SizedBox(width: 4),
+                              if (isOpen != null)
+                                _MetaChip(
+                                  icon: Icons.schedule_rounded,
+                                  text: isOpen ? 'Geöffnet' : 'Geschlossen',
+                                  color: isOpen ? const Color(0xFF2E7D32) : Colors.grey,
+                                ),
+                            ],
+                          ),
+                        ],
+                        if (distance is num) ...[
+                          Container(
+                            margin: const EdgeInsets.only(top: 10),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: colorScheme.primary.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.place_rounded,
+                                  size: 15,
+                                  color: colorScheme.primary,
+                                ),
+                                const SizedBox(width: 5),
                                 Text(
                                   '${distance.toStringAsFixed(1)} km entfernt',
                                   style: theme.textTheme.labelMedium?.copyWith(
                                     color: colorScheme.primary,
-                                    fontWeight: FontWeight.w600,
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
                               ],
@@ -262,7 +320,46 @@ class DienstleisterTile extends StatelessWidget {
               ],
             ],
           ),
+            ),
+          ),
         ),
+      ),
+    );
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final Color color;
+
+  const _MetaChip({
+    required this.icon,
+    required this.text,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ],
       ),
     );
   }
