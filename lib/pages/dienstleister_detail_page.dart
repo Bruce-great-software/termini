@@ -1063,6 +1063,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String _zielgruppe = 'Damen';
   final PageController _bilderPageController = PageController();
   int _aktuellerBildIndex = 0;
+  bool _bildbereichAusgeblendet = false;
 
   /// Auswahl als ValueNotifier -> verhindert kompletten Rebuild der Liste
   final ValueNotifier<Map<String, _CartItem>> _selectedVN =
@@ -6151,119 +6152,141 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       ),
       body: Column(
         children: [
-          SizedBox(
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOutCubic,
             width: double.infinity,
-            height: 190,
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: bilderStream,
-              builder: (context, snapshot) {
-                final bildUrls = <String>[];
-                if (logoUrl.isNotEmpty) {
-                  bildUrls.add(logoUrl);
-                }
-                if (snapshot.hasData) {
-                  for (final doc in snapshot.data!.docs) {
-                    final url = (doc.data()['url'] ?? '').toString().trim();
-                    if (url.isEmpty) continue;
-                    if (url == logoUrl) continue;
-                    bildUrls.add(url);
+            height: _bildbereichAusgeblendet ? 0 : 190,
+            child: ClipRect(
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: bilderStream,
+                builder: (context, snapshot) {
+                  final bildUrls = <String>[];
+                  if (logoUrl.isNotEmpty) {
+                    bildUrls.add(logoUrl);
                   }
-                }
+                  if (snapshot.hasData) {
+                    for (final doc in snapshot.data!.docs) {
+                      final url = (doc.data()['url'] ?? '').toString().trim();
+                      if (url.isEmpty) continue;
+                      if (url == logoUrl) continue;
+                      bildUrls.add(url);
+                    }
+                  }
 
-                if (bildUrls.isEmpty) {
-                  return Container(color: const Color(0xFFF2F2F2));
-                }
+                  if (bildUrls.isEmpty) {
+                    return Container(color: const Color(0xFFF2F2F2));
+                  }
 
-                final pageCount = bildUrls.length;
-                if (_aktuellerBildIndex >= pageCount) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    setState(() => _aktuellerBildIndex = 0);
-                    _zurBildSeite(0);
-                  });
-                }
+                  final pageCount = bildUrls.length;
+                  if (_aktuellerBildIndex >= pageCount) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      setState(() => _aktuellerBildIndex = 0);
+                      _zurBildSeite(0);
+                    });
+                  }
 
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    PageView.builder(
-                      controller: _bilderPageController,
-                      itemCount: pageCount,
-                      onPageChanged: (index) {
-                        if (!mounted) return;
-                        setState(() => _aktuellerBildIndex = index);
-                      },
-                      itemBuilder: (context, index) {
-                        return Image.network(
-                          bildUrls[index],
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
-                              Container(color: const Color(0xFFF2F2F2)),
-                        );
-                      },
-                    ),
-                    if (pageCount > 1)
-                      Positioned(
-                        left: 10,
-                        top: 0,
-                        bottom: 0,
-                        child: Center(
-                          child: _BildNavButton(
-                            icon: Icons.chevron_left,
-                            onTap: _aktuellerBildIndex > 0
-                                ? () => _zurBildSeite(_aktuellerBildIndex - 1)
-                                : null,
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      PageView.builder(
+                        controller: _bilderPageController,
+                        itemCount: pageCount,
+                        onPageChanged: (index) {
+                          if (!mounted) return;
+                          setState(() => _aktuellerBildIndex = index);
+                        },
+                        itemBuilder: (context, index) {
+                          return Image.network(
+                            bildUrls[index],
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) =>
+                                Container(color: const Color(0xFFF2F2F2)),
+                          );
+                        },
+                      ),
+                      if (pageCount > 1)
+                        Positioned(
+                          left: 10,
+                          top: 0,
+                          bottom: 0,
+                          child: Center(
+                            child: _BildNavButton(
+                              icon: Icons.chevron_left,
+                              onTap: _aktuellerBildIndex > 0
+                                  ? () => _zurBildSeite(_aktuellerBildIndex - 1)
+                                  : null,
+                            ),
                           ),
                         ),
-                      ),
-                    if (pageCount > 1)
+                      if (pageCount > 1)
+                        Positioned(
+                          right: 10,
+                          top: 0,
+                          bottom: 0,
+                          child: Center(
+                            child: _BildNavButton(
+                              icon: Icons.chevron_right,
+                              onTap: _aktuellerBildIndex < pageCount - 1
+                                  ? () => _zurBildSeite(_aktuellerBildIndex + 1)
+                                  : null,
+                            ),
+                          ),
+                        ),
                       Positioned(
                         right: 10,
-                        top: 0,
-                        bottom: 0,
-                        child: Center(
-                          child: _BildNavButton(
-                            icon: Icons.chevron_right,
-                            onTap: _aktuellerBildIndex < pageCount - 1
-                                ? () => _zurBildSeite(_aktuellerBildIndex + 1)
-                                : null,
+                        bottom: 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0x99000000),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '${(_aktuellerBildIndex + 1).clamp(1, pageCount)}/$pageCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ),
-                    Positioned(
-                      right: 10,
-                      bottom: 10,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0x99000000),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '${(_aktuellerBildIndex + 1).clamp(1, pageCount)}/$pageCount',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
+                    ],
+                  );
+                },
+              ),
             ),
           ),
           Expanded(
-            child: AngeboteView(
-              angeboteStream: FirebaseFirestore.instance
-                  .collection('angebote')
-                  .where('dienstleisterId', isEqualTo: dienstleisterId)
-                  .snapshots(),
-              builder: (context, docs) {
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                if (notification.metrics.axis != Axis.vertical) return false;
+                if (notification is UserScrollNotification) {
+                  final direction = notification.direction;
+                  if (direction == ScrollDirection.reverse &&
+                      !_bildbereichAusgeblendet) {
+                    setState(() => _bildbereichAusgeblendet = true);
+                  } else if (direction == ScrollDirection.forward &&
+                      _bildbereichAusgeblendet) {
+                    setState(() => _bildbereichAusgeblendet = false);
+                  }
+                } else if (notification.metrics.pixels <= 0 &&
+                    _bildbereichAusgeblendet) {
+                  setState(() => _bildbereichAusgeblendet = false);
+                }
+                return false;
+              },
+              child: AngeboteView(
+                angeboteStream: FirebaseFirestore.instance
+                    .collection('angebote')
+                    .where('dienstleisterId', isEqualTo: dienstleisterId)
+                    .snapshots(),
+                builder: (context, docs) {
                 // ---- Docs in Modelle umwandeln, Singles/Bundles trennen ----
                 final all = docs.map((d) => Offer.fromDoc(d)).toList();
 
@@ -7878,7 +7901,8 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                     ),
                   ],
                 );
-              },
+                },
+              ),
             ),
           ),
         ],
