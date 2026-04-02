@@ -251,136 +251,139 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       ),
                     ),
                     const SizedBox(height: 6),
-                    Expanded(
-                      child: ListView(
-                        children: [
-                          ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.my_location, color: Colors.white70),
-                            title: const Text(
-                              'Aktueller Standort',
-                              style: TextStyle(color: Colors.white),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.my_location, color: Colors.white70),
+                      title: const Text(
+                        'Aktueller Standort',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                      onTap: () {
+                        if (userPosition == null) return;
+                        mapCenter = LatLng(
+                          userPosition!.latitude,
+                          userPosition!.longitude,
+                        );
+                        _suchfeldController.text = currentCity ?? 'Aktueller Standort';
+                        setModalState(() => showMapView = true);
+                      },
+                    ),
+                    const Divider(color: Colors.white12, height: 1),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.public, color: Colors.white70),
+                      title: const Text(
+                        'Ganz Deutschland',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                      onTap: () => selectLocation('Ganz Deutschland', addToRecent: false),
+                    ),
+                    const Divider(color: Colors.white12, height: 1),
+                    if (showMapView && mapCenter != null) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF232323),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.white24),
+                        ),
+                        child: Text(
+                          'Umkreis: ${radiusKm.toStringAsFixed(0)} km',
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ),
+                      SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          activeTrackColor: const Color(0xFFC5E86C),
+                          inactiveTrackColor: Colors.white24,
+                          thumbColor: const Color(0xFFC5E86C),
+                          overlayColor: const Color(0x33C5E86C),
+                        ),
+                        child: Slider(
+                          value: radiusKm,
+                          min: 1,
+                          max: 50,
+                          divisions: 49,
+                          onChanged: (value) => setModalState(() => radiusKm = value),
+                        ),
+                      ),
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: GoogleMap(
+                            initialCameraPosition: CameraPosition(
+                              target: mapCenter!,
+                              zoom: 11.8,
                             ),
-                            onTap: () {
-                              if (userPosition == null) return;
-                              mapCenter = LatLng(
-                                userPosition!.latitude,
-                                userPosition!.longitude,
-                              );
-                              _suchfeldController.text =
-                                  currentCity ?? 'Aktueller Standort';
-                              setModalState(() => showMapView = true);
+                            myLocationEnabled: true,
+                            myLocationButtonEnabled: true,
+                            zoomControlsEnabled: false,
+                            circles: {
+                              Circle(
+                                circleId: const CircleId('radius'),
+                                center: mapCenter!,
+                                radius: radiusKm * 1000,
+                                fillColor: const Color(0x55AAB5FF),
+                                strokeColor: const Color(0x99D3D9FF),
+                                strokeWidth: 1,
+                              ),
+                            },
+                            markers: {
+                              Marker(
+                                markerId: const MarkerId('center'),
+                                position: mapCenter!,
+                              ),
                             },
                           ),
-                          const Divider(color: Colors.white12, height: 1),
-                          ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.public, color: Colors.white70),
-                            title: const Text(
-                              'Ganz Deutschland',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                            onTap: () => selectLocation('Ganz Deutschland', addToRecent: false),
-                          ),
-                          const Divider(color: Colors.white12, height: 1),
-                          if (showMapView && mapCenter != null) ...[
-                            const SizedBox(height: 10),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF232323),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: Colors.white24),
-                              ),
-                              child: Text(
-                                'Umkreis: ${radiusKm.toStringAsFixed(0)} km',
-                                style: const TextStyle(color: Colors.white),
-                              ),
-                            ),
-                            SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                activeTrackColor: const Color(0xFFC5E86C),
-                                inactiveTrackColor: Colors.white24,
-                                thumbColor: const Color(0xFFC5E86C),
-                                overlayColor: const Color(0x33C5E86C),
-                              ),
-                              child: Slider(
-                                value: radiusKm,
-                                min: 1,
-                                max: 50,
-                                divisions: 49,
-                                onChanged: (value) => setModalState(() => radiusKm = value),
-                              ),
-                            ),
-                            SizedBox(
-                              height: 320,
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: GoogleMap(
-                                  initialCameraPosition: CameraPosition(
-                                    target: mapCenter!,
-                                    zoom: 11.8,
-                                  ),
-                                  myLocationEnabled: true,
-                                  myLocationButtonEnabled: true,
-                                  zoomControlsEnabled: false,
-                                  circles: {
-                                    Circle(
-                                      circleId: const CircleId('radius'),
-                                      center: mapCenter!,
-                                      radius: radiusKm * 1000,
-                                      fillColor: const Color(0x55AAB5FF),
-                                      strokeColor: const Color(0x99D3D9FF),
-                                      strokeWidth: 1,
-                                    ),
-                                  },
-                                  markers: {
-                                    Marker(
-                                      markerId: const MarkerId('center'),
-                                      position: mapCenter!,
-                                    ),
-                                  },
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: () => Navigator.of(ctx).pop(),
-                                child: const Text('Übernehmen'),
-                              ),
-                            ),
-                          ] else if (gefilterteLetzteSuchen.isEmpty)
-                            const Padding(
-                              padding: EdgeInsets.only(top: 14),
-                              child: Text(
-                                'Letzte Orts-Suchanfragen erscheinen hier.',
-                                style: TextStyle(color: Colors.white54),
-                              ),
-                            )
-                          else
-                            ...gefilterteLetzteSuchen.map(
-                              (eintrag) => Column(
-                                children: [
-                                  ListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    leading:
-                                        const Icon(Icons.location_on_outlined, color: Colors.white70),
-                                    title: Text(
-                                      eintrag,
-                                      style: const TextStyle(color: Colors.white),
-                                    ),
-                                    onTap: () => selectLocation(eintrag),
-                                  ),
-                                  const Divider(color: Colors.white12, height: 1),
-                                ],
-                              ),
-                            ),
-                        ],
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          child: const Text('Übernehmen'),
+                        ),
+                      ),
+                    ] else
+                      Expanded(
+                        child: gefilterteLetzteSuchen.isEmpty
+                            ? const Align(
+                                alignment: Alignment.topLeft,
+                                child: Padding(
+                                  padding: EdgeInsets.only(top: 14),
+                                  child: Text(
+                                    'Letzte Orts-Suchanfragen erscheinen hier.',
+                                    style: TextStyle(color: Colors.white54),
+                                  ),
+                                ),
+                              )
+                            : ListView(
+                                children: gefilterteLetzteSuchen
+                                    .map(
+                                      (eintrag) => Column(
+                                        children: [
+                                          ListTile(
+                                            contentPadding: EdgeInsets.zero,
+                                            leading: const Icon(
+                                              Icons.location_on_outlined,
+                                              color: Colors.white70,
+                                            ),
+                                            title: Text(
+                                              eintrag,
+                                              style: const TextStyle(color: Colors.white),
+                                            ),
+                                            onTap: () => selectLocation(eintrag),
+                                          ),
+                                          const Divider(color: Colors.white12, height: 1),
+                                        ],
+                                      ),
+                                    )
+                                    .toList(),
+                              ),
+                      ),
                   ],
                 ),
               ),
