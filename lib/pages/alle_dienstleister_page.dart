@@ -8,6 +8,7 @@ import 'package:app_settings/app_settings.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/location_service.dart';
 import '../widgets/dienstleister_tile.dart';
@@ -144,7 +145,41 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   }
 
   Future<void> _showLocationSelectionSheet() async {
-    final controller = TextEditingController(text: _suchfeldController.text.trim());
+    final initialLocationText = _isCurrentLocationSelected
+        ? (_selectedLocationValue ?? _selectedLocationLabel ?? currentCity ?? '').trim()
+        : _suchfeldController.text.trim();
+    final controller = TextEditingController(text: initialLocationText);
+    List<String> ortVorschlaege = [];
+    bool laedtOrtsVorschlaege = false;
+    String letzterSuchwert = initialLocationText.trim().toLowerCase();
+
+    Future<void> ladeOrtsVorschlaege(
+      String input,
+      StateSetter setModalState,
+    ) async {
+      final normalized = input.trim().toLowerCase();
+      letzterSuchwert = normalized;
+      if (normalized.isEmpty) {
+        setModalState(() {
+          ortVorschlaege = [];
+          laedtOrtsVorschlaege = false;
+        });
+        return;
+      }
+
+      setModalState(() => laedtOrtsVorschlaege = true);
+      final treffer = await _ladeOrtsVorschlaege(normalized);
+      if (!mounted) return;
+      if (letzterSuchwert != normalized) return;
+      setModalState(() {
+        ortVorschlaege = treffer;
+        laedtOrtsVorschlaege = false;
+      });
+    }
+
+    if (letzterSuchwert.isNotEmpty) {
+      ortVorschlaege = await _ladeOrtsVorschlaege(letzterSuchwert);
+    }
 
     await showModalBottomSheet(
       context: context,
@@ -161,7 +196,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 .where((e) => query.isEmpty || e.toLowerCase().contains(query))
                 .toList();
 
-            void selectLocation(String value, {bool addToRecent = true}) {
+            void selectLocation(
+              String value, {
+              bool addToRecent = true,
+              bool isCurrentLocationSelection = false,
+            }) {
               final selected = value.trim();
               if (selected.isEmpty) return;
 
@@ -177,6 +216,13 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 });
               }
 
+              setState(() {
+                _isCurrentLocationSelected = isCurrentLocationSelection;
+                _selectedLocationValue = isCurrentLocationSelection ? selected : null;
+                _selectedLocationLabel = isCurrentLocationSelection
+                    ? _buildLocationChipLabel(selected)
+                    : null;
+              });
               _suchfeldController.text = selected;
               Navigator.of(ctx).pop();
             }
@@ -227,8 +273,14 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                           borderSide: const BorderSide(color: Colors.white54),
                         ),
                       ),
-                      onChanged: (_) => setModalState(() {}),
-                      onSubmitted: (v) => selectLocation(v),
+                      onChanged: (value) async {
+                        setModalState(() {});
+                        await ladeOrtsVorschlaege(value, setModalState);
+                      },
+                      onSubmitted: (v) => selectLocation(
+                        v,
+                        isCurrentLocationSelection: true,
+                      ),
                     ),
                     const SizedBox(height: 14),
                     const Text(
@@ -252,6 +304,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             onTap: () => selectLocation(
                               currentCity ?? 'Aktueller Standort',
                               addToRecent: false,
+                              isCurrentLocationSelection: true,
                             ),
                           ),
                           const Divider(color: Colors.white12, height: 1),
@@ -265,6 +318,51 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             onTap: () => selectLocation('Ganz Deutschland', addToRecent: false),
                           ),
                           const Divider(color: Colors.white12, height: 1),
+                          if (controller.text.trim().isNotEmpty &&
+                              ortVorschlaege.isNotEmpty) ...[
+                            ...ortVorschlaege.map(
+                              (eintrag) => Column(
+                                children: [
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: const Icon(
+                                      Icons.location_on_outlined,
+                                      color: Colors.white70,
+                                    ),
+                                    title: RichText(
+                                      text: TextSpan(
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 16,
+                                        ),
+                                        children: _buildHighlightedSpans(
+                                          eintrag,
+                                          controller.text.trim(),
+                                        ),
+                                      ),
+                                    ),
+                                    onTap: () => selectLocation(
+                                      eintrag,
+                                      isCurrentLocationSelection: true,
+                                    ),
+                                  ),
+                                  const Divider(color: Colors.white12, height: 1),
+                                ],
+                              ),
+                            ),
+                          ] else if (laedtOrtsVorschlaege) ...[
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 10),
+                              child: Center(
+                                child: SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              ),
+                            ),
+                            const Divider(color: Colors.white12, height: 1),
+                          ],
                           if (gefilterteLetzteSuchen.isEmpty)
                             const Padding(
                               padding: EdgeInsets.only(top: 14),
@@ -285,7 +383,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                       eintrag,
                                       style: const TextStyle(color: Colors.white),
                                     ),
-                                    onTap: () => selectLocation(eintrag),
+                                    onTap: () => selectLocation(
+                                      eintrag,
+                                      isCurrentLocationSelection: true,
+                                    ),
                                   ),
                                   const Divider(color: Colors.white12, height: 1),
                                 ],
@@ -302,6 +403,120 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         );
       },
     );
+  }
+
+  Future<List<String>> _ladeOrtsVorschlaege(String eingabe) async {
+    final query = eingabe.trim().toLowerCase();
+    if (query.isEmpty) return [];
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .where('rolle', isEqualTo: 'dienstleister')
+        .limit(200)
+        .get();
+
+    final startsWith = <String>{};
+    final contains = <String>{};
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final plz = (data['plz'] ?? '').toString().trim();
+      final ort = (data['ort'] ?? '').toString().trim();
+      if (plz.isEmpty && ort.isEmpty) continue;
+
+      final combined = [plz, ort].where((e) => e.isNotEmpty).join(' ').trim();
+      if (combined.isEmpty) continue;
+
+      final plzLower = plz.toLowerCase();
+      final ortLower = ort.toLowerCase();
+
+      final prefixMatch =
+          plzLower.startsWith(query) || ortLower.startsWith(query);
+      final containsMatch =
+          plzLower.contains(query) || ortLower.contains(query);
+
+      if (prefixMatch) {
+        startsWith.add(combined);
+      } else if (containsMatch) {
+        contains.add(combined);
+      }
+    }
+
+    final sortFn = (String a, String b) =>
+        a.toLowerCase().compareTo(b.toLowerCase());
+    final sortedStartsWith = startsWith.toList()..sort(sortFn);
+    final sortedContains = contains.toList()..sort(sortFn);
+
+    return [...sortedStartsWith, ...sortedContains].take(8).toList();
+  }
+
+  List<TextSpan> _buildHighlightedSpans(String text, String query) {
+    final normalizedQuery = query.trim();
+    if (normalizedQuery.isEmpty) {
+      return [TextSpan(text: text)];
+    }
+
+    final lowerText = text.toLowerCase();
+    final lowerQuery = normalizedQuery.toLowerCase();
+    final idx = lowerText.indexOf(lowerQuery);
+    if (idx < 0) {
+      return [TextSpan(text: text)];
+    }
+
+    final before = text.substring(0, idx);
+    final match = text.substring(idx, idx + normalizedQuery.length);
+    final after = text.substring(idx + normalizedQuery.length);
+
+    return [
+      if (before.isNotEmpty) TextSpan(text: before),
+      TextSpan(
+        text: match,
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
+      if (after.isNotEmpty) TextSpan(text: after),
+    ];
+  }
+
+  String _buildLocationChipLabel(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return trimmed;
+    final match = RegExp(r'^\d{4,6}\s+(.+)$').firstMatch(trimmed);
+    if (match != null) {
+      final cityPart = (match.group(1) ?? '').trim();
+      if (cityPart.isNotEmpty) return cityPart;
+    }
+    return trimmed;
+  }
+
+  bool _matchesSelectedLocation(Map<String, dynamic> data) {
+    if (!_isCurrentLocationSelected) return true;
+
+    final rawSelection =
+        (_selectedLocationValue ?? _selectedLocationLabel ?? '').trim();
+    if (rawSelection.isEmpty) return true;
+
+    final normalizedSelection = rawSelection.toLowerCase();
+    if (normalizedSelection == 'ganz deutschland') return true;
+
+    final ort = (data['ort'] ?? '').toString().trim().toLowerCase();
+    final plz = (data['plz'] ?? '').toString().trim().toLowerCase();
+    final adresse = (data['adresse'] ?? '').toString().trim().toLowerCase();
+
+    final match = RegExp(r'^(\d{4,6})\s+(.+)$').firstMatch(normalizedSelection);
+    if (match != null) {
+      final selectedPlz = (match.group(1) ?? '').trim();
+      final selectedOrt = (match.group(2) ?? '').trim();
+
+      final plzPasst = selectedPlz.isEmpty || plz.contains(selectedPlz);
+      final ortPasst = selectedOrt.isEmpty ||
+          ort.contains(selectedOrt) ||
+          adresse.contains(selectedOrt);
+      return plzPasst && ortPasst;
+    }
+
+    return ort.contains(normalizedSelection) ||
+        plz.contains(normalizedSelection) ||
+        adresse.contains(normalizedSelection);
   }
 
   Future<List<Map<String, dynamic>>> _searchGooglePlaces(String query) async {
@@ -941,6 +1156,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   }
 
   String? currentCity;
+  bool _isCurrentLocationSelected = false;
+  String? _selectedLocationLabel;
+  String? _selectedLocationValue;
   Position? userPosition;
   bool isLoading = true;
   int _selectedIndex = 0;
@@ -2115,6 +2333,37 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       ),
     );
 
+    if (_isCurrentLocationSelected) {
+      final ortLabel = (_selectedLocationLabel ?? currentCity ?? '').trim();
+      if (ortLabel.isNotEmpty) {
+        chips.add(
+          InputChip(
+            label: Text(
+              ortLabel,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            selected: true,
+            onSelected: (_) => _showLocationSelectionSheet(),
+            onDeleted: () {
+              setState(() {
+                _isCurrentLocationSelected = false;
+                _selectedLocationLabel = null;
+                _selectedLocationValue = null;
+              });
+            },
+            deleteIcon: const Icon(Icons.close, size: 18, color: Colors.white),
+            selectedColor: const Color(0xFF34C759),
+            backgroundColor: const Color(0xFF34C759),
+            shape: const StadiumBorder(side: BorderSide(color: Color(0xFF34C759))),
+          ),
+        );
+      }
+    }
+
     // Sortieren
     chips.add(
       InputChip(
@@ -2372,7 +2621,12 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             ),
                           IconButton(
                             tooltip: 'Ort wählen',
-                            icon: const Icon(Icons.location_pin),
+                            icon: Icon(
+                              Icons.location_pin,
+                              color: _isCurrentLocationSelected
+                                  ? const Color(0xFF34C759)
+                                  : null,
+                            ),
                             onPressed: _showLocationSelectionSheet,
                           ),
                         ],
@@ -2538,6 +2792,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             ].join(' ').toLowerCase();
 
             if (!suchFelder.contains(search)) return;
+
+            if (!_matchesSelectedLocation(data)) return;
 
             final branche = data['branche']?.toString();
             final branchePasst = ausgewaehlteBranchen.isEmpty ||
@@ -2735,6 +2991,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
             if (_gefilterteDienstleisterIds.isNotEmpty) {
               if (_gefilterteDienstleisterIds.contains(data['id'])) {
+                if (!_matchesSelectedLocation(data)) {
+                  return;
+                }
                 final matched =
                 await _ladePassendeAngeboteFuerDienstleister(data['id']);
                 if (matched.isNotEmpty) {
@@ -2786,7 +3045,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             if (branchePasst &&
                 zielgruppePasst &&
                 kategoriePasst &&
-                leistungPasst) {
+                leistungPasst &&
+                _matchesSelectedLocation(data)) {
               dienstleisterMitLeistungen.add(data);
             }
           })),
@@ -2860,6 +3120,306 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     );
   }
 
+  String _formatOeffnungszeitForTag(Map<String, dynamic> oeffnungszeiten, String key) {
+    final raw = oeffnungszeiten[key];
+    if (raw is! Map) return 'Geschlossen';
+    final map = Map<String, dynamic>.from(raw);
+    final aktiv = map['aktiv'] is bool ? map['aktiv'] as bool : false;
+    if (!aktiv) return 'Geschlossen';
+    final von = (map['von'] ?? '').toString().trim();
+    final bis = (map['bis'] ?? '').toString().trim();
+    if (von.isEmpty || bis.isEmpty) return 'Geschlossen';
+    return '$von - $bis';
+  }
+
+  String _buildDienstleisterAddressForNavigation(Map<String, dynamic> data) {
+    final strasse = (data['strasse'] ?? data['adresse'] ?? '').toString().trim();
+    final hausnummer = (data['hausnummer'] ?? '').toString().trim();
+    final plz = (data['plz'] ?? '').toString().trim();
+    final ort = (data['ort'] ?? '').toString().trim();
+    return [strasse, hausnummer, plz, ort]
+        .where((e) => e.isNotEmpty)
+        .join(' ')
+        .trim();
+  }
+
+  Future<void> _openRouteToDienstleister() async {
+    final data = geoeffneterDienstleister;
+    if (data == null) return;
+
+    final destinationAddress = _buildDienstleisterAddressForNavigation(data);
+    if (destinationAddress.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Keine Adresse für Navigation verfügbar.')),
+      );
+      return;
+    }
+
+    final params = <String, String>{
+      'api': '1',
+      'destination': destinationAddress,
+      'travelmode': 'driving',
+    };
+
+    if (userPosition != null) {
+      params['origin'] =
+          '${userPosition!.latitude.toStringAsFixed(6)},${userPosition!.longitude.toStringAsFixed(6)}';
+    }
+
+    final directionsUri = Uri.https('www.google.com', '/maps/dir/', params);
+    final launched = await launchUrl(
+      directionsUri,
+      mode: LaunchMode.externalApplication,
+    );
+
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Navigation konnte nicht geöffnet werden.')),
+      );
+    }
+  }
+
+  void _showDienstleisterInfoSheet() {
+    final data = geoeffneterDienstleister;
+    if (data == null) return;
+
+    final name = (data['name'] ?? 'Dienstleister').toString().trim();
+    final strasse = (data['strasse'] ?? data['adresse'] ?? '').toString().trim();
+    final hausnummer = (data['hausnummer'] ?? '').toString().trim();
+    final plz = (data['plz'] ?? '').toString().trim();
+    final ort = (data['ort'] ?? '').toString().trim();
+    final zeile1 = [strasse, hausnummer].where((e) => e.isNotEmpty).join(' ');
+    final zeile2 = [plz, ort].where((e) => e.isNotEmpty).join(' ');
+    final dienstleisterId = (data['id'] ?? '').toString().trim();
+    final oeffnungszeiten = data['oeffnungszeiten'] is Map
+        ? Map<String, dynamic>.from(data['oeffnungszeiten'] as Map)
+        : <String, dynamic>{};
+
+    const tage = <MapEntry<String, String>>[
+      MapEntry('montag', 'Montag'),
+      MapEntry('dienstag', 'Dienstag'),
+      MapEntry('mittwoch', 'Mittwoch'),
+      MapEntry('donnerstag', 'Donnerstag'),
+      MapEntry('freitag', 'Freitag'),
+      MapEntry('samstag', 'Samstag'),
+      MapEntry('sonntag', 'Sonntag'),
+    ];
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.only(
+            left: 12,
+            right: 12,
+            top: 6,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8F8FC),
+              borderRadius: BorderRadius.circular(28),
+            ),
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 8),
+                    Text(
+                      name.isEmpty ? 'Dienstleister' : name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 22,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.location_on_outlined, size: 18),
+                              SizedBox(width: 6),
+                              Text(
+                                'Adresse',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          if (zeile1.isNotEmpty) Text(zeile1),
+                          if (zeile2.isNotEmpty) Text(zeile2),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.schedule_outlined, size: 18),
+                              SizedBox(width: 6),
+                              Text(
+                                'Öffnungszeiten',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          ...tage.map(
+                            (tag) => Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 3),
+                              child: Row(
+                                mainAxisAlignment:
+                                MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(tag.value),
+                                  Text(
+                                    _formatOeffnungszeitForTag(
+                                      oeffnungszeiten,
+                                      tag.key,
+                                    ),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.groups_2_outlined, size: 18),
+                              SizedBox(width: 6),
+                              Text(
+                                'Mitarbeiter',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          if (dienstleisterId.isEmpty)
+                            const Text('Keine Mitarbeiter gefunden.')
+                          else
+                            FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                              future: FirebaseFirestore.instance
+                                  .collection('users')
+                                  .where('rolle', isEqualTo: 'mitarbeiter')
+                                  .where('dienstleisterId', isEqualTo: dienstleisterId)
+                                  .get(),
+                              builder: (context, snap) {
+                                if (snap.connectionState == ConnectionState.waiting) {
+                                  return const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 8),
+                                    child: SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    ),
+                                  );
+                                }
+                                final docs = snap.data?.docs ??
+                                    <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+                                if (docs.isEmpty) {
+                                  return const Text('Keine Mitarbeiter gefunden.');
+                                }
+                                return Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: docs.map((doc) {
+                                    final d = doc.data();
+                                    final mitarbeiterName =
+                                        (d['name'] ?? '').toString().trim();
+                                    final profileImageUrl =
+                                        (d['profileImageUrl'] ?? '').toString().trim();
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF1F2F8),
+                                        borderRadius: BorderRadius.circular(999),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          CircleAvatar(
+                                            radius: 12,
+                                            backgroundColor: Colors.grey.shade300,
+                                            backgroundImage: profileImageUrl.isNotEmpty
+                                                ? NetworkImage(profileImageUrl)
+                                                : null,
+                                            child: profileImageUrl.isEmpty
+                                                ? const Icon(
+                                                    Icons.person,
+                                                    size: 14,
+                                                    color: Colors.black54,
+                                                  )
+                                                : null,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            mitarbeiterName.isEmpty
+                                                ? 'Mitarbeiter'
+                                                : mitarbeiterName,
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }).toList(),
+                                );
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (isLoading || userPosition == null) {
@@ -2897,6 +3457,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             : null,
         actions: geoeffneterDienstleister != null
             ? [
+          IconButton(
+            tooltip: 'Route starten',
+            onPressed: _openRouteToDienstleister,
+            icon: const Icon(Icons.location_pin, color: Color(0xFF34C759)),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: IconButton(
