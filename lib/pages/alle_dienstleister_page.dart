@@ -68,6 +68,49 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     if (kDebugMode) print("Suchbegriff: $wert");
   }
 
+  TextSpan _buildHighlightedSpan({
+    required String fullText,
+    required String query,
+    TextStyle? baseStyle,
+  }) {
+    final q = query.trim();
+    if (q.isEmpty) {
+      return TextSpan(text: fullText, style: baseStyle);
+    }
+
+    final lowerText = fullText.toLowerCase();
+    final lowerQuery = q.toLowerCase();
+    final spans = <TextSpan>[];
+    int start = 0;
+
+    while (true) {
+      final index = lowerText.indexOf(lowerQuery, start);
+      if (index < 0) {
+        if (start < fullText.length) {
+          spans.add(TextSpan(text: fullText.substring(start), style: baseStyle));
+        }
+        break;
+      }
+
+      if (index > start) {
+        spans.add(TextSpan(text: fullText.substring(start, index), style: baseStyle));
+      }
+
+      spans.add(
+        TextSpan(
+          text: fullText.substring(index, index + q.length),
+          style: (baseStyle ?? const TextStyle()).copyWith(
+            fontWeight: FontWeight.bold,
+            decoration: TextDecoration.underline,
+          ),
+        ),
+      );
+      start = index + q.length;
+    }
+
+    return TextSpan(children: spans, style: baseStyle);
+  }
+
   Future<void> _activateSearchMode(String query) async {
     final q = query.trim();
     if (q.isEmpty) {
@@ -2044,6 +2087,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 displayStringForOption: (option) => option.title,
                 optionsViewBuilder: (context, onSelected, options) {
                   final items = options.toList();
+                  final highlightQuery = _suchfeldController.text;
                   return Align(
                     alignment: Alignment.topLeft,
                     child: Material(
@@ -2070,14 +2114,32 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                       ? const Icon(Icons.storefront, color: Colors.black54)
                                       : null,
                                 ),
-                                title: Text(item.title),
-                                subtitle: Text(item.subtitle),
+                                title: RichText(
+                                  text: _buildHighlightedSpan(
+                                    fullText: item.title,
+                                    query: highlightQuery,
+                                    baseStyle: Theme.of(context).textTheme.bodyLarge,
+                                  ),
+                                ),
+                                subtitle: RichText(
+                                  text: _buildHighlightedSpan(
+                                    fullText: item.subtitle,
+                                    query: highlightQuery,
+                                    baseStyle: Theme.of(context).textTheme.bodyMedium,
+                                  ),
+                                ),
                                 onTap: () => onSelected(item),
                               );
                             }
                             return ListTile(
                               leading: const Icon(Icons.search),
-                              title: Text(item.title),
+                              title: RichText(
+                                text: _buildHighlightedSpan(
+                                  fullText: item.title,
+                                  query: highlightQuery,
+                                  baseStyle: Theme.of(context).textTheme.bodyLarge,
+                                ),
+                              ),
                               onTap: () => onSelected(item),
                             );
                           },
