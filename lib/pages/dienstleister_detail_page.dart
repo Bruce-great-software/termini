@@ -754,12 +754,14 @@ String _comboGroupKey(Offer combo) {
 /// ---------------------------------------------------------------
 class LinkedChipsWithSections extends StatefulWidget {
   final List<SectionData> sections;
+  final Widget? scrollHeader;
   final int initialIndex;
   final double extraBottom;
 
   const LinkedChipsWithSections({
     super.key,
     required this.sections,
+    this.scrollHeader,
     this.initialIndex = 0,
     this.extraBottom = 0.0,
   });
@@ -776,7 +778,11 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
   late int activeChip;
   bool _programmaticScroll = false;
 
-  int get _spacerIndex => widget.sections.length;
+  int get _headerOffset => widget.scrollHeader == null ? 0 : 1;
+  int get _spacerIndex => _headerOffset + widget.sections.length;
+  int get _itemCount => _spacerIndex + 1;
+
+  int _sectionListIndex(int sectionIndex) => sectionIndex + _headerOffset;
 
   @override
   void initState() {
@@ -786,6 +792,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
         : 0;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.sections.isEmpty) return;
       if (activeChip != 0) {
         _scrollTo(activeChip);
       } else {
@@ -797,9 +804,11 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
     itemPositionsListener.itemPositions.addListener(() {
       if (_programmaticScroll) return;
       final positions = itemPositionsListener.itemPositions.value;
-      if (positions.isEmpty) return;
+      if (positions.isEmpty || widget.sections.isEmpty) return;
 
-      final visible = positions.where((p) => p.index < widget.sections.length).toList();
+      final visible = positions
+          .where((p) => p.index >= _headerOffset && p.index < _spacerIndex)
+          .toList();
       if (visible.isEmpty) return;
 
       final atTopOrBeyond = visible.where((p) => p.itemLeadingEdge <= kTopTolerance).toList();
@@ -807,9 +816,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
       int? idx;
       if (atTopOrBeyond.isNotEmpty) {
         final best = atTopOrBeyond.reduce((a, b) => a.index > b.index ? a : b);
-        idx = best.index;
-      } else {
-        idx = null;
+        idx = best.index - _headerOffset;
       }
 
       if (idx != null && idx != activeChip) {
@@ -820,7 +827,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
   }
 
   Future<void> _scrollChipTo(int index) async {
-    if (!chipScrollController.isAttached) return;
+    if (!chipScrollController.isAttached || widget.sections.isEmpty) return;
     await chipScrollController.scrollTo(
       index: index,
       alignment: 0.0,
@@ -830,6 +837,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
   }
 
   Future<void> _scrollTo(int index) async {
+    if (widget.sections.isEmpty) return;
     final clamped = index.clamp(0, widget.sections.length - 1);
     setState(() => activeChip = clamped);
     _scrollChipTo(clamped);
@@ -837,7 +845,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
     _programmaticScroll = true;
     try {
       await itemScrollController.scrollTo(
-        index: clamped,
+        index: _sectionListIndex(clamped),
         duration: const Duration(milliseconds: 350),
         curve: Curves.easeOutCubic,
       );
@@ -882,7 +890,6 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
           ),
         ),
         const SizedBox(height: 8),
-
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -896,12 +903,15 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
                     child: ScrollablePositionedList.builder(
                       itemScrollController: itemScrollController,
                       itemPositionsListener: itemPositionsListener,
-                      itemCount: widget.sections.length + 1,
+                      itemCount: _itemCount,
                       itemBuilder: (context, index) {
+                        if (widget.scrollHeader != null && index == 0) {
+                          return widget.scrollHeader!;
+                        }
                         if (index == _spacerIndex) {
                           return SizedBox(height: widget.extraBottom);
                         }
-                        final section = widget.sections[index];
+                        final section = widget.sections[index - _headerOffset];
                         return _SectionBlock(section: section);
                       },
                     ),
@@ -910,9 +920,10 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
                     ValueListenableBuilder<Iterable<ItemPosition>>(
                       valueListenable: itemPositionsListener.itemPositions,
                       builder: (_, positions, __) {
+                        final currentListIndex = _sectionListIndex(activeChip);
                         ItemPosition? currentPosition;
                         for (final p in positions) {
-                          if (p.index == activeChip) {
+                          if (p.index == currentListIndex) {
                             currentPosition = p;
                             break;
                           }
@@ -920,11 +931,12 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
                         final showSticky =
                             currentPosition != null && currentPosition.itemLeadingEdge < 0;
 
-                        final nextIndex = activeChip + 1;
+                        final nextSectionIndex = activeChip + 1;
                         ItemPosition? nextPosition;
-                        if (nextIndex < widget.sections.length) {
+                        if (nextSectionIndex < widget.sections.length) {
+                          final nextListIndex = _sectionListIndex(nextSectionIndex);
                           for (final p in positions) {
-                            if (p.index == nextIndex) {
+                            if (p.index == nextListIndex) {
                               nextPosition = p;
                               break;
                             }
@@ -1061,7 +1073,12 @@ class DienstleisterDetailPage extends StatefulWidget {
 
 class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   String _zielgruppe = 'Damen';
-  final PageController _bilderPageController = PageController();
+  late final String _dienstleisterId;
+  late final String _logoUrl;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _bilderStream;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _angeboteStream;
+  final PageController _bilderPageController = PageController(keepPage: true);
+  final ValueNotifier<int> _aktuellerBildIndexVN = ValueNotifier<int>(0);
   int _aktuellerBildIndex = 0;
 
   /// Auswahl als ValueNotifier -> verhindert kompletten Rebuild der Liste
@@ -1104,6 +1121,18 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   @override
   void initState() {
     super.initState();
+    _dienstleisterId = widget.dienstleister['id'] as String;
+    _logoUrl = (widget.dienstleister['logoUrl'] ?? '').toString().trim();
+    _bilderStream = FirebaseFirestore.instance
+        .collection('users')
+        .doc(_dienstleisterId)
+        .collection('bilder')
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+    _angeboteStream = FirebaseFirestore.instance
+        .collection('angebote')
+        .where('dienstleisterId', isEqualTo: _dienstleisterId)
+        .snapshots();
     _selectedBookingDate = _dateOnly(DateTime.now());
     _availableBookingTimes = const <String>[];
     _bookingTimesHint = null;
@@ -1113,12 +1142,19 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
   @override
   void dispose() {
     _bilderPageController.dispose();
+    _aktuellerBildIndexVN.dispose();
     _selectedVN.dispose();
     _selectedCombosVN.dispose();
     _expandedVariantGroupsVN.dispose();
     _bookingLoginEmailController.dispose();
     _bookingLoginPasswordController.dispose();
     super.dispose();
+  }
+
+  void _setAktuellerBildIndex(int index) {
+    if (_aktuellerBildIndex == index) return;
+    _aktuellerBildIndex = index;
+    _aktuellerBildIndexVN.value = index;
   }
 
   void _zurBildSeite(int index) {
@@ -1991,7 +2027,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('users')
-          .doc(dienstleisterId)
+          .doc(_dienstleisterId)
           .get();
 
       final data = snapshot.data();
@@ -2375,7 +2411,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     try {
       final mitarbeiterSnapshot = await FirebaseFirestore.instance
           .collection('users')
-          .where('dienstleisterId', isEqualTo: dienstleisterId)
+          .where('dienstleisterId', isEqualTo: _dienstleisterId)
           .where('aktiv', isEqualTo: true)
           .get();
 
@@ -3275,7 +3311,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     final snapshot = await FirebaseFirestore.instance
         .collection('users')
-        .where('dienstleisterId', isEqualTo: dienstleisterId)
+        .where('dienstleisterId', isEqualTo: _dienstleisterId)
         .where('aktiv', isEqualTo: true)
         .get();
 
@@ -3429,7 +3465,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: FirebaseFirestore.instance
                 .collection('users')
-                .where('dienstleisterId', isEqualTo: dienstleisterId)
+                .where('dienstleisterId', isEqualTo: _dienstleisterId)
                 .where('aktiv', isEqualTo: true)
                 .snapshots(),
             builder: (context, snapshot) {
@@ -6120,18 +6156,136 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 // ... (Rest der Datei unverändert)
 
 
+  List<String> _buildBildUrls(
+      AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
+      ) {
+    final urls = <String>[];
+    final seen = <String>{};
+
+    void addUrl(String raw) {
+      final url = raw.trim();
+      if (url.isEmpty || !seen.add(url)) return;
+      urls.add(url);
+    }
+
+    if (_logoUrl.isNotEmpty) {
+      addUrl(_logoUrl);
+    }
+
+    if (snapshot.hasData) {
+      for (final doc in snapshot.data!.docs) {
+        addUrl((doc.data()['url'] ?? '').toString());
+      }
+    }
+
+    return urls;
+  }
+
+
+  Widget _buildBilderCarouselWidget() {
+    return SizedBox(
+      width: double.infinity,
+      height: 190,
+      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: _bilderStream,
+        builder: (context, snapshot) {
+          final bildUrls = _buildBildUrls(snapshot);
+
+          if (bildUrls.isEmpty) {
+            return Container(color: const Color(0xFFF2F2F2));
+          }
+
+          final pageCount = bildUrls.length;
+          if (_aktuellerBildIndex >= pageCount) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              _bilderPageController.jumpToPage(0);
+              _setAktuellerBildIndex(0);
+            });
+          }
+
+          return ValueListenableBuilder<int>(
+            valueListenable: _aktuellerBildIndexVN,
+            builder: (context, aktuellerBildIndex, _) {
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  PageView.builder(
+                    key: const PageStorageKey<String>('dienstleister_bilder_carousel'),
+                    controller: _bilderPageController,
+                    itemCount: pageCount,
+                    onPageChanged: _setAktuellerBildIndex,
+                    itemBuilder: (context, index) {
+                      return Image.network(
+                        bildUrls[index],
+                        fit: BoxFit.cover,
+                        gaplessPlayback: true,
+                        errorBuilder: (context, error, stackTrace) =>
+                            Container(color: const Color(0xFFF2F2F2)),
+                      );
+                    },
+                  ),
+                  if (pageCount > 1)
+                    Positioned(
+                      left: 10,
+                      top: 0,
+                      bottom: 0,
+                      child: Center(
+                        child: _BildNavButton(
+                          icon: Icons.chevron_left,
+                          onTap: aktuellerBildIndex > 0
+                              ? () => _zurBildSeite(aktuellerBildIndex - 1)
+                              : null,
+                        ),
+                      ),
+                    ),
+                  if (pageCount > 1)
+                    Positioned(
+                      right: 10,
+                      top: 0,
+                      bottom: 0,
+                      child: Center(
+                        child: _BildNavButton(
+                          icon: Icons.chevron_right,
+                          onTap: aktuellerBildIndex < pageCount - 1
+                              ? () => _zurBildSeite(aktuellerBildIndex + 1)
+                              : null,
+                        ),
+                      ),
+                    ),
+                  Positioned(
+                    right: 10,
+                    bottom: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0x99000000),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '${(aktuellerBildIndex + 1).clamp(1, pageCount)}/$pageCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final String dienstleisterId = widget.dienstleister['id'] as String;
-    final String logoUrl = (widget.dienstleister['logoUrl'] ?? '').toString().trim();
-
-    final bilderStream = FirebaseFirestore.instance
-        .collection('users')
-        .doc(dienstleisterId)
-        .collection('bilder')
-        .orderBy('createdAt', descending: true)
-        .snapshots();
-
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.white,
@@ -6151,118 +6305,10 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
       ),
       body: Column(
         children: [
-          SizedBox(
-            width: double.infinity,
-            height: 190,
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: bilderStream,
-              builder: (context, snapshot) {
-                final bildUrls = <String>[];
-                if (logoUrl.isNotEmpty) {
-                  bildUrls.add(logoUrl);
-                }
-                if (snapshot.hasData) {
-                  for (final doc in snapshot.data!.docs) {
-                    final url = (doc.data()['url'] ?? '').toString().trim();
-                    if (url.isEmpty) continue;
-                    if (url == logoUrl) continue;
-                    bildUrls.add(url);
-                  }
-                }
-
-                if (bildUrls.isEmpty) {
-                  return Container(color: const Color(0xFFF2F2F2));
-                }
-
-                final pageCount = bildUrls.length;
-                if (_aktuellerBildIndex >= pageCount) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    setState(() => _aktuellerBildIndex = 0);
-                    _zurBildSeite(0);
-                  });
-                }
-
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    PageView.builder(
-                      controller: _bilderPageController,
-                      itemCount: pageCount,
-                      onPageChanged: (index) {
-                        if (!mounted) return;
-                        setState(() => _aktuellerBildIndex = index);
-                      },
-                      itemBuilder: (context, index) {
-                        return Image.network(
-                          bildUrls[index],
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
-                              Container(color: const Color(0xFFF2F2F2)),
-                        );
-                      },
-                    ),
-                    if (pageCount > 1)
-                      Positioned(
-                        left: 10,
-                        top: 0,
-                        bottom: 0,
-                        child: Center(
-                          child: _BildNavButton(
-                            icon: Icons.chevron_left,
-                            onTap: _aktuellerBildIndex > 0
-                                ? () => _zurBildSeite(_aktuellerBildIndex - 1)
-                                : null,
-                          ),
-                        ),
-                      ),
-                    if (pageCount > 1)
-                      Positioned(
-                        right: 10,
-                        top: 0,
-                        bottom: 0,
-                        child: Center(
-                          child: _BildNavButton(
-                            icon: Icons.chevron_right,
-                            onTap: _aktuellerBildIndex < pageCount - 1
-                                ? () => _zurBildSeite(_aktuellerBildIndex + 1)
-                                : null,
-                          ),
-                        ),
-                      ),
-                    Positioned(
-                      right: 10,
-                      bottom: 10,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0x99000000),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '${(_aktuellerBildIndex + 1).clamp(1, pageCount)}/$pageCount',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
+          const SizedBox.shrink(),
           Expanded(
             child: AngeboteView(
-              angeboteStream: FirebaseFirestore.instance
-                  .collection('angebote')
-                  .where('dienstleisterId', isEqualTo: dienstleisterId)
-                  .snapshots(),
+              angeboteStream: _angeboteStream,
               builder: (context, docs) {
                 // ---- Docs in Modelle umwandeln, Singles/Bundles trennen ----
                 final all = docs.map((d) => Offer.fromDoc(d)).toList();
@@ -7815,10 +7861,9 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 // Inhalt + fixierte Bottom-Bar
                 return Stack(
                   children: [
-                    const LinkedChipsWithSections(sections: []),
-
                     LinkedChipsWithSections(
                       sections: sections,
+                      scrollHeader: _buildBilderCarouselWidget(),
                       initialIndex: initialIndex,
                       extraBottom: kBottomBarHeight + 12,
                     ),
