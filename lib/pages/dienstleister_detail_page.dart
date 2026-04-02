@@ -756,12 +756,14 @@ class LinkedChipsWithSections extends StatefulWidget {
   final List<SectionData> sections;
   final int initialIndex;
   final double extraBottom;
+  final Widget? scrollHeader;
 
   const LinkedChipsWithSections({
     super.key,
     required this.sections,
     this.initialIndex = 0,
     this.extraBottom = 0.0,
+    this.scrollHeader,
   });
 
   @override
@@ -776,7 +778,8 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
   late int activeChip;
   bool _programmaticScroll = false;
 
-  int get _spacerIndex => widget.sections.length;
+  int get _headerOffset => widget.scrollHeader == null ? 0 : 1;
+  int get _spacerIndex => _headerOffset + widget.sections.length;
 
   @override
   void initState() {
@@ -799,7 +802,9 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
       final positions = itemPositionsListener.itemPositions.value;
       if (positions.isEmpty) return;
 
-      final visible = positions.where((p) => p.index < widget.sections.length).toList();
+      final visible = positions
+          .where((p) => p.index >= _headerOffset && p.index < _spacerIndex)
+          .toList();
       if (visible.isEmpty) return;
 
       final atTopOrBeyond = visible.where((p) => p.itemLeadingEdge <= kTopTolerance).toList();
@@ -807,7 +812,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
       int? idx;
       if (atTopOrBeyond.isNotEmpty) {
         final best = atTopOrBeyond.reduce((a, b) => a.index > b.index ? a : b);
-        idx = best.index;
+        idx = best.index - _headerOffset;
       } else {
         idx = null;
       }
@@ -837,7 +842,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
     _programmaticScroll = true;
     try {
       await itemScrollController.scrollTo(
-        index: clamped,
+        index: clamped + _headerOffset,
         duration: const Duration(milliseconds: 350),
         curve: Curves.easeOutCubic,
       );
@@ -896,12 +901,15 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
                     child: ScrollablePositionedList.builder(
                       itemScrollController: itemScrollController,
                       itemPositionsListener: itemPositionsListener,
-                      itemCount: widget.sections.length + 1,
+                      itemCount: widget.sections.length + _headerOffset + 1,
                       itemBuilder: (context, index) {
+                        if (widget.scrollHeader != null && index == 0) {
+                          return widget.scrollHeader!;
+                        }
                         if (index == _spacerIndex) {
                           return SizedBox(height: widget.extraBottom);
                         }
-                        final section = widget.sections[index];
+                        final section = widget.sections[index - _headerOffset];
                         return _SectionBlock(section: section);
                       },
                     ),
@@ -912,7 +920,7 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
                       builder: (_, positions, __) {
                         ItemPosition? currentPosition;
                         for (final p in positions) {
-                          if (p.index == activeChip) {
+                          if (p.index == activeChip + _headerOffset) {
                             currentPosition = p;
                             break;
                           }
@@ -920,9 +928,9 @@ class _LinkedChipsWithSectionsState extends State<LinkedChipsWithSections> {
                         final showSticky =
                             currentPosition != null && currentPosition.itemLeadingEdge < 0;
 
-                        final nextIndex = activeChip + 1;
+                        final nextIndex = activeChip + 1 + _headerOffset;
                         ItemPosition? nextPosition;
-                        if (nextIndex < widget.sections.length) {
+                        if (nextIndex < _spacerIndex) {
                           for (final p in positions) {
                             if (p.index == nextIndex) {
                               nextPosition = p;
@@ -6132,6 +6140,113 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
         .orderBy('createdAt', descending: true)
         .snapshots();
 
+    final Widget bilderCarousel = SizedBox(
+      width: double.infinity,
+      height: 190,
+      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: bilderStream,
+        builder: (context, snapshot) {
+          final bildUrls = <String>[];
+          if (logoUrl.isNotEmpty) {
+            bildUrls.add(logoUrl);
+          }
+          if (snapshot.hasData) {
+            for (final doc in snapshot.data!.docs) {
+              final url = (doc.data()['url'] ?? '').toString().trim();
+              if (url.isEmpty) continue;
+              if (url == logoUrl) continue;
+              bildUrls.add(url);
+            }
+          }
+
+          if (bildUrls.isEmpty) {
+            return Container(color: const Color(0xFFF2F2F2));
+          }
+
+          final pageCount = bildUrls.length;
+          if (_aktuellerBildIndex >= pageCount) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              setState(() => _aktuellerBildIndex = 0);
+              _zurBildSeite(0);
+            });
+          }
+
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              PageView.builder(
+                controller: _bilderPageController,
+                itemCount: pageCount,
+                onPageChanged: (index) {
+                  if (!mounted) return;
+                  setState(() => _aktuellerBildIndex = index);
+                },
+                itemBuilder: (context, index) {
+                  return Image.network(
+                    bildUrls[index],
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) =>
+                        Container(color: const Color(0xFFF2F2F2)),
+                  );
+                },
+              ),
+              if (pageCount > 1)
+                Positioned(
+                  left: 10,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: _BildNavButton(
+                      icon: Icons.chevron_left,
+                      onTap: _aktuellerBildIndex > 0
+                          ? () => _zurBildSeite(_aktuellerBildIndex - 1)
+                          : null,
+                    ),
+                  ),
+                ),
+              if (pageCount > 1)
+                Positioned(
+                  right: 10,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: _BildNavButton(
+                      icon: Icons.chevron_right,
+                      onTap: _aktuellerBildIndex < pageCount - 1
+                          ? () => _zurBildSeite(_aktuellerBildIndex + 1)
+                          : null,
+                    ),
+                  ),
+                ),
+              Positioned(
+                right: 10,
+                bottom: 10,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0x99000000),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${(_aktuellerBildIndex + 1).clamp(1, pageCount)}/$pageCount',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.white,
@@ -6149,116 +6264,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
           padding: EdgeInsets.zero,
         ),
       ),
-      body: Column(
-        children: [
-          SizedBox(
-            width: double.infinity,
-            height: 190,
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: bilderStream,
-              builder: (context, snapshot) {
-                final bildUrls = <String>[];
-                if (logoUrl.isNotEmpty) {
-                  bildUrls.add(logoUrl);
-                }
-                if (snapshot.hasData) {
-                  for (final doc in snapshot.data!.docs) {
-                    final url = (doc.data()['url'] ?? '').toString().trim();
-                    if (url.isEmpty) continue;
-                    if (url == logoUrl) continue;
-                    bildUrls.add(url);
-                  }
-                }
-
-                if (bildUrls.isEmpty) {
-                  return Container(color: const Color(0xFFF2F2F2));
-                }
-
-                final pageCount = bildUrls.length;
-                if (_aktuellerBildIndex >= pageCount) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    setState(() => _aktuellerBildIndex = 0);
-                    _zurBildSeite(0);
-                  });
-                }
-
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    PageView.builder(
-                      controller: _bilderPageController,
-                      itemCount: pageCount,
-                      onPageChanged: (index) {
-                        if (!mounted) return;
-                        setState(() => _aktuellerBildIndex = index);
-                      },
-                      itemBuilder: (context, index) {
-                        return Image.network(
-                          bildUrls[index],
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
-                              Container(color: const Color(0xFFF2F2F2)),
-                        );
-                      },
-                    ),
-                    if (pageCount > 1)
-                      Positioned(
-                        left: 10,
-                        top: 0,
-                        bottom: 0,
-                        child: Center(
-                          child: _BildNavButton(
-                            icon: Icons.chevron_left,
-                            onTap: _aktuellerBildIndex > 0
-                                ? () => _zurBildSeite(_aktuellerBildIndex - 1)
-                                : null,
-                          ),
-                        ),
-                      ),
-                    if (pageCount > 1)
-                      Positioned(
-                        right: 10,
-                        top: 0,
-                        bottom: 0,
-                        child: Center(
-                          child: _BildNavButton(
-                            icon: Icons.chevron_right,
-                            onTap: _aktuellerBildIndex < pageCount - 1
-                                ? () => _zurBildSeite(_aktuellerBildIndex + 1)
-                                : null,
-                          ),
-                        ),
-                      ),
-                    Positioned(
-                      right: 10,
-                      bottom: 10,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0x99000000),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '${(_aktuellerBildIndex + 1).clamp(1, pageCount)}/$pageCount',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-          Expanded(
-            child: AngeboteView(
+      body: AngeboteView(
               angeboteStream: FirebaseFirestore.instance
                   .collection('angebote')
                   .where('dienstleisterId', isEqualTo: dienstleisterId)
@@ -7821,6 +7827,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                       sections: sections,
                       initialIndex: initialIndex,
                       extraBottom: kBottomBarHeight + 12,
+                      scrollHeader: bilderCarousel,
                     ),
 
                     Positioned(
@@ -7880,9 +7887,6 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                 );
               },
             ),
-          ),
-        ],
-      ),
     );
   }
 }
