@@ -3119,7 +3119,19 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     );
   }
 
-  void _showDienstleisterInfoDialog() {
+  String _formatOeffnungszeitForTag(Map<String, dynamic> oeffnungszeiten, String key) {
+    final raw = oeffnungszeiten[key];
+    if (raw is! Map) return 'Geschlossen';
+    final map = Map<String, dynamic>.from(raw);
+    final aktiv = map['aktiv'] is bool ? map['aktiv'] as bool : false;
+    if (!aktiv) return 'Geschlossen';
+    final von = (map['von'] ?? '').toString().trim();
+    final bis = (map['bis'] ?? '').toString().trim();
+    if (von.isEmpty || bis.isEmpty) return 'Geschlossen';
+    return '$von - $bis';
+  }
+
+  void _showDienstleisterInfoSheet() {
     final data = geoeffneterDienstleister;
     if (data == null) return;
 
@@ -3130,32 +3142,120 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     final ort = (data['ort'] ?? '').toString().trim();
     final zeile1 = [strasse, hausnummer].where((e) => e.isNotEmpty).join(' ');
     final zeile2 = [plz, ort].where((e) => e.isNotEmpty).join(' ');
+    final dienstleisterId = (data['id'] ?? '').toString().trim();
+    final oeffnungszeiten = data['oeffnungszeiten'] is Map
+        ? Map<String, dynamic>.from(data['oeffnungszeiten'] as Map)
+        : <String, dynamic>{};
 
-    showDialog<void>(
+    const tage = <MapEntry<String, String>>[
+      MapEntry('montag', 'Montag'),
+      MapEntry('dienstag', 'Dienstag'),
+      MapEntry('mittwoch', 'Mittwoch'),
+      MapEntry('donnerstag', 'Donnerstag'),
+      MapEntry('freitag', 'Freitag'),
+      MapEntry('samstag', 'Samstag'),
+      MapEntry('sonntag', 'Sonntag'),
+    ];
+
+    showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Info'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              name.isEmpty ? 'Dienstleister' : name,
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-            if (zeile1.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(zeile1),
-            ],
-            if (zeile2.isNotEmpty) Text(zeile2),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Schließen'),
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 8,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
           ),
-        ],
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name.isEmpty ? 'Dienstleister' : name,
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Adresse',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                if (zeile1.isNotEmpty) Text(zeile1),
+                if (zeile2.isNotEmpty) Text(zeile2),
+                const SizedBox(height: 18),
+                const Text(
+                  'Öffnungszeiten',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                ...tage.map(
+                  (tag) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(tag.value),
+                        Text(_formatOeffnungszeitForTag(oeffnungszeiten, tag.key)),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Mitarbeiter',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                if (dienstleisterId.isEmpty)
+                  const Text('Keine Mitarbeiter gefunden.')
+                else
+                  FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    future: FirebaseFirestore.instance
+                        .collection('users')
+                        .where('rolle', isEqualTo: 'mitarbeiter')
+                        .where('dienstleisterId', isEqualTo: dienstleisterId)
+                        .get(),
+                    builder: (context, snap) {
+                      if (snap.connectionState == ConnectionState.waiting) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        );
+                      }
+                      final docs = snap.data?.docs ??
+                          <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+                      if (docs.isEmpty) {
+                        return const Text('Keine Mitarbeiter gefunden.');
+                      }
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: docs.map((doc) {
+                          final d = doc.data();
+                          final mitarbeiterName =
+                              (d['name'] ?? '').toString().trim();
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: Text(
+                              mitarbeiterName.isEmpty
+                                  ? 'Mitarbeiter'
+                                  : mitarbeiterName,
+                            ),
+                          );
+                        }).toList(),
+                      );
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -3199,7 +3299,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             ? [
           IconButton(
             tooltip: 'Info',
-            onPressed: _showDienstleisterInfoDialog,
+            onPressed: _showDienstleisterInfoSheet,
             icon: const Icon(Icons.info_outline, color: Colors.black),
           ),
           Padding(
