@@ -144,7 +144,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   }
 
   Future<void> _showLocationSelectionSheet() async {
-    final controller = TextEditingController(text: _suchfeldController.text.trim());
+    final initialLocationText = _isCurrentLocationSelected
+        ? (_selectedLocationLabel ?? currentCity ?? '').trim()
+        : _suchfeldController.text.trim();
+    final controller = TextEditingController(text: initialLocationText);
 
     await showModalBottomSheet(
       context: context,
@@ -183,6 +186,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
               setState(() {
                 _isCurrentLocationSelected = isCurrentLocationSelection;
+                _selectedLocationLabel = isCurrentLocationSelection ? selected : null;
               });
               _suchfeldController.text = selected;
               Navigator.of(ctx).pop();
@@ -950,6 +954,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   String? currentCity;
   bool _isCurrentLocationSelected = false;
+  String? _selectedLocationLabel;
   Position? userPosition;
   bool isLoading = true;
   int _selectedIndex = 0;
@@ -2123,6 +2128,36 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
       ),
     );
+
+    if (_isCurrentLocationSelected) {
+      final ortLabel = (_selectedLocationLabel ?? currentCity ?? '').trim();
+      if (ortLabel.isNotEmpty) {
+        chips.add(
+          InputChip(
+            label: Text(
+              ortLabel,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            selected: true,
+            onSelected: (_) => _showLocationSelectionSheet(),
+            onDeleted: () {
+              setState(() {
+                _isCurrentLocationSelected = false;
+                _selectedLocationLabel = null;
+              });
+            },
+            deleteIcon: const Icon(Icons.close, size: 18, color: Colors.white),
+            selectedColor: const Color(0xFF34C759),
+            backgroundColor: const Color(0xFF34C759),
+            shape: const StadiumBorder(side: BorderSide(color: Color(0xFF34C759))),
+          ),
+        );
+      }
+    }
 
     // Sortieren
     chips.add(
