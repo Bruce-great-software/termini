@@ -187,10 +187,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     final initialLocationText = _isCurrentLocationSelected
         ? (_selectedLocationValue ?? _selectedLocationLabel ?? currentCity ?? '').trim()
         : _suchfeldController.text.trim();
-    final controller = TextEditingController(text: initialLocationText);
+    final controller = TextEditingController();
     List<String> ortVorschlaege = [];
     bool laedtOrtsVorschlaege = false;
-    String letzterSuchwert = initialLocationText.trim().toLowerCase();
+    String letzterSuchwert = '';
 
     Future<void> ladeOrtsVorschlaege(
         String input,
@@ -214,10 +214,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         ortVorschlaege = treffer;
         laedtOrtsVorschlaege = false;
       });
-    }
-
-    if (letzterSuchwert.isNotEmpty) {
-      ortVorschlaege = await _ladeOrtsVorschlaege(letzterSuchwert);
     }
 
     await showModalBottomSheet(
@@ -295,8 +291,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       controller: controller,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
-                        hintText:
-                        currentCity != null ? 'Suche in $currentCity' : 'Ort oder PLZ',
+                        hintText: initialLocationText.isNotEmpty
+                            ? initialLocationText
+                            : (currentCity != null
+                                  ? 'Suche in $currentCity'
+                                  : 'Ort oder PLZ'),
                         hintStyle: const TextStyle(color: Colors.white70),
                         prefixIcon: const Icon(Icons.search, color: Colors.white70),
                         filled: true,
