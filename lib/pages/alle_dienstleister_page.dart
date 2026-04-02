@@ -145,7 +145,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   Future<void> _showLocationSelectionSheet() async {
     final initialLocationText = _isCurrentLocationSelected
-        ? (_selectedLocationLabel ?? currentCity ?? '').trim()
+        ? (_selectedLocationValue ?? _selectedLocationLabel ?? currentCity ?? '').trim()
         : _suchfeldController.text.trim();
     final controller = TextEditingController(text: initialLocationText);
     List<String> ortVorschlaege = [];
@@ -217,7 +217,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
               setState(() {
                 _isCurrentLocationSelected = isCurrentLocationSelection;
-                _selectedLocationLabel = isCurrentLocationSelection ? selected : null;
+                _selectedLocationValue = isCurrentLocationSelection ? selected : null;
+                _selectedLocationLabel = isCurrentLocationSelection
+                    ? _buildLocationChipLabel(selected)
+                    : null;
               });
               _suchfeldController.text = selected;
               Navigator.of(ctx).pop();
@@ -273,7 +276,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                         setModalState(() {});
                         await ladeOrtsVorschlaege(value, setModalState);
                       },
-                      onSubmitted: (v) => selectLocation(v),
+                      onSubmitted: (v) => selectLocation(
+                        v,
+                        isCurrentLocationSelection: true,
+                      ),
                     ),
                     const SizedBox(height: 14),
                     const Text(
@@ -334,7 +340,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                         ),
                                       ),
                                     ),
-                                    onTap: () => selectLocation(eintrag),
+                                    onTap: () => selectLocation(
+                                      eintrag,
+                                      isCurrentLocationSelection: true,
+                                    ),
                                   ),
                                   const Divider(color: Colors.white12, height: 1),
                                 ],
@@ -373,7 +382,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                       eintrag,
                                       style: const TextStyle(color: Colors.white),
                                     ),
-                                    onTap: () => selectLocation(eintrag),
+                                    onTap: () => selectLocation(
+                                      eintrag,
+                                      isCurrentLocationSelection: true,
+                                    ),
                                   ),
                                   const Divider(color: Colors.white12, height: 1),
                                 ],
@@ -462,6 +474,17 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       ),
       if (after.isNotEmpty) TextSpan(text: after),
     ];
+  }
+
+  String _buildLocationChipLabel(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return trimmed;
+    final match = RegExp(r'^\d{4,6}\s+(.+)$').firstMatch(trimmed);
+    if (match != null) {
+      final cityPart = (match.group(1) ?? '').trim();
+      if (cityPart.isNotEmpty) return cityPart;
+    }
+    return trimmed;
   }
 
   Future<List<Map<String, dynamic>>> _searchGooglePlaces(String query) async {
@@ -1103,6 +1126,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   String? currentCity;
   bool _isCurrentLocationSelected = false;
   String? _selectedLocationLabel;
+  String? _selectedLocationValue;
   Position? userPosition;
   bool isLoading = true;
   int _selectedIndex = 0;
@@ -2296,6 +2320,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               setState(() {
                 _isCurrentLocationSelected = false;
                 _selectedLocationLabel = null;
+                _selectedLocationValue = null;
               });
             },
             deleteIcon: const Icon(Icons.close, size: 18, color: Colors.white),
