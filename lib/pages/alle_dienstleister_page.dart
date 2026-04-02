@@ -3160,99 +3160,188 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       showDragHandle: true,
       builder: (ctx) => SafeArea(
         child: Padding(
           padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            top: 8,
+            left: 12,
+            right: 12,
+            top: 6,
             bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
           ),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name.isEmpty ? 'Dienstleister' : name,
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Adresse',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 6),
-                if (zeile1.isNotEmpty) Text(zeile1),
-                if (zeile2.isNotEmpty) Text(zeile2),
-                const SizedBox(height: 18),
-                const Text(
-                  'Öffnungszeiten',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 8),
-                ...tage.map(
-                  (tag) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(tag.value),
-                        Text(_formatOeffnungszeitForTag(oeffnungszeiten, tag.key)),
-                      ],
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8F8FC),
+              borderRadius: BorderRadius.circular(28),
+            ),
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 8),
+                    Text(
+                      name.isEmpty ? 'Dienstleister' : name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 22,
+                        letterSpacing: 0.2,
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                const Text(
-                  'Mitarbeiter',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 8),
-                if (dienstleisterId.isEmpty)
-                  const Text('Keine Mitarbeiter gefunden.')
-                else
-                  FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    future: FirebaseFirestore.instance
-                        .collection('users')
-                        .where('rolle', isEqualTo: 'mitarbeiter')
-                        .where('dienstleisterId', isEqualTo: dienstleisterId)
-                        .get(),
-                    builder: (context, snap) {
-                      if (snap.connectionState == ConnectionState.waiting) {
-                        return const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 8),
-                          child: SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        );
-                      }
-                      final docs = snap.data?.docs ??
-                          <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-                      if (docs.isEmpty) {
-                        return const Text('Keine Mitarbeiter gefunden.');
-                      }
-                      return Column(
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: docs.map((doc) {
-                          final d = doc.data();
-                          final mitarbeiterName =
-                              (d['name'] ?? '').toString().trim();
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 2),
-                            child: Text(
-                              mitarbeiterName.isEmpty
-                                  ? 'Mitarbeiter'
-                                  : mitarbeiterName,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.location_on_outlined, size: 18),
+                              SizedBox(width: 6),
+                              Text(
+                                'Adresse',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          if (zeile1.isNotEmpty) Text(zeile1),
+                          if (zeile2.isNotEmpty) Text(zeile2),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.schedule_outlined, size: 18),
+                              SizedBox(width: 6),
+                              Text(
+                                'Öffnungszeiten',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          ...tage.map(
+                            (tag) => Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 3),
+                              child: Row(
+                                mainAxisAlignment:
+                                MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(tag.value),
+                                  Text(
+                                    _formatOeffnungszeitForTag(
+                                      oeffnungszeiten,
+                                      tag.key,
+                                    ),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          );
-                        }).toList(),
-                      );
-                    },
-                  ),
-              ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.groups_2_outlined, size: 18),
+                              SizedBox(width: 6),
+                              Text(
+                                'Mitarbeiter',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          if (dienstleisterId.isEmpty)
+                            const Text('Keine Mitarbeiter gefunden.')
+                          else
+                            FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                              future: FirebaseFirestore.instance
+                                  .collection('users')
+                                  .where('rolle', isEqualTo: 'mitarbeiter')
+                                  .where('dienstleisterId', isEqualTo: dienstleisterId)
+                                  .get(),
+                              builder: (context, snap) {
+                                if (snap.connectionState == ConnectionState.waiting) {
+                                  return const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 8),
+                                    child: SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    ),
+                                  );
+                                }
+                                final docs = snap.data?.docs ??
+                                    <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+                                if (docs.isEmpty) {
+                                  return const Text('Keine Mitarbeiter gefunden.');
+                                }
+                                return Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: docs.map((doc) {
+                                    final d = doc.data();
+                                    final mitarbeiterName =
+                                        (d['name'] ?? '').toString().trim();
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF1F2F8),
+                                        borderRadius: BorderRadius.circular(999),
+                                      ),
+                                      child: Text(
+                                        mitarbeiterName.isEmpty
+                                            ? 'Mitarbeiter'
+                                            : mitarbeiterName,
+                                      ),
+                                    );
+                                  }).toList(),
+                                );
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
