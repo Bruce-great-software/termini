@@ -63,6 +63,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   String _searchQuery = '';
   bool _isExternalSearchLoading = false;
   List<Map<String, dynamic>> _externalSearchResults = [];
+  final List<String> _letzteOrtssuchen = [];
 
   void _onSuchbegriffChanged(String wert) {
     if (kDebugMode) print("Suchbegriff: $wert");
@@ -153,70 +154,151 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
       builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: 16,
-              right: 16,
-              top: 14,
-              bottom: MediaQuery.of(ctx).viewInsets.bottom + 18,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final query = controller.text.trim().toLowerCase();
+            final gefilterteLetzteSuchen = _letzteOrtssuchen
+                .where((e) => query.isEmpty || e.toLowerCase().contains(query))
+                .toList();
+
+            void selectLocation(String value, {bool addToRecent = true}) {
+              final selected = value.trim();
+              if (selected.isEmpty) return;
+
+              if (addToRecent) {
+                setState(() {
+                  _letzteOrtssuchen.removeWhere(
+                    (e) => e.toLowerCase() == selected.toLowerCase(),
+                  );
+                  _letzteOrtssuchen.insert(0, selected);
+                  if (_letzteOrtssuchen.length > 6) {
+                    _letzteOrtssuchen.removeRange(6, _letzteOrtssuchen.length);
+                  }
+                });
+              }
+
+              _suchfeldController.text = selected;
+              Navigator.of(ctx).pop();
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 14,
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom + 18,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.check, color: Color(0xFFC5E86C)),
-                    const SizedBox(width: 10),
-                    Text(
-                      'Ortsauswahl',
-                      style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
+                    Row(
+                      children: [
+                        const Icon(Icons.check, color: Color(0xFFC5E86C)),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Ortsauswahl',
+                          style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: controller,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        hintText:
+                            currentCity != null ? 'Suche in $currentCity' : 'Ort oder PLZ',
+                        hintStyle: const TextStyle(color: Colors.white70),
+                        prefixIcon: const Icon(Icons.search, color: Colors.white70),
+                        filled: true,
+                        fillColor: const Color(0xFF232323),
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(30),
+                          borderSide: const BorderSide(color: Colors.white24),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(30),
+                          borderSide: const BorderSide(color: Colors.white54),
+                        ),
+                      ),
+                      onChanged: (_) => setModalState(() {}),
+                      onSubmitted: (v) => selectLocation(v),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Vorschläge',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Expanded(
+                      child: ListView(
+                        children: [
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.my_location, color: Colors.white70),
+                            title: const Text(
+                              'Aktueller Standort',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            onTap: () => selectLocation(
+                              currentCity ?? 'Aktueller Standort',
+                              addToRecent: false,
+                            ),
                           ),
+                          const Divider(color: Colors.white12, height: 1),
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.public, color: Colors.white70),
+                            title: const Text(
+                              'Ganz Deutschland',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            onTap: () => selectLocation('Ganz Deutschland', addToRecent: false),
+                          ),
+                          const Divider(color: Colors.white12, height: 1),
+                          if (gefilterteLetzteSuchen.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 14),
+                              child: Text(
+                                'Letzte Orts-Suchanfragen erscheinen hier.',
+                                style: TextStyle(color: Colors.white54),
+                              ),
+                            )
+                          else
+                            ...gefilterteLetzteSuchen.map(
+                              (eintrag) => Column(
+                                children: [
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading:
+                                        const Icon(Icons.location_on_outlined, color: Colors.white70),
+                                    title: Text(
+                                      eintrag,
+                                      style: const TextStyle(color: Colors.white),
+                                    ),
+                                    onTap: () => selectLocation(eintrag),
+                                  ),
+                                  const Divider(color: Colors.white12, height: 1),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: controller,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    hintText: currentCity != null ? 'Suche in $currentCity' : 'Ort oder PLZ',
-                    hintStyle: const TextStyle(color: Colors.white70),
-                    prefixIcon: const Icon(Icons.search, color: Colors.white70),
-                    filled: true,
-                    fillColor: const Color(0xFF232323),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(30),
-                      borderSide: const BorderSide(color: Colors.white24),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(30),
-                      borderSide: const BorderSide(color: Colors.white54),
-                    ),
-                  ),
-                  onSubmitted: (v) => Navigator.of(ctx).pop(),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF232323),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white24),
-                  ),
-                  child: Text(
-                    'Umkreis: ${controller.text.trim().isNotEmpty ? controller.text.trim() : (currentCity ?? 'Aktueller Ort')}',
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
+          },
         );
       },
     );
