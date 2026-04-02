@@ -161,7 +161,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 .where((e) => query.isEmpty || e.toLowerCase().contains(query))
                 .toList();
 
-            void selectLocation(String value, {bool addToRecent = true}) {
+            void selectLocation(
+              String value, {
+              bool addToRecent = true,
+              bool isCurrentLocationSelection = false,
+            }) {
               final selected = value.trim();
               if (selected.isEmpty) return;
 
@@ -177,6 +181,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 });
               }
 
+              setState(() {
+                _isCurrentLocationSelected = isCurrentLocationSelection;
+              });
               _suchfeldController.text = selected;
               Navigator.of(ctx).pop();
             }
@@ -252,6 +259,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             onTap: () => selectLocation(
                               currentCity ?? 'Aktueller Standort',
                               addToRecent: false,
+                              isCurrentLocationSelection: true,
                             ),
                           ),
                           const Divider(color: Colors.white12, height: 1),
@@ -941,6 +949,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   }
 
   String? currentCity;
+  bool _isCurrentLocationSelected = false;
   Position? userPosition;
   bool isLoading = true;
   int _selectedIndex = 0;
@@ -2372,7 +2381,12 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             ),
                           IconButton(
                             tooltip: 'Ort wählen',
-                            icon: const Icon(Icons.location_pin),
+                            icon: Icon(
+                              Icons.location_pin,
+                              color: _isCurrentLocationSelected
+                                  ? const Color(0xFF34C759)
+                                  : null,
+                            ),
                             onPressed: _showLocationSelectionSheet,
                           ),
                         ],
