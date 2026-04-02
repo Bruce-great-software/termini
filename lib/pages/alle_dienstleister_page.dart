@@ -487,6 +487,37 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     return trimmed;
   }
 
+  bool _matchesSelectedLocation(Map<String, dynamic> data) {
+    if (!_isCurrentLocationSelected) return true;
+
+    final rawSelection =
+        (_selectedLocationValue ?? _selectedLocationLabel ?? '').trim();
+    if (rawSelection.isEmpty) return true;
+
+    final normalizedSelection = rawSelection.toLowerCase();
+    if (normalizedSelection == 'ganz deutschland') return true;
+
+    final ort = (data['ort'] ?? '').toString().trim().toLowerCase();
+    final plz = (data['plz'] ?? '').toString().trim().toLowerCase();
+    final adresse = (data['adresse'] ?? '').toString().trim().toLowerCase();
+
+    final match = RegExp(r'^(\d{4,6})\s+(.+)$').firstMatch(normalizedSelection);
+    if (match != null) {
+      final selectedPlz = (match.group(1) ?? '').trim();
+      final selectedOrt = (match.group(2) ?? '').trim();
+
+      final plzPasst = selectedPlz.isEmpty || plz.contains(selectedPlz);
+      final ortPasst = selectedOrt.isEmpty ||
+          ort.contains(selectedOrt) ||
+          adresse.contains(selectedOrt);
+      return plzPasst && ortPasst;
+    }
+
+    return ort.contains(normalizedSelection) ||
+        plz.contains(normalizedSelection) ||
+        adresse.contains(normalizedSelection);
+  }
+
   Future<List<Map<String, dynamic>>> _searchGooglePlaces(String query) async {
     try {
       final uri = Uri.parse(
@@ -2761,6 +2792,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
             if (!suchFelder.contains(search)) return;
 
+            if (!_matchesSelectedLocation(data)) return;
+
             final branche = data['branche']?.toString();
             final branchePasst = ausgewaehlteBranchen.isEmpty ||
                 ausgewaehlteBranchen.contains(branche);
@@ -2957,6 +2990,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
             if (_gefilterteDienstleisterIds.isNotEmpty) {
               if (_gefilterteDienstleisterIds.contains(data['id'])) {
+                if (!_matchesSelectedLocation(data)) {
+                  return;
+                }
                 final matched =
                 await _ladePassendeAngeboteFuerDienstleister(data['id']);
                 if (matched.isNotEmpty) {
@@ -3008,7 +3044,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             if (branchePasst &&
                 zielgruppePasst &&
                 kategoriePasst &&
-                leistungPasst) {
+                leistungPasst &&
+                _matchesSelectedLocation(data)) {
               dienstleisterMitLeistungen.add(data);
             }
           })),
