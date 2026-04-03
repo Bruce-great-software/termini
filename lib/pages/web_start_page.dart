@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'alle_dienstleister_page.dart';
+import 'dienstleister_detail_page.dart';
 import 'login_register_page.dart';
 
 enum _SuggestionType { leistung, dienstleister }
@@ -10,16 +11,19 @@ class _SearchSuggestion {
   final String title;
   final String subtitle;
   final String? logoUrl;
+  final String? dienstleisterId;
 
   const _SearchSuggestion.leistung(this.title)
       : type = _SuggestionType.leistung,
         subtitle = '',
-        logoUrl = null;
+        logoUrl = null,
+        dienstleisterId = null;
 
   const _SearchSuggestion.dienstleister({
     required this.title,
     required this.subtitle,
     required this.logoUrl,
+    required this.dienstleisterId,
   }) : type = _SuggestionType.dienstleister;
 }
 
@@ -62,6 +66,7 @@ class _WebStartPageState extends State<WebStartPage> {
         .map((doc) {
           final data = doc.data();
           return {
+            'id': doc.id,
             'name': (data['name'] ?? '').toString(),
             'ort': (data['ort'] ?? '').toString(),
             'plz': (data['plz'] ?? '').toString(),
@@ -116,6 +121,30 @@ class _WebStartPageState extends State<WebStartPage> {
     }
 
     return TextSpan(children: spans, style: baseStyle);
+  }
+
+  Future<void> _openDienstleisterFromSuggestion(
+      _SearchSuggestion auswahl) async {
+    final id = (auswahl.dienstleisterId ?? '').trim();
+    if (id.isEmpty) return;
+
+    final doc = await FirebaseFirestore.instance.collection('users').doc(id).get();
+    if (!doc.exists || !mounted) return;
+
+    final data = doc.data() ?? {};
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DienstleisterDetailPage(
+          dienstleister: {
+            ...data,
+            'id': doc.id,
+          },
+          selektierteZielgruppe: 'alle',
+          selektierteKategorie: 'alle',
+        ),
+      ),
+    );
   }
 
   @override
@@ -319,6 +348,9 @@ class _WebStartPageState extends State<WebStartPage> {
                                                           logoUrl:
                                                               (e['logoUrl'] ?? '')
                                                                   .toString(),
+                                                          dienstleisterId:
+                                                              (e['id'] ?? '')
+                                                                  .toString(),
                                                         ),
                                                       )
                                                       .toList();
@@ -326,8 +358,16 @@ class _WebStartPageState extends State<WebStartPage> {
                                               return [...dienstleister, ...leistungen];
                                             },
                                             displayStringForOption: (option) => option.title,
-                                            onSelected: (auswahl) {
+                                            onSelected: (auswahl) async {
                                               _suchfeldController.text = auswahl.title;
+                                              if (auswahl.type ==
+                                                      _SuggestionType.dienstleister &&
+                                                  (auswahl.dienstleisterId ?? '')
+                                                      .trim()
+                                                      .isNotEmpty) {
+                                                await _openDienstleisterFromSuggestion(
+                                                    auswahl);
+                                              }
                                             },
                                             optionsViewBuilder:
                                                 (context, onSelected, options) {
