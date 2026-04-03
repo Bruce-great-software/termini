@@ -2643,7 +2643,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       }
                     },
                     decoration: InputDecoration(
-                      hintText: 'Leistung oder Dienstleister suchen',
+                      hintText: 'PLZ, Ort oder Dienstleister',
                       prefixIcon: const Icon(Icons.search),
                       suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
                       suffixIcon: Row(

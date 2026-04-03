@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -8,7 +7,7 @@ import 'firebase_options.dart';
 import 'pages/alle_dienstleister_page.dart';
 import 'pages/dienstleister_main_page.dart';
 import 'pages/admin_page.dart';
-import 'pages/web_start_page.dart';
+
 import 'package:intl/date_symbol_data_local.dart';
 
 Future<void> main() async {
@@ -29,12 +28,6 @@ class MyApp extends StatelessWidget {
   Future<Widget> _handleStart() async {
     final user = FirebaseAuth.instance.currentUser;
 
-    // 🌐 WEB: wenn nicht eingeloggt -> Landingpage anzeigen
-    if (kIsWeb && user == null) {
-      return const WebStartPage();
-    }
-
-    // 📱💻 App/Desktop: wenn nicht eingeloggt -> normale Startseite
     if (user == null) {
       return const AlleDienstleisterPage();
     }
@@ -47,7 +40,7 @@ class MyApp extends StatelessWidget {
     final branche = data?['branche'];
 
     if (rolle == 'admin') {
-      return const AdminMainPage();
+      return const AlleDienstleisterPage();
     } else if ((rolle == 'dienstleister' || rolle == 'mitarbeiter') &&
         (dienstleisterId != null || rolle == 'mitarbeiter') &&
         branche != null) {
@@ -74,6 +67,7 @@ class MyApp extends StatelessWidget {
         colorScheme: colorScheme,
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFFF8F9FC),
+
         appBarTheme: AppBarTheme(
           backgroundColor: colorScheme.surface,
           surfaceTintColor: Colors.transparent,
@@ -85,6 +79,8 @@ class MyApp extends StatelessWidget {
             fontSize: 18,
           ),
         ),
+
+        // ✅ FIX: CardTheme -> CardThemeData (Material 3 / neue Flutter Versionen)
         cardTheme: CardThemeData(
           elevation: 0,
           color: colorScheme.surface,
@@ -92,8 +88,10 @@ class MyApp extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
+          // Optional, verhindert "Material3 Tint"
           surfaceTintColor: Colors.transparent,
         ),
+
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: colorScheme.surface,
@@ -108,29 +106,30 @@ class MyApp extends StatelessWidget {
           contentPadding:
           const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         ),
+
         chipTheme: ChipThemeData(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
+          shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           side: BorderSide(color: colorScheme.outlineVariant),
           labelStyle: TextStyle(color: colorScheme.onSurface),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         ),
+
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
+            shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           ),
         ),
+
         textTheme: const TextTheme(
           titleLarge: TextStyle(fontWeight: FontWeight.w700),
           titleMedium: TextStyle(fontWeight: FontWeight.w600),
           bodyMedium: TextStyle(height: 1.4),
         ),
       ),
-      home: FutureBuilder<Widget>(
+      home: FutureBuilder(
         future: _handleStart(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -142,7 +141,7 @@ class MyApp extends StatelessWidget {
               body: Center(child: Text('Fehler beim Laden.')),
             );
           } else {
-            return snapshot.data ?? const AlleDienstleisterPage();
+            return snapshot.data as Widget;
           }
         },
       ),
