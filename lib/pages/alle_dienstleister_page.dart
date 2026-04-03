@@ -2211,6 +2211,114 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   // ----------------------------------------------------------
 
+  Widget _buildWebBackground({required Widget child}) {
+    if (!kIsWeb) return child;
+
+    return Container(
+      decoration: const BoxDecoration(
+        image: DecorationImage(
+          image: AssetImage('assets/termini.png'),
+          fit: BoxFit.cover,
+        ),
+      ),
+      child: child,
+    );
+  }
+
+  void _openProfilFromWebHeader() {
+    setState(() {
+      geoeffneterDienstleister = null;
+      _dienstleisterFavorisiert = false;
+      _selectedIndex = 3;
+    });
+  }
+
+  Widget _buildWebHeader() {
+    final labels = ['Friseur', 'Barbershop', 'Nagelstudio', 'Kosmetikstudio'];
+
+    return Container(
+      height: 72,
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          bottom: BorderSide(color: Color(0x14000000)),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Text(
+            'TERMINI',
+            style: TextStyle(
+              color: Colors.black,
+              fontSize: 26,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 2.6,
+              height: 1,
+            ),
+          ),
+          const SizedBox(width: 40),
+          Expanded(
+            child: Center(
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 34,
+                runSpacing: 8,
+                children: labels
+                    .map(
+                      (label) => Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.black87,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                )
+                    .toList(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 24),
+          ElevatedButton.icon(
+            onPressed: _openProfilFromWebHeader,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            icon: const Icon(Icons.person_outline, size: 18),
+            label: const Text(
+              'Mein Konto',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWebPageShell({required Widget child}) {
+    if (!kIsWeb || geoeffneterDienstleister != null) {
+      return child;
+    }
+
+    return Column(
+      children: [
+        _buildWebHeader(),
+        Expanded(child: child),
+      ],
+    );
+  }
+
   Widget _buildBodyByIndex(int index) {
     switch (index) {
       case 0:
@@ -3484,9 +3592,15 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       );
     }
 
+    final bool showDefaultAppBar = !kIsWeb || geoeffneterDienstleister != null;
+
     return Scaffold(
-      appBar: AppBar(
+      backgroundColor: kIsWeb ? Colors.transparent : null,
+      appBar: showDefaultAppBar
+          ? AppBar(
         backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
         centerTitle: true,
         title: Text(
           geoeffneterDienstleister != null
@@ -3537,8 +3651,13 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           ),
         ]
             : null,
+      )
+          : null,
+      body: _buildWebBackground(
+        child: _buildWebPageShell(
+          child: _buildBodyByIndex(_selectedIndex),
+        ),
       ),
-      body: _buildBodyByIndex(_selectedIndex),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
