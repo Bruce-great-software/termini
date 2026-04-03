@@ -2385,6 +2385,26 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             ),
           ),
           const SizedBox(width: 24),
+          ElevatedButton(
+            onPressed: () {},
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Partner werden',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
           ElevatedButton.icon(
             onPressed: _openProfilFromWebHeader,
             style: ElevatedButton.styleFrom(
