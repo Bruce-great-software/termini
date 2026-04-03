@@ -9,58 +9,7 @@ class KundenProfilPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Mein Profil')),
-      body: Container(
-        width: double.infinity,
-        color: const Color(0xFFF2F2F5),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Eingeloggt als:',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Text(user?.email ?? 'Unbekannt'),
-            const SizedBox(height: 24),
-            OutlinedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const KontaktdatenBearbeitenPage()),
-                );
-              },
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(24),
-                ),
-              ),
-              child: const Text('Persönliche Daten'),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () async {
-                await FirebaseAuth.instance.signOut();
-                if (!context.mounted) return;
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (_) => const AlleDienstleisterPage()),
-                  (route) => false,
-                );
-              },
-              icon: const Icon(Icons.logout),
-              label: const Text('Abmelden'),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            ),
-          ],
-        ),
-      ),
-    );
+    return const KontaktdatenBearbeitenPage();
   }
 }
 
