@@ -2836,16 +2836,43 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           decoration: InputDecoration(
             hintText: 'Leistung, oder Dienstleister',
             prefixIcon: const Icon(Icons.search),
-            suffixIcon: controller.text.isNotEmpty
-                ? IconButton(
-              icon: const Icon(Icons.clear),
-              onPressed: () {
-                controller.clear();
-                _suchfeldController.clear();
-                _clearSearchMode();
-              },
-            )
-                : null,
+            suffixIcon: kIsWeb
+                ? (controller.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          controller.clear();
+                          _suchfeldController.clear();
+                          _clearSearchMode();
+                        },
+                      )
+                    : null)
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (controller.text.isNotEmpty)
+                        IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            controller.clear();
+                            _suchfeldController.clear();
+                            _clearSearchMode();
+                          },
+                        ),
+                      IconButton(
+                        tooltip: 'Ort auswählen',
+                        icon: Icon(
+                          Icons.location_on_outlined,
+                          color:
+                              _isCurrentLocationSelected ? const Color(0xFF34C759) : null,
+                        ),
+                        onPressed: () async {
+                          _dismissKeyboard();
+                          await _showLocationSelectionSheet();
+                        },
+                      ),
+                    ],
+                  ),
           ),
         );
       },
