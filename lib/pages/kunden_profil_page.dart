@@ -73,12 +73,12 @@ class _KontaktdatenBearbeitenPageState extends State<KontaktdatenBearbeitenPage>
     _initialEmail = (data['email'] as String?)?.trim().isNotEmpty == true
         ? (data['email'] as String).trim()
         : (user.email ?? '');
-    _initialTelefon = _readFirstNonEmptyString([
+    _initialTelefon = _formatPhoneForDisplay(_readFirstNonEmptyString([
       data['phoneNumber'],
       data['phone'],
       data['telefon'],
       data['handynummer'],
-    ]);
+    ]));
 
     _vornameController.text = _initialVorname;
     _nachnameController.text = _initialNachname;
@@ -95,6 +95,33 @@ class _KontaktdatenBearbeitenPageState extends State<KontaktdatenBearbeitenPage>
       }
     }
     return '';
+  }
+
+  String _formatPhoneForDisplay(String value) {
+    final normalized = value.replaceAll(' ', '').trim();
+    if (normalized.startsWith('+49') && normalized.length > 3) {
+      return '0${normalized.substring(3)}';
+    }
+    if (normalized.startsWith('49') && normalized.length > 2) {
+      return '0${normalized.substring(2)}';
+    }
+    return normalized;
+  }
+
+  String _formatPhoneForStorage(String value) {
+    final normalized = value.replaceAll(' ', '').trim();
+    if (normalized.isEmpty) return '';
+    if (normalized.startsWith('+')) return normalized;
+    if (normalized.startsWith('00') && normalized.length > 2) {
+      return '+${normalized.substring(2)}';
+    }
+    if (normalized.startsWith('0') && normalized.length > 1) {
+      return '+49${normalized.substring(1)}';
+    }
+    if (normalized.startsWith('49') && normalized.length > 2) {
+      return '+$normalized';
+    }
+    return normalized;
   }
 
   bool get _hasChanges {
@@ -116,15 +143,16 @@ class _KontaktdatenBearbeitenPageState extends State<KontaktdatenBearbeitenPage>
     final nachname = _nachnameController.text.trim();
     final email = _emailController.text.trim();
     final telefon = _telefonController.text.trim();
+    final telefonStorage = _formatPhoneForStorage(telefon);
 
     await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
       'vorname': vorname,
       'nachname': nachname,
       'name': '$vorname $nachname'.trim(),
       'email': email,
-      'phoneNumber': telefon,
-      'telefon': telefon,
-      'handynummer': telefon,
+      'phoneNumber': telefonStorage,
+      'telefon': telefonStorage,
+      'handynummer': telefonStorage,
     }, SetOptions(merge: true));
 
     _initialVorname = vorname;
@@ -173,12 +201,39 @@ class _KontaktdatenBearbeitenPageState extends State<KontaktdatenBearbeitenPage>
                       onChanged: (_) => setState(() {}),
                     ),
                     const SizedBox(height: 14),
-                    _KontaktTextField(
-                      label: 'Handynummer *',
-                      controller: _telefonController,
-                      keyboardType: TextInputType.phone,
-                      prefix: const Text('🇩🇪  '),
-                      onChanged: (_) => setState(() {}),
+                    Text('Handynummer *', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Container(
+                          height: 52,
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: const Color(0xFFD3D6DE)),
+                            borderRadius: BorderRadius.circular(10),
+                            color: Colors.white,
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('🇩🇪'),
+                              SizedBox(width: 6),
+                              Icon(Icons.arrow_drop_down, size: 18, color: Colors.grey),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: _telefonController,
+                            keyboardType: TextInputType.phone,
+                            onChanged: (_) => setState(() {}),
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 16),
                     SizedBox(
