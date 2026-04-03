@@ -47,6 +47,43 @@ class _SearchSuggestion {
   }) : type = _SuggestionType.dienstleister;
 }
 
+
+enum _LocationSuggestionType { currentLocation, countryWide, ort }
+
+class _LocationSuggestion {
+  final _LocationSuggestionType type;
+  final String label;
+  final String fillValue;
+
+  const _LocationSuggestion._({
+    required this.type,
+    required this.label,
+    required this.fillValue,
+  });
+
+  factory _LocationSuggestion.currentLocation(String city) {
+    final trimmedCity = city.trim();
+    return _LocationSuggestion._(
+      type: _LocationSuggestionType.currentLocation,
+      label: 'Aktueller Standort',
+      fillValue: trimmedCity.isNotEmpty ? trimmedCity : 'Aktueller Standort',
+    );
+  }
+
+  const _LocationSuggestion.countryWide()
+      : this._(
+    type: _LocationSuggestionType.countryWide,
+    label: 'Ganz Deutschland',
+    fillValue: 'Ganz Deutschland',
+  );
+
+  factory _LocationSuggestion.ort(String value) => _LocationSuggestion._(
+    type: _LocationSuggestionType.ort,
+    label: value,
+    fillValue: value,
+  );
+}
+
 class _AddressActionButton extends StatelessWidget {
   final String label;
   final IconData icon;
@@ -98,6 +135,7 @@ class AlleDienstleisterPage extends StatefulWidget {
 class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     with WidgetsBindingObserver {
   final TextEditingController _suchfeldController = TextEditingController();
+  final TextEditingController _ortsuchfeldController = TextEditingController();
   static const String _googlePlacesApiKey = 'AIzaSyAAydUpc7KvbbEGeUDsw4DF8w2BkpL_Rq0';
   bool _isSearchMode = false;
   String _searchQuery = '';
@@ -180,6 +218,67 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       _searchQuery = '';
       _isExternalSearchLoading = false;
       _externalSearchResults = [];
+    });
+  }
+
+
+  void _clearSelectedLocation({bool clearTextField = true}) {
+    if (clearTextField) {
+      _ortsuchfeldController.clear();
+    }
+    setState(() {
+      _isCurrentLocationSelected = false;
+      _selectedLocationValue = null;
+      _selectedLocationLabel = null;
+    });
+  }
+
+  void _setSelectedLocation(
+      String value, {
+        bool addToRecent = true,
+        bool updateTextField = true,
+      }) {
+    final selected = value.trim();
+    if (selected.isEmpty) {
+      _clearSelectedLocation(clearTextField: updateTextField);
+      return;
+    }
+
+    if (addToRecent) {
+      _letzteOrtssuchen.removeWhere(
+            (e) => e.toLowerCase() == selected.toLowerCase(),
+      );
+      _letzteOrtssuchen.insert(0, selected);
+      if (_letzteOrtssuchen.length > 6) {
+        _letzteOrtssuchen.removeRange(6, _letzteOrtssuchen.length);
+      }
+    }
+
+    if (updateTextField) {
+      _ortsuchfeldController.value = TextEditingValue(
+        text: selected,
+        selection: TextSelection.collapsed(offset: selected.length),
+      );
+    }
+
+    setState(() {
+      _isCurrentLocationSelected = true;
+      _selectedLocationValue = selected;
+      _selectedLocationLabel = _buildLocationChipLabel(selected);
+    });
+  }
+
+  void _handleLocationFieldChanged(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      _clearSelectedLocation(clearTextField: false);
+      return;
+    }
+
+    setState(() {
+      _isCurrentLocationSelected = true;
+      _selectedLocationValue = trimmed;
+      _selectedLocationLabel = _buildLocationChipLabel(trimmed);
     });
   }
 
@@ -593,10 +692,14 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   void _resetAllFiltersAndSearch([TextEditingController? c]) {
     c?.clear();
     _suchfeldController.clear();
+    _ortsuchfeldController.clear();
     _dismissKeyboard();
 
     setState(() {
       _ausgewaehlteLeistung = null;
+      _isCurrentLocationSelected = false;
+      _selectedLocationLabel = null;
+      _selectedLocationValue = null;
       _gefilterteDienstleisterIds = [];
       _sortOrder = SortOrder.none;
       _isSearchMode = false;
@@ -1232,6 +1335,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _suchfeldController.dispose();
+    _ortsuchfeldController.dispose();
     super.dispose();
   }
 
@@ -2479,38 +2583,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
       ),
     );
-
-    if (_isCurrentLocationSelected) {
-      final ortLabel = (_selectedLocationLabel ?? currentCity ?? '').trim();
-      if (ortLabel.isNotEmpty) {
-        chips.add(
-          InputChip(
-            label: Text(
-              ortLabel,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            selected: true,
-            onSelected: (_) => _showLocationSelectionSheet(),
-            onDeleted: () {
-              setState(() {
-                _isCurrentLocationSelected = false;
-                _selectedLocationLabel = null;
-                _selectedLocationValue = null;
-              });
-            },
-            deleteIcon: const Icon(Icons.close, size: 18, color: Colors.white),
-            selectedColor: const Color(0xFF34C759),
-            backgroundColor: const Color(0xFF34C759),
-            shape: const StadiumBorder(side: BorderSide(color: Color(0xFF34C759))),
-          ),
-        );
-      }
-    }
-
     // Sortieren
     chips.add(
       InputChip(
@@ -2607,185 +2679,297 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   }
 
   // ---------- Suchfeld + Filterbutton ----------
+  Widget _buildLeistungSuchfeld() {
+    return Autocomplete<_SearchSuggestion>(
+      optionsBuilder: (TextEditingValue textEditingValue) async {
+        if (textEditingValue.text == '') {
+          return const Iterable<_SearchSuggestion>.empty();
+        }
+        final vorschlaegeLeistungen =
+        await _ladeLeistungsVorschlaege(textEditingValue.text);
+        final vorschlaegeDienstleister =
+        await _ladeDienstleisterVorschlaege(textEditingValue.text);
+
+        final leistungen =
+        vorschlaegeLeistungen.map((e) => _SearchSuggestion.leistung(e)).toList();
+        final dienstleister = vorschlaegeDienstleister
+            .map(
+              (e) => _SearchSuggestion.dienstleister(
+            title: (e['name'] ?? '').toString(),
+            subtitle:
+            '${(e['plz'] ?? '').toString()} ${(e['ort'] ?? '').toString()}'.trim(),
+            dienstleisterId: (e['id'] ?? '').toString(),
+            logoUrl: (e['logoUrl'] ?? '').toString(),
+          ),
+        )
+            .toList();
+
+        return [...dienstleister, ...leistungen];
+      },
+      displayStringForOption: (option) => option.title,
+      optionsViewBuilder: (context, onSelected, options) {
+        final items = options.toList();
+        final highlightQuery = _suchfeldController.text;
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(12),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 320, maxWidth: 700),
+              child: ListView.separated(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                shrinkWrap: true,
+                itemCount: items.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final item = items[index];
+                  if (item.type == _SuggestionType.dienstleister) {
+                    return ListTile(
+                      leading: CircleAvatar(
+                        radius: 22,
+                        backgroundColor: const Color(0xFFE0E0E0),
+                        backgroundImage: (item.logoUrl ?? '').trim().isNotEmpty
+                            ? NetworkImage(item.logoUrl!.trim())
+                            : null,
+                        child: (item.logoUrl ?? '').trim().isEmpty
+                            ? const Icon(Icons.storefront, color: Colors.black54)
+                            : null,
+                      ),
+                      title: RichText(
+                        text: _buildHighlightedSpan(
+                          fullText: item.title,
+                          query: highlightQuery,
+                          baseStyle: Theme.of(context).textTheme.bodyLarge,
+                        ),
+                      ),
+                      subtitle: RichText(
+                        text: _buildHighlightedSpan(
+                          fullText: item.subtitle,
+                          query: highlightQuery,
+                          baseStyle: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
+                      onTap: () => onSelected(item),
+                    );
+                  }
+                  return ListTile(
+                    leading: const Icon(Icons.search),
+                    title: RichText(
+                      text: _buildHighlightedSpan(
+                        fullText: item.title,
+                        query: highlightQuery,
+                        baseStyle: Theme.of(context).textTheme.bodyLarge,
+                      ),
+                    ),
+                    onTap: () => onSelected(item),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+      onSelected: (_SearchSuggestion auswahl) async {
+        _suchfeldController.text = auswahl.title;
+        if (auswahl.type == _SuggestionType.dienstleister &&
+            (auswahl.dienstleisterId ?? '').isNotEmpty) {
+          final doc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(auswahl.dienstleisterId)
+              .get();
+          if (!doc.exists) return;
+          final data = doc.data() ?? {};
+          await _openDienstleisterFromSuggestion({
+            ...data,
+            'id': doc.id,
+          });
+          return;
+        }
+
+        setState(() {
+          _ausgewaehlteLeistung = auswahl.title;
+        });
+        _clearSearchMode();
+        await _applySelectionFromTitle(auswahl.title);
+        _dismissKeyboard();
+      },
+      fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
+        if (_suchfeldController.text != controller.text) {
+          _suchfeldController.value = controller.value;
+        }
+        return TextField(
+          controller: controller,
+          focusNode: focusNode,
+          onEditingComplete: onEditingComplete,
+          onSubmitted: (text) async {
+            await _activateSearchMode(text);
+            _dismissKeyboard();
+          },
+          onChanged: (text) {
+            _suchfeldController.value = controller.value;
+            _onSuchbegriffChanged(text);
+            if (text.trim().isEmpty) {
+              _clearSearchMode();
+            }
+          },
+          decoration: InputDecoration(
+            hintText: 'Leistung, oder Dienstleister',
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: controller.text.isNotEmpty
+                ? IconButton(
+              icon: const Icon(Icons.clear),
+              onPressed: () {
+                controller.clear();
+                _suchfeldController.clear();
+                _clearSearchMode();
+              },
+            )
+                : null,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildOrtSuchfeld() {
+    return Autocomplete<_LocationSuggestion>(
+      optionsBuilder: (TextEditingValue textEditingValue) async {
+        final query = textEditingValue.text.trim();
+        final items = <_LocationSuggestion>[
+          _LocationSuggestion.currentLocation(currentCity ?? ''),
+          const _LocationSuggestion.countryWide(),
+        ];
+
+        if (query.isNotEmpty) {
+          final vorschlaege = await _ladeOrtsVorschlaege(query);
+          for (final ort in vorschlaege) {
+            if (!items.any(
+                  (item) => item.fillValue.toLowerCase() == ort.toLowerCase(),
+            )) {
+              items.add(_LocationSuggestion.ort(ort));
+            }
+          }
+        }
+
+        return items;
+      },
+      displayStringForOption: (option) => option.fillValue,
+      optionsViewBuilder: (context, onSelected, options) {
+        final items = options.toList();
+        final highlightQuery = _ortsuchfeldController.text;
+        return Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: kIsWeb ? 340 : MediaQuery.of(context).size.width - 32,
+            child: Material(
+              elevation: 4,
+              borderRadius: BorderRadius.circular(12),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 320),
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  shrinkWrap: true,
+                  itemCount: items.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final item = items[index];
+                    final icon = switch (item.type) {
+                      _LocationSuggestionType.currentLocation => Icons.my_location,
+                      _LocationSuggestionType.countryWide => Icons.public,
+                      _LocationSuggestionType.ort => Icons.location_on_outlined,
+                    };
+                    final textToHighlight = item.type == _LocationSuggestionType.ort
+                        ? item.fillValue
+                        : item.label;
+                    return ListTile(
+                      leading: Icon(icon, color: Colors.black54),
+                      title: RichText(
+                        text: _buildHighlightedSpan(
+                          fullText: textToHighlight,
+                          query: highlightQuery,
+                          baseStyle: Theme.of(context).textTheme.bodyLarge,
+                        ),
+                      ),
+                      onTap: () => onSelected(item),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      onSelected: (_LocationSuggestion auswahl) {
+        final selectedValue = switch (auswahl.type) {
+          _LocationSuggestionType.currentLocation =>
+          (currentCity ?? '').trim().isNotEmpty ? currentCity!.trim() : 'Aktueller Standort',
+          _LocationSuggestionType.countryWide => 'Ganz Deutschland',
+          _LocationSuggestionType.ort => auswahl.fillValue,
+        };
+        _setSelectedLocation(selectedValue);
+        _dismissKeyboard();
+      },
+      fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
+        if (_ortsuchfeldController.text != controller.text) {
+          _ortsuchfeldController.value = controller.value;
+        }
+        return TextField(
+          controller: controller,
+          focusNode: focusNode,
+          onEditingComplete: onEditingComplete,
+          onSubmitted: (text) {
+            final trimmed = text.trim();
+            if (trimmed.isEmpty) {
+              _clearSelectedLocation(clearTextField: false);
+            } else {
+              _setSelectedLocation(trimmed, addToRecent: true, updateTextField: false);
+            }
+            _dismissKeyboard();
+          },
+          onChanged: (text) {
+            _ortsuchfeldController.value = controller.value;
+            _handleLocationFieldChanged(text);
+          },
+          decoration: InputDecoration(
+            hintText: 'Ort oder PLZ',
+            prefixIcon: Icon(
+              Icons.location_on_outlined,
+              color: _isCurrentLocationSelected ? const Color(0xFF34C759) : null,
+            ),
+            suffixIcon: controller.text.isNotEmpty
+                ? IconButton(
+              icon: const Icon(Icons.clear),
+              onPressed: () {
+                controller.clear();
+                _ortsuchfeldController.clear();
+                _clearSelectedLocation(clearTextField: false);
+              },
+            )
+                : null,
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildSuchfeldMitFilterButton() {
+    final suchfeld = _buildLeistungSuchfeld();
+    final ortSuchfeld = _buildOrtSuchfeld();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Expanded(
-              child: Autocomplete<_SearchSuggestion>(
-                optionsBuilder: (TextEditingValue textEditingValue) async {
-                  if (textEditingValue.text == '') {
-                    return const Iterable<_SearchSuggestion>.empty();
-                  }
-                  final vorschlaegeLeistungen =
-                  await _ladeLeistungsVorschlaege(textEditingValue.text);
-                  final vorschlaegeDienstleister =
-                  await _ladeDienstleisterVorschlaege(textEditingValue.text);
-
-                  final leistungen = vorschlaegeLeistungen
-                      .map((e) => _SearchSuggestion.leistung(e))
-                      .toList();
-                  final dienstleister = vorschlaegeDienstleister
-                      .map(
-                        (e) => _SearchSuggestion.dienstleister(
-                      title: (e['name'] ?? '').toString(),
-                      subtitle:
-                      '${(e['plz'] ?? '').toString()} ${(e['ort'] ?? '').toString()}'
-                          .trim(),
-                      dienstleisterId: (e['id'] ?? '').toString(),
-                      logoUrl: (e['logoUrl'] ?? '').toString(),
-                    ),
-                  )
-                      .toList();
-
-                  return [...dienstleister, ...leistungen];
-                },
-                displayStringForOption: (option) => option.title,
-                optionsViewBuilder: (context, onSelected, options) {
-                  final items = options.toList();
-                  final highlightQuery = _suchfeldController.text;
-                  return Align(
-                    alignment: Alignment.topLeft,
-                    child: Material(
-                      elevation: 4,
-                      borderRadius: BorderRadius.circular(12),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 320, maxWidth: 700),
-                        child: ListView.separated(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          shrinkWrap: true,
-                          itemCount: items.length,
-                          separatorBuilder: (_, __) => const Divider(height: 1),
-                          itemBuilder: (context, index) {
-                            final item = items[index];
-                            if (item.type == _SuggestionType.dienstleister) {
-                              return ListTile(
-                                leading: CircleAvatar(
-                                  radius: 22,
-                                  backgroundColor: const Color(0xFFE0E0E0),
-                                  backgroundImage: (item.logoUrl ?? '').trim().isNotEmpty
-                                      ? NetworkImage(item.logoUrl!.trim())
-                                      : null,
-                                  child: (item.logoUrl ?? '').trim().isEmpty
-                                      ? const Icon(Icons.storefront, color: Colors.black54)
-                                      : null,
-                                ),
-                                title: RichText(
-                                  text: _buildHighlightedSpan(
-                                    fullText: item.title,
-                                    query: highlightQuery,
-                                    baseStyle: Theme.of(context).textTheme.bodyLarge,
-                                  ),
-                                ),
-                                subtitle: RichText(
-                                  text: _buildHighlightedSpan(
-                                    fullText: item.subtitle,
-                                    query: highlightQuery,
-                                    baseStyle: Theme.of(context).textTheme.bodyMedium,
-                                  ),
-                                ),
-                                onTap: () => onSelected(item),
-                              );
-                            }
-                            return ListTile(
-                              leading: const Icon(Icons.search),
-                              title: RichText(
-                                text: _buildHighlightedSpan(
-                                  fullText: item.title,
-                                  query: highlightQuery,
-                                  baseStyle: Theme.of(context).textTheme.bodyLarge,
-                                ),
-                              ),
-                              onTap: () => onSelected(item),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  );
-                },
-                onSelected: (_SearchSuggestion auswahl) async {
-                  _suchfeldController.text = auswahl.title;
-                  if (auswahl.type == _SuggestionType.dienstleister &&
-                      (auswahl.dienstleisterId ?? '').isNotEmpty) {
-                    final doc = await FirebaseFirestore.instance
-                        .collection('users')
-                        .doc(auswahl.dienstleisterId)
-                        .get();
-                    if (!doc.exists) return;
-                    final data = doc.data() ?? {};
-                    await _openDienstleisterFromSuggestion({
-                      ...data,
-                      'id': doc.id,
-                    });
-                    return;
-                  }
-
-                  setState(() {
-                    _ausgewaehlteLeistung = auswahl.title;
-                  });
-                  _clearSearchMode();
-                  await _applySelectionFromTitle(auswahl.title);
-                  _dismissKeyboard();
-                },
-                fieldViewBuilder:
-                    (context, controller, focusNode, onEditingComplete) {
-                  if (_suchfeldController.text != controller.text) {
-                    _suchfeldController.value = controller.value;
-                  }
-                  return TextField(
-                    controller: controller,
-                    focusNode: focusNode,
-                    onEditingComplete: onEditingComplete,
-                    onSubmitted: (text) async {
-                      await _activateSearchMode(text);
-                      _dismissKeyboard();
-                    },
-                    onChanged: (text) {
-                      _suchfeldController.value = controller.value;
-                      _onSuchbegriffChanged(text);
-                      if (text.trim().isEmpty) {
-                        _clearSearchMode();
-                      }
-                    },
-                    decoration: InputDecoration(
-                      hintText: 'PLZ, Ort oder Dienstleister',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
-                      suffixIcon: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (controller.text.isNotEmpty)
-                            IconButton(
-                              icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                controller.clear();
-                                _suchfeldController.clear();
-                                _clearSearchMode();
-                              },
-                            ),
-                          IconButton(
-                            tooltip: 'Ort wählen',
-                            icon: Icon(
-                              Icons.location_pin,
-                              color: _isCurrentLocationSelected
-                                  ? const Color(0xFF34C759)
-                                  : null,
-                            ),
-                            onPressed: _showLocationSelectionSheet,
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
+            if (kIsWeb) ...[
+              Expanded(flex: 7, child: suchfeld),
+              const SizedBox(width: 10),
+              SizedBox(width: 320, child: ortSuchfeld),
+            ] else ...[
+              Expanded(child: suchfeld),
+            ],
             const SizedBox(width: 8),
-
-            // Filterbutton mit Badge (nur Icon)
             Stack(
               clipBehavior: Clip.none,
               children: [
@@ -2804,14 +2988,12 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                     right: -4,
                     top: -4,
                     child: Container(
-                      padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: Colors.blueAccent,
                         borderRadius: BorderRadius.circular(999),
                       ),
-                      constraints:
-                      const BoxConstraints(minWidth: 18, minHeight: 18),
+                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
                       child: Text(
                         _filterBadgeCount > 99 ? '99+' : '$_filterBadgeCount',
                         textAlign: TextAlign.center,
@@ -2827,10 +3009,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             ),
           ],
         ),
-
         const SizedBox(height: 10),
-
-        // Inline-Filterchip-Reihe: Branchen, Leistungen, Sortieren
         _buildInlineFilterChips(),
       ],
     );
