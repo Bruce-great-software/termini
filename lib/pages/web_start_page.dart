@@ -1,9 +1,157 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'alle_dienstleister_page.dart';
+import 'dienstleister_detail_page.dart';
 import 'login_register_page.dart';
 
-class WebStartPage extends StatelessWidget {
+enum _SuggestionType { leistung, dienstleister }
+
+class _SearchSuggestion {
+  final _SuggestionType type;
+  final String title;
+  final String subtitle;
+  final String? logoUrl;
+  final String? dienstleisterId;
+
+  const _SearchSuggestion.leistung(this.title)
+      : type = _SuggestionType.leistung,
+        subtitle = '',
+        logoUrl = null,
+        dienstleisterId = null;
+
+  const _SearchSuggestion.dienstleister({
+    required this.title,
+    required this.subtitle,
+    required this.logoUrl,
+    required this.dienstleisterId,
+  }) : type = _SuggestionType.dienstleister;
+}
+
+class WebStartPage extends StatefulWidget {
   const WebStartPage({super.key});
+
+  @override
+  State<WebStartPage> createState() => _WebStartPageState();
+}
+
+class _WebStartPageState extends State<WebStartPage> {
+  final TextEditingController _suchfeldController = TextEditingController();
+
+  Future<List<String>> _ladeLeistungsVorschlaege(String eingabe) async {
+    if (eingabe.trim().isEmpty) return [];
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('angebote')
+        .limit(50)
+        .get();
+
+    return snapshot.docs
+        .map((doc) => doc['titel'].toString())
+        .where((titel) => titel.toLowerCase().contains(eingabe.toLowerCase()))
+        .toSet()
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> _ladeDienstleisterVorschlaege(
+      String eingabe) async {
+    final search = eingabe.trim().toLowerCase();
+    if (search.isEmpty) return [];
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .where('rolle', isEqualTo: 'dienstleister')
+        .get();
+
+    final matches = snapshot.docs
+        .map((doc) {
+          final data = doc.data();
+          return {
+            'id': doc.id,
+            'name': (data['name'] ?? '').toString(),
+            'ort': (data['ort'] ?? '').toString(),
+            'plz': (data['plz'] ?? '').toString(),
+            'logoUrl': (data['logoUrl'] ?? '').toString(),
+          };
+        })
+        .where((d) => (d['name'] as String).toLowerCase().contains(search))
+        .toList();
+
+    matches.sort((a, b) => (a['name'] as String)
+        .toLowerCase()
+        .compareTo((b['name'] as String).toLowerCase()));
+    return matches.take(8).toList();
+  }
+
+  TextSpan _buildHighlightedSpan({
+    required String fullText,
+    required String query,
+    TextStyle? baseStyle,
+  }) {
+    final q = query.trim();
+    if (q.isEmpty) return TextSpan(text: fullText, style: baseStyle);
+
+    final lowerText = fullText.toLowerCase();
+    final lowerQuery = q.toLowerCase();
+    final spans = <TextSpan>[];
+    int start = 0;
+
+    while (true) {
+      final index = lowerText.indexOf(lowerQuery, start);
+      if (index < 0) {
+        if (start < fullText.length) {
+          spans.add(TextSpan(text: fullText.substring(start), style: baseStyle));
+        }
+        break;
+      }
+
+      if (index > start) {
+        spans.add(TextSpan(text: fullText.substring(start, index), style: baseStyle));
+      }
+
+      spans.add(
+        TextSpan(
+          text: fullText.substring(index, index + q.length),
+          style: (baseStyle ?? const TextStyle()).copyWith(
+            fontWeight: FontWeight.bold,
+            decoration: TextDecoration.underline,
+          ),
+        ),
+      );
+      start = index + q.length;
+    }
+
+    return TextSpan(children: spans, style: baseStyle);
+  }
+
+  Future<void> _openDienstleisterFromSuggestion(
+      _SearchSuggestion auswahl) async {
+    final id = (auswahl.dienstleisterId ?? '').trim();
+    if (id.isEmpty) return;
+
+    final doc = await FirebaseFirestore.instance.collection('users').doc(id).get();
+    if (!doc.exists || !mounted) return;
+
+    final data = doc.data() ?? {};
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DienstleisterDetailPage(
+          dienstleister: {
+            ...data,
+            'id': doc.id,
+          },
+          selektierteZielgruppe: 'alle',
+          selektierteKategorie: 'alle',
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _suchfeldController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -172,18 +320,191 @@ class WebStartPage extends StatelessWidget {
                                               ),
                                             ),
                                           ),
-                                          child: const TextField(
-                                            decoration: InputDecoration(
-                                              border: InputBorder.none,
-                                              isDense: true,
-                                              hintText:
-                                              'Salonname, Dienstleistung...',
-                                              labelText: 'Was suchen Sie?',
-                                              labelStyle: TextStyle(
-                                                color: Color(0xFF8A8A8A),
-                                                fontSize: 14,
-                                              ),
-                                            ),
+                                          child: Autocomplete<_SearchSuggestion>(
+                                            optionsBuilder: (textEditingValue) async {
+                                              if (textEditingValue.text.trim().isEmpty) {
+                                                return const Iterable<_SearchSuggestion>.empty();
+                                              }
+                                              final vorschlaegeLeistungen =
+                                                  await _ladeLeistungsVorschlaege(
+                                                      textEditingValue.text);
+                                              final vorschlaegeDienstleister =
+                                                  await _ladeDienstleisterVorschlaege(
+                                                      textEditingValue.text);
+
+                                              final leistungen = vorschlaegeLeistungen
+                                                  .map((e) => _SearchSuggestion.leistung(e))
+                                                  .toList();
+                                              final dienstleister =
+                                                  vorschlaegeDienstleister
+                                                      .map(
+                                                        (e) =>
+                                                            _SearchSuggestion.dienstleister(
+                                                          title:
+                                                              (e['name'] ?? '').toString(),
+                                                          subtitle:
+                                                              '${(e['plz'] ?? '').toString()} ${(e['ort'] ?? '').toString()}'
+                                                                  .trim(),
+                                                          logoUrl:
+                                                              (e['logoUrl'] ?? '')
+                                                                  .toString(),
+                                                          dienstleisterId:
+                                                              (e['id'] ?? '')
+                                                                  .toString(),
+                                                        ),
+                                                      )
+                                                      .toList();
+
+                                              return [...dienstleister, ...leistungen];
+                                            },
+                                            displayStringForOption: (option) => option.title,
+                                            onSelected: (auswahl) async {
+                                              _suchfeldController.text = auswahl.title;
+                                              if (auswahl.type ==
+                                                      _SuggestionType.dienstleister &&
+                                                  (auswahl.dienstleisterId ?? '')
+                                                      .trim()
+                                                      .isNotEmpty) {
+                                                await _openDienstleisterFromSuggestion(
+                                                    auswahl);
+                                              }
+                                            },
+                                            optionsViewBuilder:
+                                                (context, onSelected, options) {
+                                              final items = options.toList();
+                                              return Align(
+                                                alignment: Alignment.topLeft,
+                                                child: Material(
+                                                  elevation: 4,
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                  child: ConstrainedBox(
+                                                    constraints: const BoxConstraints(
+                                                      maxHeight: 320,
+                                                      maxWidth: 540,
+                                                    ),
+                                                    child: ListView.separated(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                              vertical: 8),
+                                                      shrinkWrap: true,
+                                                      itemCount: items.length,
+                                                      separatorBuilder: (_, __) =>
+                                                          const Divider(height: 1),
+                                                      itemBuilder:
+                                                          (context, index) {
+                                                        final item = items[index];
+                                                        if (item.type ==
+                                                            _SuggestionType
+                                                                .dienstleister) {
+                                                          return ListTile(
+                                                            leading: CircleAvatar(
+                                                              radius: 22,
+                                                              backgroundColor:
+                                                                  const Color(
+                                                                      0xFFE0E0E0),
+                                                              backgroundImage: (item
+                                                                          .logoUrl ??
+                                                                      '')
+                                                                  .trim()
+                                                                  .isNotEmpty
+                                                                  ? NetworkImage(item
+                                                                      .logoUrl!
+                                                                      .trim())
+                                                                  : null,
+                                                              child: (item.logoUrl ??
+                                                                          '')
+                                                                      .trim()
+                                                                      .isEmpty
+                                                                  ? const Icon(
+                                                                      Icons
+                                                                          .storefront,
+                                                                      color: Colors
+                                                                          .black54,
+                                                                    )
+                                                                  : null,
+                                                            ),
+                                                            title: RichText(
+                                                              text:
+                                                                  _buildHighlightedSpan(
+                                                                fullText: item.title,
+                                                                query:
+                                                                    _suchfeldController
+                                                                        .text,
+                                                                baseStyle: Theme.of(
+                                                                        context)
+                                                                    .textTheme
+                                                                    .bodyLarge,
+                                                              ),
+                                                            ),
+                                                            subtitle: RichText(
+                                                              text:
+                                                                  _buildHighlightedSpan(
+                                                                fullText:
+                                                                    item.subtitle,
+                                                                query:
+                                                                    _suchfeldController
+                                                                        .text,
+                                                                baseStyle: Theme.of(
+                                                                        context)
+                                                                    .textTheme
+                                                                    .bodyMedium,
+                                                              ),
+                                                            ),
+                                                            onTap: () =>
+                                                                onSelected(item),
+                                                          );
+                                                        }
+                                                        return ListTile(
+                                                          leading:
+                                                              const Icon(Icons.search),
+                                                          title: RichText(
+                                                            text:
+                                                                _buildHighlightedSpan(
+                                                              fullText: item.title,
+                                                              query:
+                                                                  _suchfeldController
+                                                                      .text,
+                                                              baseStyle: Theme.of(
+                                                                      context)
+                                                                  .textTheme
+                                                                  .bodyLarge,
+                                                            ),
+                                                          ),
+                                                          onTap: () =>
+                                                              onSelected(item),
+                                                        );
+                                                      },
+                                                    ),
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                            fieldViewBuilder: (context, controller,
+                                                focusNode, onEditingComplete) {
+                                              if (_suchfeldController.text !=
+                                                  controller.text) {
+                                                _suchfeldController.value =
+                                                    controller.value;
+                                              }
+                                              return TextField(
+                                                controller: controller,
+                                                focusNode: focusNode,
+                                                onEditingComplete:
+                                                    onEditingComplete,
+                                                decoration: const InputDecoration(
+                                                  border: InputBorder.none,
+                                                  isDense: true,
+                                                  hintText:
+                                                      'Salonname, Dienstleistung...',
+                                                  labelText: 'Was suchen Sie?',
+                                                  labelStyle: TextStyle(
+                                                    color: Color(0xFF8A8A8A),
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                              );
+                                            },
                                           ),
                                         ),
                                       ),
