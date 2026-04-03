@@ -2630,6 +2630,47 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       ),
     );
 
+    if (!kIsWeb && _isCurrentLocationSelected) {
+      final ortLabel =
+          (_selectedLocationLabel ?? _selectedLocationValue ?? currentCity ?? '')
+              .trim();
+      if (ortLabel.isNotEmpty) {
+        chips.add(
+          InputChip(
+            avatar: const Icon(
+              Icons.location_on_outlined,
+              size: 18,
+              color: Color(0xFF1B8A3C),
+            ),
+            label: Text(
+              ortLabel,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF1B8A3C),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            onSelected: (_) async {
+              _dismissKeyboard();
+              await _showLocationSelectionSheet();
+            },
+            onDeleted: () {
+              _clearSelectedLocation();
+            },
+            deleteIcon: const Icon(
+              Icons.close,
+              size: 18,
+              color: Color(0xFF1B8A3C),
+            ),
+            backgroundColor: const Color(0xFFE8F5E9),
+            shape: const StadiumBorder(
+              side: BorderSide(color: Color(0xFF34C759)),
+            ),
+          ),
+        );
+      }
+    }
+
     // >>> HIER WIEDER DRIN: Kategorie-Chips (z. B. „Augenbrauen“) <<<
     for (final kategorie in ausgewaehlteKategorien) {
       final bool aktiv =
