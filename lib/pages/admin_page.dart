@@ -10,6 +10,8 @@ import 'package:http/http.dart' as http;
 import 'admin_branchen_page.dart';
 import 'admin_leistung_erstellen_page.dart';
 import 'alle_dienstleister_page.dart';
+import 'admin_partner_requests_page.dart';
+
 
 class AdminMainPage extends StatefulWidget {
   const AdminMainPage({super.key});
@@ -39,6 +41,7 @@ class _AdminMainPageState extends State<AdminMainPage> {
 
   List<Widget> get _pages => [
     const AdminDienstleisterFormular(),
+    const AdminPartnerRequestsPage(),
     const AdminBranchenPage(),
     AdminLeistungErstellenPage(),
     Center(
@@ -53,6 +56,10 @@ class _AdminMainPageState extends State<AdminMainPage> {
     _AdminNavItem(
       icon: Icons.business,
       label: 'Dienstleister',
+    ),
+    _AdminNavItem(
+      icon: Icons.handshake_outlined,
+      label: 'Partner-Anfragen',
     ),
     _AdminNavItem(
       icon: Icons.category,
