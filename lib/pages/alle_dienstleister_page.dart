@@ -2385,6 +2385,26 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             ),
           ),
           const SizedBox(width: 24),
+          ElevatedButton(
+            onPressed: () {},
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Partner werden',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
           ElevatedButton.icon(
             onPressed: _openProfilFromWebHeader,
             style: ElevatedButton.styleFrom(
@@ -2610,6 +2630,47 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       ),
     );
 
+    if (!kIsWeb && _isCurrentLocationSelected) {
+      final ortLabel =
+          (_selectedLocationLabel ?? _selectedLocationValue ?? currentCity ?? '')
+              .trim();
+      if (ortLabel.isNotEmpty) {
+        chips.add(
+          InputChip(
+            avatar: const Icon(
+              Icons.location_on_outlined,
+              size: 18,
+              color: Color(0xFF1B8A3C),
+            ),
+            label: Text(
+              ortLabel,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF1B8A3C),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            onSelected: (_) async {
+              _dismissKeyboard();
+              await _showLocationSelectionSheet();
+            },
+            onDeleted: () {
+              _clearSelectedLocation();
+            },
+            deleteIcon: const Icon(
+              Icons.close,
+              size: 18,
+              color: Color(0xFF1B8A3C),
+            ),
+            backgroundColor: const Color(0xFFE8F5E9),
+            shape: const StadiumBorder(
+              side: BorderSide(color: Color(0xFF34C759)),
+            ),
+          ),
+        );
+      }
+    }
+
     // >>> HIER WIEDER DRIN: Kategorie-Chips (z. B. „Augenbrauen“) <<<
     for (final kategorie in ausgewaehlteKategorien) {
       final bool aktiv =
@@ -2816,16 +2877,43 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           decoration: InputDecoration(
             hintText: 'Leistung, oder Dienstleister',
             prefixIcon: const Icon(Icons.search),
-            suffixIcon: controller.text.isNotEmpty
-                ? IconButton(
-              icon: const Icon(Icons.clear),
-              onPressed: () {
-                controller.clear();
-                _suchfeldController.clear();
-                _clearSearchMode();
-              },
-            )
-                : null,
+            suffixIcon: kIsWeb
+                ? (controller.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          controller.clear();
+                          _suchfeldController.clear();
+                          _clearSearchMode();
+                        },
+                      )
+                    : null)
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (controller.text.isNotEmpty)
+                        IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            controller.clear();
+                            _suchfeldController.clear();
+                            _clearSearchMode();
+                          },
+                        ),
+                      IconButton(
+                        tooltip: 'Ort auswählen',
+                        icon: Icon(
+                          Icons.location_on_outlined,
+                          color:
+                              _isCurrentLocationSelected ? const Color(0xFF34C759) : null,
+                        ),
+                        onPressed: () async {
+                          _dismissKeyboard();
+                          await _showLocationSelectionSheet();
+                        },
+                      ),
+                    ],
+                  ),
           ),
         );
       },
