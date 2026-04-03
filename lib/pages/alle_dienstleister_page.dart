@@ -3159,6 +3159,232 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     );
   }
 
+  Widget _buildWebDesktopSearchPage() {
+    final locationLabel = (_selectedLocationValue ??
+            _selectedLocationLabel ??
+            currentCity ??
+            'Wo')
+        .trim();
+
+    return Column(
+      children: [
+        Container(
+          height: 76,
+          padding: const EdgeInsets.symmetric(horizontal: 36),
+          color: Colors.white,
+          child: Row(
+            children: [
+              const Text(
+                'TERMINI',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 4,
+                  color: Colors.black,
+                ),
+              ),
+              const Spacer(),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 10),
+                child: Text('Friseur', style: TextStyle(fontSize: 16)),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 10),
+                child: Text('Barbershop', style: TextStyle(fontSize: 16)),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 10),
+                child: Text('Kosmetik', style: TextStyle(fontSize: 16)),
+              ),
+              const SizedBox(width: 24),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF111111),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                onPressed: () {
+                  setState(() => _selectedIndex = 3);
+                },
+                icon: const Icon(Icons.person_outline, size: 18),
+                label: const Text(
+                  'Mein Konto',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Image.asset(
+                  'assets/termini.png',
+                  fit: BoxFit.cover,
+                ),
+              ),
+              Positioned.fill(
+                child: Container(color: Colors.black.withOpacity(0.28)),
+              ),
+              SingleChildScrollView(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1200),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 120, 24, 20),
+                      child: Column(
+                        children: [
+                          const Text(
+                            'Buchen Sie Ihren Termin',
+                            style: TextStyle(
+                              fontSize: 64,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 14),
+                          const Text(
+                            'Schnell • Einfach • Online',
+                            style: TextStyle(
+                              fontSize: 34,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w400,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 36),
+                          Container(
+                            constraints: const BoxConstraints(maxWidth: 960),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.2),
+                                  blurRadius: 20,
+                                  offset: const Offset(0, 8),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: 5,
+                                  child: TextField(
+                                    controller: _suchfeldController,
+                                    onSubmitted: (text) async {
+                                      await _activateSearchMode(text);
+                                    },
+                                    decoration: const InputDecoration(
+                                      hintText: 'Leistung oder Dienstleister',
+                                      border: InputBorder.none,
+                                      isDense: true,
+                                      prefixIcon: Icon(Icons.search),
+                                    ),
+                                  ),
+                                ),
+                                Container(
+                                  width: 1,
+                                  height: 42,
+                                  color: const Color(0xFFE5E5E5),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  flex: 4,
+                                  child: GestureDetector(
+                                    onTap: _showLocationSelectionSheet,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 12,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.location_on_outlined,
+                                            color: Colors.black54,
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              locationLabel,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontSize: 16,
+                                                color: Colors.black87,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                SizedBox(
+                                  height: 52,
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF111111),
+                                      foregroundColor: Colors.white,
+                                      elevation: 0,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                    onPressed: () async {
+                                      await _activateSearchMode(
+                                        _suchfeldController.text,
+                                      );
+                                    },
+                                    child: const Padding(
+                                      padding:
+                                          EdgeInsets.symmetric(horizontal: 24),
+                                      child: Text(
+                                        'Suchen',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          _buildInlineFilterChips(),
+                          const SizedBox(height: 18),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: Container(
+                              color: const Color(0xFFF7F8FC),
+                              height: 420,
+                              child: dienstleisterListeView(),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   String _formatOeffnungszeitForTag(Map<String, dynamic> oeffnungszeiten, String key) {
     final raw = oeffnungszeiten[key];
     if (raw is! Map) return 'Geschlossen';
@@ -3481,6 +3707,12 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     if (isLoading || userPosition == null) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (kIsWeb && _selectedIndex == 0 && geoeffneterDienstleister == null) {
+      return Scaffold(
+        body: _buildWebDesktopSearchPage(),
       );
     }
 
