@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-class AlleDienstleisterWebShell extends StatelessWidget {
+class AlleDienstleisterWebShell extends StatefulWidget {
   final Widget child;
   final VoidCallback onPartnerWerdenPressed;
   final VoidCallback onMeinKontoPressed;
@@ -15,6 +15,30 @@ class AlleDienstleisterWebShell extends StatelessWidget {
   });
 
   @override
+  State<AlleDienstleisterWebShell> createState() =>
+      _AlleDienstleisterWebShellState();
+}
+
+class _AlleDienstleisterWebShellState extends State<AlleDienstleisterWebShell> {
+  static const double _headerFadeDistance = 180;
+  double _headerOpacity = 0;
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (!widget.showHeader) return false;
+    if (notification.depth > 0) return false;
+    if (notification.metrics.axis != Axis.vertical) return false;
+
+    final pixels = notification.metrics.pixels;
+    final nextOpacity = (pixels / _headerFadeDistance).clamp(0.0, 1.0);
+    if ((nextOpacity - _headerOpacity).abs() > 0.01) {
+      setState(() {
+        _headerOpacity = nextOpacity;
+      });
+    }
+    return false;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
@@ -25,11 +49,18 @@ class AlleDienstleisterWebShell extends StatelessWidget {
       ),
       child: Column(
         children: [
-          if (showHeader) _WebHeader(
-            onPartnerWerdenPressed: onPartnerWerdenPressed,
-            onMeinKontoPressed: onMeinKontoPressed,
+          if (widget.showHeader)
+            _WebHeader(
+              opacity: _headerOpacity,
+              onPartnerWerdenPressed: widget.onPartnerWerdenPressed,
+              onMeinKontoPressed: widget.onMeinKontoPressed,
+            ),
+          Expanded(
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _handleScrollNotification,
+              child: widget.child,
+            ),
           ),
-          Expanded(child: child),
         ],
       ),
     );
@@ -37,10 +68,12 @@ class AlleDienstleisterWebShell extends StatelessWidget {
 }
 
 class _WebHeader extends StatelessWidget {
+  final double opacity;
   final VoidCallback onPartnerWerdenPressed;
   final VoidCallback onMeinKontoPressed;
 
   const _WebHeader({
+    required this.opacity,
     required this.onPartnerWerdenPressed,
     required this.onMeinKontoPressed,
   });
@@ -49,13 +82,18 @@ class _WebHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final labels = ['Friseur', 'Barbershop', 'Nagelstudio', 'Kosmetikstudio'];
 
-    return Container(
+    final bgColor = Color.lerp(Colors.transparent, Colors.white, opacity)!;
+    final borderColor =
+        Color.lerp(Colors.transparent, const Color(0x14000000), opacity)!;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 140),
       height: 72,
       padding: const EdgeInsets.symmetric(horizontal: 28),
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: bgColor,
         border: Border(
-          bottom: BorderSide(color: Color(0x14000000)),
+          bottom: BorderSide(color: borderColor),
         ),
       ),
       child: Row(
