@@ -1,9 +1,21 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../widgets/alle_dienstleister_web_shell.dart';
+
 class PartnerWerdenPage extends StatefulWidget {
-  const PartnerWerdenPage({super.key});
+  final VoidCallback? onHeaderLogoPressed;
+  final VoidCallback? onHeaderPartnerWerdenPressed;
+  final VoidCallback? onHeaderMeinKontoPressed;
+
+  const PartnerWerdenPage({
+    super.key,
+    this.onHeaderLogoPressed,
+    this.onHeaderPartnerWerdenPressed,
+    this.onHeaderMeinKontoPressed,
+  });
 
   @override
   State<PartnerWerdenPage> createState() => _PartnerWerdenPageState();
@@ -171,61 +183,85 @@ class _PartnerWerdenPageState extends State<PartnerWerdenPage> {
     final isWide = width >= 1100;
     final isTablet = width >= 700 && width < 1100;
 
+    final content = SafeArea(
+      top: !kIsWeb,
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.symmetric(
+            horizontal: isWide ? 32 : 18,
+            vertical: isWide ? 28 : 18,
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1400),
+            child: isWide
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 11,
+                        child: _buildLeftHero(isWide: true),
+                      ),
+                      const SizedBox(width: 28),
+                      Expanded(
+                        flex: 10,
+                        child: _isSubmittedSuccessfully
+                            ? _buildSuccessView(isWideCard: true)
+                            : _buildFormCard(isWideCard: true),
+                      ),
+                    ],
+                  )
+                : Column(
+                    children: [
+                      _buildLeftHero(isWide: false),
+                      const SizedBox(height: 20),
+                      _isSubmittedSuccessfully
+                          ? _buildSuccessView(isWideCard: isTablet)
+                          : _buildFormCard(isWideCard: isTablet),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+
     return Scaffold(
       backgroundColor: _bgColor,
-      appBar: AppBar(
-        title: const Text(
-          "Partner werden",
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-            color: _textPrimary,
-          ),
-        ),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: const Color(0xFFF4EEF7),
-        foregroundColor: _textPrimary,
-      ),
-      body: SafeArea(
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: SingleChildScrollView(
-            padding: EdgeInsets.symmetric(
-              horizontal: isWide ? 32 : 18,
-              vertical: isWide ? 28 : 18,
-            ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1400),
-              child: isWide
-                  ? Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 11,
-                    child: _buildLeftHero(isWide: true),
-                  ),
-                  const SizedBox(width: 28),
-                  Expanded(
-                    flex: 10,
-                    child: _isSubmittedSuccessfully
-                        ? _buildSuccessView(isWideCard: true)
-                        : _buildFormCard(isWideCard: true),
-                  ),
-                ],
-              )
-                  : Column(
-                children: [
-                  _buildLeftHero(isWide: false),
-                  const SizedBox(height: 20),
-                  _isSubmittedSuccessfully
-                      ? _buildSuccessView(isWideCard: isTablet)
-                      : _buildFormCard(isWideCard: isTablet),
-                ],
+      appBar: kIsWeb
+          ? null
+          : AppBar(
+              title: const Text(
+                "Partner werden",
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: _textPrimary,
+                ),
               ),
+              centerTitle: true,
+              elevation: 0,
+              backgroundColor: const Color(0xFFF4EEF7),
+              foregroundColor: _textPrimary,
             ),
-          ),
-        ),
-      ),
+      body: kIsWeb
+          ? Column(
+              children: [
+                TerminiWebHeader(
+                  opacity: 1,
+                  onLogoPressed: widget.onHeaderLogoPressed ??
+                      () {
+                        Navigator.of(context).maybePop();
+                      },
+                  onPartnerWerdenPressed: widget.onHeaderPartnerWerdenPressed ??
+                      () {},
+                  onMeinKontoPressed: widget.onHeaderMeinKontoPressed ??
+                      () {
+                        Navigator.of(context).maybePop();
+                      },
+                ),
+                Expanded(child: content),
+              ],
+            )
+          : content,
     );
   }
 
