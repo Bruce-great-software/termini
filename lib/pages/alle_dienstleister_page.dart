@@ -11,6 +11,9 @@ import 'package:geocoding/geocoding.dart';
 
 import '../services/location_service.dart';
 import '../widgets/dienstleister_tile.dart';
+import '../widgets/address_action_button.dart';
+import 'alle_dienstleister_page_models.dart';
+import 'alle_dienstleister_page_utils.dart';
 import 'dienstleister_detail_page.dart';
 import 'kunden_favoriten_page.dart';
 import 'kunden_termine_page.dart';
@@ -21,108 +24,6 @@ import 'partner_werden_page.dart';
 
 import 'package:flutter/cupertino.dart';
 import 'package:url_launcher/url_launcher.dart';
-
-/// Sortierreihenfolge für Preise / Distanz
-enum SortOrder { none, priceAsc, priceDesc, distanceAsc }
-
-enum _SuggestionType { leistung, dienstleister }
-
-class _SearchSuggestion {
-  final _SuggestionType type;
-  final String title;
-  final String subtitle;
-  final String? dienstleisterId;
-  final String? logoUrl;
-
-  const _SearchSuggestion.leistung(this.title)
-      : type = _SuggestionType.leistung,
-        subtitle = '',
-        dienstleisterId = null,
-        logoUrl = null;
-
-  const _SearchSuggestion.dienstleister({
-    required this.title,
-    required this.subtitle,
-    required this.dienstleisterId,
-    required this.logoUrl,
-  }) : type = _SuggestionType.dienstleister;
-}
-
-
-enum _LocationSuggestionType { currentLocation, countryWide, ort }
-
-class _LocationSuggestion {
-  final _LocationSuggestionType type;
-  final String label;
-  final String fillValue;
-
-  const _LocationSuggestion._({
-    required this.type,
-    required this.label,
-    required this.fillValue,
-  });
-
-  factory _LocationSuggestion.currentLocation(String city) {
-    final trimmedCity = city.trim();
-    return _LocationSuggestion._(
-      type: _LocationSuggestionType.currentLocation,
-      label: 'Aktueller Standort',
-      fillValue: trimmedCity.isNotEmpty ? trimmedCity : 'Aktueller Standort',
-    );
-  }
-
-  const _LocationSuggestion.countryWide()
-      : this._(
-    type: _LocationSuggestionType.countryWide,
-    label: 'Ganz Deutschland',
-    fillValue: 'Ganz Deutschland',
-  );
-
-  factory _LocationSuggestion.ort(String value) => _LocationSuggestion._(
-    type: _LocationSuggestionType.ort,
-    label: value,
-    fillValue: value,
-  );
-}
-
-class _AddressActionButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final VoidCallback? onPressed;
-
-  const _AddressActionButton({
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ElevatedButton.icon(
-      onPressed: onPressed,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFFD8F4F6),
-        foregroundColor: const Color(0xFF0B7B8A),
-        elevation: 0,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        minimumSize: Size.zero,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(999),
-        ),
-      ),
-      icon: Icon(icon, size: 16),
-      label: Text(
-        label,
-        style: const TextStyle(
-          fontWeight: FontWeight.w700,
-          fontSize: 12,
-        ),
-      ),
-    );
-  }
-}
 
 class AlleDienstleisterPage extends StatefulWidget {
   final int initialTabIndex;
@@ -146,49 +47,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   void _onSuchbegriffChanged(String wert) {
     if (kDebugMode) print("Suchbegriff: $wert");
-  }
-
-  TextSpan _buildHighlightedSpan({
-    required String fullText,
-    required String query,
-    TextStyle? baseStyle,
-  }) {
-    final q = query.trim();
-    if (q.isEmpty) {
-      return TextSpan(text: fullText, style: baseStyle);
-    }
-
-    final lowerText = fullText.toLowerCase();
-    final lowerQuery = q.toLowerCase();
-    final spans = <TextSpan>[];
-    int start = 0;
-
-    while (true) {
-      final index = lowerText.indexOf(lowerQuery, start);
-      if (index < 0) {
-        if (start < fullText.length) {
-          spans.add(TextSpan(text: fullText.substring(start), style: baseStyle));
-        }
-        break;
-      }
-
-      if (index > start) {
-        spans.add(TextSpan(text: fullText.substring(start, index), style: baseStyle));
-      }
-
-      spans.add(
-        TextSpan(
-          text: fullText.substring(index, index + q.length),
-          style: (baseStyle ?? const TextStyle()).copyWith(
-            fontWeight: FontWeight.bold,
-            decoration: TextDecoration.underline,
-          ),
-        ),
-      );
-      start = index + q.length;
-    }
-
-    return TextSpan(children: spans, style: baseStyle);
   }
 
   Future<void> _activateSearchMode(String query) async {
@@ -265,7 +123,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     setState(() {
       _isCurrentLocationSelected = true;
       _selectedLocationValue = selected;
-      _selectedLocationLabel = _buildLocationChipLabel(selected);
+      _selectedLocationLabel = AlleDienstleisterPageUtils.buildLocationChipLabel(selected);
     });
   }
 
@@ -279,7 +137,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     setState(() {
       _isCurrentLocationSelected = true;
       _selectedLocationValue = trimmed;
-      _selectedLocationLabel = _buildLocationChipLabel(trimmed);
+      _selectedLocationLabel = AlleDienstleisterPageUtils.buildLocationChipLabel(trimmed);
     });
   }
 
@@ -359,7 +217,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 _isCurrentLocationSelected = isCurrentLocationSelection;
                 _selectedLocationValue = isCurrentLocationSelection ? selected : null;
                 _selectedLocationLabel = isCurrentLocationSelection
-                    ? _buildLocationChipLabel(selected)
+                    ? AlleDienstleisterPageUtils.buildLocationChipLabel(selected)
                     : null;
               });
               _suchfeldController.text = selected;
@@ -474,7 +332,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                           color: Colors.white,
                                           fontSize: 16,
                                         ),
-                                        children: _buildHighlightedSpans(
+                                        children: AlleDienstleisterPageUtils.buildHighlightedSpans(
                                           eintrag,
                                           controller.text.trim(),
                                         ),
@@ -587,75 +445,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     final sortedContains = contains.toList()..sort(sortFn);
 
     return [...sortedStartsWith, ...sortedContains].take(8).toList();
-  }
-
-  List<TextSpan> _buildHighlightedSpans(String text, String query) {
-    final normalizedQuery = query.trim();
-    if (normalizedQuery.isEmpty) {
-      return [TextSpan(text: text)];
-    }
-
-    final lowerText = text.toLowerCase();
-    final lowerQuery = normalizedQuery.toLowerCase();
-    final idx = lowerText.indexOf(lowerQuery);
-    if (idx < 0) {
-      return [TextSpan(text: text)];
-    }
-
-    final before = text.substring(0, idx);
-    final match = text.substring(idx, idx + normalizedQuery.length);
-    final after = text.substring(idx + normalizedQuery.length);
-
-    return [
-      if (before.isNotEmpty) TextSpan(text: before),
-      TextSpan(
-        text: match,
-        style: const TextStyle(fontWeight: FontWeight.bold),
-      ),
-      if (after.isNotEmpty) TextSpan(text: after),
-    ];
-  }
-
-  String _buildLocationChipLabel(String value) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) return trimmed;
-    final match = RegExp(r'^\d{4,6}\s+(.+)$').firstMatch(trimmed);
-    if (match != null) {
-      final cityPart = (match.group(1) ?? '').trim();
-      if (cityPart.isNotEmpty) return cityPart;
-    }
-    return trimmed;
-  }
-
-  bool _matchesSelectedLocation(Map<String, dynamic> data) {
-    if (!_isCurrentLocationSelected) return true;
-
-    final rawSelection =
-    (_selectedLocationValue ?? _selectedLocationLabel ?? '').trim();
-    if (rawSelection.isEmpty) return true;
-
-    final normalizedSelection = rawSelection.toLowerCase();
-    if (normalizedSelection == 'ganz deutschland') return true;
-
-    final ort = (data['ort'] ?? '').toString().trim().toLowerCase();
-    final plz = (data['plz'] ?? '').toString().trim().toLowerCase();
-    final adresse = (data['adresse'] ?? '').toString().trim().toLowerCase();
-
-    final match = RegExp(r'^(\d{4,6})\s+(.+)$').firstMatch(normalizedSelection);
-    if (match != null) {
-      final selectedPlz = (match.group(1) ?? '').trim();
-      final selectedOrt = (match.group(2) ?? '').trim();
-
-      final plzPasst = selectedPlz.isEmpty || plz.contains(selectedPlz);
-      final ortPasst = selectedOrt.isEmpty ||
-          ort.contains(selectedOrt) ||
-          adresse.contains(selectedOrt);
-      return plzPasst && ortPasst;
-    }
-
-    return ort.contains(normalizedSelection) ||
-        plz.contains(normalizedSelection) ||
-        adresse.contains(normalizedSelection);
   }
 
   Future<List<Map<String, dynamic>>> _searchGooglePlaces(String query) async {
@@ -2809,10 +2598,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   // ---------- Suchfeld + Filterbutton ----------
   Widget _buildLeistungSuchfeld() {
-    return Autocomplete<_SearchSuggestion>(
+    return Autocomplete<SearchSuggestion>(
       optionsBuilder: (TextEditingValue textEditingValue) async {
         if (textEditingValue.text == '') {
-          return const Iterable<_SearchSuggestion>.empty();
+          return const Iterable<SearchSuggestion>.empty();
         }
         final vorschlaegeLeistungen =
         await _ladeLeistungsVorschlaege(textEditingValue.text);
@@ -2820,10 +2609,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         await _ladeDienstleisterVorschlaege(textEditingValue.text);
 
         final leistungen =
-        vorschlaegeLeistungen.map((e) => _SearchSuggestion.leistung(e)).toList();
+        vorschlaegeLeistungen.map((e) => SearchSuggestion.leistung(e)).toList();
         final dienstleister = vorschlaegeDienstleister
             .map(
-              (e) => _SearchSuggestion.dienstleister(
+              (e) => SearchSuggestion.dienstleister(
             title: (e['name'] ?? '').toString(),
             subtitle:
             '${(e['plz'] ?? '').toString()} ${(e['ort'] ?? '').toString()}'.trim(),
@@ -2853,7 +2642,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 separatorBuilder: (_, __) => const Divider(height: 1),
                 itemBuilder: (context, index) {
                   final item = items[index];
-                  if (item.type == _SuggestionType.dienstleister) {
+                  if (item.type == SuggestionType.dienstleister) {
                     return ListTile(
                       leading: CircleAvatar(
                         radius: 22,
@@ -2866,14 +2655,14 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                             : null,
                       ),
                       title: RichText(
-                        text: _buildHighlightedSpan(
+                        text: AlleDienstleisterPageUtils.buildHighlightedSpan(
                           fullText: item.title,
                           query: highlightQuery,
                           baseStyle: Theme.of(context).textTheme.bodyLarge,
                         ),
                       ),
                       subtitle: RichText(
-                        text: _buildHighlightedSpan(
+                        text: AlleDienstleisterPageUtils.buildHighlightedSpan(
                           fullText: item.subtitle,
                           query: highlightQuery,
                           baseStyle: Theme.of(context).textTheme.bodyMedium,
@@ -2885,7 +2674,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                   return ListTile(
                     leading: const Icon(Icons.search),
                     title: RichText(
-                      text: _buildHighlightedSpan(
+                      text: AlleDienstleisterPageUtils.buildHighlightedSpan(
                         fullText: item.title,
                         query: highlightQuery,
                         baseStyle: Theme.of(context).textTheme.bodyLarge,
@@ -2899,9 +2688,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           ),
         );
       },
-      onSelected: (_SearchSuggestion auswahl) async {
+      onSelected: (SearchSuggestion auswahl) async {
         _suchfeldController.text = auswahl.title;
-        if (auswahl.type == _SuggestionType.dienstleister &&
+        if (auswahl.type == SuggestionType.dienstleister &&
             (auswahl.dienstleisterId ?? '').isNotEmpty) {
           final doc = await FirebaseFirestore.instance
               .collection('users')
@@ -2989,12 +2778,12 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
   }
 
   Widget _buildOrtSuchfeld() {
-    return Autocomplete<_LocationSuggestion>(
+    return Autocomplete<LocationSuggestion>(
       optionsBuilder: (TextEditingValue textEditingValue) async {
         final query = textEditingValue.text.trim();
-        final items = <_LocationSuggestion>[
-          _LocationSuggestion.currentLocation(currentCity ?? ''),
-          const _LocationSuggestion.countryWide(),
+        final items = <LocationSuggestion>[
+          LocationSuggestion.currentLocation(currentCity ?? ''),
+          const LocationSuggestion.countryWide(),
         ];
 
         if (query.isNotEmpty) {
@@ -3003,7 +2792,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             if (!items.any(
                   (item) => item.fillValue.toLowerCase() == ort.toLowerCase(),
             )) {
-              items.add(_LocationSuggestion.ort(ort));
+              items.add(LocationSuggestion.ort(ort));
             }
           }
         }
@@ -3031,17 +2820,17 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                   itemBuilder: (context, index) {
                     final item = items[index];
                     final icon = switch (item.type) {
-                      _LocationSuggestionType.currentLocation => Icons.my_location,
-                      _LocationSuggestionType.countryWide => Icons.public,
-                      _LocationSuggestionType.ort => Icons.location_on_outlined,
+                      LocationSuggestionType.currentLocation => Icons.my_location,
+                      LocationSuggestionType.countryWide => Icons.public,
+                      LocationSuggestionType.ort => Icons.location_on_outlined,
                     };
-                    final textToHighlight = item.type == _LocationSuggestionType.ort
+                    final textToHighlight = item.type == LocationSuggestionType.ort
                         ? item.fillValue
                         : item.label;
                     return ListTile(
                       leading: Icon(icon, color: Colors.black54),
                       title: RichText(
-                        text: _buildHighlightedSpan(
+                        text: AlleDienstleisterPageUtils.buildHighlightedSpan(
                           fullText: textToHighlight,
                           query: highlightQuery,
                           baseStyle: Theme.of(context).textTheme.bodyLarge,
@@ -3056,12 +2845,12 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           ),
         );
       },
-      onSelected: (_LocationSuggestion auswahl) {
+      onSelected: (LocationSuggestion auswahl) {
         final selectedValue = switch (auswahl.type) {
-          _LocationSuggestionType.currentLocation =>
+          LocationSuggestionType.currentLocation =>
           (currentCity ?? '').trim().isNotEmpty ? currentCity!.trim() : 'Aktueller Standort',
-          _LocationSuggestionType.countryWide => 'Ganz Deutschland',
-          _LocationSuggestionType.ort => auswahl.fillValue,
+          LocationSuggestionType.countryWide => 'Ganz Deutschland',
+          LocationSuggestionType.ort => auswahl.fillValue,
         };
         _setSelectedLocation(selectedValue);
         _dismissKeyboard();
@@ -3275,7 +3064,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
             if (!suchFelder.contains(search)) return;
 
-            if (!_matchesSelectedLocation(data)) return;
+            if (!AlleDienstleisterPageUtils.matchesSelectedLocation(isCurrentLocationSelected: _isCurrentLocationSelected, selectedLocationValue: _selectedLocationValue, selectedLocationLabel: _selectedLocationLabel, data: data)) return;
 
             final branche = data['branche']?.toString();
             final branchePasst = ausgewaehlteBranchen.isEmpty ||
@@ -3473,7 +3262,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
             if (_gefilterteDienstleisterIds.isNotEmpty) {
               if (_gefilterteDienstleisterIds.contains(data['id'])) {
-                if (!_matchesSelectedLocation(data)) {
+                if (!AlleDienstleisterPageUtils.matchesSelectedLocation(isCurrentLocationSelected: _isCurrentLocationSelected, selectedLocationValue: _selectedLocationValue, selectedLocationLabel: _selectedLocationLabel, data: data)) {
                   return;
                 }
                 final matched =
@@ -3543,7 +3332,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                 zielgruppePasst &&
                 kategoriePasst &&
                 leistungPasst &&
-                _matchesSelectedLocation(data)) {
+                AlleDienstleisterPageUtils.matchesSelectedLocation(isCurrentLocationSelected: _isCurrentLocationSelected, selectedLocationValue: _selectedLocationValue, selectedLocationLabel: _selectedLocationLabel, data: data)) {
               dienstleisterMitLeistungen.add(data);
             }
           })),
@@ -3751,7 +3540,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                 style: TextStyle(fontWeight: FontWeight.w700),
                               ),
                               const Spacer(),
-                              _AddressActionButton(
+                              AddressActionButton(
                                 label: 'Route',
                                 icon: Icons.directions,
                                 onPressed: hasGeo
@@ -3762,7 +3551,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                     : null,
                               ),
                               const SizedBox(width: 8),
-                              _AddressActionButton(
+                              AddressActionButton(
                                 label: 'Starten',
                                 icon: Icons.navigation,
                                 onPressed: hasGeo
