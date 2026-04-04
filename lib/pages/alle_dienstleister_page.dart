@@ -785,13 +785,18 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     });
   }
 
-  Future<int> _countMatchesBasedOnSelections({List<String>? branchen}) async {
+  Future<int> _countMatchesBasedOnSelections({
+    List<String>? branchen,
+    List<String>? zielgruppen,
+  }) async {
+    final selectedZielgruppen = zielgruppen ?? ausgewaehlteZielgruppen;
+
     if (ausgewaehlteLeistungen.isEmpty) {
       final selBranchen =
           branchen ?? (ausgewaehlteBranchen.isNotEmpty ? ausgewaehlteBranchen : null);
       final branchIds = await _dienstleisterIdsFuerBranchen(selBranchen);
 
-      if (ausgewaehlteZielgruppen.isNotEmpty) {
+      if (selectedZielgruppen.isNotEmpty) {
         final offersSnap =
             await FirebaseFirestore.instance.collection('angebote').get();
         final ids = <String>{};
@@ -805,8 +810,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           final zgMap = data['zielgruppen'];
           if (zgMap is! Map) continue;
 
-          final hasMatch = ausgewaehlteZielgruppen
-              .any((zg) => zgMap.containsKey(zg));
+          final hasMatch = selectedZielgruppen.any((zg) => zgMap.containsKey(zg));
           if (hasMatch) ids.add(id);
         }
         return ids.length;
@@ -1940,8 +1944,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     SortOrder tempSortOrder = _sortOrder;
     final List<String> tempZielgruppen = List<String>.from(ausgewaehlteZielgruppen);
 
-    int previewCount =
-    await _countMatchesBasedOnSelections(branchen: tempBranchen.toList());
+    int previewCount = await _countMatchesBasedOnSelections(
+      branchen: tempBranchen.toList(),
+      zielgruppen: tempZielgruppen,
+    );
 
     await showModalBottomSheet(
       context: context,
@@ -1956,7 +1962,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           builder: (context, setModalState) {
             Future<void> _recalc() async {
               final c = await _countMatchesBasedOnSelections(
-                  branchen: tempBranchen.toList());
+                branchen: tempBranchen.toList(),
+                zielgruppen: tempZielgruppen,
+              );
               setModalState(() => previewCount = c);
             }
 
@@ -2023,7 +2031,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                               ),
                             ),
                             selected: selected,
-                            onSelected: (_) {
+                            onSelected: (_) async {
                               setModalState(() {
                                 if (selected) {
                                   tempZielgruppen.remove(zg);
@@ -2031,6 +2039,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                   tempZielgruppen.add(zg);
                                 }
                               });
+                              await _recalc();
                             },
                             selectedColor: Colors.blueAccent,
                             backgroundColor: Colors.white,
