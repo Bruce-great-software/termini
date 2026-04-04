@@ -25,7 +25,7 @@ import 'package:url_launcher/url_launcher.dart';
 /// Sortierreihenfolge für Preise / Distanz
 enum SortOrder { none, priceAsc, priceDesc, distanceAsc }
 
-enum _SuggestionType { leistung, dienstleister }
+enum _SuggestionType { leistung, dienstleister, branche }
 
 class _SearchSuggestion {
   final _SuggestionType type;
@@ -36,6 +36,12 @@ class _SearchSuggestion {
 
   const _SearchSuggestion.leistung(this.title)
       : type = _SuggestionType.leistung,
+        subtitle = '',
+        dienstleisterId = null,
+        logoUrl = null;
+
+  const _SearchSuggestion.branche(this.title)
+      : type = _SuggestionType.branche,
         subtitle = '',
         dienstleisterId = null,
         logoUrl = null;
@@ -1094,6 +1100,37 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     matches.sort((a, b) =>
         (a['name'] as String).toLowerCase().compareTo((b['name'] as String).toLowerCase()));
     return matches.take(8).toList();
+  }
+
+  Future<List<String>> _ladeBranchenVorschlaege(String eingabe) async {
+    final search = eingabe.trim().toLowerCase();
+    if (search.isEmpty) return [];
+
+    final snap = await FirebaseFirestore.instance
+        .collection('branchen')
+        .where('aktiv', isEqualTo: true)
+        .get();
+
+    final startsWith = <String>{};
+    final contains = <String>{};
+
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final name = ((data['name'] as String?) ?? doc.id).trim();
+      if (name.isEmpty) continue;
+      final lc = name.toLowerCase();
+      if (lc.startsWith(search)) {
+        startsWith.add(name);
+      } else if (lc.contains(search)) {
+        contains.add(name);
+      }
+    }
+
+    final sortFn = (String a, String b) =>
+        a.toLowerCase().compareTo(b.toLowerCase());
+    final sortedStartsWith = startsWith.toList()..sort(sortFn);
+    final sortedContains = contains.toList()..sort(sortFn);
+    return [...sortedStartsWith, ...sortedContains].take(8).toList();
   }
 
   Future<void> _openDienstleisterFromSuggestion(Map<String, dynamic> suggestion) async {
@@ -2818,9 +2855,13 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         await _ladeLeistungsVorschlaege(textEditingValue.text);
         final vorschlaegeDienstleister =
         await _ladeDienstleisterVorschlaege(textEditingValue.text);
+        final vorschlaegeBranchen =
+        await _ladeBranchenVorschlaege(textEditingValue.text);
 
         final leistungen =
         vorschlaegeLeistungen.map((e) => _SearchSuggestion.leistung(e)).toList();
+        final branchen =
+        vorschlaegeBranchen.map((e) => _SearchSuggestion.branche(e)).toList();
         final dienstleister = vorschlaegeDienstleister
             .map(
               (e) => _SearchSuggestion.dienstleister(
@@ -2833,7 +2874,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         )
             .toList();
 
-        return [...dienstleister, ...leistungen];
+        return [...dienstleister, ...branchen, ...leistungen];
       },
       displayStringForOption: (option) => option.title,
       optionsViewBuilder: (context, onSelected, options) {
@@ -2913,6 +2954,26 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             ...data,
             'id': doc.id,
           });
+          return;
+        }
+
+        if (auswahl.type == _SuggestionType.branche) {
+          setState(() {
+            ausgewaehlteBranchen
+              ..clear()
+              ..add(auswahl.title);
+            _ausgewaehlteLeistung = null;
+            _gefilterteDienstleisterIds = [];
+            ausgewaehlteZielgruppen.clear();
+            ausgewaehlteKategorien.clear();
+            ausgewaehlteLeistungen.clear();
+          });
+          await _ladeZielgruppenUndKategorien();
+          await _applyOfferFiltersFromSelections(
+            branchen: List<String>.from(ausgewaehlteBranchen),
+          );
+          _clearSearchMode();
+          _dismissKeyboard();
           return;
         }
 
@@ -3271,6 +3332,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               (data['plz'] ?? '').toString(),
               (data['strasse'] ?? '').toString(),
               (data['hausnummer'] ?? '').toString(),
+              (data['branche'] ?? '').toString(),
             ].join(' ').toLowerCase();
 
             if (!suchFelder.contains(search)) return;
