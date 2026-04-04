@@ -10,6 +10,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geocoding/geocoding.dart';
 
 import '../services/location_service.dart';
+import '../widgets/alle_dienstleister_web_shell.dart';
 import '../widgets/dienstleister_tile.dart';
 import 'dienstleister_detail_page.dart';
 import 'kunden_favoriten_page.dart';
@@ -25,7 +26,7 @@ import 'package:url_launcher/url_launcher.dart';
 /// Sortierreihenfolge für Preise / Distanz
 enum SortOrder { none, priceAsc, priceDesc, distanceAsc }
 
-enum _SuggestionType { leistung, dienstleister, branche }
+enum _SuggestionType { leistung, dienstleister }
 
 class _SearchSuggestion {
   final _SuggestionType type;
@@ -36,12 +37,6 @@ class _SearchSuggestion {
 
   const _SearchSuggestion.leistung(this.title)
       : type = _SuggestionType.leistung,
-        subtitle = '',
-        dienstleisterId = null,
-        logoUrl = null;
-
-  const _SearchSuggestion.branche(this.title)
-      : type = _SuggestionType.branche,
         subtitle = '',
         dienstleisterId = null,
         logoUrl = null;
@@ -1100,37 +1095,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     matches.sort((a, b) =>
         (a['name'] as String).toLowerCase().compareTo((b['name'] as String).toLowerCase()));
     return matches.take(8).toList();
-  }
-
-  Future<List<String>> _ladeBranchenVorschlaege(String eingabe) async {
-    final search = eingabe.trim().toLowerCase();
-    if (search.isEmpty) return [];
-
-    final snap = await FirebaseFirestore.instance
-        .collection('branchen')
-        .where('aktiv', isEqualTo: true)
-        .get();
-
-    final startsWith = <String>{};
-    final contains = <String>{};
-
-    for (final doc in snap.docs) {
-      final data = doc.data();
-      final name = ((data['name'] as String?) ?? doc.id).trim();
-      if (name.isEmpty) continue;
-      final lc = name.toLowerCase();
-      if (lc.startsWith(search)) {
-        startsWith.add(name);
-      } else if (lc.contains(search)) {
-        contains.add(name);
-      }
-    }
-
-    final sortFn = (String a, String b) =>
-        a.toLowerCase().compareTo(b.toLowerCase());
-    final sortedStartsWith = startsWith.toList()..sort(sortFn);
-    final sortedContains = contains.toList()..sort(sortFn);
-    return [...sortedStartsWith, ...sortedContains].take(8).toList();
   }
 
   Future<void> _openDienstleisterFromSuggestion(Map<String, dynamic> suggestion) async {
@@ -2378,139 +2342,12 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   // ----------------------------------------------------------
 
-  Widget _buildWebBackground({required Widget child}) {
-    if (!kIsWeb) return child;
-
-    return Container(
-      decoration: const BoxDecoration(
-        image: DecorationImage(
-          image: AssetImage('assets/termini.png'),
-          fit: BoxFit.cover,
-        ),
-      ),
-      child: child,
-    );
-  }
-
   void _openProfilFromWebHeader() {
     setState(() {
       geoeffneterDienstleister = null;
       _dienstleisterFavorisiert = false;
       _selectedIndex = 3;
     });
-  }
-
-  Widget _buildWebHeader() {
-    final labels = ['Friseur', 'Barbershop', 'Nagelstudio', 'Kosmetikstudio'];
-
-    return Container(
-      height: 72,
-      padding: const EdgeInsets.symmetric(horizontal: 28),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(
-          bottom: BorderSide(color: Color(0x14000000)),
-        ),
-      ),
-      child: Row(
-        children: [
-          const Text(
-            'TERMINI',
-            style: TextStyle(
-              color: Colors.black,
-              fontSize: 26,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 2.6,
-              height: 1,
-            ),
-          ),
-          const SizedBox(width: 40),
-          Expanded(
-            child: Center(
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 34,
-                runSpacing: 8,
-                children: labels
-                    .map(
-                      (label) => Text(
-                    label,
-                    style: const TextStyle(
-                      color: Colors.black87,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                )
-                    .toList(),
-              ),
-            ),
-          ),
-          const SizedBox(width: 24),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const PartnerWerdenPage(),
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.black,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text(
-              'Partner werden',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 15,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          ElevatedButton.icon(
-            onPressed: _openProfilFromWebHeader,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.black,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            icon: const Icon(Icons.person_outline, size: 18),
-            label: const Text(
-              'Mein Konto',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 15,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildWebPageShell({required Widget child}) {
-    if (!kIsWeb || geoeffneterDienstleister != null) {
-      return child;
-    }
-
-    return Column(
-      children: [
-        _buildWebHeader(),
-        Expanded(child: child),
-      ],
-    );
   }
 
   Widget _buildBodyByIndex(int index) {
@@ -2855,13 +2692,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         await _ladeLeistungsVorschlaege(textEditingValue.text);
         final vorschlaegeDienstleister =
         await _ladeDienstleisterVorschlaege(textEditingValue.text);
-        final vorschlaegeBranchen =
-        await _ladeBranchenVorschlaege(textEditingValue.text);
 
         final leistungen =
         vorschlaegeLeistungen.map((e) => _SearchSuggestion.leistung(e)).toList();
-        final branchen =
-        vorschlaegeBranchen.map((e) => _SearchSuggestion.branche(e)).toList();
         final dienstleister = vorschlaegeDienstleister
             .map(
               (e) => _SearchSuggestion.dienstleister(
@@ -2874,7 +2707,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         )
             .toList();
 
-        return [...dienstleister, ...branchen, ...leistungen];
+        return [...dienstleister, ...leistungen];
       },
       displayStringForOption: (option) => option.title,
       optionsViewBuilder: (context, onSelected, options) {
@@ -2954,26 +2787,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             ...data,
             'id': doc.id,
           });
-          return;
-        }
-
-        if (auswahl.type == _SuggestionType.branche) {
-          setState(() {
-            ausgewaehlteBranchen
-              ..clear()
-              ..add(auswahl.title);
-            _ausgewaehlteLeistung = null;
-            _gefilterteDienstleisterIds = [];
-            ausgewaehlteZielgruppen.clear();
-            ausgewaehlteKategorien.clear();
-            ausgewaehlteLeistungen.clear();
-          });
-          await _ladeZielgruppenUndKategorien();
-          await _applyOfferFiltersFromSelections(
-            branchen: List<String>.from(ausgewaehlteBranchen),
-          );
-          _clearSearchMode();
-          _dismissKeyboard();
           return;
         }
 
@@ -3332,7 +3145,6 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               (data['plz'] ?? '').toString(),
               (data['strasse'] ?? '').toString(),
               (data['hausnummer'] ?? '').toString(),
-              (data['branche'] ?? '').toString(),
             ].join(' ').toLowerCase();
 
             if (!suchFelder.contains(search)) return;
@@ -4065,11 +3877,21 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             : null,
       )
           : null,
-      body: _buildWebBackground(
-        child: _buildWebPageShell(
-          child: _buildBodyByIndex(_selectedIndex),
-        ),
-      ),
+      body: kIsWeb
+          ? AlleDienstleisterWebShell(
+        showHeader: geoeffneterDienstleister == null,
+        onMeinKontoPressed: _openProfilFromWebHeader,
+        onPartnerWerdenPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const PartnerWerdenPage(),
+            ),
+          );
+        },
+        child: _buildBodyByIndex(_selectedIndex),
+      )
+          : _buildBodyByIndex(_selectedIndex),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
