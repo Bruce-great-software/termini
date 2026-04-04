@@ -2134,6 +2134,36 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return requirements;
   }
 
+  String _normalizeOfferIdForMatching(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return '';
+
+    final normalizedSlashes = trimmed.replaceAll('\\', '/');
+    final lower = normalizedSlashes.toLowerCase();
+
+    if (lower.startsWith('angebote/')) {
+      return normalizedSlashes.substring('angebote/'.length).trim().toLowerCase();
+    }
+
+    if (lower.startsWith('/angebote/')) {
+      return normalizedSlashes.substring('/angebote/'.length).trim().toLowerCase();
+    }
+
+    final parts = normalizedSlashes
+        .split('/')
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.length >= 2) {
+      final penultimate = parts[parts.length - 2].toLowerCase();
+      if (penultimate == 'angebote') {
+        return parts.last.toLowerCase();
+      }
+    }
+
+    return normalizedSlashes.toLowerCase();
+  }
+
   bool _mitarbeiterSupportsRequirements({
     required Map<String, dynamic> mitarbeiterData,
     required List<_BookingRequirement> requirements,
@@ -2144,22 +2174,24 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
     final assignments = raw.whereType<Map>().map((entry) {
       final mapped = Map<String, dynamic>.from(entry);
-      final angebotId = (mapped['angebotId'] as String? ?? '').trim();
+      final angebotId = _normalizeOfferIdForMatching(
+        mapped['angebotId'] as String? ?? '',
+      );
       final zielgruppen = (mapped['zielgruppen'] is List)
           ? List<String>.from(mapped['zielgruppen'])
-          .map((zg) => zg.trim().toLowerCase())
-          .where((zg) => zg.isNotEmpty)
-          .toSet()
+              .map((zg) => zg.trim().toLowerCase())
+              .where((zg) => zg.isNotEmpty)
+              .toSet()
           : <String>{};
       return (angebotId: angebotId, zielgruppen: zielgruppen);
     }).where((entry) => entry.angebotId.isNotEmpty).toList();
 
     for (final requirement in requirements) {
-      final requiredOffer = requirement.angebotId.trim().toLowerCase();
+      final requiredOffer = _normalizeOfferIdForMatching(requirement.angebotId);
       final requiredZg = requirement.zielgruppe.trim().toLowerCase();
       final hasMatch = assignments.any(
-            (entry) =>
-        entry.angebotId.toLowerCase() == requiredOffer &&
+        (entry) =>
+            entry.angebotId == requiredOffer &&
             entry.zielgruppen.contains(requiredZg),
       );
       if (!hasMatch) {
