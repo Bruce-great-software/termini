@@ -25,7 +25,7 @@ import 'package:url_launcher/url_launcher.dart';
 /// Sortierreihenfolge für Preise / Distanz
 enum SortOrder { none, priceAsc, priceDesc, distanceAsc }
 
-enum _SuggestionType { leistung, dienstleister }
+enum _SuggestionType { leistung, dienstleister, branche }
 
 class _SearchSuggestion {
   final _SuggestionType type;
@@ -36,6 +36,12 @@ class _SearchSuggestion {
 
   const _SearchSuggestion.leistung(this.title)
       : type = _SuggestionType.leistung,
+        subtitle = '',
+        dienstleisterId = null,
+        logoUrl = null;
+
+  const _SearchSuggestion.branche(this.title)
+      : type = _SuggestionType.branche,
         subtitle = '',
         dienstleisterId = null,
         logoUrl = null;
@@ -1096,6 +1102,24 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     return matches.take(8).toList();
   }
 
+  Future<List<String>> _ladeBranchenVorschlaege(String eingabe) async {
+    final search = eingabe.trim().toLowerCase();
+    if (search.isEmpty) return [];
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('branchen')
+        .get();
+
+    final matches = snapshot.docs
+        .map((doc) => (doc['name'] ?? '').toString().trim())
+        .where((name) => name.isNotEmpty && name.toLowerCase().contains(search))
+        .toSet()
+        .toList();
+
+    matches.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return matches.take(8).toList();
+  }
+
   Future<void> _openDienstleisterFromSuggestion(Map<String, dynamic> suggestion) async {
     final data = Map<String, dynamic>.from(suggestion);
     final geo = data['geo'];
@@ -1157,6 +1181,27 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     final List<String>? aktuelleBranchen =
     ausgewaehlteBranchen.isNotEmpty ? List<String>.from(ausgewaehlteBranchen) : null;
     await _applyOfferFiltersFromSelections(branchen: aktuelleBranchen);
+  }
+
+  Future<void> _applyBrancheSelectionFromSearch(String branche) async {
+    final trimmed = branche.trim();
+    if (trimmed.isEmpty) return;
+
+    setState(() {
+      ausgewaehlteBranchen
+        ..clear()
+        ..add(trimmed);
+      _ausgewaehlteLeistung = null;
+      _gefilterteDienstleisterIds = [];
+      _isSearchMode = false;
+      _searchQuery = '';
+      _isExternalSearchLoading = false;
+      _externalSearchResults = [];
+    });
+
+    await _applyOfferFiltersFromSelections(
+      branchen: List<String>.from(ausgewaehlteBranchen),
+    );
   }
 
   // ---- Preis-Helper ---------------------------------------------------------
@@ -2818,6 +2863,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         await _ladeLeistungsVorschlaege(textEditingValue.text);
         final vorschlaegeDienstleister =
         await _ladeDienstleisterVorschlaege(textEditingValue.text);
+        final vorschlaegeBranchen =
+        await _ladeBranchenVorschlaege(textEditingValue.text);
 
         final leistungen =
         vorschlaegeLeistungen.map((e) => _SearchSuggestion.leistung(e)).toList();
@@ -2832,8 +2879,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           ),
         )
             .toList();
+        final branchen =
+        vorschlaegeBranchen.map((e) => _SearchSuggestion.branche(e)).toList();
 
-        return [...dienstleister, ...leistungen];
+        return [...dienstleister, ...branchen, ...leistungen];
       },
       displayStringForOption: (option) => option.title,
       optionsViewBuilder: (context, onSelected, options) {
@@ -2882,6 +2931,20 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       onTap: () => onSelected(item),
                     );
                   }
+                  if (item.type == _SuggestionType.branche) {
+                    return ListTile(
+                      leading: const Icon(Icons.sell_outlined),
+                      title: RichText(
+                        text: _buildHighlightedSpan(
+                          fullText: item.title,
+                          query: highlightQuery,
+                          baseStyle: Theme.of(context).textTheme.bodyLarge,
+                        ),
+                      ),
+                      subtitle: const Text('Branche'),
+                      onTap: () => onSelected(item),
+                    );
+                  }
                   return ListTile(
                     leading: const Icon(Icons.search),
                     title: RichText(
@@ -2915,6 +2978,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           });
           return;
         }
+        if (auswahl.type == _SuggestionType.branche) {
+          await _applyBrancheSelectionFromSearch(auswahl.title);
+          _dismissKeyboard();
+          return;
+        }
 
         setState(() {
           _ausgewaehlteLeistung = auswahl.title;
@@ -2943,7 +3011,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             }
           },
           decoration: InputDecoration(
-            hintText: 'Leistung, oder Dienstleister',
+            hintText: 'Leistung, Dienstleister oder Branche',
             prefixIcon: const Icon(Icons.search),
             suffixIcon: kIsWeb
                 ? (controller.text.isNotEmpty
@@ -3266,6 +3334,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
             final suchFelder = <String>[
               (data['name'] ?? '').toString(),
+              (data['branche'] ?? '').toString(),
               (data['adresse'] ?? '').toString(),
               (data['ort'] ?? '').toString(),
               (data['plz'] ?? '').toString(),
