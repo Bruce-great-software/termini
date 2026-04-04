@@ -25,7 +25,7 @@ import 'package:url_launcher/url_launcher.dart';
 /// Sortierreihenfolge für Preise / Distanz
 enum SortOrder { none, priceAsc, priceDesc, distanceAsc }
 
-enum _SuggestionType { leistung, dienstleister }
+enum _SuggestionType { leistung, dienstleister, branche }
 
 class _SearchSuggestion {
   final _SuggestionType type;
@@ -36,6 +36,12 @@ class _SearchSuggestion {
 
   const _SearchSuggestion.leistung(this.title)
       : type = _SuggestionType.leistung,
+        subtitle = '',
+        dienstleisterId = null,
+        logoUrl = null;
+
+  const _SearchSuggestion.branche(this.title)
+      : type = _SuggestionType.branche,
         subtitle = '',
         dienstleisterId = null,
         logoUrl = null;
@@ -785,18 +791,38 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     });
   }
 
-  Future<int> _countMatchesBasedOnSelections({List<String>? branchen}) async {
+  Future<int> _countMatchesBasedOnSelections({
+    List<String>? branchen,
+    List<String>? zielgruppen,
+  }) async {
+    final selectedZielgruppen = zielgruppen ?? ausgewaehlteZielgruppen;
+
     if (ausgewaehlteLeistungen.isEmpty) {
-      if (_gefilterteDienstleisterIds.isNotEmpty) {
-        return _gefilterteDienstleisterIds.length;
+      final selBranchen =
+          branchen ?? (ausgewaehlteBranchen.isNotEmpty ? ausgewaehlteBranchen : null);
+      final branchIds = await _dienstleisterIdsFuerBranchen(selBranchen);
+
+      if (selectedZielgruppen.isNotEmpty) {
+        final offersSnap =
+            await FirebaseFirestore.instance.collection('angebote').get();
+        final ids = <String>{};
+
+        for (final doc in offersSnap.docs) {
+          final data = doc.data();
+          final id = (data['dienstleisterId'] as String?)?.trim();
+          if (id == null || id.isEmpty) continue;
+          if (branchIds != null && !branchIds.contains(id)) continue;
+
+          final zgMap = data['zielgruppen'];
+          if (zgMap is! Map) continue;
+
+          final hasMatch = selectedZielgruppen.any((zg) => zgMap.containsKey(zg));
+          if (hasMatch) ids.add(id);
+        }
+        return ids.length;
       }
 
-      // Wenn Branchen vorgegeben → Anzahl der DL in diesen Branchen
-      final sel = branchen ?? (ausgewaehlteBranchen.isNotEmpty ? ausgewaehlteBranchen : null);
-      if (sel != null && sel.isNotEmpty) {
-        final ids = await _dienstleisterIdsFuerBranchen(sel);
-        return ids?.length ?? 0;
-      }
+      if (branchIds != null) return branchIds.length;
 
       final snap = await FirebaseFirestore.instance
           .collection('users')
@@ -1076,6 +1102,24 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     return matches.take(8).toList();
   }
 
+  Future<List<String>> _ladeBranchenVorschlaege(String eingabe) async {
+    final search = eingabe.trim().toLowerCase();
+    if (search.isEmpty) return [];
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('branchen')
+        .get();
+
+    final matches = snapshot.docs
+        .map((doc) => (doc['name'] ?? '').toString().trim())
+        .where((name) => name.isNotEmpty && name.toLowerCase().contains(search))
+        .toSet()
+        .toList();
+
+    matches.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return matches.take(8).toList();
+  }
+
   Future<void> _openDienstleisterFromSuggestion(Map<String, dynamic> suggestion) async {
     final data = Map<String, dynamic>.from(suggestion);
     final geo = data['geo'];
@@ -1137,6 +1181,27 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     final List<String>? aktuelleBranchen =
     ausgewaehlteBranchen.isNotEmpty ? List<String>.from(ausgewaehlteBranchen) : null;
     await _applyOfferFiltersFromSelections(branchen: aktuelleBranchen);
+  }
+
+  Future<void> _applyBrancheSelectionFromSearch(String branche) async {
+    final trimmed = branche.trim();
+    if (trimmed.isEmpty) return;
+
+    setState(() {
+      ausgewaehlteBranchen
+        ..clear()
+        ..add(trimmed);
+      _ausgewaehlteLeistung = null;
+      _gefilterteDienstleisterIds = [];
+      _isSearchMode = false;
+      _searchQuery = '';
+      _isExternalSearchLoading = false;
+      _externalSearchResults = [];
+    });
+
+    await _applyOfferFiltersFromSelections(
+      branchen: List<String>.from(ausgewaehlteBranchen),
+    );
   }
 
   // ---- Preis-Helper ---------------------------------------------------------
@@ -1924,8 +1989,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     SortOrder tempSortOrder = _sortOrder;
     final List<String> tempZielgruppen = List<String>.from(ausgewaehlteZielgruppen);
 
-    int previewCount =
-    await _countMatchesBasedOnSelections(branchen: tempBranchen.toList());
+    int previewCount = await _countMatchesBasedOnSelections(
+      branchen: tempBranchen.toList(),
+      zielgruppen: tempZielgruppen,
+    );
 
     await showModalBottomSheet(
       context: context,
@@ -1940,7 +2007,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           builder: (context, setModalState) {
             Future<void> _recalc() async {
               final c = await _countMatchesBasedOnSelections(
-                  branchen: tempBranchen.toList());
+                branchen: tempBranchen.toList(),
+                zielgruppen: tempZielgruppen,
+              );
               setModalState(() => previewCount = c);
             }
 
@@ -2007,7 +2076,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                               ),
                             ),
                             selected: selected,
-                            onSelected: (_) {
+                            onSelected: (_) async {
                               setModalState(() {
                                 if (selected) {
                                   tempZielgruppen.remove(zg);
@@ -2015,6 +2084,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                                   tempZielgruppen.add(zg);
                                 }
                               });
+                              await _recalc();
                             },
                             selectedColor: Colors.blueAccent,
                             backgroundColor: Colors.white,
@@ -2517,6 +2587,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     final String branchenText =
         'Branchen${branchenAktiv ? '(${ausgewaehlteBranchen.length})' : ''}';
 
+    final int zielgruppenCount = ausgewaehlteZielgruppen.length;
+    final bool zielgruppenAktiv = zielgruppenCount > 0;
+    final String zielgruppenText =
+        'Für wen${zielgruppenAktiv ? '($zielgruppenCount)' : ''}';
+
     final int leistungenCount =
     ausgewaehlteLeistungen.values.fold<int>(0, (s, l) => s + l.length);
     final bool leistungenAktiv = leistungenCount > 0;
@@ -2568,6 +2643,36 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
       ),
     );
+
+    // Für wen? (nur sichtbar, wenn Zielgruppe aktiv gefiltert ist)
+    if (zielgruppenAktiv) {
+      chips.add(
+        InputChip(
+          label: Text(
+            zielgruppenText,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          selected: true,
+          onSelected: (_) => _showBranchenFilterSheet(),
+          onDeleted: () async {
+            setState(() {
+              ausgewaehlteZielgruppen.clear();
+            });
+            await _applyOfferFiltersFromSelections(
+              branchen: ausgewaehlteBranchen,
+            );
+          },
+          deleteIcon: const Icon(Icons.close, size: 18, color: Colors.white),
+          selectedColor: Colors.blueAccent,
+          backgroundColor: Colors.white,
+          shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
+        ),
+      );
+    }
 
     // Leistungen (öffnet das Leistungen-Sheet)
     chips.add(
@@ -2758,6 +2863,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         await _ladeLeistungsVorschlaege(textEditingValue.text);
         final vorschlaegeDienstleister =
         await _ladeDienstleisterVorschlaege(textEditingValue.text);
+        final vorschlaegeBranchen =
+        await _ladeBranchenVorschlaege(textEditingValue.text);
 
         final leistungen =
         vorschlaegeLeistungen.map((e) => _SearchSuggestion.leistung(e)).toList();
@@ -2772,8 +2879,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           ),
         )
             .toList();
+        final branchen =
+        vorschlaegeBranchen.map((e) => _SearchSuggestion.branche(e)).toList();
 
-        return [...dienstleister, ...leistungen];
+        return [...dienstleister, ...branchen, ...leistungen];
       },
       displayStringForOption: (option) => option.title,
       optionsViewBuilder: (context, onSelected, options) {
@@ -2822,6 +2931,20 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
                       onTap: () => onSelected(item),
                     );
                   }
+                  if (item.type == _SuggestionType.branche) {
+                    return ListTile(
+                      leading: const Icon(Icons.sell_outlined),
+                      title: RichText(
+                        text: _buildHighlightedSpan(
+                          fullText: item.title,
+                          query: highlightQuery,
+                          baseStyle: Theme.of(context).textTheme.bodyLarge,
+                        ),
+                      ),
+                      subtitle: const Text('Branche'),
+                      onTap: () => onSelected(item),
+                    );
+                  }
                   return ListTile(
                     leading: const Icon(Icons.search),
                     title: RichText(
@@ -2855,6 +2978,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           });
           return;
         }
+        if (auswahl.type == _SuggestionType.branche) {
+          await _applyBrancheSelectionFromSearch(auswahl.title);
+          _dismissKeyboard();
+          return;
+        }
 
         setState(() {
           _ausgewaehlteLeistung = auswahl.title;
@@ -2883,7 +3011,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             }
           },
           decoration: InputDecoration(
-            hintText: 'Leistung, oder Dienstleister',
+            hintText: 'Leistung, Dienstleister oder Branche',
             prefixIcon: const Icon(Icons.search),
             suffixIcon: kIsWeb
                 ? (controller.text.isNotEmpty
@@ -3206,6 +3334,7 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
             final suchFelder = <String>[
               (data['name'] ?? '').toString(),
+              (data['branche'] ?? '').toString(),
               (data['adresse'] ?? '').toString(),
               (data['ort'] ?? '').toString(),
               (data['plz'] ?? '').toString(),
@@ -3426,21 +3555,32 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               return;
             }
 
-            final leistungenSnap = await FirebaseFirestore.instance
-                .collection('users')
-                .doc(doc.id)
-                .collection('leistungen')
+            final angeboteSnap = await FirebaseFirestore.instance
+                .collection('angebote')
+                .where('dienstleisterId', isEqualTo: doc.id)
                 .get();
 
-            final leistungen =
-            leistungenSnap.docs.map((l) => l.data()).toList();
-            data['leistungen'] = leistungen;
+            final angebote = angeboteSnap.docs.map((a) => a.data()).toList();
+            data['angebote'] = angebote;
 
             final branche = data['branche']?.toString();
-            final zielgruppen =
-            leistungen.map((l) => l['zielgruppe']?.toString()).toSet();
-            final kategorien =
-            leistungen.map((l) => l['kategorie']?.toString()).toSet();
+            final zielgruppen = <String>{};
+            final kategorien = <String>{};
+
+            for (final angebot in angebote) {
+              final kategorie = (angebot['kategorie'] as String?)?.trim();
+              if (kategorie != null && kategorie.isNotEmpty) {
+                kategorien.add(kategorie);
+              }
+
+              final zgMap = angebot['zielgruppen'];
+              if (zgMap is Map) {
+                for (final key in zgMap.keys) {
+                  final zg = key.toString().trim();
+                  if (zg.isNotEmpty) zielgruppen.add(zg);
+                }
+              }
+            }
 
             final branchePasst = ausgewaehlteBranchen.isEmpty ||
                 ausgewaehlteBranchen.contains(branche);
@@ -3451,16 +3591,20 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
             bool leistungPasst = true;
             if (ausgewaehlteLeistungen.isNotEmpty) {
-              final ausgewaehlteKombination =
-              ausgewaehlteLeistungen.values.expand((e) => e).toList();
-              final ausgewaehlteSet = ausgewaehlteKombination.toSet();
+              leistungPasst = ausgewaehlteLeistungen.entries.every((entry) {
+                final selectedKategorie = entry.key;
+                final selectedLeistungen = entry.value.toSet();
+                if (selectedLeistungen.isEmpty) return true;
 
-              leistungPasst = leistungen.any((leistungDoc) {
-                final leistungsliste =
-                    (leistungDoc['leistung'] as List?)?.cast<String>() ?? [];
-                final leistungSet = leistungsliste.toSet();
-                return leistungSet.containsAll(ausgewaehlteSet) &&
-                    leistungSet.length == ausgewaehlteSet.length;
+                return angebote.any((angebot) {
+                  final angebotKategorie = (angebot['kategorie'] as String?)?.trim();
+                  if (angebotKategorie != selectedKategorie) return false;
+
+                  final leistungsliste =
+                      (angebot['leistungen'] as List?)?.cast<String>() ?? const <String>[];
+                  final angebotSet = leistungsliste.map((e) => e.trim()).toSet();
+                  return selectedLeistungen.every(angebotSet.contains);
+                });
               });
             }
 
