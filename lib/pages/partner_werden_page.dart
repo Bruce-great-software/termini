@@ -6,11 +6,13 @@ import 'package:flutter/material.dart';
 import '../widgets/alle_dienstleister_web_shell.dart';
 
 class PartnerWerdenPage extends StatefulWidget {
+  final VoidCallback? onHeaderLogoPressed;
   final VoidCallback? onHeaderPartnerWerdenPressed;
   final VoidCallback? onHeaderMeinKontoPressed;
 
   const PartnerWerdenPage({
     super.key,
+    this.onHeaderLogoPressed,
     this.onHeaderPartnerWerdenPressed,
     this.onHeaderMeinKontoPressed,
   });
@@ -245,6 +247,10 @@ class _PartnerWerdenPageState extends State<PartnerWerdenPage> {
               children: [
                 TerminiWebHeader(
                   opacity: 1,
+                  onLogoPressed: widget.onHeaderLogoPressed ??
+                      () {
+                        Navigator.of(context).maybePop();
+                      },
                   onPartnerWerdenPressed: widget.onHeaderPartnerWerdenPressed ??
                       () {},
                   onMeinKontoPressed: widget.onHeaderMeinKontoPressed ??
