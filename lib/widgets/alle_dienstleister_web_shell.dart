@@ -50,7 +50,7 @@ class _AlleDienstleisterWebShellState extends State<AlleDienstleisterWebShell> {
       child: Column(
         children: [
           if (widget.showHeader)
-            _WebHeader(
+            TerminiWebHeader(
               opacity: _headerOpacity,
               onPartnerWerdenPressed: widget.onPartnerWerdenPressed,
               onMeinKontoPressed: widget.onMeinKontoPressed,
@@ -67,12 +67,12 @@ class _AlleDienstleisterWebShellState extends State<AlleDienstleisterWebShell> {
   }
 }
 
-class _WebHeader extends StatelessWidget {
+class TerminiWebHeader extends StatelessWidget {
   final double opacity;
   final VoidCallback onPartnerWerdenPressed;
   final VoidCallback onMeinKontoPressed;
 
-  const _WebHeader({
+  const TerminiWebHeader({
     required this.opacity,
     required this.onPartnerWerdenPressed,
     required this.onMeinKontoPressed,

@@ -3885,7 +3885,13 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => const PartnerWerdenPage(),
+              builder: (_) => PartnerWerdenPage(
+                onHeaderPartnerWerdenPressed: () {},
+                onHeaderMeinKontoPressed: () {
+                  _openProfilFromWebHeader();
+                  Navigator.of(context).pop();
+                },
+              ),
             ),
           );
         },
