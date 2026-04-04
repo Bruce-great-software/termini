@@ -727,6 +727,18 @@ class _BookingRequirement {
   });
 }
 
+class _OfferAssignmentMeta {
+  final String categoryLc;
+  final String partLc;
+  final String? methodeLc;
+
+  const _OfferAssignmentMeta({
+    required this.categoryLc,
+    required this.partLc,
+    required this.methodeLc,
+  });
+}
+
 enum _BookingLoginState { loginInitial, loginForm, loginSuccess }
 
 // Key-Helfer: unterscheidet Zielgruppe!
@@ -1097,6 +1109,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
 
   /// Abhängigkeiten für Kombi-Einzelteile (cat|partLc -> required parts)
   Map<String, List<Set<String>>> _comboDependencies = {};
+  Map<String, _OfferAssignmentMeta> _offerAssignmentMetaById = {};
   String? _selectedMitarbeiterId;
   String _selectedMitarbeiterLabel = 'Beliebiger Mitarbeiter';
   late DateTime _selectedBookingDate;
@@ -2164,6 +2177,28 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     return normalizedSlashes.toLowerCase();
   }
 
+
+  bool _isAssignmentMetaMatch({
+    required _OfferAssignmentMeta assignment,
+    required _OfferAssignmentMeta required,
+  }) {
+    final sameBase =
+        assignment.categoryLc == required.categoryLc &&
+        assignment.partLc == required.partLc;
+    if (!sameBase) return false;
+
+    if (assignment.methodeLc == required.methodeLc) {
+      return true;
+    }
+
+    // Basiseintrag ohne Methode deckt methodische Varianten ab.
+    if (required.methodeLc != null && assignment.methodeLc == null) {
+      return true;
+    }
+
+    return false;
+  }
+
   bool _mitarbeiterSupportsRequirements({
     required Map<String, dynamic> mitarbeiterData,
     required List<_BookingRequirement> requirements,
@@ -2189,11 +2224,32 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
     for (final requirement in requirements) {
       final requiredOffer = _normalizeOfferIdForMatching(requirement.angebotId);
       final requiredZg = requirement.zielgruppe.trim().toLowerCase();
-      final hasMatch = assignments.any(
-        (entry) =>
-            entry.angebotId == requiredOffer &&
-            entry.zielgruppen.contains(requiredZg),
-      );
+      final requiredMeta = _offerAssignmentMetaById[requiredOffer];
+
+      final hasMatch = assignments.any((entry) {
+        if (!entry.zielgruppen.contains(requiredZg)) {
+          return false;
+        }
+
+        if (entry.angebotId == requiredOffer) {
+          return true;
+        }
+
+        if (requiredMeta == null) {
+          return false;
+        }
+
+        final assignmentMeta = _offerAssignmentMetaById[entry.angebotId];
+        if (assignmentMeta == null) {
+          return false;
+        }
+
+        return _isAssignmentMetaMatch(
+          assignment: assignmentMeta,
+          required: requiredMeta,
+        );
+      });
+
       if (!hasMatch) {
         return false;
       }
@@ -6344,6 +6400,25 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
               builder: (context, docs) {
                 // ---- Docs in Modelle umwandeln, Singles/Bundles trennen ----
                 final all = docs.map((d) => Offer.fromDoc(d)).toList();
+
+                final offerMetaById = <String, _OfferAssignmentMeta>{};
+                for (final offer in all) {
+                  if (offer.isBundle || offer.leistungenLc.length != 1) continue;
+                  final normalizedId = _normalizeOfferIdForMatching(offer.id);
+                  if (normalizedId.isEmpty || offer.kategorie.trim().isEmpty) continue;
+
+                  final methodLc = offer.varianten.length == 1
+                      ? offer.varianten.first.trim().toLowerCase()
+                      : null;
+                  offerMetaById[normalizedId] = _OfferAssignmentMeta(
+                    categoryLc: offer.kategorie.trim().toLowerCase(),
+                    partLc: offer.leistungenLc.first,
+                    methodeLc: (methodLc != null && methodLc.isNotEmpty)
+                        ? methodLc
+                        : null,
+                  );
+                }
+                _offerAssignmentMetaById = offerMetaById;
 
                 // Singles = genau 1 Leistung
                 final singles = all.where((o) => !o.isBundle && o.leistungen.length == 1).toList();
