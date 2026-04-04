@@ -7168,7 +7168,7 @@ class _DienstleisterDetailPageState extends State<DienstleisterDetailPage> {
                                           );
 
                                           currentMap[selKey] = _CartItem(
-                                            angebotId: offer.id,
+                                            angebotId: variantOffer.id,
                                             kategorie: kat,
                                             leistung: partDisplay,
                                             preis: variantBasePrice,

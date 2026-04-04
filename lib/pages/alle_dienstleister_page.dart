@@ -3816,6 +3816,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       );
     }
 
+    final screenWidth = MediaQuery.of(context).size.width;
+    final bool isDesktopWeb = kIsWeb && screenWidth >= 1500;
+    final bool showBottomNav = !isDesktopWeb;
     final bool showDefaultAppBar = !kIsWeb || geoeffneterDienstleister != null;
 
     return Scaffold(
@@ -3913,7 +3916,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         child: _buildBodyByIndex(_selectedIndex),
       )
           : _buildBodyByIndex(_selectedIndex),
-      bottomNavigationBar: BottomNavigationBar(
+      bottomNavigationBar: showBottomNav
+          ? BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
         onTap: (index) {
@@ -3939,7 +3943,8 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           BottomNavigationBarItem(
               icon: Icon(Icons.person_outline), label: 'Profil'),
         ],
-      ),
+      )
+          : null,
     );
   }
 }
