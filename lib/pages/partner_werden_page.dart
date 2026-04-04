@@ -43,13 +43,14 @@ class _PartnerWerdenPageState extends State<PartnerWerdenPage> {
   bool _isSubmittedSuccessfully = false;
   bool _obscurePassword = true;
 
-  final List<String> branchenListe = [
+  static const List<String> _fallbackBranchenListe = [
     "Friseur",
     "Barbershop",
     "Kosmetikstudio",
     "Nagelstudio",
     "Massage",
   ];
+  List<String> branchenListe = List<String>.from(_fallbackBranchenListe);
 
   static const Color _bgColor = Color(0xFFF7F3EE);
   static const Color _cardColor = Colors.white;
@@ -58,6 +59,12 @@ class _PartnerWerdenPageState extends State<PartnerWerdenPage> {
   static const Color _softBorder = Color(0xFFE7DED3);
   static const Color _textPrimary = Color(0xFF1B1B1B);
   static const Color _textSecondary = Color(0xFF6E675F);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBranchen();
+  }
 
   @override
   void dispose() {
@@ -72,6 +79,34 @@ class _PartnerWerdenPageState extends State<PartnerWerdenPage> {
     telefonController.dispose();
     passwortController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadBranchen() async {
+    try {
+      final snap = await FirebaseFirestore.instance.collection('branchen').get();
+      final werte = snap.docs
+          .map((doc) {
+            final data = doc.data();
+            if (data.containsKey('name')) {
+              return data['name'].toString().trim();
+            }
+            return doc.id.trim();
+          })
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+      if (!mounted || werte.isEmpty) return;
+      setState(() {
+        branchenListe = werte;
+        if (branche != null && !branchenListe.contains(branche)) {
+          branche = null;
+        }
+      });
+    } catch (_) {
+      // Fallback auf lokale Liste, falls Firestore nicht erreichbar ist.
+    }
   }
 
   Future<void> _submitPartnerRequest() async {
