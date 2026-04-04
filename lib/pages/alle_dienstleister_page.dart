@@ -3880,12 +3880,27 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
       body: kIsWeb
           ? AlleDienstleisterWebShell(
         showHeader: geoeffneterDienstleister == null,
+        onLogoPressed: () {
+          setState(() {
+            geoeffneterDienstleister = null;
+            _dienstleisterFavorisiert = false;
+            _selectedIndex = 0;
+          });
+        },
         onMeinKontoPressed: _openProfilFromWebHeader,
         onPartnerWerdenPressed: () {
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) => PartnerWerdenPage(
+                onHeaderLogoPressed: () {
+                  Navigator.of(context).pop();
+                  setState(() {
+                    geoeffneterDienstleister = null;
+                    _dienstleisterFavorisiert = false;
+                    _selectedIndex = 0;
+                  });
+                },
                 onHeaderPartnerWerdenPressed: () {},
                 onHeaderMeinKontoPressed: () {
                   _openProfilFromWebHeader();
