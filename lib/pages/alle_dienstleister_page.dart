@@ -10,6 +10,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geocoding/geocoding.dart';
 
 import '../services/location_service.dart';
+import '../widgets/alle_dienstleister_web_shell.dart';
 import '../widgets/dienstleister_tile.dart';
 import 'dienstleister_detail_page.dart';
 import 'kunden_favoriten_page.dart';
@@ -2341,139 +2342,12 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   // ----------------------------------------------------------
 
-  Widget _buildWebBackground({required Widget child}) {
-    if (!kIsWeb) return child;
-
-    return Container(
-      decoration: const BoxDecoration(
-        image: DecorationImage(
-          image: AssetImage('assets/termini.png'),
-          fit: BoxFit.cover,
-        ),
-      ),
-      child: child,
-    );
-  }
-
   void _openProfilFromWebHeader() {
     setState(() {
       geoeffneterDienstleister = null;
       _dienstleisterFavorisiert = false;
       _selectedIndex = 3;
     });
-  }
-
-  Widget _buildWebHeader() {
-    final labels = ['Friseur', 'Barbershop', 'Nagelstudio', 'Kosmetikstudio'];
-
-    return Container(
-      height: 72,
-      padding: const EdgeInsets.symmetric(horizontal: 28),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(
-          bottom: BorderSide(color: Color(0x14000000)),
-        ),
-      ),
-      child: Row(
-        children: [
-          const Text(
-            'TERMINI',
-            style: TextStyle(
-              color: Colors.black,
-              fontSize: 26,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 2.6,
-              height: 1,
-            ),
-          ),
-          const SizedBox(width: 40),
-          Expanded(
-            child: Center(
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 34,
-                runSpacing: 8,
-                children: labels
-                    .map(
-                      (label) => Text(
-                    label,
-                    style: const TextStyle(
-                      color: Colors.black87,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                )
-                    .toList(),
-              ),
-            ),
-          ),
-          const SizedBox(width: 24),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const PartnerWerdenPage(),
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.black,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text(
-              'Partner werden',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 15,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          ElevatedButton.icon(
-            onPressed: _openProfilFromWebHeader,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.black,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            icon: const Icon(Icons.person_outline, size: 18),
-            label: const Text(
-              'Mein Konto',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 15,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildWebPageShell({required Widget child}) {
-    if (!kIsWeb || geoeffneterDienstleister != null) {
-      return child;
-    }
-
-    return Column(
-      children: [
-        _buildWebHeader(),
-        Expanded(child: child),
-      ],
-    );
   }
 
   Widget _buildBodyByIndex(int index) {
@@ -4003,11 +3877,21 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             : null,
       )
           : null,
-      body: _buildWebBackground(
-        child: _buildWebPageShell(
-          child: _buildBodyByIndex(_selectedIndex),
-        ),
-      ),
+      body: kIsWeb
+          ? AlleDienstleisterWebShell(
+              showHeader: geoeffneterDienstleister == null,
+              onMeinKontoPressed: _openProfilFromWebHeader,
+              onPartnerWerdenPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PartnerWerdenPage(),
+                  ),
+                );
+              },
+              child: _buildBodyByIndex(_selectedIndex),
+            )
+          : _buildBodyByIndex(_selectedIndex),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
