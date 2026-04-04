@@ -2321,12 +2321,152 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
     return Container(
       decoration: const BoxDecoration(
+        color: Color(0xFFF3F3F3),
         image: DecorationImage(
           image: AssetImage('assets/termini.png'),
           fit: BoxFit.cover,
         ),
       ),
-      child: child,
+      child: ColoredBox(
+        color: Color(0x11000000),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _buildWebFilterChip({
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: const Color(0xFF1D1D1D),
+        backgroundColor: Colors.white,
+        side: BorderSide(color: Colors.black.withOpacity(0.08)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(999),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      ),
+      iconAlignment: IconAlignment.end,
+      icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
+      label: Text(
+        label,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+
+  Widget _buildWebDienstleisterCard(Map<String, dynamic> data) {
+    final name = (data['name'] ?? 'Dienstleister').toString();
+    final strasse = (data['strasse'] ?? '').toString();
+    final hausnummer = (data['hausnummer'] ?? '').toString();
+    final plz = (data['plz'] ?? '').toString();
+    final ort = (data['ort'] ?? '').toString();
+    final branche = (data['branche'] ?? data['kategorie'] ?? 'Dienstleister').toString();
+    final logoUrl = (data['logoUrl'] ?? '').toString().trim();
+    final distance = (data['distance'] is num)
+        ? ((data['distance'] as num).toDouble())
+        : double.infinity;
+    final distanceLabel = distance.isFinite ? '${distance.toStringAsFixed(1)} km entfernt' : null;
+    final adresse = '$strasse $hausnummer, $plz $ort'.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      child: Material(
+        color: Colors.white.withOpacity(0.96),
+        borderRadius: BorderRadius.circular(22),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(22),
+          onTap: () {
+            final id = (data['id'] ?? '').toString();
+            setState(() {
+              geoeffneterDienstleister = data;
+              _dienstleisterFavorisiert = _favoritenIds.contains(id);
+            });
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    width: 64,
+                    height: 64,
+                    color: const Color(0xFFE5E5E5),
+                    child: logoUrl.isNotEmpty
+                        ? Image.network(logoUrl, fit: BoxFit.cover)
+                        : const Icon(Icons.storefront, color: Colors.black54),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1F1F1F),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        adresse,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          color: Color(0xFF5B5B5B),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEFEFFF),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              branche,
+                              style: const TextStyle(
+                                color: Color(0xFF4C5AA9),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          if (distanceLabel != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEFEFFF),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                distanceLabel,
+                                style: const TextStyle(
+                                  color: Color(0xFF4C5AA9),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -2470,8 +2610,10 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             : Column(
           children: [
             Padding(
-              padding:
-              const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+              padding: EdgeInsets.symmetric(
+                vertical: kIsWeb ? 14 : 10,
+                horizontal: kIsWeb ? 18 : 16,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -3053,6 +3195,61 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     final suchfeld = _buildLeistungSuchfeld();
     final ortSuchfeld = _buildOrtSuchfeld();
 
+    if (kIsWeb) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                flex: 4,
+                child: Container(
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: suchfeld,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Container(
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: ortSuchfeld,
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Filter',
+                icon: const Icon(CupertinoIcons.slider_horizontal_3, color: Colors.white),
+                onPressed: () async {
+                  _dismissKeyboard();
+                  await _showBranchenFilterSheet();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _buildWebFilterChip(label: 'Branchen', onTap: _showBranchenQuickSheet),
+              const SizedBox(width: 10),
+              _buildWebFilterChip(label: 'Leistungen', onTap: _showLeistungenSheet),
+              const SizedBox(width: 10),
+              _buildWebFilterChip(label: 'Sortieren', onTap: _showSortSheet),
+            ],
+          ),
+        ],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -3519,9 +3716,18 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
             }
 
             return ListView.builder(
+              padding: EdgeInsets.fromLTRB(
+                kIsWeb ? 18 : 0,
+                0,
+                kIsWeb ? 18 : 0,
+                kIsWeb ? 18 : 0,
+              ),
               itemCount: dienstleisterMitLeistungen.length,
               itemBuilder: (context, index) {
                 final data = dienstleisterMitLeistungen[index];
+                if (kIsWeb) {
+                  return _buildWebDienstleisterCard(data);
+                }
                 return DienstleisterTile(
                   data: data,
                   matchedOffers:
@@ -3933,7 +4139,9 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
           child: _buildBodyByIndex(_selectedIndex),
         ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
+      bottomNavigationBar: kIsWeb
+          ? null
+          : BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
         onTap: (index) {
