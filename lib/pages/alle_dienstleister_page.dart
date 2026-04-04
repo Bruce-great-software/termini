@@ -2517,6 +2517,11 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
     final String branchenText =
         'Branchen${branchenAktiv ? '(${ausgewaehlteBranchen.length})' : ''}';
 
+    final int zielgruppenCount = ausgewaehlteZielgruppen.length;
+    final bool zielgruppenAktiv = zielgruppenCount > 0;
+    final String zielgruppenText =
+        'Für wen${zielgruppenAktiv ? '($zielgruppenCount)' : ''}';
+
     final int leistungenCount =
     ausgewaehlteLeistungen.values.fold<int>(0, (s, l) => s + l.length);
     final bool leistungenAktiv = leistungenCount > 0;
@@ -2568,6 +2573,36 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
         shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
       ),
     );
+
+    // Für wen? (nur sichtbar, wenn Zielgruppe aktiv gefiltert ist)
+    if (zielgruppenAktiv) {
+      chips.add(
+        InputChip(
+          label: Text(
+            zielgruppenText,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          selected: true,
+          onSelected: (_) => _showBranchenFilterSheet(),
+          onDeleted: () async {
+            setState(() {
+              ausgewaehlteZielgruppen.clear();
+            });
+            await _applyOfferFiltersFromSelections(
+              branchen: ausgewaehlteBranchen,
+            );
+          },
+          deleteIcon: const Icon(Icons.close, size: 18, color: Colors.white),
+          selectedColor: Colors.blueAccent,
+          backgroundColor: Colors.white,
+          shape: const StadiumBorder(side: BorderSide(color: Colors.black)),
+        ),
+      );
+    }
 
     // Leistungen (öffnet das Leistungen-Sheet)
     chips.add(
