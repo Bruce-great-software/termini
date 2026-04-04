@@ -787,16 +787,32 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
   Future<int> _countMatchesBasedOnSelections({List<String>? branchen}) async {
     if (ausgewaehlteLeistungen.isEmpty) {
-      if (_gefilterteDienstleisterIds.isNotEmpty) {
-        return _gefilterteDienstleisterIds.length;
+      final selBranchen =
+          branchen ?? (ausgewaehlteBranchen.isNotEmpty ? ausgewaehlteBranchen : null);
+      final branchIds = await _dienstleisterIdsFuerBranchen(selBranchen);
+
+      if (ausgewaehlteZielgruppen.isNotEmpty) {
+        final offersSnap =
+            await FirebaseFirestore.instance.collection('angebote').get();
+        final ids = <String>{};
+
+        for (final doc in offersSnap.docs) {
+          final data = doc.data();
+          final id = (data['dienstleisterId'] as String?)?.trim();
+          if (id == null || id.isEmpty) continue;
+          if (branchIds != null && !branchIds.contains(id)) continue;
+
+          final zgMap = data['zielgruppen'];
+          if (zgMap is! Map) continue;
+
+          final hasMatch = ausgewaehlteZielgruppen
+              .any((zg) => zgMap.containsKey(zg));
+          if (hasMatch) ids.add(id);
+        }
+        return ids.length;
       }
 
-      // Wenn Branchen vorgegeben → Anzahl der DL in diesen Branchen
-      final sel = branchen ?? (ausgewaehlteBranchen.isNotEmpty ? ausgewaehlteBranchen : null);
-      if (sel != null && sel.isNotEmpty) {
-        final ids = await _dienstleisterIdsFuerBranchen(sel);
-        return ids?.length ?? 0;
-      }
+      if (branchIds != null) return branchIds.length;
 
       final snap = await FirebaseFirestore.instance
           .collection('users')
@@ -3461,21 +3477,32 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
               return;
             }
 
-            final leistungenSnap = await FirebaseFirestore.instance
-                .collection('users')
-                .doc(doc.id)
-                .collection('leistungen')
+            final angeboteSnap = await FirebaseFirestore.instance
+                .collection('angebote')
+                .where('dienstleisterId', isEqualTo: doc.id)
                 .get();
 
-            final leistungen =
-            leistungenSnap.docs.map((l) => l.data()).toList();
-            data['leistungen'] = leistungen;
+            final angebote = angeboteSnap.docs.map((a) => a.data()).toList();
+            data['angebote'] = angebote;
 
             final branche = data['branche']?.toString();
-            final zielgruppen =
-            leistungen.map((l) => l['zielgruppe']?.toString()).toSet();
-            final kategorien =
-            leistungen.map((l) => l['kategorie']?.toString()).toSet();
+            final zielgruppen = <String>{};
+            final kategorien = <String>{};
+
+            for (final angebot in angebote) {
+              final kategorie = (angebot['kategorie'] as String?)?.trim();
+              if (kategorie != null && kategorie.isNotEmpty) {
+                kategorien.add(kategorie);
+              }
+
+              final zgMap = angebot['zielgruppen'];
+              if (zgMap is Map) {
+                for (final key in zgMap.keys) {
+                  final zg = key.toString().trim();
+                  if (zg.isNotEmpty) zielgruppen.add(zg);
+                }
+              }
+            }
 
             final branchePasst = ausgewaehlteBranchen.isEmpty ||
                 ausgewaehlteBranchen.contains(branche);
@@ -3486,16 +3513,20 @@ class _AlleDienstleisterPageState extends State<AlleDienstleisterPage>
 
             bool leistungPasst = true;
             if (ausgewaehlteLeistungen.isNotEmpty) {
-              final ausgewaehlteKombination =
-              ausgewaehlteLeistungen.values.expand((e) => e).toList();
-              final ausgewaehlteSet = ausgewaehlteKombination.toSet();
+              leistungPasst = ausgewaehlteLeistungen.entries.every((entry) {
+                final selectedKategorie = entry.key;
+                final selectedLeistungen = entry.value.toSet();
+                if (selectedLeistungen.isEmpty) return true;
 
-              leistungPasst = leistungen.any((leistungDoc) {
-                final leistungsliste =
-                    (leistungDoc['leistung'] as List?)?.cast<String>() ?? [];
-                final leistungSet = leistungsliste.toSet();
-                return leistungSet.containsAll(ausgewaehlteSet) &&
-                    leistungSet.length == ausgewaehlteSet.length;
+                return angebote.any((angebot) {
+                  final angebotKategorie = (angebot['kategorie'] as String?)?.trim();
+                  if (angebotKategorie != selectedKategorie) return false;
+
+                  final leistungsliste =
+                      (angebot['leistungen'] as List?)?.cast<String>() ?? const <String>[];
+                  final angebotSet = leistungsliste.map((e) => e.trim()).toSet();
+                  return selectedLeistungen.every(angebotSet.contains);
+                });
               });
             }
 
