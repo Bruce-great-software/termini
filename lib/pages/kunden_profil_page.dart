@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import 'alle_dienstleister_page.dart';
@@ -30,6 +31,8 @@ class _KontaktdatenBearbeitenPageState extends State<KontaktdatenBearbeitenPage>
   String _initialNachname = '';
   String _initialEmail = '';
   String _initialTelefon = '';
+  String _initialGeschlecht = 'herr';
+  String _selectedGeschlecht = 'herr';
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -79,6 +82,9 @@ class _KontaktdatenBearbeitenPageState extends State<KontaktdatenBearbeitenPage>
       data['telefon'],
       data['handynummer'],
     ]));
+    final geschlechtRaw = (data['geschlecht'] as String?)?.trim().toLowerCase();
+    _initialGeschlecht = geschlechtRaw == 'frau' ? 'frau' : 'herr';
+    _selectedGeschlecht = _initialGeschlecht;
 
     _vornameController.text = _initialVorname;
     _nachnameController.text = _initialNachname;
@@ -128,7 +134,8 @@ class _KontaktdatenBearbeitenPageState extends State<KontaktdatenBearbeitenPage>
     return _vornameController.text.trim() != _initialVorname ||
         _nachnameController.text.trim() != _initialNachname ||
         _emailController.text.trim() != _initialEmail ||
-        _telefonController.text.trim() != _initialTelefon;
+        _telefonController.text.trim() != _initialTelefon ||
+        _selectedGeschlecht != _initialGeschlecht;
   }
 
   Future<void> _speichern() async {
@@ -153,12 +160,14 @@ class _KontaktdatenBearbeitenPageState extends State<KontaktdatenBearbeitenPage>
       'phoneNumber': telefonStorage,
       'telefon': telefonStorage,
       'handynummer': telefonStorage,
+      'geschlecht': _selectedGeschlecht,
     }, SetOptions(merge: true));
 
     _initialVorname = vorname;
     _initialNachname = nachname;
     _initialEmail = email;
     _initialTelefon = telefon;
+    _initialGeschlecht = _selectedGeschlecht;
 
     if (!mounted) return;
     setState(() => _isSaving = false);
@@ -171,6 +180,7 @@ class _KontaktdatenBearbeitenPageState extends State<KontaktdatenBearbeitenPage>
     _nachnameController.text = _initialNachname;
     _emailController.text = _initialEmail;
     _telefonController.text = _initialTelefon;
+    _selectedGeschlecht = _initialGeschlecht;
     setState(() {});
   }
 
@@ -190,6 +200,44 @@ class _KontaktdatenBearbeitenPageState extends State<KontaktdatenBearbeitenPage>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text('Anrede', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 8),
+              Container(
+                width: 220,
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2A2A2A),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: CupertinoSlidingSegmentedControl<String>(
+                  groupValue: _selectedGeschlecht,
+                  thumbColor: const Color(0xFF404040),
+                  padding: const EdgeInsets.all(2),
+                  children: const {
+                    'herr': Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        'Herr',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    'frau': Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        'Frau',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  },
+                  onValueChanged: (value) {
+                    if (value == null) return;
+                    setState(() => _selectedGeschlecht = value);
+                  },
+                ),
+              ),
+              const SizedBox(height: 14),
               _KontaktTextField(label: 'Vorname *', controller: _vornameController, onChanged: (_) => setState(() {})),
               const SizedBox(height: 14),
               _KontaktTextField(label: 'Nachname *', controller: _nachnameController, onChanged: (_) => setState(() {})),
