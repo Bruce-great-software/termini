@@ -2,23 +2,19 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import 'admin_page.dart';
 import 'alle_dienstleister_page.dart';
+import 'dienstleister_main_page.dart';
 
 class SmsVerificationPage extends StatefulWidget {
   const SmsVerificationPage({
     super.key,
     required this.phoneNumberE164,
-    required this.email,
-    required this.password,
-    required this.verificationId,
-    this.resendToken,
+    required this.isLoginMode,
   });
 
   final String phoneNumberE164;
-  final String email;
-  final String password;
-  final String verificationId;
-  final int? resendToken;
+  final bool isLoginMode;
 
   @override
   State<SmsVerificationPage> createState() => _SmsVerificationPageState();
@@ -26,7 +22,7 @@ class SmsVerificationPage extends StatefulWidget {
 
 class _SmsVerificationPageState extends State<SmsVerificationPage> {
   final _codeController = TextEditingController();
-  late String _verificationId;
+  String? _verificationId;
   int? _resendToken;
   bool _isSaving = false;
   bool _isResending = false;
@@ -34,8 +30,7 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
   @override
   void initState() {
     super.initState();
-    _verificationId = widget.verificationId;
-    _resendToken = widget.resendToken;
+    _sendInitialCode();
   }
 
   @override
@@ -44,10 +39,14 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
     super.dispose();
   }
 
-  Future<void> _verifyCodeAndRegister() async {
+  Future<void> _verifyCodeAndContinue() async {
     final smsCode = _codeController.text.trim();
     if (smsCode.isEmpty) {
       _showSnackBar('Bitte gib den Bestätigungscode ein.');
+      return;
+    }
+    if (_verificationId == null || _verificationId!.isEmpty) {
+      _showSnackBar('Der SMS-Code wird noch angefordert. Bitte kurz warten.');
       return;
     }
 
@@ -55,11 +54,11 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
 
     try {
       final credential = PhoneAuthProvider.credential(
-        verificationId: _verificationId,
+        verificationId: _verificationId!,
         smsCode: smsCode,
       );
 
-      await _completeRegistration(credential);
+      await _completePhoneAuth(credential);
     } on FirebaseAuthException catch (error) {
       _showSnackBar(error.message ?? 'Code konnte nicht verifiziert werden.');
     } catch (_) {
@@ -110,62 +109,123 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
     }
   }
 
-  Future<void> _completeRegistration(PhoneAuthCredential phoneCredential) async {
-    final auth = FirebaseAuth.instance;
-    final email = widget.email.trim();
-    final password = widget.password.trim();
-
-    if (email.isEmpty || password.isEmpty) {
-      _showSnackBar('E-Mail oder Passwort fehlt.');
-      return;
+  Future<void> _sendInitialCode() async {
+    setState(() => _isResending = true);
+    try {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: widget.phoneNumberE164,
+        timeout: const Duration(seconds: 60),
+        verificationCompleted: (PhoneAuthCredential credential) {},
+        verificationFailed: (FirebaseAuthException error) {
+          _showSnackBar(error.message ?? 'SMS konnte nicht gesendet werden.');
+        },
+        codeSent: (String verificationId, int? resendToken) {
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _verificationId = verificationId;
+            _resendToken = resendToken;
+          });
+        },
+        codeAutoRetrievalTimeout: (String verificationId) {
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _verificationId = verificationId;
+          });
+        },
+      );
+    } catch (_) {
+      _showSnackBar('SMS konnte nicht gesendet werden.');
+    } finally {
+      if (mounted) {
+        setState(() => _isResending = false);
+      }
     }
+  }
+
+  Future<void> _completePhoneAuth(PhoneAuthCredential phoneCredential) async {
+    final auth = FirebaseAuth.instance;
 
     try {
       final phoneUserCredential = await auth.signInWithCredential(phoneCredential);
       final currentUser = phoneUserCredential.user;
 
       if (currentUser == null) {
-        _showSnackBar('Registrierung konnte nicht abgeschlossen werden.');
+        _showSnackBar('Anmeldung konnte nicht abgeschlossen werden.');
         return;
       }
 
-      final emailCredential = EmailAuthProvider.credential(
-        email: email,
-        password: password,
-      );
+      final userDocRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser.uid);
+      final userDoc = await userDocRef.get();
 
-      await currentUser.linkWithCredential(emailCredential);
+      if (!userDoc.exists) {
+        await userDocRef.set({
+          'displayName': '',
+          'phoneNumber': widget.phoneNumberE164,
+          'authProvider': 'phone',
+          'rolle': 'kunde',
+          'isActive': true,
+          'profileCompleted': false,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
 
-      await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).set({
-        'email': email,
-        'phoneNumber': widget.phoneNumberE164,
-        'rolle': 'kunde',
-        'name': '',
-      });
+      final freshUserDoc = await userDocRef.get();
+      final data = freshUserDoc.data();
+      final rolle = data?['rolle']?.toString().toLowerCase();
 
       if (!mounted) {
         return;
       }
 
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const AlleDienstleisterPage()),
+      if (rolle == 'kunde') {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const AlleDienstleisterPage()),
+          (route) => false,
+        );
+      } else if (rolle == 'dienstleister') {
+        final branche = data?['branche'];
+        final dienstleisterId = data?['dienstleisterId'];
+
+        if (branche != null && dienstleisterId != null) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) => DienstleisterMainPage(
+                branche: branche,
+                dienstleisterId: dienstleisterId,
+              ),
+            ),
             (route) => false,
-      );
+          );
+        } else {
+          _showSnackBar('Daten für Dienstleister unvollständig.');
+        }
+      } else if (rolle == 'admin') {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const AdminMainPage()),
+          (route) => false,
+        );
+      } else {
+        _showSnackBar('Unbekannte oder fehlende Rolle im Nutzerprofil.');
+      }
     } on FirebaseAuthException catch (error) {
-      if (error.code == 'email-already-in-use' ||
-          error.code == 'credential-already-in-use') {
-        _showSnackBar('Diese E-Mail wird bereits verwendet.');
-      } else if (error.code == 'invalid-verification-code') {
+      if (error.code == 'invalid-verification-code') {
         _showSnackBar('Der eingegebene Code ist ungültig.');
       } else if (error.code == 'session-expired') {
         _showSnackBar('Der Code ist abgelaufen. Bitte fordere einen neuen an.');
       } else {
         _showSnackBar(
-          error.message ?? 'Registrierung konnte nicht abgeschlossen werden.',
+          error.message ?? 'Anmeldung konnte nicht abgeschlossen werden.',
         );
       }
     } catch (_) {
-      _showSnackBar('Registrierung konnte nicht abgeschlossen werden.');
+      _showSnackBar('Anmeldung konnte nicht abgeschlossen werden.');
     }
   }
 
@@ -200,9 +260,9 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Bestätigung per SMS',
-              style: TextStyle(
+            Text(
+              widget.isLoginMode ? 'Login per SMS' : 'Registrierung per SMS',
+              style: const TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF101828),
@@ -211,7 +271,7 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
             const SizedBox(height: 16),
             Text(
               'Bitte geben Sie den SMS-Bestätigungscode ein, der an folgende Nummer '
-                  'verschickt wurde: ${widget.phoneNumberE164}',
+              'verschickt wurde: ${widget.phoneNumberE164}',
               style: const TextStyle(
                 fontSize: 20,
                 height: 1.35,
@@ -254,7 +314,7 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: _isSaving ? null : _verifyCodeAndRegister,
+                onPressed: _isSaving ? null : _verifyCodeAndContinue,
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size.fromHeight(54),
                   backgroundColor: const Color(0xFF1F1F1F),
@@ -265,17 +325,17 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
                 ),
                 child: _isSaving
                     ? const SizedBox(
-                  height: 18,
-                  width: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
                     : const Text(
-                  'Speichern',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
-                ),
+                        'Speichern',
+                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
+                      ),
               ),
             ),
             const SizedBox(height: 16),
