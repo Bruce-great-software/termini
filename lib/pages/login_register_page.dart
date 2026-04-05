@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'sms_verification_page.dart';
 
 class LoginRegisterPage extends StatefulWidget {
@@ -22,71 +21,22 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
       return;
     }
 
-    setState(() => isLoading = true);
-    await _startPhoneVerification();
-  }
-
-  Future<void> _startPhoneVerification() async {
     final formattedPhone = _formatGermanPhoneNumber(_phoneController.text);
     if (formattedPhone == null) {
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Bitte gib eine gültige Handynummer ein.')),
       );
       return;
     }
 
-    await FirebaseAuth.instance.verifyPhoneNumber(
-      phoneNumber: formattedPhone,
-      timeout: const Duration(seconds: 60),
-      verificationCompleted: (PhoneAuthCredential credential) {
-        if (!mounted) {
-          return;
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('SMS-Code wurde automatisch erkannt. Bitte bestätigen.'),
-          ),
-        );
-      },
-      verificationFailed: (FirebaseAuthException error) {
-        if (!mounted) {
-          return;
-        }
-        setState(() => isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              error.message ?? 'SMS konnte nicht gesendet werden.',
-            ),
-          ),
-        );
-      },
-      codeSent: (String verificationId, int? resendToken) {
-        if (!mounted) {
-          return;
-        }
-        setState(() => isLoading = false);
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => SmsVerificationPage(
-              phoneNumberE164: formattedPhone,
-              verificationId: verificationId,
-              resendToken: resendToken,
-              isLoginMode: isLoginMode,
-            ),
-          ),
-        );
-      },
-      codeAutoRetrievalTimeout: (_) {
-        if (!mounted) {
-          return;
-        }
-        setState(() => isLoading = false);
-      },
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SmsVerificationPage(
+          phoneNumberE164: formattedPhone,
+          isLoginMode: isLoginMode,
+        ),
+      ),
     );
   }
 

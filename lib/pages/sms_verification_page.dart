@@ -10,15 +10,11 @@ class SmsVerificationPage extends StatefulWidget {
   const SmsVerificationPage({
     super.key,
     required this.phoneNumberE164,
-    required this.verificationId,
     required this.isLoginMode,
-    this.resendToken,
   });
 
   final String phoneNumberE164;
-  final String verificationId;
   final bool isLoginMode;
-  final int? resendToken;
 
   @override
   State<SmsVerificationPage> createState() => _SmsVerificationPageState();
@@ -26,7 +22,7 @@ class SmsVerificationPage extends StatefulWidget {
 
 class _SmsVerificationPageState extends State<SmsVerificationPage> {
   final _codeController = TextEditingController();
-  late String _verificationId;
+  String? _verificationId;
   int? _resendToken;
   bool _isSaving = false;
   bool _isResending = false;
@@ -34,8 +30,7 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
   @override
   void initState() {
     super.initState();
-    _verificationId = widget.verificationId;
-    _resendToken = widget.resendToken;
+    _sendInitialCode();
   }
 
   @override
@@ -50,12 +45,16 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
       _showSnackBar('Bitte gib den Bestätigungscode ein.');
       return;
     }
+    if (_verificationId == null || _verificationId!.isEmpty) {
+      _showSnackBar('Der SMS-Code wird noch angefordert. Bitte kurz warten.');
+      return;
+    }
 
     setState(() => _isSaving = true);
 
     try {
       final credential = PhoneAuthProvider.credential(
-        verificationId: _verificationId,
+        verificationId: _verificationId!,
         smsCode: smsCode,
       );
 
@@ -103,6 +102,43 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
       );
     } catch (_) {
       _showSnackBar('Neuer Code konnte nicht gesendet werden.');
+    } finally {
+      if (mounted) {
+        setState(() => _isResending = false);
+      }
+    }
+  }
+
+  Future<void> _sendInitialCode() async {
+    setState(() => _isResending = true);
+    try {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: widget.phoneNumberE164,
+        timeout: const Duration(seconds: 60),
+        verificationCompleted: (PhoneAuthCredential credential) {},
+        verificationFailed: (FirebaseAuthException error) {
+          _showSnackBar(error.message ?? 'SMS konnte nicht gesendet werden.');
+        },
+        codeSent: (String verificationId, int? resendToken) {
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _verificationId = verificationId;
+            _resendToken = resendToken;
+          });
+        },
+        codeAutoRetrievalTimeout: (String verificationId) {
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _verificationId = verificationId;
+          });
+        },
+      );
+    } catch (_) {
+      _showSnackBar('SMS konnte nicht gesendet werden.');
     } finally {
       if (mounted) {
         setState(() => _isResending = false);
