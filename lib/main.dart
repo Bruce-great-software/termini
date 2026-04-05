@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:termini/pages/all_places_page.dart';
+import 'package:termini/checkmytime/pages/home_page.dart';
 import 'firebase_options.dart';
 import 'pages/alle_dienstleister_page.dart';
 import 'pages/dienstleister_main_page.dart';
@@ -49,7 +50,7 @@ class MyApp extends StatelessWidget {
         dienstleisterId: (dienstleisterId ?? user.uid) as String,
       );
     } else {
-      return const AlleDienstleisterPage();
+      return const CheckMyTimeHomePage();
     }
   }
 
@@ -67,7 +68,6 @@ class MyApp extends StatelessWidget {
         colorScheme: colorScheme,
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFFF8F9FC),
-
         appBarTheme: AppBarTheme(
           backgroundColor: colorScheme.surface,
           surfaceTintColor: Colors.transparent,
@@ -79,8 +79,6 @@ class MyApp extends StatelessWidget {
             fontSize: 18,
           ),
         ),
-
-        // ✅ FIX: CardTheme -> CardThemeData (Material 3 / neue Flutter Versionen)
         cardTheme: CardThemeData(
           elevation: 0,
           color: colorScheme.surface,
@@ -88,10 +86,8 @@ class MyApp extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
-          // Optional, verhindert "Material3 Tint"
           surfaceTintColor: Colors.transparent,
         ),
-
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: colorScheme.surface,
@@ -106,23 +102,22 @@ class MyApp extends StatelessWidget {
           contentPadding:
           const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         ),
-
         chipTheme: ChipThemeData(
-          shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           side: BorderSide(color: colorScheme.outlineVariant),
           labelStyle: TextStyle(color: colorScheme.onSurface),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         ),
-
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
-            shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           ),
         ),
-
         textTheme: const TextTheme(
           titleLarge: TextStyle(fontWeight: FontWeight.w700),
           titleMedium: TextStyle(fontWeight: FontWeight.w600),
