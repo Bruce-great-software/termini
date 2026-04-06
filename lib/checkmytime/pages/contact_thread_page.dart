@@ -144,10 +144,26 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
     }
   }
 
-  String _formatAppointmentTime(Timestamp? timestamp) {
+  Color _statusColor(ColorScheme colorScheme, String status) {
+    switch (status) {
+      case 'accepted':
+        return Colors.green;
+      case 'declined':
+        return colorScheme.error;
+      case 'pending':
+      default:
+        return colorScheme.primary;
+    }
+  }
+
+  String _formatDateHeader(Timestamp? timestamp) {
     if (timestamp == null) return 'Kein Datum';
-    final dt = timestamp.toDate();
-    return DateFormat('dd.MM.yyyy · HH:mm', 'de_DE').format(dt);
+    return DateFormat('EEEE, d. MMMM', 'de_DE').format(timestamp.toDate());
+  }
+
+  String _formatTime(Timestamp? timestamp) {
+    if (timestamp == null) return '--:--';
+    return DateFormat('HH:mm', 'de_DE').format(timestamp.toDate());
   }
 
   Future<void> _updateAppointmentStatus({
@@ -194,7 +210,6 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
       await batch.commit();
 
       if (!mounted) return;
-
       _showMessage(
         newStatus == 'accepted'
             ? 'Termin wurde angenommen.'
@@ -209,6 +224,44 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
         _updatingAppointmentIds.remove(appointmentId);
       });
     }
+  }
+
+  Widget _buildHeaderAvatar(ColorScheme colorScheme, String safeName) {
+    if (_profileImageUrl.isNotEmpty) {
+      return CircleAvatar(
+        radius: 18,
+        backgroundImage: NetworkImage(_profileImageUrl),
+      );
+    }
+
+    return CircleAvatar(
+      radius: 18,
+      backgroundColor: colorScheme.primary.withOpacity(0.12),
+      child: Text(
+        safeName.characters.first.toUpperCase(),
+        style: TextStyle(
+          color: colorScheme.primary,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContactAvatar(ThemeData theme, String safeName) {
+    if (_profileImageUrl.isNotEmpty) {
+      return CircleAvatar(
+        radius: 22,
+        backgroundImage: NetworkImage(_profileImageUrl),
+      );
+    }
+
+    return CircleAvatar(
+      radius: 22,
+      child: Text(
+        safeName.characters.first.toUpperCase(),
+        style: theme.textTheme.labelLarge,
+      ),
+    );
   }
 
   Widget _buildEmptyState({
@@ -262,144 +315,167 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
     );
   }
 
-  Widget _buildAppointmentCard({
-    required String appointmentId,
-    required Map<String, dynamic> data,
-    required bool isCreatedByMe,
+  Widget _buildCompactAppointmentCard({
     required ThemeData theme,
     required ColorScheme colorScheme,
+    required String safeName,
+    required String title,
+    required String status,
+    required Timestamp? appointmentAt,
+    required bool isCreatedByMe,
+    required bool isUpdating,
+    required VoidCallback? onAccept,
+    required VoidCallback? onDecline,
   }) {
-    final title = (data['title'] ?? 'Termin').toString().trim();
-    final status = (data['status'] ?? 'pending').toString();
-    final appointmentAt = data['appointmentAt'] as Timestamp?;
-    final isUpdating = _updatingAppointmentIds.contains(appointmentId);
+    final statusColor = _statusColor(colorScheme, status);
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        isCreatedByMe
-                            ? 'Du hast einen Termin vorgeschlagen'
-                            : '${_resolvedContactName.isEmpty ? widget.contactName : _resolvedContactName} hat einen Termin vorgeschlagen',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        title,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: colorScheme.primary.withOpacity(0.10),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    _statusLabel(status),
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: colorScheme.primary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 10,
             ),
-            const SizedBox(height: 14),
-            Row(
+            decoration: BoxDecoration(
+              color: colorScheme.primary.withOpacity(0.95),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
+              ),
+            ),
+            child: Row(
               children: [
-                Icon(
-                  Icons.schedule,
-                  size: 18,
-                  color: colorScheme.onSurfaceVariant,
+                const Icon(
+                  Icons.calendar_today_outlined,
+                  size: 16,
+                  color: Colors.white,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    _formatAppointmentTime(appointmentAt),
-                    style: theme.textTheme.bodyMedium,
+                    _formatDateHeader(appointmentAt),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Icon(
+                  Icons.schedule_outlined,
+                  size: 16,
+                  color: Colors.white,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _formatTime(appointmentAt),
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
             ),
-            if (!isCreatedByMe && status == 'pending') ...[
-              const SizedBox(height: 16),
-              if (isUpdating)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: CircularProgressIndicator(),
-                  ),
-                )
-              else
+          ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    _buildContactAvatar(theme, safeName),
+                    const SizedBox(width: 12),
                     Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => _updateAppointmentStatus(
-                          appointmentId: appointmentId,
-                          newStatus: 'declined',
-                          title: title,
-                        ),
-                        child: const Text('Ablehnen'),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            safeName,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            title,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            isCreatedByMe
+                                ? 'Von dir vorgeschlagen'
+                                : 'Eingegangen von $safeName',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: () => _updateAppointmentStatus(
-                          appointmentId: appointmentId,
-                          newStatus: 'accepted',
-                          title: title,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.10),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        _statusLabel(status),
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: statusColor,
+                          fontWeight: FontWeight.w700,
                         ),
-                        child: const Text('Annehmen'),
                       ),
                     ),
                   ],
                 ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeaderAvatar(ColorScheme colorScheme, String safeName) {
-    if (_profileImageUrl.isNotEmpty) {
-      return CircleAvatar(
-        radius: 18,
-        backgroundImage: NetworkImage(_profileImageUrl),
-      );
-    }
-
-    return CircleAvatar(
-      radius: 18,
-      backgroundColor: colorScheme.primary.withOpacity(0.12),
-      child: Text(
-        safeName.characters.first.toUpperCase(),
-        style: TextStyle(
-          color: colorScheme.primary,
-          fontWeight: FontWeight.w700,
-        ),
+                if (!isCreatedByMe && status == 'pending') ...[
+                  const SizedBox(height: 14),
+                  if (isUpdating)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: CircularProgressIndicator(),
+                    )
+                  else
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: onDecline,
+                            child: const Text('Ablehnen'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: onAccept,
+                            child: const Text('Annehmen'),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -546,12 +622,40 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
                           final data = doc.data();
                           final createdBy =
                           (data['createdBy'] ?? '').toString();
-                          return _buildAppointmentCard(
-                            appointmentId: doc.id,
-                            data: data,
-                            isCreatedByMe: createdBy == currentUserId,
+                          final title =
+                          (data['title'] ?? 'Termin').toString().trim();
+                          final status =
+                          (data['status'] ?? 'pending').toString();
+                          final appointmentAt =
+                          data['appointmentAt'] as Timestamp?;
+                          final isCreatedByMe =
+                              createdBy == currentUserId;
+                          final isUpdating =
+                          _updatingAppointmentIds.contains(doc.id);
+
+                          return _buildCompactAppointmentCard(
                             theme: theme,
                             colorScheme: colorScheme,
+                            safeName: safeName,
+                            title: title,
+                            status: status,
+                            appointmentAt: appointmentAt,
+                            isCreatedByMe: isCreatedByMe,
+                            isUpdating: isUpdating,
+                            onAccept: (!isCreatedByMe && status == 'pending')
+                                ? () => _updateAppointmentStatus(
+                              appointmentId: doc.id,
+                              newStatus: 'accepted',
+                              title: title,
+                            )
+                                : null,
+                            onDecline: (!isCreatedByMe && status == 'pending')
+                                ? () => _updateAppointmentStatus(
+                              appointmentId: doc.id,
+                              newStatus: 'declined',
+                              title: title,
+                            )
+                                : null,
                           );
                         }),
                       ],

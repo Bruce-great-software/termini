@@ -140,8 +140,9 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
-        if (data['hiddenFor_$currentUserId'] == true) continue;
         final unreadCount = (data['unreadCountFor_$currentUserId'] ?? 0) as int;
+        final isHiddenForCurrentUser = data['hiddenFor_$currentUserId'] == true;
+        if (isHiddenForCurrentUser && unreadCount <= 0) continue;
         currentCounts[doc.id] = unreadCount;
       }
 
@@ -153,9 +154,8 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
-        if (data['hiddenFor_$currentUserId'] == true) continue;
-
         final newCount = currentCounts[doc.id] ?? 0;
+        if (newCount <= 0) continue;
         final oldCount = _knownUnreadCountsByThread[doc.id] ?? 0;
 
         if (newCount > oldCount) {
@@ -456,7 +456,13 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
         }
 
         final docs = [...snapshot.data?.docs ?? []]
-            .where((doc) => doc.data()['hiddenFor_$currentUserId'] != true)
+            .where((doc) {
+          final data = doc.data();
+          final isHidden = data['hiddenFor_$currentUserId'] == true;
+          final unreadCount =
+          (data['unreadCountFor_$currentUserId'] ?? 0) as int;
+          return !isHidden || unreadCount > 0;
+        })
             .toList()
           ..sort((a, b) {
             final aTs = a.data()['lastInteractionAt'] as Timestamp?;
