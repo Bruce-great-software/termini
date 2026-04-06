@@ -467,10 +467,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
             return bTs.compareTo(aTs);
           });
 
-        if (docs.isEmpty) {
-          return const SizedBox.shrink();
-        }
-
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -479,6 +475,42 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
               style: theme.textTheme.titleMedium,
             ),
             const SizedBox(height: 12),
+            if (docs.isEmpty)
+              Card(
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: colorScheme.secondaryContainer,
+                    child: Text(
+                      'B',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  title: const Text(
+                    'Bruce',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  subtitle: const Text('+4915755024405'),
+                  trailing: Container(
+                    width: 28,
+                    height: 28,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFB7E61E),
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: const Text(
+                      '1',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black,
+                      ),
+                    ),
+                  ),
+                  onTap: () => _showComingSoon('Eingehende Terminanfrage'),
+                ),
+              ),
             ...docs.map((doc) {
               final data = doc.data();
               final participants =
