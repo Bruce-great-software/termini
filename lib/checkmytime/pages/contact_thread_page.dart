@@ -23,6 +23,10 @@ class ContactThreadPage extends StatefulWidget {
 class _ContactThreadPageState extends State<ContactThreadPage> {
   final Set<String> _updatingAppointmentIds = <String>{};
 
+  String _resolvedContactName = '';
+  String _resolvedPhoneNumber = '';
+  String _profileImageUrl = '';
+
   String get _threadId {
     final ids = [FirebaseAuth.instance.currentUser?.uid ?? '', widget.contactId]
       ..sort();
@@ -32,8 +36,40 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
   @override
   void initState() {
     super.initState();
+    _resolvedContactName = widget.contactName.trim();
+    _resolvedPhoneNumber = widget.phoneNumber.trim();
+    _loadContactProfile();
     _markThreadAsRead();
     _markIncomingAppointmentsAsRead();
+  }
+
+  Future<void> _loadContactProfile() async {
+    if (widget.contactId.isEmpty) return;
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.contactId)
+          .get();
+      final data = doc.data();
+      if (data == null || !mounted) return;
+
+      setState(() {
+        final firestoreName =
+        (data['displayName'] ?? data['name'] ?? '').toString().trim();
+        final firestorePhone = (data['phoneNumber'] ?? '').toString().trim();
+        final firestoreImage =
+        (data['profileImageUrl'] ?? '').toString().trim();
+
+        if (firestoreName.isNotEmpty) {
+          _resolvedContactName = firestoreName;
+        }
+        if (firestorePhone.isNotEmpty) {
+          _resolvedPhoneNumber = firestorePhone;
+        }
+        _profileImageUrl = firestoreImage;
+      });
+    } catch (_) {}
   }
 
   Future<void> _markThreadAsRead() async {
@@ -254,7 +290,7 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
                       Text(
                         isCreatedByMe
                             ? 'Du hast einen Termin vorgeschlagen'
-                            : '${widget.contactName} hat einen Termin vorgeschlagen',
+                            : '${_resolvedContactName.isEmpty ? widget.contactName : _resolvedContactName} hat einen Termin vorgeschlagen',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: colorScheme.onSurfaceVariant,
                         ),
@@ -347,18 +383,51 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
     );
   }
 
+  Widget _buildHeaderAvatar(ColorScheme colorScheme, String safeName) {
+    if (_profileImageUrl.isNotEmpty) {
+      return CircleAvatar(
+        radius: 18,
+        backgroundImage: NetworkImage(_profileImageUrl),
+      );
+    }
+
+    return CircleAvatar(
+      radius: 18,
+      backgroundColor: colorScheme.primary.withOpacity(0.12),
+      child: Text(
+        safeName.characters.first.toUpperCase(),
+        style: TextStyle(
+          color: colorScheme.primary,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final currentUser = FirebaseAuth.instance.currentUser;
     final currentUserId = currentUser?.uid;
-    final safeName =
-    widget.contactName.trim().isEmpty ? 'Unbekannt' : widget.contactName.trim();
-    final safePhone = widget.phoneNumber.trim().isEmpty
+    final safeName = (_resolvedContactName.isEmpty
+        ? widget.contactName
+        : _resolvedContactName)
+        .trim()
+        .isEmpty
+        ? 'Unbekannt'
+        : (_resolvedContactName.isEmpty ? widget.contactName : _resolvedContactName)
+        .trim();
+    final safePhone = (_resolvedPhoneNumber.isEmpty
+        ? widget.phoneNumber
+        : _resolvedPhoneNumber)
+        .trim()
+        .isEmpty
         ? 'Keine Nummer vorhanden'
-        : widget.phoneNumber.trim();
-    final avatarLetter = safeName.characters.first.toUpperCase();
+        : (_resolvedPhoneNumber.isEmpty
+        ? widget.phoneNumber
+        : _resolvedPhoneNumber)
+        .trim();
 
     return Scaffold(
       appBar: AppBar(
@@ -366,17 +435,7 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
         titleSpacing: 8,
         title: Row(
           children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: colorScheme.primary.withOpacity(0.12),
-              child: Text(
-                avatarLetter,
-                style: TextStyle(
-                  color: colorScheme.primary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
+            _buildHeaderAvatar(colorScheme, safeName),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
