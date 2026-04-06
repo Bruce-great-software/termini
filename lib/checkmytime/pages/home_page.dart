@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:termini/checkmytime/pages/appointments_page.dart';
 import 'package:termini/checkmytime/pages/contact_thread_page.dart';
+import 'package:termini/checkmytime/pages/profile_page.dart';
 import 'package:termini/checkmytime/services/notification_service.dart';
 
 class CheckMyTimeHomePage extends StatefulWidget {
@@ -58,6 +59,71 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       if (id != currentUserId) return id;
     }
     return '';
+  }
+
+  Future<_ContactPreviewData> _loadContactPreview({
+    required String contactId,
+    required String fallbackName,
+    required String fallbackPhone,
+  }) async {
+    var resolvedName = fallbackName.trim();
+    var resolvedPhone = fallbackPhone.trim();
+    var resolvedImageUrl = '';
+
+    try {
+      final doc =
+      await FirebaseFirestore.instance.collection('users').doc(contactId).get();
+      final data = doc.data();
+
+      if (data != null) {
+        final firestoreName =
+        (data['displayName'] ?? data['name'] ?? '').toString().trim();
+        final firestorePhone = (data['phoneNumber'] ?? '').toString().trim();
+        final firestoreImageUrl =
+        (data['profileImageUrl'] ?? '').toString().trim();
+
+        if (firestoreName.isNotEmpty) {
+          resolvedName = firestoreName;
+        }
+        if (firestorePhone.isNotEmpty) {
+          resolvedPhone = firestorePhone;
+        }
+        if (firestoreImageUrl.isNotEmpty) {
+          resolvedImageUrl = firestoreImageUrl;
+        }
+      }
+    } catch (_) {}
+
+    if (resolvedName.isEmpty) {
+      resolvedName = 'Unbekannt';
+    }
+
+    return _ContactPreviewData(
+      name: resolvedName,
+      phone: resolvedPhone,
+      imageUrl: resolvedImageUrl,
+    );
+  }
+
+  Widget _buildContactAvatar({
+    required _ContactPreviewData preview,
+    required ThemeData theme,
+  }) {
+    if (preview.imageUrl.isNotEmpty) {
+      return CircleAvatar(
+        backgroundImage: NetworkImage(preview.imageUrl),
+      );
+    }
+
+    final letter =
+    preview.name.isNotEmpty ? preview.name.characters.first.toUpperCase() : '?';
+
+    return CircleAvatar(
+      child: Text(
+        letter,
+        style: theme.textTheme.labelLarge,
+      ),
+    );
   }
 
   void _listenForIncomingAppointments() {
@@ -277,6 +343,8 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       );
     }
 
+    final theme = Theme.of(context);
+
     return Padding(
       padding: const EdgeInsets.only(top: 20),
       child: Column(
@@ -284,43 +352,54 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
         children: [
           Text(
             'Gefundene Personen',
-            style: Theme.of(context).textTheme.titleMedium,
+            style: theme.textTheme.titleMedium,
           ),
           const SizedBox(height: 12),
           ..._searchResults.map((doc) {
             final data = doc.data();
-            final displayName =
+            final fallbackName =
             (data['displayName'] ?? data['name'] ?? 'Unbekannt')
                 .toString()
                 .trim();
-            final phoneNumber = (data['phoneNumber'] ?? '').toString().trim();
+            final fallbackPhone = (data['phoneNumber'] ?? '').toString().trim();
 
-            return Card(
-              child: ListTile(
-                leading: CircleAvatar(
-                  child: Text(
-                    displayName.isNotEmpty
-                        ? displayName.characters.first.toUpperCase()
-                        : '?',
-                  ),
-                ),
-                title: Text(
-                  displayName.isNotEmpty ? displayName : 'Unbekannt',
-                ),
-                subtitle: Text(
-                  phoneNumber.isNotEmpty
-                      ? phoneNumber
-                      : 'Keine Nummer vorhanden',
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  _openContact(
-                    contactId: doc.id,
-                    contactName: displayName,
-                    phoneNumber: phoneNumber,
-                  );
-                },
+            return FutureBuilder<_ContactPreviewData>(
+              future: _loadContactPreview(
+                contactId: doc.id,
+                fallbackName: fallbackName,
+                fallbackPhone: fallbackPhone,
               ),
+              builder: (context, snapshot) {
+                final preview = snapshot.data ??
+                    _ContactPreviewData(
+                      name: fallbackName.isEmpty ? 'Unbekannt' : fallbackName,
+                      phone: fallbackPhone,
+                      imageUrl: '',
+                    );
+
+                return Card(
+                  child: ListTile(
+                    leading: _buildContactAvatar(
+                      preview: preview,
+                      theme: theme,
+                    ),
+                    title: Text(preview.name),
+                    subtitle: Text(
+                      preview.phone.isNotEmpty
+                          ? preview.phone
+                          : 'Keine Nummer vorhanden',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      _openContact(
+                        contactId: doc.id,
+                        contactName: preview.name,
+                        phoneNumber: preview.phone,
+                      );
+                    },
+                  ),
+                );
+              },
             );
           }),
         ],
@@ -328,7 +407,10 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     );
   }
 
-  Future<void> _hideThreadForCurrentUser(String threadId, String currentUserId) async {
+  Future<void> _hideThreadForCurrentUser(
+      String threadId,
+      String currentUserId,
+      ) async {
     try {
       await FirebaseFirestore.instance
           .collection('contact_threads')
@@ -357,7 +439,9 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
   }
 
   Widget _buildThreadsSection(String currentUserId) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection('contact_threads')
@@ -392,89 +476,107 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
           children: [
             Text(
               'Kontakte',
-              style: Theme.of(context).textTheme.titleMedium,
+              style: theme.textTheme.titleMedium,
             ),
             const SizedBox(height: 12),
             ...docs.map((doc) {
               final data = doc.data();
-              final participants = List<String>.from(data['participants'] ?? const []);
+              final participants =
+              List<String>.from(data['participants'] ?? const []);
               final otherId = _otherParticipantId(participants, currentUserId);
               final contactNames =
               Map<String, dynamic>.from(data['contactNames'] ?? const {});
               final contactPhones =
               Map<String, dynamic>.from(data['contactPhones'] ?? const {});
 
-              final contactName =
+              final fallbackName =
               (contactNames[otherId] ?? 'Unbekannt').toString().trim();
-              final phoneNumber = (contactPhones[otherId] ?? '').toString().trim();
-              final unreadCount = (data['unreadCountFor_$currentUserId'] ?? 0) as int;
+              final fallbackPhone =
+              (contactPhones[otherId] ?? '').toString().trim();
+              final unreadCount =
+              (data['unreadCountFor_$currentUserId'] ?? 0) as int;
               final hasUnread = unreadCount > 0;
-              final avatarLetter = contactName.isNotEmpty
-                  ? contactName.characters.first.toUpperCase()
-                  : '?';
 
-              return Dismissible(
-                key: ValueKey(doc.id),
-                direction: DismissDirection.endToStart,
-                background: Container(
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  decoration: BoxDecoration(
-                    color: colorScheme.error.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Icon(
-                    Icons.delete_outline,
-                    color: colorScheme.error,
-                  ),
+              return FutureBuilder<_ContactPreviewData>(
+                future: _loadContactPreview(
+                  contactId: otherId,
+                  fallbackName: fallbackName,
+                  fallbackPhone: fallbackPhone,
                 ),
-                confirmDismiss: (_) async {
-                  await _hideThreadForCurrentUser(doc.id, currentUserId);
-                  return true;
-                },
-                child: Card(
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      child: Text(avatarLetter),
-                    ),
-                    title: Text(
-                      contactName.isEmpty ? 'Unbekannt' : contactName,
-                      style: TextStyle(
-                        fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w500,
-                      ),
-                    ),
-                    subtitle: Text(
-                      phoneNumber.isNotEmpty
-                          ? phoneNumber
-                          : 'Keine Nummer vorhanden',
-                    ),
-                    trailing: hasUnread
-                        ? Container(
-                      width: 28,
-                      height: 28,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFB7E61E),
-                        shape: BoxShape.circle,
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        '$unreadCount',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: Colors.black,
-                        ),
-                      ),
-                    )
-                        : const Icon(Icons.chevron_right),
-                    onTap: () {
-                      _openContact(
-                        contactId: otherId,
-                        contactName: contactName,
-                        phoneNumber: phoneNumber,
+                builder: (context, snapshot) {
+                  final preview = snapshot.data ??
+                      _ContactPreviewData(
+                        name: fallbackName.isEmpty ? 'Unbekannt' : fallbackName,
+                        phone: fallbackPhone,
+                        imageUrl: '',
                       );
+
+                  return Dismissible(
+                    key: ValueKey(doc.id),
+                    direction: DismissDirection.endToStart,
+                    background: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: colorScheme.error.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Icon(
+                        Icons.delete_outline,
+                        color: colorScheme.error,
+                      ),
+                    ),
+                    confirmDismiss: (_) async {
+                      await _hideThreadForCurrentUser(doc.id, currentUserId);
+                      return true;
                     },
-                  ),
-                ),
+                    child: Card(
+                      child: ListTile(
+                        leading: _buildContactAvatar(
+                          preview: preview,
+                          theme: theme,
+                        ),
+                        title: Text(
+                          preview.name,
+                          style: TextStyle(
+                            fontWeight:
+                            hasUnread ? FontWeight.w700 : FontWeight.w500,
+                          ),
+                        ),
+                        subtitle: Text(
+                          preview.phone.isNotEmpty
+                              ? preview.phone
+                              : 'Keine Nummer vorhanden',
+                        ),
+                        trailing: hasUnread
+                            ? Container(
+                          width: 28,
+                          height: 28,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFB7E61E),
+                            shape: BoxShape.circle,
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '$unreadCount',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Colors.black,
+                            ),
+                          ),
+                        )
+                            : const Icon(Icons.chevron_right),
+                        onTap: () {
+                          _openContact(
+                            contactId: otherId,
+                            contactName: preview.name,
+                            phoneNumber: preview.phone,
+                          );
+                        },
+                      ),
+                    ),
+                  );
+                },
               );
             }),
             const SizedBox(height: 20),
@@ -579,7 +681,11 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                   title: 'Mein Profil',
                   subtitle:
                   'Hier können später Name, Bild und weitere Angaben ergänzt werden.',
-                  onTap: () => _showComingSoon('Mein Profil'),
+                  onTap: () {
+                    setState(() {
+                      _selectedIndex = 2;
+                    });
+                  },
                 ),
               ],
             ),
@@ -598,12 +704,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     }
 
     if (_selectedIndex == 2) {
-      return Center(
-        child: Text(
-          'Profil kommt als Nächstes.',
-          style: theme.textTheme.bodyLarge,
-        ),
-      );
+      return const ProfilePage();
     }
 
     return _buildHomeTab(colorScheme, theme, currentUserId);
@@ -620,7 +721,9 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
         title: const Text('CheckMyTime'),
         actions: [
           IconButton(
-            onPressed: () => _showComingSoon('Einstellungen'),
+            onPressed: () => setState(() {
+              _selectedIndex = 2;
+            }),
             icon: const Icon(Icons.settings_outlined),
           ),
         ],
@@ -641,10 +744,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
           setState(() {
             _selectedIndex = index;
           });
-
-          if (index == 2) {
-            _showComingSoon('Profil');
-          }
         },
         destinations: const [
           NavigationDestination(
@@ -727,4 +826,16 @@ class _ActionCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ContactPreviewData {
+  final String name;
+  final String phone;
+  final String imageUrl;
+
+  const _ContactPreviewData({
+    required this.name,
+    required this.phone,
+    required this.imageUrl,
+  });
 }
