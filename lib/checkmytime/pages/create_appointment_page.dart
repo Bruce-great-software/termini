@@ -175,6 +175,8 @@ class _CreateAppointmentPageState extends State<CreateAppointmentPage> {
         'lastStatus': 'pending',
         'lastCreatedBy': currentUserId,
         'updatedAt': FieldValue.serverTimestamp(),
+        'hiddenFor_$currentUserId': false,
+        'hiddenFor_${widget.contactId}': false,
         'unreadCountFor_$currentUserId': 0,
         'unreadCountFor_${widget.contactId}': FieldValue.increment(1),
       };
