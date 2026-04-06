@@ -30,6 +30,11 @@ class _CreateAppointmentPageState extends State<CreateAppointmentPage> {
     super.dispose();
   }
 
+  String _buildThreadId(String uidA, String uidB) {
+    final ids = [uidA, uidB]..sort();
+    return '${ids[0]}_${ids[1]}';
+  }
+
   Future<void> _pickDate() async {
     final now = DateTime.now();
 
@@ -105,17 +110,82 @@ class _CreateAppointmentPageState extends State<CreateAppointmentPage> {
     });
 
     try {
-      await FirebaseFirestore.instance.collection('appointments').add({
-        'createdBy': currentUser.uid,
+      final firestore = FirebaseFirestore.instance;
+      final currentUserId = currentUser.uid;
+      final threadId = _buildThreadId(currentUserId, widget.contactId);
+
+      final currentUserDoc =
+      await firestore.collection('users').doc(currentUserId).get();
+      final contactUserDoc =
+      await firestore.collection('users').doc(widget.contactId).get();
+      final threadRef = firestore.collection('contact_threads').doc(threadId);
+      final existingThread = await threadRef.get();
+
+      final currentUserData = currentUserDoc.data() ?? <String, dynamic>{};
+      final contactUserData = contactUserDoc.data() ?? <String, dynamic>{};
+
+      final currentUserName =
+      (currentUserData['displayName'] ?? currentUserData['name'] ?? 'Unbekannt')
+          .toString()
+          .trim();
+      final currentUserPhone =
+      (currentUserData['phoneNumber'] ?? '').toString().trim();
+
+      final contactName =
+      (contactUserData['displayName'] ?? contactUserData['name'] ?? widget.contactName)
+          .toString()
+          .trim();
+      final contactPhone =
+      (contactUserData['phoneNumber'] ?? '').toString().trim();
+
+      final participants = [currentUserId, widget.contactId]..sort();
+
+      final appointmentRef = firestore.collection('appointments').doc();
+      final batch = firestore.batch();
+
+      batch.set(appointmentRef, {
+        'threadId': threadId,
+        'createdBy': currentUserId,
         'contactId': widget.contactId,
-        'contactName': widget.contactName,
-        'participants': [currentUser.uid, widget.contactId],
+        'contactName': contactName.isEmpty ? widget.contactName : contactName,
+        'participants': participants,
         'title': title,
         'appointmentAt': Timestamp.fromDate(appointmentDateTime),
         'status': 'pending',
+        'isReadByRecipient': false,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
+      final threadData = <String, dynamic>{
+        'participants': participants,
+        'participantMap': {
+          for (final id in participants) id: true,
+        },
+        'contactNames': {
+          currentUserId: currentUserName.isEmpty ? 'Unbekannt' : currentUserName,
+          widget.contactId: contactName.isEmpty ? widget.contactName : contactName,
+        },
+        'contactPhones': {
+          currentUserId: currentUserPhone,
+          widget.contactId: contactPhone,
+        },
+        'lastInteractionAt': FieldValue.serverTimestamp(),
+        'lastAppointmentTitle': title,
+        'lastStatus': 'pending',
+        'lastCreatedBy': currentUserId,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'unreadCountFor_$currentUserId': 0,
+        'unreadCountFor_${widget.contactId}': FieldValue.increment(1),
+      };
+
+      if (!existingThread.exists) {
+        threadData['createdAt'] = FieldValue.serverTimestamp();
+      }
+
+      batch.set(threadRef, threadData, SetOptions(merge: true));
+
+      await batch.commit();
 
       if (!mounted) return;
       Navigator.of(context).pop(true);

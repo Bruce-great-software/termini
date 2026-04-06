@@ -23,12 +23,10 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
   String _searchQuery = '';
   String? _searchError;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _searchResults = [];
-  final List<_RecentContact> _recentContacts = [];
 
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
-  _appointmentsSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _threadsSubscription;
   bool _hasInitializedUnreadState = false;
-  Set<String> _knownUnreadIncomingIds = <String>{};
+  Map<String, int> _knownUnreadCountsByThread = {};
 
   @override
   void initState() {
@@ -37,67 +35,81 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     _listenForIncomingAppointments();
   }
 
+  @override
+  void dispose() {
+    _threadsSubscription?.cancel();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
   Future<void> _initializeNotifications() async {
     await NotificationService.instance.initialize();
     await NotificationService.instance.requestPermissions();
   }
 
-  @override
-  void dispose() {
-    _appointmentsSubscription?.cancel();
-    _searchController.dispose();
-    _searchFocusNode.dispose();
-    super.dispose();
+  String _buildThreadId(String uidA, String uidB) {
+    final ids = [uidA, uidB]..sort();
+    return '${ids[0]}_${ids[1]}';
+  }
+
+  String _otherParticipantId(List<String> participants, String currentUserId) {
+    for (final id in participants) {
+      if (id != currentUserId) return id;
+    }
+    return '';
   }
 
   void _listenForIncomingAppointments() {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
     if (currentUserId == null) return;
 
-    _appointmentsSubscription?.cancel();
-    _appointmentsSubscription = FirebaseFirestore.instance
-        .collection('appointments')
-        .where('participants', arrayContains: currentUserId)
+    _threadsSubscription?.cancel();
+    _threadsSubscription = FirebaseFirestore.instance
+        .collection('contact_threads')
+        .where('participantMap.$currentUserId', isEqualTo: true)
         .snapshots()
         .listen((snapshot) async {
-      final currentUnreadIds = <String>{};
-      final unreadDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      final currentCounts = <String, int>{};
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
-        final createdBy = (data['createdBy'] ?? '').toString();
-        final status = (data['status'] ?? '').toString();
-        final isReadByRecipient = data['isReadByRecipient'] == true;
-
-        if (createdBy != currentUserId &&
-            status == 'pending' &&
-            !isReadByRecipient) {
-          currentUnreadIds.add(doc.id);
-          unreadDocs.add(doc);
-        }
+        if (data['hiddenFor_$currentUserId'] == true) continue;
+        final unreadCount = (data['unreadCountFor_$currentUserId'] ?? 0) as int;
+        currentCounts[doc.id] = unreadCount;
       }
 
       if (!_hasInitializedUnreadState) {
         _hasInitializedUnreadState = true;
-        _knownUnreadIncomingIds = currentUnreadIds;
+        _knownUnreadCountsByThread = currentCounts;
         return;
       }
 
-      final newDocs = unreadDocs
-          .where((doc) => !_knownUnreadIncomingIds.contains(doc.id))
-          .toList(growable: false);
-
-      for (final doc in newDocs) {
+      for (final doc in snapshot.docs) {
         final data = doc.data();
-        final title = (data['title'] ?? 'Termin').toString();
+        if (data['hiddenFor_$currentUserId'] == true) continue;
 
-        await NotificationService.instance.showIncomingAppointmentNotification(
-          title: 'Neuer Terminvorschlag',
-          body: 'Du hast einen neuen Terminvorschlag: $title',
-        );
+        final newCount = currentCounts[doc.id] ?? 0;
+        final oldCount = _knownUnreadCountsByThread[doc.id] ?? 0;
+
+        if (newCount > oldCount) {
+          final participants = List<String>.from(data['participants'] ?? const []);
+          final otherId = _otherParticipantId(participants, currentUserId);
+          final contactNames =
+          Map<String, dynamic>.from(data['contactNames'] ?? const {});
+          final otherName =
+          (contactNames[otherId] ?? 'Unbekannt').toString().trim();
+          final lastTitle =
+          (data['lastAppointmentTitle'] ?? 'Termin').toString().trim();
+
+          await NotificationService.instance.showIncomingAppointmentNotification(
+            title: 'Neuer Terminvorschlag',
+            body: '$otherName: $lastTitle',
+          );
+        }
       }
 
-      _knownUnreadIncomingIds = currentUnreadIds;
+      _knownUnreadCountsByThread = currentCounts;
     });
   }
 
@@ -130,20 +142,34 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     final safeName =
     contactName.trim().isEmpty ? 'Unbekannt' : contactName.trim();
     final safePhone = phoneNumber.trim();
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
     _resetSearch();
 
-    setState(() {
-      _recentContacts.removeWhere((contact) => contact.contactId == contactId);
-      _recentContacts.insert(
-        0,
-        _RecentContact(
-          contactId: contactId,
-          contactName: safeName,
-          phoneNumber: safePhone,
-        ),
-      );
-    });
+    if (currentUserId != null && contactId.isNotEmpty) {
+      final threadId = _buildThreadId(currentUserId, contactId);
+      try {
+        await FirebaseFirestore.instance
+            .collection('contact_threads')
+            .doc(threadId)
+            .set({
+          'participants': [currentUserId, contactId]..sort(),
+          'participantMap': {
+            currentUserId: true,
+            contactId: true,
+          },
+          'contactNames': {
+            contactId: safeName,
+          },
+          'contactPhones': {
+            contactId: safePhone,
+          },
+          'hiddenFor_$currentUserId': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'unreadCountFor_$currentUserId': 0,
+        }, SetOptions(merge: true));
+      } catch (_) {}
+    }
 
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -181,7 +207,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
 
     try {
       final currentUid = FirebaseAuth.instance.currentUser?.uid;
-
       final snapshot =
       await FirebaseFirestore.instance.collection('users').limit(50).get();
 
@@ -217,34 +242,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
         _isSearching = false;
       });
     }
-  }
-
-  Future<Map<String, _RecentContact>> _loadMissingContacts(
-      List<String> contactIds,
-      ) async {
-    final result = <String, _RecentContact>{};
-
-    for (final id in contactIds) {
-      try {
-        final doc =
-        await FirebaseFirestore.instance.collection('users').doc(id).get();
-        final data = doc.data();
-        if (data == null) continue;
-
-        final name = (data['displayName'] ?? data['name'] ?? 'Unbekannt')
-            .toString()
-            .trim();
-        final phone = (data['phoneNumber'] ?? '').toString().trim();
-
-        result[id] = _RecentContact(
-          contactId: id,
-          contactName: name.isEmpty ? 'Unbekannt' : name,
-          phoneNumber: phone,
-        );
-      } catch (_) {}
-    }
-
-    return result;
   }
 
   Widget _buildSearchResults() {
@@ -331,141 +328,157 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     );
   }
 
-  Widget _buildRecentContactsSection(String currentUserId) {
+  Future<void> _hideThreadForCurrentUser(String threadId, String currentUserId) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('contact_threads')
+          .doc(threadId)
+          .set({
+        'hiddenFor_$currentUserId': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Kontakt wurde von der Startseite entfernt.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Kontakt konnte nicht entfernt werden.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Widget _buildThreadsSection(String currentUserId) {
+    final colorScheme = Theme.of(context).colorScheme;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
-          .collection('appointments')
-          .where('participants', arrayContains: currentUserId)
+          .collection('contact_threads')
+          .where('participantMap.$currentUserId', isEqualTo: true)
           .snapshots(),
       builder: (context, snapshot) {
-        final unreadCounts = <String, int>{};
-
-        for (final doc in snapshot.data?.docs ?? const []) {
-          final data = doc.data();
-          final createdBy = (data['createdBy'] ?? '').toString();
-          final status = (data['status'] ?? '').toString();
-          final isReadByRecipient = data['isReadByRecipient'] == true;
-
-          if (createdBy != currentUserId &&
-              status == 'pending' &&
-              !isReadByRecipient) {
-            unreadCounts[createdBy] = (unreadCounts[createdBy] ?? 0) + 1;
-          }
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.only(top: 8, bottom: 16),
+            child: Center(child: CircularProgressIndicator()),
+          );
         }
 
-        if (_recentContacts.isEmpty && unreadCounts.isEmpty) {
+        final docs = [...snapshot.data?.docs ?? []]
+            .where((doc) => doc.data()['hiddenFor_$currentUserId'] != true)
+            .toList()
+          ..sort((a, b) {
+            final aTs = a.data()['lastInteractionAt'] as Timestamp?;
+            final bTs = b.data()['lastInteractionAt'] as Timestamp?;
+            if (aTs == null && bTs == null) return 0;
+            if (aTs == null) return 1;
+            if (bTs == null) return -1;
+            return bTs.compareTo(aTs);
+          });
+
+        if (docs.isEmpty) {
           return const SizedBox.shrink();
         }
 
-        final recentMap = <String, _RecentContact>{
-          for (final contact in _recentContacts) contact.contactId: contact,
-        };
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Kontakte',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            ...docs.map((doc) {
+              final data = doc.data();
+              final participants = List<String>.from(data['participants'] ?? const []);
+              final otherId = _otherParticipantId(participants, currentUserId);
+              final contactNames =
+              Map<String, dynamic>.from(data['contactNames'] ?? const {});
+              final contactPhones =
+              Map<String, dynamic>.from(data['contactPhones'] ?? const {});
 
-        final missingIds = unreadCounts.keys
-            .where((id) => !recentMap.containsKey(id))
-            .toList(growable: false);
+              final contactName =
+              (contactNames[otherId] ?? 'Unbekannt').toString().trim();
+              final phoneNumber = (contactPhones[otherId] ?? '').toString().trim();
+              final unreadCount = (data['unreadCountFor_$currentUserId'] ?? 0) as int;
+              final hasUnread = unreadCount > 0;
+              final avatarLetter = contactName.isNotEmpty
+                  ? contactName.characters.first.toUpperCase()
+                  : '?';
 
-        return FutureBuilder<Map<String, _RecentContact>>(
-          future: _loadMissingContacts(missingIds),
-          builder: (context, contactSnapshot) {
-            final mergedMap = <String, _RecentContact>{
-              ...recentMap,
-              ...?contactSnapshot.data,
-            };
-
-            final orderedIds = <String>[];
-
-            final unreadIds = unreadCounts.keys.toList()
-              ..sort(
-                    (a, b) =>
-                    (unreadCounts[b] ?? 0).compareTo(unreadCounts[a] ?? 0),
-              );
-            orderedIds.addAll(unreadIds);
-
-            for (final contact in _recentContacts) {
-              if (!orderedIds.contains(contact.contactId)) {
-                orderedIds.add(contact.contactId);
-              }
-            }
-
-            final items = orderedIds
-                .map((id) {
-              final contact = mergedMap[id];
-              if (contact == null) return null;
-              return _HomeContactItem(
-                contact: contact,
-                unreadCount: unreadCounts[id] ?? 0,
-              );
-            })
-                .whereType<_HomeContactItem>()
-                .toList();
-
-            if (items.isEmpty) {
-              return const SizedBox.shrink();
-            }
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Zuletzt geöffnet',
-                  style: Theme.of(context).textTheme.titleMedium,
+              return Dismissible(
+                key: ValueKey(doc.id),
+                direction: DismissDirection.endToStart,
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  decoration: BoxDecoration(
+                    color: colorScheme.error.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Icon(
+                    Icons.delete_outline,
+                    color: colorScheme.error,
+                  ),
                 ),
-                const SizedBox(height: 12),
-                ...items.map((item) {
-                  final avatarLetter =
-                  item.contact.contactName.characters.first.toUpperCase();
-                  final hasUnread = item.unreadCount > 0;
-
-                  return Card(
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        child: Text(avatarLetter),
-                      ),
-                      title: Text(
-                        item.contact.contactName,
-                        style: TextStyle(
-                          fontWeight:
-                          hasUnread ? FontWeight.w700 : FontWeight.w500,
-                        ),
-                      ),
-                      subtitle: Text(
-                        item.contact.phoneNumber.isEmpty
-                            ? 'Keine Nummer vorhanden'
-                            : item.contact.phoneNumber,
-                      ),
-                      trailing: hasUnread
-                          ? Container(
-                        width: 28,
-                        height: 28,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFB7E61E),
-                          shape: BoxShape.circle,
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          '${item.unreadCount}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black,
-                          ),
-                        ),
-                      )
-                          : const Icon(Icons.chevron_right),
-                      onTap: () {
-                        _openContact(
-                          contactId: item.contact.contactId,
-                          contactName: item.contact.contactName,
-                          phoneNumber: item.contact.phoneNumber,
-                        );
-                      },
+                confirmDismiss: (_) async {
+                  await _hideThreadForCurrentUser(doc.id, currentUserId);
+                  return true;
+                },
+                child: Card(
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      child: Text(avatarLetter),
                     ),
-                  );
-                }),
-                const SizedBox(height: 20),
-              ],
-            );
-          },
+                    title: Text(
+                      contactName.isEmpty ? 'Unbekannt' : contactName,
+                      style: TextStyle(
+                        fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                    subtitle: Text(
+                      phoneNumber.isNotEmpty
+                          ? phoneNumber
+                          : 'Keine Nummer vorhanden',
+                    ),
+                    trailing: hasUnread
+                        ? Container(
+                      width: 28,
+                      height: 28,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFB7E61E),
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        '$unreadCount',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black,
+                        ),
+                      ),
+                    )
+                        : const Icon(Icons.chevron_right),
+                    onTap: () {
+                      _openContact(
+                        contactId: otherId,
+                        contactName: contactName,
+                        phoneNumber: phoneNumber,
+                      );
+                    },
+                  ),
+                ),
+              );
+            }),
+            const SizedBox(height: 20),
+          ],
         );
       },
     );
@@ -505,7 +518,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (currentUserId != null) _buildRecentContactsSection(currentUserId),
+                if (currentUserId != null) _buildThreadsSection(currentUserId),
                 Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
@@ -714,26 +727,4 @@ class _ActionCard extends StatelessWidget {
       ),
     );
   }
-}
-
-class _RecentContact {
-  final String contactId;
-  final String contactName;
-  final String phoneNumber;
-
-  const _RecentContact({
-    required this.contactId,
-    required this.contactName,
-    required this.phoneNumber,
-  });
-}
-
-class _HomeContactItem {
-  final _RecentContact contact;
-  final int unreadCount;
-
-  const _HomeContactItem({
-    required this.contact,
-    required this.unreadCount,
-  });
 }

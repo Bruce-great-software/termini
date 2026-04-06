@@ -23,10 +23,32 @@ class ContactThreadPage extends StatefulWidget {
 class _ContactThreadPageState extends State<ContactThreadPage> {
   final Set<String> _updatingAppointmentIds = <String>{};
 
+  String get _threadId {
+    final ids = [FirebaseAuth.instance.currentUser?.uid ?? '', widget.contactId]
+      ..sort();
+    return '${ids[0]}_${ids[1]}';
+  }
+
   @override
   void initState() {
     super.initState();
+    _markThreadAsRead();
     _markIncomingAppointmentsAsRead();
+  }
+
+  Future<void> _markThreadAsRead() async {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null || widget.contactId.isEmpty) return;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('contact_threads')
+          .doc(_threadId)
+          .set({
+        'unreadCountFor_$currentUserId': 0,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (_) {}
   }
 
   Future<void> _markIncomingAppointmentsAsRead() async {
@@ -36,7 +58,7 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('appointments')
-          .where('participants', arrayContains: currentUserId)
+          .where('threadId', isEqualTo: _threadId)
           .get();
 
       final batch = FirebaseFirestore.instance.batch();
@@ -95,6 +117,7 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
   Future<void> _updateAppointmentStatus({
     required String appointmentId,
     required String newStatus,
+    required String title,
   }) async {
     if (_updatingAppointmentIds.contains(appointmentId)) return;
 
@@ -103,14 +126,36 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
     });
 
     try {
-      await FirebaseFirestore.instance
-          .collection('appointments')
-          .doc(appointmentId)
-          .update({
-        'status': newStatus,
-        'isReadByRecipient': true,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      final firestore = FirebaseFirestore.instance;
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+      if (currentUserId == null) {
+        throw Exception('not logged in');
+      }
+
+      final batch = firestore.batch();
+
+      batch.update(
+        firestore.collection('appointments').doc(appointmentId),
+        {
+          'status': newStatus,
+          'isReadByRecipient': true,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+      );
+
+      batch.set(
+        firestore.collection('contact_threads').doc(_threadId),
+        {
+          'lastStatus': newStatus,
+          'lastAppointmentTitle': title,
+          'lastInteractionAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          'unreadCountFor_$currentUserId': 0,
+        },
+        SetOptions(merge: true),
+      );
+
+      await batch.commit();
 
       if (!mounted) return;
 
@@ -148,7 +193,7 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
             ),
           ),
           child: Text(
-            'Hier siehst du später gemeinsame Terminanfragen, bestätigte Termine und Änderungen mit $safeName.',
+            'Hier siehst du gemeinsame Terminanfragen, bestätigte Termine und Änderungen mit $safeName.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurface,
             ),
@@ -176,12 +221,6 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
             color: colorScheme.onSurfaceVariant,
           ),
           textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 24),
-        OutlinedButton.icon(
-          onPressed: () => _showMessage('Verlauf kommt als Nächstes.'),
-          icon: const Icon(Icons.history),
-          label: const Text('Verlauf kommt später'),
         ),
       ],
     );
@@ -283,6 +322,7 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
                         onPressed: () => _updateAppointmentStatus(
                           appointmentId: appointmentId,
                           newStatus: 'declined',
+                          title: title,
                         ),
                         child: const Text('Ablehnen'),
                       ),
@@ -293,6 +333,7 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
                         onPressed: () => _updateAppointmentStatus(
                           appointmentId: appointmentId,
                           newStatus: 'accepted',
+                          title: title,
                         ),
                         child: const Text('Annehmen'),
                       ),
@@ -385,7 +426,7 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
                   : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: FirebaseFirestore.instance
                     .collection('appointments')
-                    .where('participants', arrayContains: currentUserId)
+                    .where('threadId', isEqualTo: _threadId)
                     .snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
@@ -403,11 +444,7 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
                     );
                   }
 
-                  final docs = (snapshot.data?.docs ?? []).where((doc) {
-                    final participants =
-                    List<String>.from(doc.data()['participants'] ?? []);
-                    return participants.contains(widget.contactId);
-                  }).toList()
+                  final docs = [...snapshot.data?.docs ?? []]
                     ..sort((a, b) {
                       final aTs = a.data()['appointmentAt'] as Timestamp?;
                       final bTs = b.data()['appointmentAt'] as Timestamp?;
