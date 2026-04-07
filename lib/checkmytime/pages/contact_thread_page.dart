@@ -123,6 +123,17 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
     } catch (_) {}
   }
 
+  Future<void> _openCreateAppointmentPage(String safeName) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CreateAppointmentPage(
+          contactId: widget.contactId,
+          contactName: safeName,
+        ),
+      ),
+    );
+  }
+
   void _showMessage(String text) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -260,6 +271,65 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
       child: Text(
         safeName.characters.first.toUpperCase(),
         style: theme.textTheme.labelLarge,
+      ),
+    );
+  }
+
+  Widget _buildAppointmentsActionCard({
+    required ThemeData theme,
+    required ColorScheme colorScheme,
+    required String safeName,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => _openCreateAppointmentPage(safeName),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: colorScheme.primary.withOpacity(0.10),
+                  child: Icon(
+                    Icons.calendar_month_outlined,
+                    color: colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Termin vorschlagen',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Plane direkt mit $safeName einen gemeinsamen Termin.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.chevron_right),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -480,6 +550,163 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
     );
   }
 
+  Widget _buildAppointmentsTab({
+    required ThemeData theme,
+    required ColorScheme colorScheme,
+    required String safeName,
+    required String currentUserId,
+  }) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('appointments')
+          .where('threadId', isEqualTo: _threadId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Text(
+              'Fehler beim Laden der Termine.',
+              style: theme.textTheme.bodyLarge,
+            ),
+          );
+        }
+
+        final docs = [...snapshot.data?.docs ?? []]
+          ..sort((a, b) {
+            final aTs = a.data()['appointmentAt'] as Timestamp?;
+            final bTs = b.data()['appointmentAt'] as Timestamp?;
+            if (aTs == null && bTs == null) return 0;
+            if (aTs == null) return 1;
+            if (bTs == null) return -1;
+            return aTs.compareTo(bTs);
+          });
+
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          children: [
+            _buildAppointmentsActionCard(
+              theme: theme,
+              colorScheme: colorScheme,
+              safeName: safeName,
+            ),
+            const SizedBox(height: 20),
+            if (docs.isEmpty)
+              _buildEmptyState(
+                theme: theme,
+                colorScheme: colorScheme,
+                safeName: safeName,
+              )
+            else ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: colorScheme.primary.withOpacity(0.15),
+                  ),
+                ),
+                child: Text(
+                  'Gemeinsame Termine mit $safeName',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurface,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 20),
+              ...docs.map((doc) {
+                final data = doc.data();
+                final createdBy = (data['createdBy'] ?? '').toString();
+                final title = (data['title'] ?? 'Termin').toString().trim();
+                final status = (data['status'] ?? 'pending').toString();
+                final appointmentAt = data['appointmentAt'] as Timestamp?;
+                final isCreatedByMe = createdBy == currentUserId;
+                final isUpdating = _updatingAppointmentIds.contains(doc.id);
+
+                return _buildCompactAppointmentCard(
+                  theme: theme,
+                  colorScheme: colorScheme,
+                  safeName: safeName,
+                  title: title,
+                  status: status,
+                  appointmentAt: appointmentAt,
+                  isCreatedByMe: isCreatedByMe,
+                  isUpdating: isUpdating,
+                  onAccept: (!isCreatedByMe && status == 'pending')
+                      ? () => _updateAppointmentStatus(
+                    appointmentId: doc.id,
+                    newStatus: 'accepted',
+                    title: title,
+                  )
+                      : null,
+                  onDecline: (!isCreatedByMe && status == 'pending')
+                      ? () => _updateAppointmentStatus(
+                    appointmentId: doc.id,
+                    newStatus: 'declined',
+                    title: title,
+                  )
+                      : null,
+                );
+              }),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildMessagesTab({
+    required ThemeData theme,
+    required ColorScheme colorScheme,
+    required String safeName,
+  }) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: colorScheme.outlineVariant),
+          ),
+          child: Column(
+            children: [
+              Icon(
+                Icons.chat_bubble_outline,
+                size: 56,
+                color: colorScheme.primary,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Nachrichten mit $safeName',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Hier bauen wir als Nächstes den Chat-Verlauf zwischen dir und $safeName ein.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -505,195 +732,109 @@ class _ContactThreadPageState extends State<ContactThreadPage> {
         : _resolvedPhoneNumber)
         .trim();
 
-    return Scaffold(
-      appBar: AppBar(
-        leadingWidth: 32,
-        titleSpacing: 8,
-        title: Row(
-          children: [
-            _buildHeaderAvatar(colorScheme, safeName),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    safeName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          leadingWidth: 32,
+          titleSpacing: 8,
+          title: Row(
+            children: [
+              _buildHeaderAvatar(colorScheme, safeName),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      safeName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    safePhone,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
+                    const SizedBox(height: 2),
+                    Text(
+                      safePhone,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+            ],
+          ),
+          actions: [
+            IconButton(
+              onPressed: () =>
+                  _showMessage('Weitere Optionen kommen als Nächstes.'),
+              icon: const Icon(Icons.more_vert),
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            onPressed: () => _showMessage('Weitere Optionen kommen als Nächstes.'),
-            icon: const Icon(Icons.more_vert),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: currentUserId == null
-                  ? Center(
-                child: Text(
-                  'Du bist aktuell nicht eingeloggt.',
-                  style: theme.textTheme.bodyLarge,
+        body: SafeArea(
+          child: currentUserId == null
+              ? Center(
+            child: Text(
+              'Du bist aktuell nicht eingeloggt.',
+              style: theme.textTheme.bodyLarge,
+            ),
+          )
+              : Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: colorScheme.surface,
+                    borderRadius: BorderRadius.circular(18),
+                    border:
+                    Border.all(color: colorScheme.outlineVariant),
+                  ),
+                  child: TabBar(
+                    dividerColor: Colors.transparent,
+                    indicatorSize: TabBarIndicatorSize.tab,
+                    indicator: BoxDecoration(
+                      color: colorScheme.primary.withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    labelColor: colorScheme.primary,
+                    unselectedLabelColor: colorScheme.onSurfaceVariant,
+                    labelStyle: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                    tabs: const [
+                      Tab(text: 'Termine'),
+                      Tab(text: 'Nachrichten'),
+                    ],
+                  ),
                 ),
-              )
-                  : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance
-                    .collection('appointments')
-                    .where('threadId', isEqualTo: _threadId)
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(),
-                    );
-                  }
-
-                  if (snapshot.hasError) {
-                    return Center(
-                      child: Text(
-                        'Fehler beim Laden der Termine.',
-                        style: theme.textTheme.bodyLarge,
-                      ),
-                    );
-                  }
-
-                  final docs = [...snapshot.data?.docs ?? []]
-                    ..sort((a, b) {
-                      final aTs = a.data()['appointmentAt'] as Timestamp?;
-                      final bTs = b.data()['appointmentAt'] as Timestamp?;
-                      if (aTs == null && bTs == null) return 0;
-                      if (aTs == null) return 1;
-                      if (bTs == null) return -1;
-                      return aTs.compareTo(bTs);
-                    });
-
-                  return SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                    child: docs.isEmpty
-                        ? _buildEmptyState(
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    _buildAppointmentsTab(
                       theme: theme,
                       colorScheme: colorScheme,
                       safeName: safeName,
-                    )
-                        : Column(
-                      children: [
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: colorScheme.primary.withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: colorScheme.primary.withOpacity(0.15),
-                            ),
-                          ),
-                          child: Text(
-                            'Gemeinsame Termine mit $safeName',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: colorScheme.onSurface,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        ...docs.map((doc) {
-                          final data = doc.data();
-                          final createdBy =
-                          (data['createdBy'] ?? '').toString();
-                          final title =
-                          (data['title'] ?? 'Termin').toString().trim();
-                          final status =
-                          (data['status'] ?? 'pending').toString();
-                          final appointmentAt =
-                          data['appointmentAt'] as Timestamp?;
-                          final isCreatedByMe =
-                              createdBy == currentUserId;
-                          final isUpdating =
-                          _updatingAppointmentIds.contains(doc.id);
-
-                          return _buildCompactAppointmentCard(
-                            theme: theme,
-                            colorScheme: colorScheme,
-                            safeName: safeName,
-                            title: title,
-                            status: status,
-                            appointmentAt: appointmentAt,
-                            isCreatedByMe: isCreatedByMe,
-                            isUpdating: isUpdating,
-                            onAccept: (!isCreatedByMe && status == 'pending')
-                                ? () => _updateAppointmentStatus(
-                              appointmentId: doc.id,
-                              newStatus: 'accepted',
-                              title: title,
-                            )
-                                : null,
-                            onDecline: (!isCreatedByMe && status == 'pending')
-                                ? () => _updateAppointmentStatus(
-                              appointmentId: doc.id,
-                              newStatus: 'declined',
-                              title: title,
-                            )
-                                : null,
-                          );
-                        }),
-                      ],
+                      currentUserId: currentUserId,
                     ),
-                  );
-                },
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-              decoration: BoxDecoration(
-                color: colorScheme.surface,
-                border: Border(
-                  top: BorderSide(color: colorScheme.outlineVariant),
+                    _buildMessagesTab(
+                      theme: theme,
+                      colorScheme: colorScheme,
+                      safeName: safeName,
+                    ),
+                  ],
                 ),
               ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () async {
-                        await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => CreateAppointmentPage(
-                              contactId: widget.contactId,
-                              contactName: safeName,
-                            ),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.add_circle_outline),
-                      label: const Text('Termin vorschlagen'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

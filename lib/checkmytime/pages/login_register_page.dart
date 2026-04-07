@@ -1,5 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'sms_verification_page.dart';
+import 'package:termini/checkmytime/pages/home_page.dart';
+import 'package:termini/checkmytime/pages/sms_verification_page.dart';
+import 'package:termini/checkmytime/services/pnv_auth_service.dart';
+import 'package:termini/checkmytime/services/pnv_service.dart';
 
 class LoginRegisterPage extends StatefulWidget {
   const LoginRegisterPage({super.key});
@@ -10,34 +15,83 @@ class LoginRegisterPage extends StatefulWidget {
 
 class _LoginRegisterPageState extends State<LoginRegisterPage> {
   final _phoneController = TextEditingController();
+
   bool isLoginMode = true;
   bool isLoading = false;
 
   Future<void> _handleAuth() async {
+    final manualPhone = _formatGermanPhoneNumber(_phoneController.text);
+
     if (_phoneController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bitte gib eine Handynummer ein.')),
-      );
+      _showMessage('Bitte gib eine Handynummer ein.');
       return;
     }
 
-    final formattedPhone = _formatGermanPhoneNumber(_phoneController.text);
-    if (formattedPhone == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bitte gib eine gültige Handynummer ein.')),
-      );
+    if (manualPhone == null) {
+      _showMessage('Bitte gib eine gültige Handynummer ein.');
       return;
     }
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => SmsVerificationPage(
-          phoneNumberE164: formattedPhone,
-          isLoginMode: isLoginMode,
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      if (Platform.isAndroid) {
+        final supported = await PnvService.isSupported();
+
+        if (supported) {
+          try {
+            final pnvResult = await PnvService.getVerifiedPhoneNumber();
+
+            if (!mounted) return;
+
+            if (pnvResult != null) {
+              await PnvAuthService.signInWithPnv(
+                phoneNumber: pnvResult.phoneNumber,
+                token: pnvResult.token,
+              );
+
+              if (!mounted) return;
+
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(
+                  builder: (_) => const CheckMyTimeHomePage(),
+                ),
+                    (route) => false,
+              );
+
+              return;
+            }
+          } catch (e) {
+            if (!mounted) return;
+            _showMessage(
+              'PNV konnte nicht abgeschlossen werden. Wir nutzen SMS. ($e)',
+            );
+          }
+        }
+      }
+
+      if (!mounted) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SmsVerificationPage(
+            phoneNumberE164: manualPhone,
+            isLoginMode: isLoginMode,
+          ),
         ),
-      ),
-    );
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showMessage('Fehler beim Starten der Anmeldung. ($e)');
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        isLoading = false;
+      });
+    }
   }
 
   String? _formatGermanPhoneNumber(String input) {
@@ -80,6 +134,13 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
     return '+49$local';
   }
 
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
   @override
   void dispose() {
     _phoneController.dispose();
@@ -89,7 +150,9 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(isLoginMode ? 'Login' : 'Registrierung')),
+      appBar: AppBar(
+        title: Text(isLoginMode ? 'Login' : 'Registrierung'),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -162,9 +225,7 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
                   elevation: isLoginMode ? null : 0,
                 ),
                 child: Text(
-                  isLoginMode
-                      ? 'Per SMS einloggen'
-                      : 'Ein Konto erstellen',
+                  isLoginMode ? 'Einloggen' : 'Ein Konto erstellen',
                 ),
               ),
             ),
