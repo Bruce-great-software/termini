@@ -53,16 +53,19 @@ class NotificationService {
     );
   }
 
-  Future<void> showIncomingAppointmentNotification({
+  Future<void> _showNotification({
+    required String channelId,
+    required String channelName,
+    required String channelDescription,
     required String title,
     required String body,
   }) async {
     await initialize();
 
-    const androidDetails = AndroidNotificationDetails(
-      'incoming_appointments',
-      'Eingehende Termine',
-      channelDescription: 'Benachrichtigungen für neue Terminvorschläge',
+    final androidDetails = AndroidNotificationDetails(
+      channelId,
+      channelName,
+      channelDescription: channelDescription,
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
@@ -74,7 +77,7 @@ class NotificationService {
       presentSound: true,
     );
 
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );
@@ -86,6 +89,32 @@ class NotificationService {
       title,
       body,
       details,
+    );
+  }
+
+  Future<void> showIncomingAppointmentNotification({
+    required String title,
+    required String body,
+  }) async {
+    await _showNotification(
+      channelId: 'incoming_appointments',
+      channelName: 'Eingehende Termine',
+      channelDescription: 'Benachrichtigungen für neue Terminvorschläge',
+      title: title,
+      body: body,
+    );
+  }
+
+  Future<void> showIncomingChatNotification({
+    required String title,
+    required String body,
+  }) async {
+    await _showNotification(
+      channelId: 'incoming_messages',
+      channelName: 'Eingehende Nachrichten',
+      channelDescription: 'Benachrichtigungen für neue Chat-Nachrichten',
+      title: title,
+      body: body,
     );
   }
 }

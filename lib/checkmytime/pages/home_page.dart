@@ -223,14 +223,26 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
         if (newCount <= 0) continue;
 
         final oldCount = _knownUnreadCountsByThread[doc.id] ?? 0;
+        if (newCount <= oldCount) continue;
 
-        if (newCount > oldCount) {
-          final participants = List<String>.from(data['participants'] ?? const []);
-          final otherId = _otherParticipantId(participants, currentUserId);
-          final contactNames =
-          Map<String, dynamic>.from(data['contactNames'] ?? const {});
-          final otherName =
-          (contactNames[otherId] ?? 'Unbekannt').toString().trim();
+        final participants = List<String>.from(data['participants'] ?? const []);
+        final otherId = _otherParticipantId(participants, currentUserId);
+        final contactNames =
+        Map<String, dynamic>.from(data['contactNames'] ?? const {});
+        final otherName =
+        (contactNames[otherId] ?? 'Unbekannt').toString().trim();
+        final lastInteractionType =
+        (data['lastInteractionType'] ?? 'appointment').toString();
+
+        if (lastInteractionType == 'message') {
+          final lastMessage =
+          (data['lastMessageText'] ?? 'Neue Nachricht').toString().trim();
+
+          await NotificationService.instance.showIncomingChatNotification(
+            title: otherName,
+            body: lastMessage.isEmpty ? 'Neue Nachricht' : lastMessage,
+          );
+        } else {
           final lastTitle =
           (data['lastAppointmentTitle'] ?? 'Termin').toString().trim();
 
@@ -539,7 +551,8 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
             .where((doc) {
           final data = doc.data();
           final isHidden = data['hiddenFor_$currentUserId'] == true;
-          final unreadCount = (data['unreadCountFor_$currentUserId'] ?? 0) as int;
+          final unreadCount =
+          (data['unreadCountFor_$currentUserId'] ?? 0) as int;
           return !isHidden || unreadCount > 0;
         })
             .toList()
@@ -629,9 +642,32 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                           ),
                         ),
                         subtitle: Text(
-                          preview.phone.isNotEmpty
-                              ? preview.phone
-                              : 'Keine Nummer vorhanden',
+                          (() {
+                            final lastInteractionType =
+                            (data['lastInteractionType'] ?? '').toString();
+                            final lastMessage =
+                            (data['lastMessageText'] ?? '').toString().trim();
+                            final lastAppointmentTitle =
+                            (data['lastAppointmentTitle'] ?? '')
+                                .toString()
+                                .trim();
+
+                            if (lastInteractionType == 'message' &&
+                                lastMessage.isNotEmpty) {
+                              return lastMessage;
+                            }
+
+                            if (lastInteractionType == 'appointment' &&
+                                lastAppointmentTitle.isNotEmpty) {
+                              return 'Termin: $lastAppointmentTitle';
+                            }
+
+                            return preview.phone.isNotEmpty
+                                ? preview.phone
+                                : 'Keine Nummer vorhanden';
+                          })(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         trailing: hasUnread
                             ? Container(
