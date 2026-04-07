@@ -1,15 +1,10 @@
-import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:termini/pages/all_places_page.dart';
-import 'package:termini/checkmytime/pages/home_page.dart';
-import 'firebase_options.dart';
-import 'pages/alle_dienstleister_page.dart';
-import 'pages/dienstleister_main_page.dart';
-import 'pages/admin_page.dart';
-
+import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
+
+import 'checkmytime/pages/home_page.dart';
+import 'firebase_options.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,7 +13,7 @@ Future<void> main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  await initializeDateFormatting('de_DE');
+  await initializeDateFormatting('de_DE', null);
 
   runApp(const MyApp());
 }
@@ -26,119 +21,85 @@ Future<void> main() async {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  Future<Widget> _handleStart() async {
-    final user = FirebaseAuth.instance.currentUser;
-
-    if (user == null) {
-      return const AlleDienstleisterPage();
-    }
-
-    final userDoc =
-    await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-    final data = userDoc.data();
-    final rolle = data?['rolle'];
-    final dienstleisterId = data?['dienstleisterId'];
-    final branche = data?['branche'];
-
-    if (rolle == 'admin') {
-      return const AlleDienstleisterPage();
-    } else if ((rolle == 'dienstleister' || rolle == 'mitarbeiter') &&
-        (dienstleisterId != null || rolle == 'mitarbeiter') &&
-        branche != null) {
-      return DienstleisterMainPage(
-        branche: branche,
-        dienstleisterId: (dienstleisterId ?? user.uid) as String,
-      );
-    } else {
-      return const CheckMyTimeHomePage();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF061F73),
-      brightness: Brightness.light,
-    );
-
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Termini',
+      title: 'CheckMyTime',
       theme: ThemeData(
-        colorScheme: colorScheme,
         useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFF8F9FC),
-        appBarTheme: AppBarTheme(
-          backgroundColor: colorScheme.surface,
-          surfaceTintColor: Colors.transparent,
-          elevation: 0,
-          centerTitle: true,
-          titleTextStyle: TextStyle(
-            color: colorScheme.onSurface,
-            fontWeight: FontWeight.w600,
-            fontSize: 18,
-          ),
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          color: colorScheme.surface,
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          surfaceTintColor: Colors.transparent,
-        ),
+        colorSchemeSeed: const Color(0xFF5B67CA),
+        scaffoldBackgroundColor: const Color(0xFFF7F7FB),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: colorScheme.surface,
+          fillColor: Colors.white,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide(color: colorScheme.outlineVariant),
+            borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide(color: colorScheme.outlineVariant),
+            borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
           ),
-          contentPadding:
-          const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(
+              color: Color(0xFF5B67CA),
+              width: 1.4,
+            ),
+          ),
         ),
-        chipTheme: ChipThemeData(
+        cardTheme: CardThemeData(
+          color: Colors.white,
+          elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
+            side: const BorderSide(color: Color(0xFFEAEAF2)),
           ),
-          side: BorderSide(color: colorScheme.outlineVariant),
-          labelStyle: TextStyle(color: colorScheme.onSurface),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          margin: EdgeInsets.zero,
         ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-          ),
-        ),
-        textTheme: const TextTheme(
-          titleLarge: TextStyle(fontWeight: FontWeight.w700),
-          titleMedium: TextStyle(fontWeight: FontWeight.w600),
-          bodyMedium: TextStyle(height: 1.4),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFFF7F7FB),
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          centerTitle: true,
         ),
       ),
-      home: FutureBuilder(
-        future: _handleStart(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          } else if (snapshot.hasError) {
-            return const Scaffold(
-              body: Center(child: Text('Fehler beim Laden.')),
-            );
-          } else {
-            return snapshot.data as Widget;
-          }
-        },
+      home: const AppStartGate(),
+    );
+  }
+}
+
+class AppStartGate extends StatelessWidget {
+  const AppStartGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const _StartupLoadingPage();
+        }
+
+        return const CheckMyTimeHomePage();
+      },
+    );
+  }
+}
+
+class _StartupLoadingPage extends StatelessWidget {
+  const _StartupLoadingPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: CircularProgressIndicator(),
       ),
     );
   }

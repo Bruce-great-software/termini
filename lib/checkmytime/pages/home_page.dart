@@ -17,15 +17,20 @@ class CheckMyTimeHomePage extends StatefulWidget {
 
 class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
   int _selectedIndex = 0;
+
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+
+  String? _currentUserId;
 
   bool _isSearching = false;
   String _searchQuery = '';
   String? _searchError;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _searchResults = [];
 
+  StreamSubscription<User?>? _authSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _threadsSubscription;
+
   bool _hasInitializedUnreadState = false;
   Map<String, int> _knownUnreadCountsByThread = {};
 
@@ -33,11 +38,12 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
   void initState() {
     super.initState();
     _initializeNotifications();
-    _listenForIncomingAppointments();
+    _bindAuthListener();
   }
 
   @override
   void dispose() {
+    _authSubscription?.cancel();
     _threadsSubscription?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
@@ -47,6 +53,66 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
   Future<void> _initializeNotifications() async {
     await NotificationService.instance.initialize();
     await NotificationService.instance.requestPermissions();
+  }
+
+  void _bindAuthListener() {
+    _handleAuthChanged(FirebaseAuth.instance.currentUser);
+
+    _authSubscription = FirebaseAuth.instance.authStateChanges().listen(
+      _handleAuthChanged,
+    );
+  }
+
+  void _handleAuthChanged(User? user) {
+    final newUserId = user?.uid;
+
+    _threadsSubscription?.cancel();
+    _threadsSubscription = null;
+    _hasInitializedUnreadState = false;
+    _knownUnreadCountsByThread = {};
+
+    if (!mounted) return;
+
+    setState(() {
+      _currentUserId = newUserId;
+
+      if (newUserId == null) {
+        _searchQuery = '';
+        _searchError = null;
+        _searchResults = [];
+        _isSearching = false;
+        _searchController.clear();
+
+        if (_selectedIndex == 1) {
+          _selectedIndex = 2;
+        }
+      }
+    });
+
+    if (newUserId != null) {
+      _listenForIncomingAppointments(newUserId);
+    }
+  }
+
+  bool _requireLogin({int? switchToTab}) {
+    if (_currentUserId != null) {
+      return true;
+    }
+
+    if (switchToTab != null) {
+      setState(() {
+        _selectedIndex = switchToTab;
+      });
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Bitte logge dich zuerst ein oder registriere dich.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+
+    return false;
   }
 
   String _buildThreadId(String uidA, String uidB) {
@@ -126,11 +192,9 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     );
   }
 
-  void _listenForIncomingAppointments() {
-    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-    if (currentUserId == null) return;
-
+  void _listenForIncomingAppointments(String currentUserId) {
     _threadsSubscription?.cancel();
+
     _threadsSubscription = FirebaseFirestore.instance
         .collection('contact_threads')
         .where('participantMap.$currentUserId', isEqualTo: true)
@@ -142,6 +206,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
         final data = doc.data();
         final unreadCount = (data['unreadCountFor_$currentUserId'] ?? 0) as int;
         final isHiddenForCurrentUser = data['hiddenFor_$currentUserId'] == true;
+
         if (isHiddenForCurrentUser && unreadCount <= 0) continue;
         currentCounts[doc.id] = unreadCount;
       }
@@ -156,6 +221,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
         final data = doc.data();
         final newCount = currentCounts[doc.id] ?? 0;
         if (newCount <= 0) continue;
+
         final oldCount = _knownUnreadCountsByThread[doc.id] ?? 0;
 
         if (newCount > oldCount) {
@@ -205,15 +271,18 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     required String contactName,
     required String phoneNumber,
   }) async {
+    if (!_requireLogin()) return;
+
     final safeName =
     contactName.trim().isEmpty ? 'Unbekannt' : contactName.trim();
     final safePhone = phoneNumber.trim();
-    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    final currentUserId = _currentUserId;
 
     _resetSearch();
 
     if (currentUserId != null && contactId.isNotEmpty) {
       final threadId = _buildThreadId(currentUserId, contactId);
+
       try {
         await FirebaseFirestore.instance
             .collection('contact_threads')
@@ -267,19 +336,27 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       return;
     }
 
+    if (_currentUserId == null) {
+      setState(() {
+        _searchResults = [];
+        _isSearching = false;
+        _searchError = 'Bitte logge dich ein, um andere Nutzer zu suchen.';
+      });
+      return;
+    }
+
     setState(() {
       _isSearching = true;
     });
 
     try {
-      final currentUid = FirebaseAuth.instance.currentUser?.uid;
       final snapshot =
       await FirebaseFirestore.instance.collection('users').limit(50).get();
 
       final lowerQuery = query.toLowerCase();
 
       final filtered = snapshot.docs.where((doc) {
-        if (doc.id == currentUid) return false;
+        if (doc.id == _currentUserId) return false;
 
         final data = doc.data();
         final displayName =
@@ -329,6 +406,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
           child: Text(
             _searchError!,
             style: const TextStyle(color: Colors.red),
+            textAlign: TextAlign.center,
           ),
         ),
       );
@@ -421,6 +499,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       }, SetOptions(merge: true));
 
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Kontakt wurde von der Startseite entfernt.'),
@@ -429,6 +508,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       );
     } catch (_) {
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Kontakt konnte nicht entfernt werden.'),
@@ -459,8 +539,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
             .where((doc) {
           final data = doc.data();
           final isHidden = data['hiddenFor_$currentUserId'] == true;
-          final unreadCount =
-          (data['unreadCountFor_$currentUserId'] ?? 0) as int;
+          final unreadCount = (data['unreadCountFor_$currentUserId'] ?? 0) as int;
           return !isHidden || unreadCount > 0;
         })
             .toList()
@@ -592,11 +671,74 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     );
   }
 
+  Widget _buildLoggedOutAppointmentsPlaceholder(
+      ThemeData theme,
+      ColorScheme colorScheme,
+      ) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: colorScheme.outlineVariant),
+          ),
+          child: Column(
+            children: [
+              CircleAvatar(
+                radius: 34,
+                backgroundColor: colorScheme.primary.withOpacity(0.10),
+                child: Icon(
+                  Icons.calendar_month_outlined,
+                  color: colorScheme.primary,
+                  size: 30,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Meine Termine',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Bitte logge dich ein oder registriere dich, damit du eingehende und bestätigte Termine sehen kannst.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _selectedIndex = 2;
+                    });
+                  },
+                  icon: const Icon(Icons.login),
+                  label: const Text('Zum Profil / Login'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildHomeTab(
       ColorScheme colorScheme,
       ThemeData theme,
       String? currentUserId,
       ) {
+    final isLoggedIn = currentUserId != null;
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
@@ -638,22 +780,39 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Termine einfach wie Nachrichten.',
+                        isLoggedIn
+                            ? 'Termine einfach wie Nachrichten.'
+                            : 'Einloggen und direkt loslegen.',
                         style: theme.textTheme.titleLarge,
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Das ist die neue Startseite für den CheckMyTime-Bereich. '
-                            'Von hier aus bauen wir Schritt für Schritt die neue Logik auf.',
+                        isLoggedIn
+                            ? 'Das ist die neue Startseite für den CheckMyTime-Bereich. Von hier aus bauen wir Schritt für Schritt die neue Logik auf.'
+                            : 'Melde dich zuerst an oder registriere dich im Profil-Tab. Danach kannst du Kontakte finden, Termine empfangen und dein Profil vervollständigen.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: colorScheme.onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(height: 16),
                       FilledButton.icon(
-                        onPressed: () => _showComingSoon('Nutzer finden'),
-                        icon: const Icon(Icons.person_search_outlined),
-                        label: const Text('Nutzer finden'),
+                        onPressed: () {
+                          if (isLoggedIn) {
+                            _showComingSoon('Nutzer finden');
+                          } else {
+                            setState(() {
+                              _selectedIndex = 2;
+                            });
+                          }
+                        },
+                        icon: Icon(
+                          isLoggedIn
+                              ? Icons.person_search_outlined
+                              : Icons.login,
+                        ),
+                        label: Text(
+                          isLoggedIn ? 'Nutzer finden' : 'Jetzt einloggen',
+                        ),
                       ),
                     ],
                   ),
@@ -667,26 +826,37 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                 _ActionCard(
                   icon: Icons.event_available_outlined,
                   title: 'Termin erstellen',
-                  subtitle:
-                  'Später kannst du hier einem anderen Nutzer einen Termin schicken.',
-                  onTap: () => _showComingSoon('Termin erstellen'),
+                  subtitle: isLoggedIn
+                      ? 'Später kannst du hier einem anderen Nutzer einen Termin schicken.'
+                      : 'Logge dich zuerst ein, damit du später Termine erstellen kannst.',
+                  onTap: () {
+                    if (!isLoggedIn) {
+                      setState(() {
+                        _selectedIndex = 2;
+                      });
+                      return;
+                    }
+                    _showComingSoon('Termin erstellen');
+                  },
                 ),
                 _ActionCard(
                   icon: Icons.calendar_month_outlined,
                   title: 'Meine Termine',
-                  subtitle:
-                  'Hier zeigen wir später eingehende und bestätigte Termine an.',
+                  subtitle: isLoggedIn
+                      ? 'Hier zeigen wir später eingehende und bestätigte Termine an.'
+                      : 'Nach dem Login erscheinen hier deine Termine.',
                   onTap: () {
                     setState(() {
-                      _selectedIndex = 1;
+                      _selectedIndex = isLoggedIn ? 1 : 2;
                     });
                   },
                 ),
                 _ActionCard(
                   icon: Icons.person_outline,
                   title: 'Mein Profil',
-                  subtitle:
-                  'Hier können später Name, Bild und weitere Angaben ergänzt werden.',
+                  subtitle: isLoggedIn
+                      ? 'Hier kannst du Name, Bild und weitere Angaben ergänzen.'
+                      : 'Hier kannst du dich einloggen oder registrieren.',
                   onTap: () {
                     setState(() {
                       _selectedIndex = 2;
@@ -706,6 +876,9 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       String? currentUserId,
       ) {
     if (_selectedIndex == 1) {
+      if (currentUserId == null) {
+        return _buildLoggedOutAppointmentsPlaceholder(theme, colorScheme);
+      }
       return const AppointmentsPage();
     }
 
@@ -720,16 +893,17 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('CheckMyTime'),
         actions: [
           IconButton(
-            onPressed: () => setState(() {
-              _selectedIndex = 2;
-            }),
+            onPressed: () {
+              setState(() {
+                _selectedIndex = 2;
+              });
+            },
             icon: const Icon(Icons.settings_outlined),
           ),
         ],
@@ -740,13 +914,27 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
           child: _buildBody(
             colorScheme,
             theme,
-            currentUserId,
+            _currentUserId,
           ),
         ),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {
+          if (index == 1 && _currentUserId == null) {
+            setState(() {
+              _selectedIndex = 2;
+            });
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Bitte logge dich ein, um deine Termine zu sehen.'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            return;
+          }
+
           setState(() {
             _selectedIndex = index;
           });

@@ -1,25 +1,127 @@
-import 'dart:typed_data';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:termini/checkmytime/pages/login_register_page.dart';
 
-class ProfilePage extends StatefulWidget {
+class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
 
   @override
-  State<ProfilePage> createState() => _ProfilePageState();
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        final user = snapshot.data;
+
+        if (user == null) {
+          return const _LoggedOutProfileView();
+        }
+
+        return _LoggedInProfileView(
+          key: ValueKey(user.uid),
+          user: user,
+        );
+      },
+    );
+  }
 }
 
-class _ProfilePageState extends State<ProfilePage> {
+class _LoggedOutProfileView extends StatelessWidget {
+  const _LoggedOutProfileView();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: colorScheme.outlineVariant),
+          ),
+          child: Column(
+            children: [
+              CircleAvatar(
+                radius: 36,
+                backgroundColor: colorScheme.primary.withOpacity(0.10),
+                child: Icon(
+                  Icons.person_outline,
+                  size: 34,
+                  color: colorScheme.primary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Profil & Login',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Melde dich an oder registriere dich, damit du dein Profil bearbeiten und CheckMyTime vollständig nutzen kannst.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const LoginRegisterPage(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.login),
+                  label: const Text('Einloggen oder registrieren'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _LoggedInProfileView extends StatefulWidget {
+  const _LoggedInProfileView({
+    super.key,
+    required this.user,
+  });
+
+  final User user;
+
+  @override
+  State<_LoggedInProfileView> createState() => _LoggedInProfileViewState();
+}
+
+class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
   final TextEditingController _nameController = TextEditingController();
   final ImagePicker _imagePicker = ImagePicker();
 
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isUploadingImage = false;
+  bool _isSigningOut = false;
 
   String _phoneNumber = '';
   String _profileImageUrl = '';
@@ -38,24 +140,18 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _loadProfile() async {
-    final user = FirebaseAuth.instance.currentUser;
-
-    if (user == null) {
-      setState(() {
-        _isLoading = false;
-      });
-      return;
-    }
-
     try {
-      final doc =
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.user.uid)
+          .get();
+
       final data = doc.data() ?? <String, dynamic>{};
 
       _nameController.text =
           (data['displayName'] ?? data['name'] ?? '').toString().trim();
       _phoneNumber =
-          (data['phoneNumber'] ?? user.phoneNumber ?? '').toString().trim();
+          (data['phoneNumber'] ?? widget.user.phoneNumber ?? '').toString().trim();
       _profileImageUrl = (data['profileImageUrl'] ?? '').toString().trim();
       _profileImagePath = (data['profileImagePath'] ?? '').toString().trim();
     } catch (_) {
@@ -98,12 +194,6 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _pickAndUploadImage(ImageSource source) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      _showMessage('Du bist aktuell nicht eingeloggt.');
-      return;
-    }
-
     try {
       final file = await _imagePicker.pickImage(
         source: source,
@@ -117,15 +207,15 @@ class _ProfilePageState extends State<ProfilePage> {
         _isUploadingImage = true;
       });
 
-      final bytes = await file.readAsBytes();
       final storagePath =
-          'profile_images/${user.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+          'profile_images/${widget.user.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg';
 
       final ref = FirebaseStorage.instance.ref().child(storagePath);
       await ref.putData(
-        bytes,
+        await file.readAsBytes(),
         SettableMetadata(contentType: 'image/jpeg'),
       );
+
       final downloadUrl = await ref.getDownloadURL();
 
       if (_profileImagePath.isNotEmpty) {
@@ -134,7 +224,10 @@ class _ProfilePageState extends State<ProfilePage> {
         } catch (_) {}
       }
 
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.user.uid)
+          .set({
         'profileImageUrl': downloadUrl,
         'profileImagePath': storagePath,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -160,12 +253,6 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _saveProfile() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      _showMessage('Du bist aktuell nicht eingeloggt.');
-      return;
-    }
-
     final displayName = _nameController.text.trim();
 
     if (displayName.isEmpty) {
@@ -178,7 +265,10 @@ class _ProfilePageState extends State<ProfilePage> {
     });
 
     try {
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.user.uid)
+          .set({
         'displayName': displayName,
         'name': displayName,
         'phoneNumber': _phoneNumber,
@@ -201,6 +291,26 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  Future<void> _signOut() async {
+    setState(() {
+      _isSigningOut = true;
+    });
+
+    try {
+      await FirebaseAuth.instance.signOut();
+      if (!mounted) return;
+      _showMessage('Du wurdest ausgeloggt.');
+    } catch (_) {
+      if (!mounted) return;
+      _showMessage('Ausloggen fehlgeschlagen.');
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isSigningOut = false;
+      });
+    }
+  }
+
   void _showMessage(String text) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -212,6 +322,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Widget _buildAvatar(ColorScheme colorScheme) {
     final hasImage = _profileImageUrl.isNotEmpty;
+    final trimmedName = _nameController.text.trim();
 
     return Stack(
       clipBehavior: Clip.none,
@@ -225,9 +336,8 @@ class _ProfilePageState extends State<ProfilePage> {
             child: hasImage
                 ? null
                 : Text(
-              _nameController.text.trim().isNotEmpty
-                  ? _nameController.text.trim().characters.first
-                  .toUpperCase()
+              trimmedName.isNotEmpty
+                  ? trimmedName.characters.first.toUpperCase()
                   : 'P',
               style: TextStyle(
                 fontSize: 28,
@@ -286,85 +396,98 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final user = FirebaseAuth.instance.currentUser;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Profil'),
-      ),
-      body: SafeArea(
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : user == null
-            ? const Center(
-          child: Text('Du bist aktuell nicht eingeloggt.'),
-        )
-            : ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: colorScheme.surface,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: colorScheme.outlineVariant),
-              ),
-              child: Column(
-                children: [
-                  _buildAvatar(colorScheme),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Profilbild und persönliche Daten',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Hier kannst du deinen Namen und dein Profilbild für CheckMyTime bearbeiten.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _nameController,
-              textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(
-                labelText: 'Name',
-                hintText: 'Dein Name',
-              ),
-            ),
-            const SizedBox(height: 16),
-            _buildReadOnlyField(
-              label: 'Telefonnummer',
-              value: _phoneNumber,
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: _isSaving ? null : _saveProfile,
-              icon: _isSaving
-                  ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: colorScheme.outlineVariant),
+          ),
+          child: Column(
+            children: [
+              _buildAvatar(colorScheme),
+              const SizedBox(height: 16),
+              Text(
+                'Profilbild und persönliche Daten',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
                 ),
-              )
-                  : const Icon(Icons.save_outlined),
-              label: Text(
-                _isSaving ? 'Wird gespeichert...' : 'Profil speichern',
+                textAlign: TextAlign.center,
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Text(
+                'Hier kannst du deinen Namen und dein Profilbild für CheckMyTime bearbeiten.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
-      ),
+        const SizedBox(height: 20),
+        TextField(
+          controller: _nameController,
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(
+            labelText: 'Name',
+            hintText: 'Dein Name',
+          ),
+          onChanged: (_) {
+            setState(() {});
+          },
+        ),
+        const SizedBox(height: 16),
+        _buildReadOnlyField(
+          label: 'Telefonnummer',
+          value: _phoneNumber,
+        ),
+        const SizedBox(height: 24),
+        FilledButton.icon(
+          onPressed: (_isSaving || _isUploadingImage || _isSigningOut)
+              ? null
+              : _saveProfile,
+          icon: _isSaving
+              ? const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white,
+            ),
+          )
+              : const Icon(Icons.save_outlined),
+          label: Text(
+            _isSaving ? 'Wird gespeichert...' : 'Profil speichern',
+          ),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: (_isSaving || _isUploadingImage || _isSigningOut)
+              ? null
+              : _signOut,
+          icon: _isSigningOut
+              ? const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+              : const Icon(Icons.logout),
+          label: Text(
+            _isSigningOut ? 'Wird ausgeloggt...' : 'Ausloggen',
+          ),
+        ),
+      ],
     );
   }
 }
