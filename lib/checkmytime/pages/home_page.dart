@@ -699,38 +699,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (currentUserId != null) _buildThreadsSection(currentUserId),
-                Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: colorScheme.surface,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: colorScheme.outlineVariant),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Termine einfach wie Nachrichten.',
-                        style: theme.textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Das ist die neue Startseite für den CheckMyTime-Bereich. '
-                            'Von hier aus bauen wir Schritt für Schritt die neue Logik auf.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton.icon(
-                        onPressed: () => _showComingSoon('Nutzer finden'),
-                        icon: const Icon(Icons.person_search_outlined),
-                        label: const Text('Nutzer finden'),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
                 Text(
                   'Schnellaktionen',
                   style: theme.textTheme.titleMedium,

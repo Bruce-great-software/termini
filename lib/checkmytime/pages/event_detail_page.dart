@@ -229,6 +229,317 @@ class _EventDetailPageState extends State<EventDetailPage> {
     );
   }
 
+  Future<List<_ParticipantItem>> _loadParticipants(Map<String, dynamic> data) async {
+    final firestore = FirebaseFirestore.instance;
+
+    final createdById = (data['createdBy'] ?? '').toString().trim();
+    final createdByName = (data['createdByName'] ?? 'Unbekannt').toString().trim();
+
+    final invited = List<String>.from(data['invitedUserIds'] ?? const []);
+    final accepted = List<String>.from(data['acceptedUserIds'] ?? const []);
+    final maybe = List<String>.from(data['maybeUserIds'] ?? const []);
+    final declined = List<String>.from(data['declinedUserIds'] ?? const []);
+
+    final allIds = <String>{
+      if (createdById.isNotEmpty) createdById,
+      ...invited,
+      ...accepted,
+      ...maybe,
+      ...declined,
+    };
+
+    final participants = <_ParticipantItem>[];
+
+    for (final userId in allIds) {
+      try {
+        final userDoc = await firestore.collection('users').doc(userId).get();
+        final userData = userDoc.data() ?? <String, dynamic>{};
+
+        final fallbackName = userId == createdById ? createdByName : 'Unbekannt';
+        final name = (userData['displayName'] ?? userData['name'] ?? fallbackName)
+            .toString()
+            .trim();
+        final phone = (userData['phoneNumber'] ?? '').toString().trim();
+        final imageUrl = (userData['profileImageUrl'] ?? '').toString().trim();
+
+        participants.add(
+          _ParticipantItem(
+            id: userId,
+            name: name.isEmpty ? fallbackName : name,
+            phone: phone,
+            imageUrl: imageUrl,
+            status: _resolveParticipantStatus(
+              userId: userId,
+              createdById: createdById,
+              invited: invited,
+              accepted: accepted,
+              maybe: maybe,
+              declined: declined,
+            ),
+          ),
+        );
+      } catch (_) {
+        participants.add(
+          _ParticipantItem(
+            id: userId,
+            name: userId == createdById && createdByName.isNotEmpty
+                ? createdByName
+                : 'Unbekannt',
+            phone: '',
+            imageUrl: '',
+            status: _resolveParticipantStatus(
+              userId: userId,
+              createdById: createdById,
+              invited: invited,
+              accepted: accepted,
+              maybe: maybe,
+              declined: declined,
+            ),
+          ),
+        );
+      }
+    }
+
+    participants.sort((a, b) {
+      if (a.status == _ParticipantStatus.organizer &&
+          b.status != _ParticipantStatus.organizer) {
+        return -1;
+      }
+      if (b.status == _ParticipantStatus.organizer &&
+          a.status != _ParticipantStatus.organizer) {
+        return 1;
+      }
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+
+    return participants;
+  }
+
+  _ParticipantStatus _resolveParticipantStatus({
+    required String userId,
+    required String createdById,
+    required List<String> invited,
+    required List<String> accepted,
+    required List<String> maybe,
+    required List<String> declined,
+  }) {
+    if (userId == createdById) return _ParticipantStatus.organizer;
+    if (accepted.contains(userId)) return _ParticipantStatus.accepted;
+    if (maybe.contains(userId)) return _ParticipantStatus.maybe;
+    if (declined.contains(userId)) return _ParticipantStatus.declined;
+    if (invited.contains(userId)) return _ParticipantStatus.invited;
+    return _ParticipantStatus.invited;
+  }
+
+  Color _participantStatusColor(
+      ColorScheme colorScheme,
+      _ParticipantStatus status,
+      ) {
+    switch (status) {
+      case _ParticipantStatus.organizer:
+        return colorScheme.primary;
+      case _ParticipantStatus.accepted:
+        return Colors.green;
+      case _ParticipantStatus.maybe:
+        return Colors.orange;
+      case _ParticipantStatus.declined:
+        return colorScheme.error;
+      case _ParticipantStatus.invited:
+        return colorScheme.secondary;
+    }
+  }
+
+  String _participantStatusLabel(_ParticipantStatus status) {
+    switch (status) {
+      case _ParticipantStatus.organizer:
+        return 'Veranstalter';
+      case _ParticipantStatus.accepted:
+        return 'Zugesagt';
+      case _ParticipantStatus.maybe:
+        return 'Vielleicht';
+      case _ParticipantStatus.declined:
+        return 'Abgesagt';
+      case _ParticipantStatus.invited:
+        return 'Eingeladen';
+    }
+  }
+
+  IconData _participantStatusIcon(_ParticipantStatus status) {
+    switch (status) {
+      case _ParticipantStatus.organizer:
+        return Icons.star_outline;
+      case _ParticipantStatus.accepted:
+        return Icons.check_circle_outline;
+      case _ParticipantStatus.maybe:
+        return Icons.help_outline;
+      case _ParticipantStatus.declined:
+        return Icons.cancel_outlined;
+      case _ParticipantStatus.invited:
+        return Icons.mail_outline;
+    }
+  }
+
+  Widget _buildParticipantsSection({
+    required ThemeData theme,
+    required ColorScheme colorScheme,
+    required Map<String, dynamic> data,
+    required int invitedCount,
+    required int acceptedCount,
+    required int maybeCount,
+    required int declinedCount,
+  }) {
+    return _DetailSection(
+      title: 'Teilnehmer & Einladungen',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _StatusCounterChip(
+                icon: Icons.mail_outline,
+                label: 'Einladungen',
+                count: invitedCount,
+              ),
+              _StatusCounterChip(
+                icon: Icons.check_circle_outline,
+                label: 'Zugesagt',
+                count: acceptedCount,
+                color: Colors.green,
+              ),
+              _StatusCounterChip(
+                icon: Icons.help_outline,
+                label: 'Vielleicht',
+                count: maybeCount,
+                color: Colors.orange,
+              ),
+              _StatusCounterChip(
+                icon: Icons.cancel_outlined,
+                label: 'Abgesagt',
+                count: declinedCount,
+                color: colorScheme.error,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FutureBuilder<List<_ParticipantItem>>(
+            future: _loadParticipants(data),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final participants = snapshot.data ?? const <_ParticipantItem>[];
+              if (participants.isEmpty) {
+                return Text(
+                  'Für dieses Event wurden noch keine Personen hinterlegt.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                );
+              }
+
+              final organizer = participants
+                  .where((item) => item.status == _ParticipantStatus.organizer)
+                  .toList();
+              final accepted = participants
+                  .where((item) => item.status == _ParticipantStatus.accepted)
+                  .toList();
+              final maybe = participants
+                  .where((item) => item.status == _ParticipantStatus.maybe)
+                  .toList();
+              final invited = participants
+                  .where((item) => item.status == _ParticipantStatus.invited)
+                  .toList();
+              final declined = participants
+                  .where((item) => item.status == _ParticipantStatus.declined)
+                  .toList();
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (organizer.isNotEmpty) ...[
+                    _ParticipantGroup(
+                      title: 'Veranstalter',
+                      items: organizer,
+                      theme: theme,
+                      colorScheme: colorScheme,
+                      statusLabel: _participantStatusLabel,
+                      statusColor: _participantStatusColor,
+                      statusIcon: _participantStatusIcon,
+                      currentUserId: _currentUserId,
+                    ),
+                  ],
+                  if (accepted.isNotEmpty) ...[
+                    if (organizer.isNotEmpty) const SizedBox(height: 14),
+                    _ParticipantGroup(
+                      title: 'Zugesagt',
+                      items: accepted,
+                      theme: theme,
+                      colorScheme: colorScheme,
+                      statusLabel: _participantStatusLabel,
+                      statusColor: _participantStatusColor,
+                      statusIcon: _participantStatusIcon,
+                      currentUserId: _currentUserId,
+                    ),
+                  ],
+                  if (maybe.isNotEmpty) ...[
+                    if (organizer.isNotEmpty || accepted.isNotEmpty)
+                      const SizedBox(height: 14),
+                    _ParticipantGroup(
+                      title: 'Vielleicht',
+                      items: maybe,
+                      theme: theme,
+                      colorScheme: colorScheme,
+                      statusLabel: _participantStatusLabel,
+                      statusColor: _participantStatusColor,
+                      statusIcon: _participantStatusIcon,
+                      currentUserId: _currentUserId,
+                    ),
+                  ],
+                  if (invited.isNotEmpty) ...[
+                    if (organizer.isNotEmpty ||
+                        accepted.isNotEmpty ||
+                        maybe.isNotEmpty)
+                      const SizedBox(height: 14),
+                    _ParticipantGroup(
+                      title: 'Eingeladen',
+                      items: invited,
+                      theme: theme,
+                      colorScheme: colorScheme,
+                      statusLabel: _participantStatusLabel,
+                      statusColor: _participantStatusColor,
+                      statusIcon: _participantStatusIcon,
+                      currentUserId: _currentUserId,
+                    ),
+                  ],
+                  if (declined.isNotEmpty) ...[
+                    if (organizer.isNotEmpty ||
+                        accepted.isNotEmpty ||
+                        maybe.isNotEmpty ||
+                        invited.isNotEmpty)
+                      const SizedBox(height: 14),
+                    _ParticipantGroup(
+                      title: 'Abgesagt',
+                      items: declined,
+                      theme: theme,
+                      colorScheme: colorScheme,
+                      statusLabel: _participantStatusLabel,
+                      statusColor: _participantStatusColor,
+                      statusIcon: _participantStatusIcon,
+                      currentUserId: _currentUserId,
+                    ),
+                  ],
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -359,21 +670,18 @@ class _EventDetailPageState extends State<EventDetailPage> {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment:
-                                    CrossAxisAlignment.start,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         _eventTypeLabel(rawType),
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(
+                                        style: theme.textTheme.bodySmall?.copyWith(
                                           color: colorScheme.onSurfaceVariant,
                                         ),
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
                                         title,
-                                        style: theme.textTheme.headlineSmall
-                                            ?.copyWith(
+                                        style: theme.textTheme.headlineSmall?.copyWith(
                                           fontWeight: FontWeight.w700,
                                         ),
                                       ),
@@ -443,37 +751,14 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   ),
                 ),
                 const SizedBox(height: 14),
-                _DetailSection(
-                  title: 'Teilnehmerstatus',
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _StatusCounterChip(
-                        icon: Icons.mail_outline,
-                        label: 'Einladungen',
-                        count: invited.length,
-                      ),
-                      _StatusCounterChip(
-                        icon: Icons.check_circle_outline,
-                        label: 'Zugesagt',
-                        count: accepted.length,
-                        color: Colors.green,
-                      ),
-                      _StatusCounterChip(
-                        icon: Icons.help_outline,
-                        label: 'Vielleicht',
-                        count: maybe.length,
-                        color: Colors.orange,
-                      ),
-                      _StatusCounterChip(
-                        icon: Icons.cancel_outlined,
-                        label: 'Abgesagt',
-                        count: declined.length,
-                        color: colorScheme.error,
-                      ),
-                    ],
-                  ),
+                _buildParticipantsSection(
+                  theme: theme,
+                  colorScheme: colorScheme,
+                  data: data,
+                  invitedCount: invited.length,
+                  acceptedCount: accepted.length,
+                  maybeCount: maybe.length,
+                  declinedCount: declined.length,
                 ),
                 const SizedBox(height: 14),
                 _buildActionSection(
@@ -611,6 +896,30 @@ class _EventDetailPageState extends State<EventDetailPage> {
   }
 }
 
+enum _ParticipantStatus {
+  organizer,
+  accepted,
+  maybe,
+  invited,
+  declined,
+}
+
+class _ParticipantItem {
+  final String id;
+  final String name;
+  final String phone;
+  final String imageUrl;
+  final _ParticipantStatus status;
+
+  const _ParticipantItem({
+    required this.id,
+    required this.name,
+    required this.phone,
+    required this.imageUrl,
+    required this.status,
+  });
+}
+
 class _DetailSection extends StatelessWidget {
   final String title;
   final Widget child;
@@ -723,6 +1032,182 @@ class _StatusCounterChip extends StatelessWidget {
             style: theme.textTheme.labelMedium?.copyWith(
               color: resolvedColor,
               fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ParticipantGroup extends StatelessWidget {
+  final String title;
+  final List<_ParticipantItem> items;
+  final ThemeData theme;
+  final ColorScheme colorScheme;
+  final String Function(_ParticipantStatus status) statusLabel;
+  final Color Function(ColorScheme colorScheme, _ParticipantStatus status)
+  statusColor;
+  final IconData Function(_ParticipantStatus status) statusIcon;
+  final String currentUserId;
+
+  const _ParticipantGroup({
+    required this.title,
+    required this.items,
+    required this.theme,
+    required this.colorScheme,
+    required this.statusLabel,
+    required this.statusColor,
+    required this.statusIcon,
+    required this.currentUserId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              title,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: colorScheme.primary.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '${items.length}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: colorScheme.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        ...items.map(
+              (item) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _ParticipantTile(
+              item: item,
+              isCurrentUser: item.id == currentUserId,
+              theme: theme,
+              colorScheme: colorScheme,
+              statusLabel: statusLabel(item.status),
+              resolvedStatusColor: statusColor(colorScheme, item.status),
+              statusIcon: statusIcon(item.status),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ParticipantTile extends StatelessWidget {
+  final _ParticipantItem item;
+  final bool isCurrentUser;
+  final ThemeData theme;
+  final ColorScheme colorScheme;
+  final String statusLabel;
+  final Color resolvedStatusColor;
+  final IconData statusIcon;
+
+  const _ParticipantTile({
+    required this.item,
+    required this.isCurrentUser,
+    required this.theme,
+    required this.colorScheme,
+    required this.statusLabel,
+    required this.resolvedStatusColor,
+    required this.statusIcon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitleParts = <String>[];
+
+    if (isCurrentUser) {
+      subtitleParts.add('Du');
+    }
+
+    if (item.phone.isNotEmpty) {
+      subtitleParts.add(item.phone);
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: colorScheme.primary.withOpacity(0.10),
+            backgroundImage:
+            item.imageUrl.isNotEmpty ? NetworkImage(item.imageUrl) : null,
+            child: item.imageUrl.isEmpty
+                ? Icon(Icons.person_outline, color: colorScheme.primary)
+                : null,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (subtitleParts.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitleParts.join(' • '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: resolvedStatusColor.withOpacity(0.10),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(statusIcon, size: 14, color: resolvedStatusColor),
+                const SizedBox(width: 6),
+                Text(
+                  statusLabel,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: resolvedStatusColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
