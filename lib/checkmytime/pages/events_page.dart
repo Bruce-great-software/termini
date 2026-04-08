@@ -28,7 +28,7 @@ class _EventsPageState extends State<EventsPage>
     super.dispose();
   }
 
-  String _formatCardHeaderDate(Timestamp? timestamp) {
+  String _formatHeaderDate(Timestamp? timestamp) {
     if (timestamp == null) return 'Kein Datum';
     return DateFormat('EEEE, d. MMMM', 'de_DE').format(timestamp.toDate());
   }
@@ -50,37 +50,10 @@ class _EventsPageState extends State<EventsPage>
 
     for (final candidate in candidates) {
       final value = (candidate ?? '').toString().trim();
-      if (value.isNotEmpty) {
-        return value;
-      }
+      if (value.isNotEmpty) return value;
     }
 
     return 'Ganztägig';
-  }
-
-  String _inviteStatusLabel(Map<String, dynamic> data, String currentUserId) {
-    final accepted = List<String>.from(data['acceptedUserIds'] ?? const []);
-    final maybe = List<String>.from(data['maybeUserIds'] ?? const []);
-    final declined = List<String>.from(data['declinedUserIds'] ?? const []);
-
-    if (accepted.contains(currentUserId)) return 'Zugesagt';
-    if (maybe.contains(currentUserId)) return 'Vielleicht';
-    if (declined.contains(currentUserId)) return 'Abgesagt';
-    return 'Eingeladen';
-  }
-
-  Color _inviteStatusColor(ColorScheme colorScheme, String statusLabel) {
-    switch (statusLabel) {
-      case 'Zugesagt':
-        return Colors.green;
-      case 'Vielleicht':
-        return Colors.orange;
-      case 'Abgesagt':
-        return colorScheme.error;
-      case 'Eingeladen':
-      default:
-        return colorScheme.primary;
-    }
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortEvents(
@@ -97,6 +70,96 @@ class _EventsPageState extends State<EventsPage>
       return aDate.compareTo(bDate);
     });
     return sorted;
+  }
+
+  String _inviteStatusLabel(Map<String, dynamic> data, String currentUserId) {
+    final accepted = List<String>.from(data['acceptedUserIds'] ?? const []);
+    final maybe = List<String>.from(data['maybeUserIds'] ?? const []);
+    final declined = List<String>.from(data['declinedUserIds'] ?? const []);
+
+    if (accepted.contains(currentUserId)) return 'Zugesagt';
+    if (maybe.contains(currentUserId)) return 'Vielleicht';
+    if (declined.contains(currentUserId)) return 'Abgesagt';
+    return 'Eingeladen';
+  }
+
+  String _openEventStatusLabel(Map<String, dynamic> data, String currentUserId) {
+    final accepted = List<String>.from(data['acceptedUserIds'] ?? const []);
+    final maybe = List<String>.from(data['maybeUserIds'] ?? const []);
+    final declined = List<String>.from(data['declinedUserIds'] ?? const []);
+
+    if (accepted.contains(currentUserId)) return 'Zugesagt';
+    if (maybe.contains(currentUserId)) return 'Vielleicht';
+    if (declined.contains(currentUserId)) return 'Abgesagt';
+    return 'Offen';
+  }
+
+  Color _statusColor(ColorScheme colorScheme, String label) {
+    switch (label) {
+      case 'Zugesagt':
+        return Colors.green;
+      case 'Vielleicht':
+        return Colors.orange;
+      case 'Abgesagt':
+        return colorScheme.error;
+      case 'Mein Event':
+      case 'Eingeladen':
+      case 'Offen':
+      default:
+        return colorScheme.primary;
+    }
+  }
+
+  Widget _buildTabContent({
+    required BuildContext context,
+    required ThemeData theme,
+    required ColorScheme colorScheme,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    required EventDetailView view,
+    required String currentUserId,
+    required Widget emptyState,
+    required String Function(Map<String, dynamic>) statusResolver,
+  }) {
+    if (docs.isEmpty) {
+      return ListView(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        children: [emptyState],
+      );
+    }
+
+    return ListView.builder(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      itemCount: docs.length,
+      itemBuilder: (context, index) {
+        final doc = docs[index];
+        final data = doc.data();
+        final statusLabel = statusResolver(data);
+
+        return _EventCard(
+          eventId: doc.id,
+          data: data,
+          theme: theme,
+          colorScheme: colorScheme,
+          formatHeaderDate: _formatHeaderDate,
+          formatShortDate: _formatShortDate,
+          formatTime: _formatTime,
+          statusLabel: statusLabel,
+          statusColor: _statusColor(colorScheme, statusLabel),
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => EventDetailPage(
+                  eventId: doc.id,
+                  view: view,
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -135,23 +198,21 @@ class _EventsPageState extends State<EventsPage>
               );
             }
 
-            final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs =
-                snapshot.data?.docs ?? [];
+            final docs = snapshot.data?.docs ?? [];
 
             final myEvents = _sortEvents(
-              docs.where((doc) {
-                final data = doc.data();
-                return (data['createdBy'] ?? '').toString() == currentUserId;
-              }),
+              docs.where(
+                    (doc) => (doc.data()['createdBy'] ?? '').toString() == currentUserId,
+              ),
             );
 
             final invitedEvents = _sortEvents(
               docs.where((doc) {
-                final data = doc.data();
                 final invited = List<String>.from(
-                  data['invitedUserIds'] ?? const [],
+                  doc.data()['invitedUserIds'] ?? const [],
                 );
-                return invited.contains(currentUserId);
+                return invited.contains(currentUserId) &&
+                    (doc.data()['createdBy'] ?? '').toString() != currentUserId;
               }),
             );
 
@@ -193,7 +254,7 @@ class _EventsPageState extends State<EventsPage>
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Hier planst du später gemeinsame Aktivitäten, Einladungen und offene Unternehmungen mit anderen Personen.',
+                          'Hier planst du gemeinsame Aktivitäten, Einladungen und offene Unternehmungen mit anderen Personen.',
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
@@ -228,7 +289,7 @@ class _EventsPageState extends State<EventsPage>
                       indicatorSize: TabBarIndicatorSize.tab,
                       indicator: BoxDecoration(
                         color: colorScheme.primary.withOpacity(0.10),
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(14),
                       ),
                       labelColor: colorScheme.primary,
                       unselectedLabelColor: colorScheme.onSurfaceVariant,
@@ -243,109 +304,57 @@ class _EventsPageState extends State<EventsPage>
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 Expanded(
                   child: TabBarView(
                     controller: _tabController,
+                    physics: const BouncingScrollPhysics(),
                     children: [
-                      _EventTabView(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                        items: myEvents,
+                      _buildTabContent(
+                        context: context,
+                        theme: theme,
+                        colorScheme: colorScheme,
+                        docs: myEvents,
+                        view: EventDetailView.myEvent,
+                        currentUserId: currentUserId,
+                        statusResolver: (_) => 'Mein Event',
                         emptyState: const _EventEmptyState(
                           icon: Icons.event_busy_outlined,
                           title: 'Noch keine eigenen Events',
                           subtitle:
-                          'Sobald du dein erstes Event erstellst, erscheint es hier in deiner Übersicht.',
-                        ),
-                        itemBuilder: (doc) => _EventCard(
-                          onTap: () async {
-                            await Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => EventDetailPage(
-                                  eventId: doc.id,
-                                  view: EventDetailView.myEvent,
-                                ),
-                              ),
-                            );
-                          },
-                          data: doc.data(),
-                          colorScheme: colorScheme,
-                          theme: theme,
-                          headerDate: _formatCardHeaderDate,
-                          shortDate: _formatShortDate,
-                          timeLabel: _formatTime(doc.data()),
-                          statusLabel: 'Geplant',
-                          statusColor: colorScheme.primary,
-                          subtitlePrefix: 'Erstellt von dir',
+                          'Du hast noch keine Events erstellt. Über den Button oben kannst du direkt dein erstes Event planen.',
                         ),
                       ),
-                      _EventTabView(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                        items: invitedEvents,
+                      _buildTabContent(
+                        context: context,
+                        theme: theme,
+                        colorScheme: colorScheme,
+                        docs: invitedEvents,
+                        view: EventDetailView.invitation,
+                        currentUserId: currentUserId,
+                        statusResolver: (data) =>
+                            _inviteStatusLabel(data, currentUserId),
                         emptyState: const _EventEmptyState(
                           icon: Icons.mail_outline_rounded,
-                          title: 'Keine Einladungen',
+                          title: 'Keine Einladungen vorhanden',
                           subtitle:
-                          'Hier erscheinen Events, zu denen dich andere Personen eingeladen haben.',
+                          'Sobald dich jemand zu einem Event einlädt, erscheint es hier in deiner Übersicht.',
                         ),
-                        itemBuilder: (doc) {
-                          final data = doc.data();
-                          final status = _inviteStatusLabel(data, currentUserId);
-                          return _EventCard(
-                            onTap: () async {
-                              await Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => EventDetailPage(
-                                    eventId: doc.id,
-                                    view: EventDetailView.invitation,
-                                  ),
-                                ),
-                              );
-                            },
-                            data: data,
-                            colorScheme: colorScheme,
-                            theme: theme,
-                            headerDate: _formatCardHeaderDate,
-                            shortDate: _formatShortDate,
-                            timeLabel: _formatTime(data),
-                            statusLabel: status,
-                            statusColor:
-                            _inviteStatusColor(colorScheme, status),
-                            subtitlePrefix:
-                            'Einladung von ${(data['createdByName'] ?? 'Unbekannt').toString().trim()}',
-                          );
-                        },
                       ),
-                      _EventTabView(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                        items: openEvents,
+                      _buildTabContent(
+                        context: context,
+                        theme: theme,
+                        colorScheme: colorScheme,
+                        docs: openEvents,
+                        view: EventDetailView.openEvent,
+                        currentUserId: currentUserId,
+                        statusResolver: (data) =>
+                            _openEventStatusLabel(data, currentUserId),
                         emptyState: const _EventEmptyState(
                           icon: Icons.public_off_outlined,
                           title: 'Keine offenen Events',
                           subtitle:
                           'Aktuell gibt es keine offenen Events für dich. Neue öffentliche Aktivitäten erscheinen später hier.',
-                        ),
-                        itemBuilder: (doc) => _EventCard(
-                          onTap: () async {
-                            await Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => EventDetailPage(
-                                  eventId: doc.id,
-                                  view: EventDetailView.openEvent,
-                                ),
-                              ),
-                            );
-                          },
-                          data: doc.data(),
-                          colorScheme: colorScheme,
-                          theme: theme,
-                          headerDate: _formatCardHeaderDate,
-                          shortDate: _formatShortDate,
-                          timeLabel: _formatTime(doc.data()),
-                          statusLabel: 'Offen',
-                          statusColor: colorScheme.primary,
-                          subtitlePrefix:
-                          'Öffentlich von ${(doc.data()['createdByName'] ?? 'Unbekannt').toString().trim()}',
                         ),
                       ),
                     ],
@@ -360,274 +369,222 @@ class _EventsPageState extends State<EventsPage>
   }
 }
 
-class _EventTabView extends StatelessWidget {
-  final EdgeInsets padding;
-  final List<QueryDocumentSnapshot<Map<String, dynamic>>> items;
-  final Widget emptyState;
-  final Widget Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)
-  itemBuilder;
-
-  const _EventTabView({
-    required this.padding,
-    required this.items,
-    required this.emptyState,
-    required this.itemBuilder,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (items.isEmpty) {
-      return ListView(
-        physics: const BouncingScrollPhysics(),
-        padding: padding,
-        children: [emptyState],
-      );
-    }
-
-    return ListView.builder(
-      physics: const BouncingScrollPhysics(),
-      padding: padding,
-      itemCount: items.length,
-      itemBuilder: (context, index) => itemBuilder(items[index]),
-    );
-  }
-}
-
 class _EventCard extends StatelessWidget {
-  final VoidCallback? onTap;
+  final String eventId;
   final Map<String, dynamic> data;
-  final ColorScheme colorScheme;
   final ThemeData theme;
-  final String Function(Timestamp?) headerDate;
-  final String Function(Timestamp?) shortDate;
-  final String timeLabel;
+  final ColorScheme colorScheme;
+  final String Function(Timestamp?) formatHeaderDate;
+  final String Function(Timestamp?) formatShortDate;
+  final String Function(Map<String, dynamic>) formatTime;
   final String statusLabel;
   final Color statusColor;
-  final String subtitlePrefix;
+  final VoidCallback onTap;
 
   const _EventCard({
-    this.onTap,
+    required this.eventId,
     required this.data,
-    required this.colorScheme,
     required this.theme,
-    required this.headerDate,
-    required this.shortDate,
-    required this.timeLabel,
+    required this.colorScheme,
+    required this.formatHeaderDate,
+    required this.formatShortDate,
+    required this.formatTime,
     required this.statusLabel,
     required this.statusColor,
-    required this.subtitlePrefix,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final title = (data['title'] ?? 'Event').toString().trim();
     final description = (data['description'] ?? '').toString().trim();
-    final location = (data['location'] ?? '').toString().trim();
-    final createdByName = (data['createdByName'] ?? 'Unbekannt').toString().trim();
+    final createdByName =
+    (data['createdByName'] ?? 'Unbekannt').toString().trim();
     final eventDate = data['eventDate'] as Timestamp?;
     final invited = List<String>.from(data['invitedUserIds'] ?? const []);
     final accepted = List<String>.from(data['acceptedUserIds'] ?? const []);
     final maybe = List<String>.from(data['maybeUserIds'] ?? const []);
     final declined = List<String>.from(data['declinedUserIds'] ?? const []);
 
-    final summaryChips = <Widget>[
-      _EventMetaChip(
-        icon: Icons.group_outlined,
-        label: '${accepted.length} zugesagt',
-      ),
-      if (invited.isNotEmpty)
-        _EventMetaChip(
-          icon: Icons.mail_outline,
-          label: '${invited.length} eingeladen',
-        ),
-      if (maybe.isNotEmpty)
-        _EventMetaChip(
-          icon: Icons.help_outline,
-          label: '${maybe.length} vielleicht',
-        ),
-      if (declined.isNotEmpty)
-        _EventMetaChip(
-          icon: Icons.close,
-          label: '${declined.length} abgesagt',
-        ),
-    ];
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(22),
         child: InkWell(
+          borderRadius: BorderRadius.circular(20),
           onTap: onTap,
-          borderRadius: BorderRadius.circular(22),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: colorScheme.primary.withOpacity(0.95),
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(22),
-                    topRight: Radius.circular(22),
+          child: Ink(
+            decoration: BoxDecoration(
+              color: colorScheme.surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: colorScheme.outlineVariant),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
                   ),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.calendar_today_outlined,
-                      size: 16,
-                      color: Colors.white,
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary.withOpacity(0.95),
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(20),
+                      topRight: Radius.circular(20),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        headerDate(eventDate),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.calendar_today_outlined,
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          formatHeaderDate(eventDate),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Icon(
+                        Icons.access_time,
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        formatTime(data),
                         style: theme.textTheme.labelLarge?.copyWith(
                           color: Colors.white,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    const Icon(
-                      Icons.access_time,
-                      size: 16,
-                      color: Colors.white,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      timeLabel,
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        CircleAvatar(
-                          radius: 22,
-                          backgroundColor: colorScheme.primary.withOpacity(0.10),
-                          child: Icon(
-                            Icons.celebration_outlined,
-                            color: colorScheme.primary,
+                Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CircleAvatar(
+                            radius: 22,
+                            backgroundColor:
+                            colorScheme.primary.withOpacity(0.10),
+                            child: Icon(
+                              Icons.celebration_outlined,
+                              color: colorScheme.primary,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                subtitlePrefix,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                title,
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'Datum: ${shortDate(eventDate)}',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                              if (location.isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Ort: $location',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                              if (createdByName.isNotEmpty &&
-                                  !subtitlePrefix.contains(createdByName)) ...[
-                                const SizedBox(height: 4),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
                                 Text(
                                   createdByName,
                                   style: theme.textTheme.bodySmall?.copyWith(
                                     color: colorScheme.onSurfaceVariant,
                                   ),
                                 ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  title,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Datum: ${formatShortDate(eventDate)}',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
                               ],
-                            ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: statusColor.withOpacity(0.10),
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Text(
-                                statusLabel,
-                                style: theme.textTheme.labelMedium?.copyWith(
-                                  color: statusColor,
-                                  fontWeight: FontWeight.w700,
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: statusColor.withOpacity(0.10),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  statusLabel,
+                                  style: theme.textTheme.labelMedium?.copyWith(
+                                    color: statusColor,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 10),
-                            Icon(
-                              Icons.chevron_right_rounded,
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                          ],
+                              const SizedBox(height: 10),
+                              Icon(
+                                Icons.chevron_right_rounded,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      if (description.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
                         ),
                       ],
-                    ),
-                    if (description.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        description,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                    if (summaryChips.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
-                        children: summaryChips,
+                        children: [
+                          _EventCountChip(
+                            label: 'Einladungen',
+                            count: invited.length,
+                          ),
+                          _EventCountChip(
+                            label: 'Zusagen',
+                            count: accepted.length,
+                          ),
+                          _EventCountChip(
+                            label: 'Vielleicht',
+                            count: maybe.length,
+                          ),
+                          _EventCountChip(
+                            label: 'Absagen',
+                            count: declined.length,
+                          ),
+                        ],
                       ),
                     ],
-                  ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -635,13 +592,13 @@ class _EventCard extends StatelessWidget {
   }
 }
 
-class _EventMetaChip extends StatelessWidget {
-  final IconData icon;
+class _EventCountChip extends StatelessWidget {
   final String label;
+  final int count;
 
-  const _EventMetaChip({
-    required this.icon,
+  const _EventCountChip({
     required this.label,
+    required this.count,
   });
 
   @override
@@ -650,28 +607,17 @@ class _EventMetaChip extends StatelessWidget {
     final colorScheme = theme.colorScheme;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: colorScheme.primary.withOpacity(0.08),
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 14,
-            color: colorScheme.primary,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: colorScheme.primary,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
+      child: Text(
+        '$label: $count',
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: colorScheme.primary,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }

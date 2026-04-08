@@ -190,13 +190,12 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     required int unreadCount,
     required VoidCallback onTap,
   }) {
-    return Material(
-      color: Colors.transparent,
+    return Card(
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.all(16),
           child: Row(
             children: [
               _buildContactAvatar(
@@ -205,32 +204,13 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
               ),
               const SizedBox(width: 14),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      preview.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight:
-                        hasUnread ? FontWeight.w700 : FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      preview.phone.isNotEmpty
-                          ? preview.phone
-                          : 'Keine Nummer vorhanden',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        fontWeight:
-                        hasUnread ? FontWeight.w500 : FontWeight.w400,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  preview.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w600,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -572,92 +552,81 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              decoration: BoxDecoration(
-                color: colorScheme.surface,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: colorScheme.outlineVariant),
-              ),
-              child: Column(
-                children: docs.map((doc) {
-                  final data = doc.data();
-                  final participants =
-                  List<String>.from(data['participants'] ?? const []);
-                  final otherId = _otherParticipantId(participants, currentUserId);
-                  final contactNames =
-                  Map<String, dynamic>.from(data['contactNames'] ?? const {});
-                  final contactPhones =
-                  Map<String, dynamic>.from(data['contactPhones'] ?? const {});
+            const SizedBox(height: 12),
+            ...docs.map((doc) {
+              final data = doc.data();
+              final participants =
+              List<String>.from(data['participants'] ?? const []);
+              final otherId = _otherParticipantId(participants, currentUserId);
+              final contactNames =
+              Map<String, dynamic>.from(data['contactNames'] ?? const {});
+              final contactPhones =
+              Map<String, dynamic>.from(data['contactPhones'] ?? const {});
 
-                  final fallbackName =
-                  (contactNames[otherId] ?? 'Unbekannt').toString().trim();
-                  final fallbackPhone =
-                  (contactPhones[otherId] ?? '').toString().trim();
-                  final unreadCount =
-                  (data['unreadCountFor_$currentUserId'] ?? 0) as int;
-                  final hasUnread = unreadCount > 0;
+              final fallbackName =
+              (contactNames[otherId] ?? 'Unbekannt').toString().trim();
+              final fallbackPhone =
+              (contactPhones[otherId] ?? '').toString().trim();
+              final unreadCount =
+              (data['unreadCountFor_$currentUserId'] ?? 0) as int;
+              final hasUnread = unreadCount > 0;
 
-                  return FutureBuilder<_ContactPreviewData>(
-                    future: _loadContactPreview(
-                      contactId: otherId,
-                      fallbackName: fallbackName,
-                      fallbackPhone: fallbackPhone,
-                    ),
-                    builder: (context, previewSnapshot) {
-                      final preview = previewSnapshot.data ??
-                          _ContactPreviewData(
-                            name:
-                            fallbackName.isEmpty ? 'Unbekannt' : fallbackName,
-                            phone: fallbackPhone,
-                            imageUrl: '',
-                          );
-
-                      return Dismissible(
-                        key: ValueKey(doc.id),
-                        direction: DismissDirection.endToStart,
-                        background: Container(
-                          margin: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          decoration: BoxDecoration(
-                            color: colorScheme.error.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          child: Icon(
-                            Icons.delete_outline,
-                            color: colorScheme.error,
-                          ),
-                        ),
-                        confirmDismiss: (_) async {
-                          await _hideThreadForCurrentUser(doc.id, currentUserId);
-                          return true;
-                        },
-                        child: _buildThreadRow(
-                          theme: theme,
-                          colorScheme: colorScheme,
-                          preview: preview,
-                          hasUnread: hasUnread,
-                          unreadCount: unreadCount,
-                          onTap: () {
-                            _openContact(
-                              contactId: otherId,
-                              contactName: preview.name,
-                              phoneNumber: preview.phone,
-                            );
-                          },
-                        ),
+              return FutureBuilder<_ContactPreviewData>(
+                future: _loadContactPreview(
+                  contactId: otherId,
+                  fallbackName: fallbackName,
+                  fallbackPhone: fallbackPhone,
+                ),
+                builder: (context, previewSnapshot) {
+                  final preview = previewSnapshot.data ??
+                      _ContactPreviewData(
+                        name: fallbackName.isEmpty ? 'Unbekannt' : fallbackName,
+                        phone: fallbackPhone,
+                        imageUrl: '',
                       );
+
+                  return Dismissible(
+                    key: ValueKey(doc.id),
+                    direction: DismissDirection.endToStart,
+                    background: Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: colorScheme.error.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Icon(
+                        Icons.delete_outline,
+                        color: colorScheme.error,
+                      ),
+                    ),
+                    confirmDismiss: (_) async {
+                      await _hideThreadForCurrentUser(doc.id, currentUserId);
+                      return true;
                     },
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _buildThreadRow(
+                        theme: theme,
+                        colorScheme: colorScheme,
+                        preview: preview,
+                        hasUnread: hasUnread,
+                        unreadCount: unreadCount,
+                        onTap: () {
+                          _openContact(
+                            contactId: otherId,
+                            contactName: preview.name,
+                            phoneNumber: preview.phone,
+                          );
+                        },
+                      ),
+                    ),
                   );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 20),
+                },
+              );
+            }),
+            const SizedBox(height: 8),
           ],
         );
       },
