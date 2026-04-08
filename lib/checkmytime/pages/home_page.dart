@@ -7,6 +7,7 @@ import 'package:termini/checkmytime/pages/appointments_page.dart';
 import 'package:termini/checkmytime/pages/contact_thread_page.dart';
 import 'package:termini/checkmytime/pages/profile_page.dart';
 import 'package:termini/checkmytime/services/notification_service.dart';
+import 'package:termini/checkmytime/pages/events_page.dart';
 
 class CheckMyTimeHomePage extends StatefulWidget {
   const CheckMyTimeHomePage({super.key});
@@ -740,7 +741,13 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                   title: 'Events',
                   subtitle:
                   'Hier planst und verwaltest du später gemeinsame Aktivitäten und Einladungen.',
-                  onTap: () => _showComingSoon('Events'),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const EventsPage(),
+                      ),
+                    );
+                  },
                 ),
                 _ActionCard(
                   icon: Icons.calendar_month_outlined,
