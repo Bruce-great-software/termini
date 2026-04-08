@@ -17,20 +17,15 @@ class CheckMyTimeHomePage extends StatefulWidget {
 
 class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
   int _selectedIndex = 0;
-
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
-
-  String? _currentUserId;
 
   bool _isSearching = false;
   String _searchQuery = '';
   String? _searchError;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _searchResults = [];
 
-  StreamSubscription<User?>? _authSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _threadsSubscription;
-
   bool _hasInitializedUnreadState = false;
   Map<String, int> _knownUnreadCountsByThread = {};
 
@@ -38,12 +33,11 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
   void initState() {
     super.initState();
     _initializeNotifications();
-    _bindAuthListener();
+    _listenForIncomingAppointments();
   }
 
   @override
   void dispose() {
-    _authSubscription?.cancel();
     _threadsSubscription?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
@@ -53,66 +47,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
   Future<void> _initializeNotifications() async {
     await NotificationService.instance.initialize();
     await NotificationService.instance.requestPermissions();
-  }
-
-  void _bindAuthListener() {
-    _handleAuthChanged(FirebaseAuth.instance.currentUser);
-
-    _authSubscription = FirebaseAuth.instance.authStateChanges().listen(
-      _handleAuthChanged,
-    );
-  }
-
-  void _handleAuthChanged(User? user) {
-    final newUserId = user?.uid;
-
-    _threadsSubscription?.cancel();
-    _threadsSubscription = null;
-    _hasInitializedUnreadState = false;
-    _knownUnreadCountsByThread = {};
-
-    if (!mounted) return;
-
-    setState(() {
-      _currentUserId = newUserId;
-
-      if (newUserId == null) {
-        _searchQuery = '';
-        _searchError = null;
-        _searchResults = [];
-        _isSearching = false;
-        _searchController.clear();
-
-        if (_selectedIndex == 1) {
-          _selectedIndex = 2;
-        }
-      }
-    });
-
-    if (newUserId != null) {
-      _listenForIncomingAppointments(newUserId);
-    }
-  }
-
-  bool _requireLogin({int? switchToTab}) {
-    if (_currentUserId != null) {
-      return true;
-    }
-
-    if (switchToTab != null) {
-      setState(() {
-        _selectedIndex = switchToTab;
-      });
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Bitte logge dich zuerst ein oder registriere dich.'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-
-    return false;
   }
 
   String _buildThreadId(String uidA, String uidB) {
@@ -125,6 +59,59 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       if (id != currentUserId) return id;
     }
     return '';
+  }
+
+  void _listenForIncomingAppointments() {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+
+    _threadsSubscription?.cancel();
+    _threadsSubscription = FirebaseFirestore.instance
+        .collection('contact_threads')
+        .where('participantMap.$currentUserId', isEqualTo: true)
+        .snapshots()
+        .listen((snapshot) async {
+      final currentCounts = <String, int>{};
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        if (data['hiddenFor_$currentUserId'] == true) continue;
+        final unreadCount = (data['unreadCountFor_$currentUserId'] ?? 0) as int;
+        currentCounts[doc.id] = unreadCount;
+      }
+
+      if (!_hasInitializedUnreadState) {
+        _hasInitializedUnreadState = true;
+        _knownUnreadCountsByThread = currentCounts;
+        return;
+      }
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        if (data['hiddenFor_$currentUserId'] == true) continue;
+
+        final newCount = currentCounts[doc.id] ?? 0;
+        final oldCount = _knownUnreadCountsByThread[doc.id] ?? 0;
+
+        if (newCount > oldCount) {
+          final participants = List<String>.from(data['participants'] ?? const []);
+          final otherId = _otherParticipantId(participants, currentUserId);
+          final contactNames =
+          Map<String, dynamic>.from(data['contactNames'] ?? const {});
+          final otherName =
+          (contactNames[otherId] ?? 'Unbekannt').toString().trim();
+          final lastTitle =
+          (data['lastAppointmentTitle'] ?? 'Termin').toString().trim();
+
+          await NotificationService.instance.showIncomingAppointmentNotification(
+            title: 'Neuer Terminvorschlag',
+            body: '$otherName: $lastTitle',
+          );
+        }
+      }
+
+      _knownUnreadCountsByThread = currentCounts;
+    });
   }
 
   Future<_ContactPreviewData> _loadContactPreview({
@@ -177,6 +164,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
   }) {
     if (preview.imageUrl.isNotEmpty) {
       return CircleAvatar(
+        radius: 20,
         backgroundImage: NetworkImage(preview.imageUrl),
       );
     }
@@ -185,6 +173,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     preview.name.isNotEmpty ? preview.name.characters.first.toUpperCase() : '?';
 
     return CircleAvatar(
+      radius: 20,
       child: Text(
         letter,
         style: theme.textTheme.labelLarge,
@@ -192,69 +181,84 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     );
   }
 
-  void _listenForIncomingAppointments(String currentUserId) {
-    _threadsSubscription?.cancel();
-
-    _threadsSubscription = FirebaseFirestore.instance
-        .collection('contact_threads')
-        .where('participantMap.$currentUserId', isEqualTo: true)
-        .snapshots()
-        .listen((snapshot) async {
-      final currentCounts = <String, int>{};
-
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        final unreadCount = (data['unreadCountFor_$currentUserId'] ?? 0) as int;
-        final isHiddenForCurrentUser = data['hiddenFor_$currentUserId'] == true;
-
-        if (isHiddenForCurrentUser && unreadCount <= 0) continue;
-        currentCounts[doc.id] = unreadCount;
-      }
-
-      if (!_hasInitializedUnreadState) {
-        _hasInitializedUnreadState = true;
-        _knownUnreadCountsByThread = currentCounts;
-        return;
-      }
-
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        final newCount = currentCounts[doc.id] ?? 0;
-        if (newCount <= 0) continue;
-
-        final oldCount = _knownUnreadCountsByThread[doc.id] ?? 0;
-        if (newCount <= oldCount) continue;
-
-        final participants = List<String>.from(data['participants'] ?? const []);
-        final otherId = _otherParticipantId(participants, currentUserId);
-        final contactNames =
-        Map<String, dynamic>.from(data['contactNames'] ?? const {});
-        final otherName =
-        (contactNames[otherId] ?? 'Unbekannt').toString().trim();
-        final lastInteractionType =
-        (data['lastInteractionType'] ?? 'appointment').toString();
-
-        if (lastInteractionType == 'message') {
-          final lastMessage =
-          (data['lastMessageText'] ?? 'Neue Nachricht').toString().trim();
-
-          await NotificationService.instance.showIncomingChatNotification(
-            title: otherName,
-            body: lastMessage.isEmpty ? 'Neue Nachricht' : lastMessage,
-          );
-        } else {
-          final lastTitle =
-          (data['lastAppointmentTitle'] ?? 'Termin').toString().trim();
-
-          await NotificationService.instance.showIncomingAppointmentNotification(
-            title: 'Neuer Terminvorschlag',
-            body: '$otherName: $lastTitle',
-          );
-        }
-      }
-
-      _knownUnreadCountsByThread = currentCounts;
-    });
+  Widget _buildThreadRow({
+    required ThemeData theme,
+    required ColorScheme colorScheme,
+    required _ContactPreviewData preview,
+    required bool hasUnread,
+    required int unreadCount,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              _buildContactAvatar(
+                preview: preview,
+                theme: theme,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      preview.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight:
+                        hasUnread ? FontWeight.w700 : FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      preview.phone.isNotEmpty
+                          ? preview.phone
+                          : 'Keine Nummer vorhanden',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight:
+                        hasUnread ? FontWeight.w500 : FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              hasUnread
+                  ? Container(
+                width: 30,
+                height: 30,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFB7E61E),
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '$unreadCount',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: Colors.black,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              )
+                  : Icon(
+                Icons.chevron_right,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _showComingSoon(String label) {
@@ -283,18 +287,15 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     required String contactName,
     required String phoneNumber,
   }) async {
-    if (!_requireLogin()) return;
-
     final safeName =
     contactName.trim().isEmpty ? 'Unbekannt' : contactName.trim();
     final safePhone = phoneNumber.trim();
-    final currentUserId = _currentUserId;
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
     _resetSearch();
 
     if (currentUserId != null && contactId.isNotEmpty) {
       final threadId = _buildThreadId(currentUserId, contactId);
-
       try {
         await FirebaseFirestore.instance
             .collection('contact_threads')
@@ -348,27 +349,19 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       return;
     }
 
-    if (_currentUserId == null) {
-      setState(() {
-        _searchResults = [];
-        _isSearching = false;
-        _searchError = 'Bitte logge dich ein, um andere Nutzer zu suchen.';
-      });
-      return;
-    }
-
     setState(() {
       _isSearching = true;
     });
 
     try {
+      final currentUid = FirebaseAuth.instance.currentUser?.uid;
       final snapshot =
       await FirebaseFirestore.instance.collection('users').limit(50).get();
 
       final lowerQuery = query.toLowerCase();
 
       final filtered = snapshot.docs.where((doc) {
-        if (doc.id == _currentUserId) return false;
+        if (doc.id == currentUid) return false;
 
         final data = doc.data();
         final displayName =
@@ -418,7 +411,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
           child: Text(
             _searchError!,
             style: const TextStyle(color: Colors.red),
-            textAlign: TextAlign.center,
           ),
         ),
       );
@@ -511,7 +503,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       }, SetOptions(merge: true));
 
       if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Kontakt wurde von der Startseite entfernt.'),
@@ -520,7 +511,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       );
     } catch (_) {
       if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Kontakt konnte nicht entfernt werden.'),
@@ -548,17 +538,20 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
         }
 
         final docs = [...snapshot.data?.docs ?? []]
-            .where((doc) {
-          final data = doc.data();
-          final isHidden = data['hiddenFor_$currentUserId'] == true;
-          final unreadCount =
-          (data['unreadCountFor_$currentUserId'] ?? 0) as int;
-          return !isHidden || unreadCount > 0;
-        })
+            .where((doc) => doc.data()['hiddenFor_$currentUserId'] != true)
             .toList()
           ..sort((a, b) {
-            final aTs = a.data()['lastInteractionAt'] as Timestamp?;
-            final bTs = b.data()['lastInteractionAt'] as Timestamp?;
+            final aData = a.data();
+            final bData = b.data();
+            final aUnread = (aData['unreadCountFor_$currentUserId'] ?? 0) as int;
+            final bUnread = (bData['unreadCountFor_$currentUserId'] ?? 0) as int;
+
+            if (aUnread != bUnread) {
+              return bUnread.compareTo(aUnread);
+            }
+
+            final aTs = aData['lastInteractionAt'] as Timestamp?;
+            final bTs = bData['lastInteractionAt'] as Timestamp?;
             if (aTs == null && bTs == null) return 0;
             if (aTs == null) return 1;
             if (bTs == null) return -1;
@@ -574,197 +567,99 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
           children: [
             Text(
               'Kontakte',
-              style: theme.textTheme.titleMedium,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
-            const SizedBox(height: 12),
-            ...docs.map((doc) {
-              final data = doc.data();
-              final participants =
-              List<String>.from(data['participants'] ?? const []);
-              final otherId = _otherParticipantId(participants, currentUserId);
-              final contactNames =
-              Map<String, dynamic>.from(data['contactNames'] ?? const {});
-              final contactPhones =
-              Map<String, dynamic>.from(data['contactPhones'] ?? const {});
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: colorScheme.outlineVariant),
+              ),
+              child: Column(
+                children: docs.map((doc) {
+                  final data = doc.data();
+                  final participants =
+                  List<String>.from(data['participants'] ?? const []);
+                  final otherId = _otherParticipantId(participants, currentUserId);
+                  final contactNames =
+                  Map<String, dynamic>.from(data['contactNames'] ?? const {});
+                  final contactPhones =
+                  Map<String, dynamic>.from(data['contactPhones'] ?? const {});
 
-              final fallbackName =
-              (contactNames[otherId] ?? 'Unbekannt').toString().trim();
-              final fallbackPhone =
-              (contactPhones[otherId] ?? '').toString().trim();
-              final unreadCount =
-              (data['unreadCountFor_$currentUserId'] ?? 0) as int;
-              final hasUnread = unreadCount > 0;
+                  final fallbackName =
+                  (contactNames[otherId] ?? 'Unbekannt').toString().trim();
+                  final fallbackPhone =
+                  (contactPhones[otherId] ?? '').toString().trim();
+                  final unreadCount =
+                  (data['unreadCountFor_$currentUserId'] ?? 0) as int;
+                  final hasUnread = unreadCount > 0;
 
-              return FutureBuilder<_ContactPreviewData>(
-                future: _loadContactPreview(
-                  contactId: otherId,
-                  fallbackName: fallbackName,
-                  fallbackPhone: fallbackPhone,
-                ),
-                builder: (context, snapshot) {
-                  final preview = snapshot.data ??
-                      _ContactPreviewData(
-                        name: fallbackName.isEmpty ? 'Unbekannt' : fallbackName,
-                        phone: fallbackPhone,
-                        imageUrl: '',
-                      );
-
-                  return Dismissible(
-                    key: ValueKey(doc.id),
-                    direction: DismissDirection.endToStart,
-                    background: Container(
-                      alignment: Alignment.centerRight,
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      decoration: BoxDecoration(
-                        color: colorScheme.error.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Icon(
-                        Icons.delete_outline,
-                        color: colorScheme.error,
-                      ),
+                  return FutureBuilder<_ContactPreviewData>(
+                    future: _loadContactPreview(
+                      contactId: otherId,
+                      fallbackName: fallbackName,
+                      fallbackPhone: fallbackPhone,
                     ),
-                    confirmDismiss: (_) async {
-                      await _hideThreadForCurrentUser(doc.id, currentUserId);
-                      return true;
-                    },
-                    child: Card(
-                      child: ListTile(
-                        leading: _buildContactAvatar(
-                          preview: preview,
-                          theme: theme,
-                        ),
-                        title: Text(
-                          preview.name,
-                          style: TextStyle(
-                            fontWeight:
-                            hasUnread ? FontWeight.w700 : FontWeight.w500,
-                          ),
-                        ),
-                        subtitle: Text(
-                          (() {
-                            final lastInteractionType =
-                            (data['lastInteractionType'] ?? '').toString();
-                            final lastMessage =
-                            (data['lastMessageText'] ?? '').toString().trim();
-                            final lastAppointmentTitle =
-                            (data['lastAppointmentTitle'] ?? '')
-                                .toString()
-                                .trim();
-
-                            if (lastInteractionType == 'message' &&
-                                lastMessage.isNotEmpty) {
-                              return lastMessage;
-                            }
-
-                            if (lastInteractionType == 'appointment' &&
-                                lastAppointmentTitle.isNotEmpty) {
-                              return 'Termin: $lastAppointmentTitle';
-                            }
-
-                            return preview.phone.isNotEmpty
-                                ? preview.phone
-                                : 'Keine Nummer vorhanden';
-                          })(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: hasUnread
-                            ? Container(
-                          width: 28,
-                          height: 28,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFB7E61E),
-                            shape: BoxShape.circle,
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            '$unreadCount',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: Colors.black,
-                            ),
-                          ),
-                        )
-                            : const Icon(Icons.chevron_right),
-                        onTap: () {
-                          _openContact(
-                            contactId: otherId,
-                            contactName: preview.name,
-                            phoneNumber: preview.phone,
+                    builder: (context, previewSnapshot) {
+                      final preview = previewSnapshot.data ??
+                          _ContactPreviewData(
+                            name:
+                            fallbackName.isEmpty ? 'Unbekannt' : fallbackName,
+                            phone: fallbackPhone,
+                            imageUrl: '',
                           );
+
+                      return Dismissible(
+                        key: ValueKey(doc.id),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          margin: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          decoration: BoxDecoration(
+                            color: colorScheme.error.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Icon(
+                            Icons.delete_outline,
+                            color: colorScheme.error,
+                          ),
+                        ),
+                        confirmDismiss: (_) async {
+                          await _hideThreadForCurrentUser(doc.id, currentUserId);
+                          return true;
                         },
-                      ),
-                    ),
+                        child: _buildThreadRow(
+                          theme: theme,
+                          colorScheme: colorScheme,
+                          preview: preview,
+                          hasUnread: hasUnread,
+                          unreadCount: unreadCount,
+                          onTap: () {
+                            _openContact(
+                              contactId: otherId,
+                              contactName: preview.name,
+                              phoneNumber: preview.phone,
+                            );
+                          },
+                        ),
+                      );
+                    },
                   );
-                },
-              );
-            }),
+                }).toList(),
+              ),
+            ),
             const SizedBox(height: 20),
           ],
         );
       },
-    );
-  }
-
-  Widget _buildLoggedOutAppointmentsPlaceholder(
-      ThemeData theme,
-      ColorScheme colorScheme,
-      ) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: colorScheme.outlineVariant),
-          ),
-          child: Column(
-            children: [
-              CircleAvatar(
-                radius: 34,
-                backgroundColor: colorScheme.primary.withOpacity(0.10),
-                child: Icon(
-                  Icons.calendar_month_outlined,
-                  color: colorScheme.primary,
-                  size: 30,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Meine Termine',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Bitte logge dich ein oder registriere dich, damit du eingehende und bestätigte Termine sehen kannst.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _selectedIndex = 2;
-                    });
-                  },
-                  icon: const Icon(Icons.login),
-                  label: const Text('Zum Profil / Login'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 
@@ -773,8 +668,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       ThemeData theme,
       String? currentUserId,
       ) {
-    final isLoggedIn = currentUserId != null;
-
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
@@ -816,39 +709,22 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        isLoggedIn
-                            ? 'Termine einfach wie Nachrichten.'
-                            : 'Einloggen und direkt loslegen.',
+                        'Termine einfach wie Nachrichten.',
                         style: theme.textTheme.titleLarge,
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        isLoggedIn
-                            ? 'Das ist die neue Startseite für den CheckMyTime-Bereich. Von hier aus bauen wir Schritt für Schritt die neue Logik auf.'
-                            : 'Melde dich zuerst an oder registriere dich im Profil-Tab. Danach kannst du Kontakte finden, Termine empfangen und dein Profil vervollständigen.',
+                        'Das ist die neue Startseite für den CheckMyTime-Bereich. '
+                            'Von hier aus bauen wir Schritt für Schritt die neue Logik auf.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: colorScheme.onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(height: 16),
                       FilledButton.icon(
-                        onPressed: () {
-                          if (isLoggedIn) {
-                            _showComingSoon('Nutzer finden');
-                          } else {
-                            setState(() {
-                              _selectedIndex = 2;
-                            });
-                          }
-                        },
-                        icon: Icon(
-                          isLoggedIn
-                              ? Icons.person_search_outlined
-                              : Icons.login,
-                        ),
-                        label: Text(
-                          isLoggedIn ? 'Nutzer finden' : 'Jetzt einloggen',
-                        ),
+                        onPressed: () => _showComingSoon('Nutzer finden'),
+                        icon: const Icon(Icons.person_search_outlined),
+                        label: const Text('Nutzer finden'),
                       ),
                     ],
                   ),
@@ -860,39 +736,28 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                 ),
                 const SizedBox(height: 12),
                 _ActionCard(
-                  icon: Icons.event_available_outlined,
-                  title: 'Termin erstellen',
-                  subtitle: isLoggedIn
-                      ? 'Später kannst du hier einem anderen Nutzer einen Termin schicken.'
-                      : 'Logge dich zuerst ein, damit du später Termine erstellen kannst.',
-                  onTap: () {
-                    if (!isLoggedIn) {
-                      setState(() {
-                        _selectedIndex = 2;
-                      });
-                      return;
-                    }
-                    _showComingSoon('Termin erstellen');
-                  },
+                  icon: Icons.celebration_outlined,
+                  title: 'Events',
+                  subtitle:
+                  'Hier planst und verwaltest du später gemeinsame Aktivitäten und Einladungen.',
+                  onTap: () => _showComingSoon('Events'),
                 ),
                 _ActionCard(
                   icon: Icons.calendar_month_outlined,
-                  title: 'Meine Termine',
-                  subtitle: isLoggedIn
-                      ? 'Hier zeigen wir später eingehende und bestätigte Termine an.'
-                      : 'Nach dem Login erscheinen hier deine Termine.',
+                  title: 'Termine',
+                  subtitle:
+                  'Hier verwaltest du deine festen Termine und gemeinsame Vorschläge.',
                   onTap: () {
                     setState(() {
-                      _selectedIndex = isLoggedIn ? 1 : 2;
+                      _selectedIndex = 1;
                     });
                   },
                 ),
                 _ActionCard(
                   icon: Icons.person_outline,
                   title: 'Mein Profil',
-                  subtitle: isLoggedIn
-                      ? 'Hier kannst du Name, Bild und weitere Angaben ergänzen.'
-                      : 'Hier kannst du dich einloggen oder registrieren.',
+                  subtitle:
+                  'Hier kannst du Name, Bild und weitere Angaben ergänzen.',
                   onTap: () {
                     setState(() {
                       _selectedIndex = 2;
@@ -912,9 +777,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       String? currentUserId,
       ) {
     if (_selectedIndex == 1) {
-      if (currentUserId == null) {
-        return _buildLoggedOutAppointmentsPlaceholder(theme, colorScheme);
-      }
       return const AppointmentsPage();
     }
 
@@ -929,17 +791,16 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('CheckMyTime'),
         actions: [
           IconButton(
-            onPressed: () {
-              setState(() {
-                _selectedIndex = 2;
-              });
-            },
+            onPressed: () => setState(() {
+              _selectedIndex = 2;
+            }),
             icon: const Icon(Icons.settings_outlined),
           ),
         ],
@@ -950,27 +811,13 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
           child: _buildBody(
             colorScheme,
             theme,
-            _currentUserId,
+            currentUserId,
           ),
         ),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {
-          if (index == 1 && _currentUserId == null) {
-            setState(() {
-              _selectedIndex = 2;
-            });
-
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Bitte logge dich ein, um deine Termine zu sehen.'),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-            return;
-          }
-
           setState(() {
             _selectedIndex = index;
           });
