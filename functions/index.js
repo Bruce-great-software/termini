@@ -183,7 +183,7 @@ async function sendPushToUser({
     android: {
       priority: "high",
       notification: {
-        channelId: "checkmytime_general",
+        channelId: "checkmytime_general_v2",
       },
     },
     apns: {

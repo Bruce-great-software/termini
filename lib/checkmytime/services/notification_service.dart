@@ -63,6 +63,13 @@ class NotificationService {
   List<AndroidNotificationChannel> _allChannels() {
     return const [
       AndroidNotificationChannel(
+        'checkmytime_general',
+        defaultChannelName,
+        description: 'Allgemeine Benachrichtigungen (Legacy)',
+        importance: Importance.max,
+        showBadge: true,
+      ),
+      AndroidNotificationChannel(
         defaultChannelId,
         defaultChannelName,
         description: 'Allgemeine Benachrichtigungen',
