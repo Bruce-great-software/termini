@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:termini/checkmytime/services/notification_dispatch_service.dart';
 import 'package:termini/checkmytime/widgets/checkmytime_ui.dart';
 
 class CreateEventPage extends StatefulWidget {
@@ -242,11 +243,22 @@ class _CreateEventPageState extends State<CreateEventPage> {
       final firestore = FirebaseFirestore.instance;
       final invitedUserIds = _selectedUsers.map((u) => u.id).toList();
 
+      final userDoc =
+          await firestore.collection('users').doc(currentUser.uid).get();
+      final userData = userDoc.data() ?? <String, dynamic>{};
+      final creatorName =
+          (userData['displayName'] ?? userData['name'] ?? 'Unbekannt')
+              .toString()
+              .trim();
+
       if (_isEditMode) {
         final eventId = widget.eventId!;
         final existingDoc =
             await firestore.collection('events').doc(eventId).get();
         final existingData = existingDoc.data() ?? <String, dynamic>{};
+        final previousInvitedUserIds = List<String>.from(
+          existingData['invitedUserIds'] ?? const [],
+        );
         final acceptedUserIds = List<String>.from(
           existingData['acceptedUserIds'] ?? const [],
         );
@@ -281,16 +293,29 @@ class _CreateEventPageState extends State<CreateEventPage> {
           'type': _eventType,
           'updatedAt': FieldValue.serverTimestamp(),
         });
-      } else {
-        final userDoc =
-            await firestore.collection('users').doc(currentUser.uid).get();
-        final userData = userDoc.data() ?? <String, dynamic>{};
-        final creatorName =
-            (userData['displayName'] ?? userData['name'] ?? 'Unbekannt')
-                .toString()
-                .trim();
 
-        await firestore.collection('events').add({
+        final newlyInvitedUserIds =
+            invitedUserIds
+                .where((id) => !previousInvitedUserIds.contains(id))
+                .toList();
+
+        if (newlyInvitedUserIds.isNotEmpty) {
+          try {
+            await NotificationDispatchService.instance
+                .queueEventInviteNotifications(
+                  recipientUserIds: newlyInvitedUserIds,
+                  senderId: currentUser.uid,
+                  senderName:
+                      creatorName.isEmpty ? 'Unbekannt' : creatorName,
+                  eventId: eventId,
+                  eventTitle: title,
+                );
+          } catch (_) {}
+        }
+      } else {
+        final eventRef = firestore.collection('events').doc();
+
+        await eventRef.set({
           'title': title,
           'description': description,
           'eventDate': Timestamp.fromDate(_selectedDate!),
@@ -307,6 +332,20 @@ class _CreateEventPageState extends State<CreateEventPage> {
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
         });
+
+        if (invitedUserIds.isNotEmpty) {
+          try {
+            await NotificationDispatchService.instance
+                .queueEventInviteNotifications(
+                  recipientUserIds: invitedUserIds,
+                  senderId: currentUser.uid,
+                  senderName:
+                      creatorName.isEmpty ? 'Unbekannt' : creatorName,
+                  eventId: eventRef.id,
+                  eventTitle: title,
+                );
+          } catch (_) {}
+        }
       }
 
       if (!mounted) return;

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:termini/checkmytime/services/notification_dispatch_service.dart';
 import 'package:termini/checkmytime/widgets/checkmytime_ui.dart';
 
 class CreateAppointmentPage extends StatefulWidget {
@@ -193,6 +194,18 @@ class _CreateAppointmentPageState extends State<CreateAppointmentPage> {
       batch.set(threadRef, threadData, SetOptions(merge: true));
 
       await batch.commit();
+
+      try {
+        await NotificationDispatchService.instance.queueAppointmentNotification(
+          recipientUserId: widget.contactId,
+          senderId: currentUserId,
+          senderName:
+              currentUserName.isEmpty ? 'Unbekannt' : currentUserName,
+          senderPhoneNumber: currentUserPhone,
+          appointmentId: appointmentRef.id,
+          appointmentTitle: title,
+        );
+      } catch (_) {}
 
       if (!mounted) return;
       Navigator.of(context).pop(true);

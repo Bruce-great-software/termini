@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:termini/checkmytime/pages/create_appointment_page.dart';
+import 'package:termini/checkmytime/services/notification_dispatch_service.dart';
 
 class ContactThreadPage extends StatefulWidget {
   final String contactId;
@@ -454,6 +455,16 @@ class _ContactThreadPageState extends State<ContactThreadPage>
       batch.set(threadRef, threadData, SetOptions(merge: true));
 
       await batch.commit();
+
+      try {
+        await NotificationDispatchService.instance.queueChatMessageNotification(
+          recipientUserId: widget.contactId,
+          senderId: currentUserId,
+          senderName: currentUserName.isEmpty ? 'Ich' : currentUserName,
+          senderPhoneNumber: currentUserPhone,
+          messageText: text,
+        );
+      } catch (_) {}
 
       _messageController.clear();
       _scheduleScrollToBottom();

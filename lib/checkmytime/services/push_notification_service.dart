@@ -233,10 +233,6 @@ class PushNotificationService {
 
     _messaging.onMessage.listen((message) async {
       await _notifications.showRemoteMessage(message);
-      final badgeCount = _parseBadgeCount(message.data['badgeCount']);
-      if (badgeCount != null) {
-        await _notifications.setAppBadgeCount(badgeCount);
-      }
     });
 
     _messaging.onMessageOpenedApp.listen(_handleMessageOpen);

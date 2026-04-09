@@ -303,11 +303,11 @@ class NotificationService {
       ),
     };
 
-    final explicitBadgeCount = int.tryParse((data['badgeCount'] ?? '').toString());
-    final unreadCount = explicitBadgeCount ?? await _unreadCountRepository.incrementUnreadCount();
-    if (explicitBadgeCount != null) {
-      await _unreadCountRepository.setUnreadCount(explicitBadgeCount);
-    }
+    final serverBadgeCount = int.tryParse((data['badgeCount'] ?? '').toString());
+    final hasValidServerBadge = serverBadgeCount != null && serverBadgeCount > 0;
+    final unreadCount = hasValidServerBadge
+        ? await _unreadCountRepository.setUnreadCount(serverBadgeCount)
+        : await _unreadCountRepository.incrementUnreadCount();
 
     await _showNotification(
       channelId: channel.id,
