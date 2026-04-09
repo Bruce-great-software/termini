@@ -67,6 +67,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
 
   Future<void> _initializeNotifications() async {
     await NotificationService.instance.initialize();
+    await NotificationService.instance.requestPermissions();
   }
 
   @override
@@ -156,6 +157,31 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         _knownUnreadCountsByThread = currentCounts;
         await _publishBadgeCount();
         return;
+      }
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        if (data['hiddenFor_$currentUserId'] == true) continue;
+
+        final newCount = currentCounts[doc.id] ?? 0;
+        final oldCount = _knownUnreadCountsByThread[doc.id] ?? 0;
+
+        if (newCount > oldCount) {
+          final participants =
+          List<String>.from(data['participants'] ?? const []);
+          final otherId = _otherParticipantId(participants, currentUserId);
+          final contactNames =
+          Map<String, dynamic>.from(data['contactNames'] ?? const {});
+          final otherName =
+          (contactNames[otherId] ?? 'Unbekannt').toString().trim();
+          final lastTitle =
+          (data['lastAppointmentTitle'] ?? 'Termin').toString().trim();
+
+          await NotificationService.instance.showIncomingAppointmentNotification(
+            title: 'Neuer Terminvorschlag',
+            body: '$otherName: $lastTitle',
+          );
+        }
       }
 
       _knownUnreadCountsByThread = currentCounts;
