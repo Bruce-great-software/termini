@@ -16,13 +16,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await NotificationService.instance.initialize();
   await NotificationService.instance.showRemoteMessage(message);
-
-  final badgeCount = int.tryParse(
-    (message.data['badgeCount'] ?? '').toString(),
-  );
-  if (badgeCount != null) {
-    await NotificationService.instance.setAppBadgeCount(badgeCount);
-  }
 }
 
 Future<void> main() async {

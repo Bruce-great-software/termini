@@ -169,7 +169,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     if (totalBadgeCount == _lastPublishedBadgeCount) return;
     _lastPublishedBadgeCount = totalBadgeCount;
 
-    await NotificationService.instance.setAppBadgeCount(totalBadgeCount);
+    await NotificationService.instance.syncUnreadCount(totalBadgeCount);
     await FirebaseFirestore.instance.collection('users').doc(currentUserId).set(
       {
         'badgeCount': totalBadgeCount,
