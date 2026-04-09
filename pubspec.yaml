@@ -36,6 +36,7 @@ dependencies:
   google_sign_in: ^6.2.1
   cloud_functions: ^5.0.4
   flutter_new_badger: ^1.1.1
+  shared_preferences: ^2.5.3
 
 dev_dependencies:
   flutter_test:
