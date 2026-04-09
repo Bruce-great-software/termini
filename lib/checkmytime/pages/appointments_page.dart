@@ -208,7 +208,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                   vertical: 10,
                 ),
                 decoration: BoxDecoration(
-                  color: colorScheme.primary.withOpacity(0.95),
+                  color: colorScheme.primary.withValues(alpha: 0.95),
                   borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(20),
                     topRight: Radius.circular(20),
@@ -296,7 +296,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.10),
+                        color: statusColor.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
@@ -459,7 +459,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                     Icon(
                       Icons.calendar_month_outlined,
                       size: 72,
-                      color: colorScheme.primary.withOpacity(0.70),
+                      color: colorScheme.primary.withValues(alpha: 0.70),
                     ),
                     const SizedBox(height: 16),
                     Text(
@@ -492,7 +492,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                     Icon(
                       Icons.filter_alt_off_outlined,
                       size: 56,
-                      color: colorScheme.primary.withOpacity(0.70),
+                      color: colorScheme.primary.withValues(alpha: 0.70),
                     ),
                     const SizedBox(height: 12),
                     Text(

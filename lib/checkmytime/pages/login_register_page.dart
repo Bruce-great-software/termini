@@ -5,6 +5,7 @@ import 'package:termini/checkmytime/pages/home_page.dart';
 import 'package:termini/checkmytime/pages/sms_verification_page.dart';
 import 'package:termini/checkmytime/services/pnv_auth_service.dart';
 import 'package:termini/checkmytime/services/pnv_service.dart';
+import 'package:termini/checkmytime/widgets/checkmytime_ui.dart';
 
 class LoginRegisterPage extends StatefulWidget {
   const LoginRegisterPage({super.key});
@@ -28,7 +29,7 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
     }
 
     if (manualPhone == null) {
-      _showMessage('Bitte gib eine gültige Handynummer ein.');
+      _showMessage('Bitte gib eine gueltige Handynummer ein.');
       return;
     }
 
@@ -55,10 +56,8 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
               if (!mounted) return;
 
               Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(
-                  builder: (_) => const CheckMyTimeHomePage(),
-                ),
-                    (route) => false,
+                MaterialPageRoute(builder: (_) => const CheckMyTimeHomePage()),
+                (route) => false,
               );
 
               return;
@@ -77,20 +76,22 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => SmsVerificationPage(
-            phoneNumberE164: manualPhone,
-            isLoginMode: isLoginMode,
-          ),
+          builder:
+              (_) => SmsVerificationPage(
+                phoneNumberE164: manualPhone,
+                isLoginMode: isLoginMode,
+              ),
         ),
       );
     } catch (e) {
       if (!mounted) return;
       _showMessage('Fehler beim Starten der Anmeldung. ($e)');
     } finally {
-      if (!mounted) return;
-      setState(() {
-        isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
     }
   }
 
@@ -136,9 +137,9 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
 
   void _showMessage(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -149,98 +150,182 @@ class _LoginRegisterPageState extends State<LoginRegisterPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Scaffold(
-      appBar: AppBar(
-        title: Text(isLoginMode ? 'Login' : 'Registrierung'),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Handynummer *',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF344054),
+      appBar: AppBar(title: Text(isLoginMode ? 'Login' : 'Registrierung')),
+      body: CheckMyTimeGradientBackground(
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            children: [
+              CheckMyTimeHeroCard(
+                eyebrow: isLoginMode ? 'Willkommen zurueck' : 'Neues Konto',
+                title:
+                    isLoginMode
+                        ? 'Schnell wieder in CheckMyTime'
+                        : 'In wenigen Sekunden startklar',
+                description:
+                    isLoginMode
+                        ? 'Melde dich mit deiner Handynummer an und steige direkt in deine Kontakte, Termine und Events ein.'
+                        : 'Registriere dich mit deiner Handynummer und richte anschliessend dein Profil ein.',
+                trailing: Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(
+                    isLoginMode
+                        ? Icons.login_rounded
+                        : Icons.person_add_alt_1_rounded,
+                    color: Colors.white,
+                    size: 34,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  height: 56,
-                  decoration: BoxDecoration(
-                    border: Border.all(color: const Color(0xFFD0D5DD)),
-                    borderRadius: BorderRadius.circular(12),
-                    color: Colors.white,
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('🇩🇪', style: TextStyle(fontSize: 20)),
-                      SizedBox(width: 8),
-                      Text(
-                        '+49',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFF101828),
+              const SizedBox(height: 20),
+              CheckMyTimeSectionCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Handynummer',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Wir nutzen deine Mobilnummer fuer Login, Registrierung und spaeter fuer SMS-Bestaetigungen.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Container(
+                          width: 88,
+                          height: 58,
+                          decoration: BoxDecoration(
+                            color: colorScheme.primary.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(
+                              color: colorScheme.primary.withValues(
+                                alpha: 0.14,
+                              ),
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                'DE',
+                                style: theme.textTheme.labelLarge?.copyWith(
+                                  color: colorScheme.primary,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              Text(
+                                '+49',
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: _phoneController,
+                            keyboardType: TextInputType.phone,
+                            decoration: InputDecoration(
+                              hintText:
+                                  isLoginMode
+                                      ? 'Handynummer fuer Login'
+                                      : 'Handynummer fuer Registrierung',
+                              prefixIcon: const Icon(
+                                Icons.phone_iphone_rounded,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: isLoading ? null : _handleAuth,
+                        icon:
+                            isLoading
+                                ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                                : Icon(
+                                  isLoginMode
+                                      ? Icons.arrow_forward_rounded
+                                      : Icons.verified_user_outlined,
+                                ),
+                        label: Text(
+                          isLoading
+                              ? 'Wird vorbereitet...'
+                              : (isLoginMode
+                                  ? 'Mit SMS fortfahren'
+                                  : 'Konto erstellen'),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    controller: _phoneController,
-                    keyboardType: TextInputType.phone,
-                    decoration: InputDecoration(
-                      hintText: isLoginMode
-                          ? 'Handynummer für Login'
-                          : 'Handynummer für Registrierung',
                     ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            isLoading
-                ? const CircularProgressIndicator()
-                : SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _handleAuth,
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(52),
-                  backgroundColor:
-                  isLoginMode ? null : const Color(0xFF1F1F1F),
-                  foregroundColor: isLoginMode ? null : Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: isLoginMode ? null : 0,
-                ),
-                child: Text(
-                  isLoginMode ? 'Einloggen' : 'Ein Konto erstellen',
+                  ],
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            TextButton(
-              onPressed: () {
-                setState(() => isLoginMode = !isLoginMode);
-              },
-              child: Text(
-                isLoginMode
-                    ? 'Noch kein Konto? Jetzt registrieren'
-                    : 'Bereits registriert? Jetzt einloggen',
+              const SizedBox(height: 16),
+              CheckMyTimeSectionCard(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  children: [
+                    Text(
+                      isLoginMode ? 'Noch kein Konto?' : 'Schon registriert?',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      isLoginMode
+                          ? 'Du kannst mit derselben Nummer direkt loslegen und dein Profil spaeter vervollstaendigen.'
+                          : 'Wechsle wieder in den Login, wenn deine Nummer bereits registriert ist.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 10),
+                    TextButton(
+                      onPressed: () {
+                        setState(() => isLoginMode = !isLoginMode);
+                      },
+                      child: Text(
+                        isLoginMode
+                            ? 'Jetzt registrieren'
+                            : 'Zum Login wechseln',
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

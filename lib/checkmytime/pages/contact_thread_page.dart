@@ -353,10 +353,11 @@ class _ContactThreadPageState extends State<ContactThreadPage>
       if (!mounted) return;
       _showMessage('Status konnte nicht aktualisiert werden.');
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _updatingAppointmentIds.remove(appointmentId);
-      });
+      if (mounted) {
+        setState(() {
+          _updatingAppointmentIds.remove(appointmentId);
+        });
+      }
     }
   }
 
@@ -460,10 +461,11 @@ class _ContactThreadPageState extends State<ContactThreadPage>
       if (!mounted) return;
       _showMessage('Nachricht konnte nicht gesendet werden.');
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isSendingMessage = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isSendingMessage = false;
+        });
+      }
     }
   }
 
@@ -477,7 +479,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
 
     return CircleAvatar(
       radius: 18,
-      backgroundColor: colorScheme.primary.withOpacity(0.12),
+      backgroundColor: colorScheme.primary.withValues(alpha: 0.12),
       child: Text(
         safeName.characters.first.toUpperCase(),
         style: TextStyle(
@@ -527,7 +529,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
               children: [
                 CircleAvatar(
                   radius: 24,
-                  backgroundColor: colorScheme.primary.withOpacity(0.10),
+                  backgroundColor: colorScheme.primary.withValues(alpha: 0.10),
                   child: Icon(
                     Icons.calendar_month_outlined,
                     color: colorScheme.primary,
@@ -575,10 +577,10 @@ class _ContactThreadPageState extends State<ContactThreadPage>
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: colorScheme.primary.withOpacity(0.08),
+            color: colorScheme.primary.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: colorScheme.primary.withOpacity(0.15),
+              color: colorScheme.primary.withValues(alpha: 0.15),
             ),
           ),
           child: Text(
@@ -593,7 +595,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
         Icon(
           Icons.event_note_outlined,
           size: 72,
-          color: colorScheme.primary.withOpacity(0.70),
+          color: colorScheme.primary.withValues(alpha: 0.70),
         ),
         const SizedBox(height: 18),
         Text(
@@ -646,7 +648,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
               vertical: 10,
             ),
             decoration: BoxDecoration(
-              color: colorScheme.primary.withOpacity(0.95),
+              color: colorScheme.primary.withValues(alpha: 0.95),
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(20),
                 topRight: Radius.circular(20),
@@ -733,7 +735,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.10),
+                        color: statusColor.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
@@ -837,10 +839,10 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: colorScheme.primary.withOpacity(0.08),
+                  color: colorScheme.primary.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color: colorScheme.primary.withOpacity(0.15),
+                    color: colorScheme.primary.withValues(alpha: 0.15),
                   ),
                 ),
                 child: Text(
@@ -940,7 +942,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
         margin: const EdgeInsets.symmetric(vertical: 12),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: colorScheme.surfaceVariant.withOpacity(0.9),
+          color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.9),
           borderRadius: BorderRadius.circular(999),
         ),
         child: Text(
@@ -963,13 +965,13 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     required bool isRead,
   }) {
     final bubbleColor = isMe
-        ? colorScheme.primary.withOpacity(0.14)
+        ? colorScheme.primary.withValues(alpha: 0.14)
         : colorScheme.surface;
     final bubbleAlignment =
     isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start;
     final rowAlignment = isMe ? MainAxisAlignment.end : MainAxisAlignment.start;
     final timeColor = isMe
-        ? colorScheme.primary.withOpacity(0.85)
+        ? colorScheme.primary.withValues(alpha: 0.85)
         : colorScheme.onSurfaceVariant;
 
     return Row(
@@ -990,7 +992,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
               ),
               border: Border.all(
                 color: isMe
-                    ? colorScheme.primary.withOpacity(0.18)
+                    ? colorScheme.primary.withValues(alpha: 0.18)
                     : colorScheme.outlineVariant,
               ),
             ),
@@ -1107,7 +1109,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                 final messageDate =
                     createdAt?.toDate() ?? DateTime.fromMillisecondsSinceEpoch(0);
 
-                if (lastDate == null || !_isSameDay(lastDate!, messageDate)) {
+                if (lastDate == null || !_isSameDay(lastDate, messageDate)) {
                   children.add(
                     _buildDateChip(
                       theme: theme,
@@ -1162,7 +1164,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                     decoration: InputDecoration(
                       hintText: 'Nachricht schreiben',
                       filled: true,
-                      fillColor: colorScheme.surfaceVariant.withOpacity(0.45),
+                      fillColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 12,
@@ -1178,7 +1180,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(24),
                         borderSide: BorderSide(
-                          color: colorScheme.primary.withOpacity(0.25),
+                          color: colorScheme.primary.withValues(alpha: 0.25),
                         ),
                       ),
                     ),
@@ -1304,7 +1306,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                   dividerColor: Colors.transparent,
                   indicatorSize: TabBarIndicatorSize.tab,
                   indicator: BoxDecoration(
-                    color: colorScheme.primary.withOpacity(0.10),
+                    color: colorScheme.primary.withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   labelColor: colorScheme.primary,

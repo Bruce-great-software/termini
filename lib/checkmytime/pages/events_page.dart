@@ -288,7 +288,7 @@ class _EventsPageState extends State<EventsPage>
                       dividerColor: Colors.transparent,
                       indicatorSize: TabBarIndicatorSize.tab,
                       indicator: BoxDecoration(
-                        color: colorScheme.primary.withOpacity(0.10),
+                        color: colorScheme.primary.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(14),
                       ),
                       labelColor: colorScheme.primary,
@@ -429,7 +429,7 @@ class _EventCard extends StatelessWidget {
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: colorScheme.primary.withOpacity(0.95),
+                    color: colorScheme.primary.withValues(alpha: 0.95),
                     borderRadius: const BorderRadius.only(
                       topLeft: Radius.circular(20),
                       topRight: Radius.circular(20),
@@ -482,7 +482,7 @@ class _EventCard extends StatelessWidget {
                           CircleAvatar(
                             radius: 22,
                             backgroundColor:
-                            colorScheme.primary.withOpacity(0.10),
+                            colorScheme.primary.withValues(alpha: 0.10),
                             child: Icon(
                               Icons.celebration_outlined,
                               color: colorScheme.primary,
@@ -526,7 +526,7 @@ class _EventCard extends StatelessWidget {
                                   vertical: 6,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: statusColor.withOpacity(0.10),
+                                  color: statusColor.withValues(alpha: 0.10),
                                   borderRadius: BorderRadius.circular(999),
                                 ),
                                 child: Text(
@@ -609,7 +609,7 @@ class _EventCountChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: colorScheme.primary.withOpacity(0.08),
+        color: colorScheme.primary.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
@@ -651,7 +651,7 @@ class _EventEmptyState extends StatelessWidget {
           Icon(
             icon,
             size: 56,
-            color: colorScheme.primary.withOpacity(0.75),
+            color: colorScheme.primary.withValues(alpha: 0.75),
           ),
           const SizedBox(height: 14),
           Text(

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:termini/checkmytime/widgets/checkmytime_ui.dart';
 
 class CreateAppointmentPage extends StatefulWidget {
   final String contactId;
@@ -52,7 +53,7 @@ class _CreateAppointmentPageState extends State<CreateAppointmentPage> {
         });
       }
     } catch (_) {
-      _showMessage('Datumsauswahl konnte nicht geöffnet werden.');
+      _showMessage('Datumsauswahl konnte nicht geoeffnet werden.');
     }
   }
 
@@ -69,7 +70,7 @@ class _CreateAppointmentPageState extends State<CreateAppointmentPage> {
         });
       }
     } catch (_) {
-      _showMessage('Uhrzeitauswahl konnte nicht geöffnet werden.');
+      _showMessage('Uhrzeitauswahl konnte nicht geoeffnet werden.');
     }
   }
 
@@ -82,12 +83,12 @@ class _CreateAppointmentPageState extends State<CreateAppointmentPage> {
     }
 
     if (_selectedDate == null) {
-      _showMessage('Bitte wähle ein Datum aus.');
+      _showMessage('Bitte waehle ein Datum aus.');
       return;
     }
 
     if (_selectedTime == null) {
-      _showMessage('Bitte wähle eine Uhrzeit aus.');
+      _showMessage('Bitte waehle eine Uhrzeit aus.');
       return;
     }
 
@@ -115,9 +116,9 @@ class _CreateAppointmentPageState extends State<CreateAppointmentPage> {
       final threadId = _buildThreadId(currentUserId, widget.contactId);
 
       final currentUserDoc =
-      await firestore.collection('users').doc(currentUserId).get();
+          await firestore.collection('users').doc(currentUserId).get();
       final contactUserDoc =
-      await firestore.collection('users').doc(widget.contactId).get();
+          await firestore.collection('users').doc(widget.contactId).get();
       final threadRef = firestore.collection('contact_threads').doc(threadId);
       final existingThread = await threadRef.get();
 
@@ -125,18 +126,22 @@ class _CreateAppointmentPageState extends State<CreateAppointmentPage> {
       final contactUserData = contactUserDoc.data() ?? <String, dynamic>{};
 
       final currentUserName =
-      (currentUserData['displayName'] ?? currentUserData['name'] ?? 'Unbekannt')
-          .toString()
-          .trim();
+          (currentUserData['displayName'] ??
+                  currentUserData['name'] ??
+                  'Unbekannt')
+              .toString()
+              .trim();
       final currentUserPhone =
-      (currentUserData['phoneNumber'] ?? '').toString().trim();
+          (currentUserData['phoneNumber'] ?? '').toString().trim();
 
       final contactName =
-      (contactUserData['displayName'] ?? contactUserData['name'] ?? widget.contactName)
-          .toString()
-          .trim();
+          (contactUserData['displayName'] ??
+                  contactUserData['name'] ??
+                  widget.contactName)
+              .toString()
+              .trim();
       final contactPhone =
-      (contactUserData['phoneNumber'] ?? '').toString().trim();
+          (contactUserData['phoneNumber'] ?? '').toString().trim();
 
       final participants = [currentUserId, widget.contactId]..sort();
 
@@ -159,12 +164,12 @@ class _CreateAppointmentPageState extends State<CreateAppointmentPage> {
 
       final threadData = <String, dynamic>{
         'participants': participants,
-        'participantMap': {
-          for (final id in participants) id: true,
-        },
+        'participantMap': {for (final id in participants) id: true},
         'contactNames': {
-          currentUserId: currentUserName.isEmpty ? 'Unbekannt' : currentUserName,
-          widget.contactId: contactName.isEmpty ? widget.contactName : contactName,
+          currentUserId:
+              currentUserName.isEmpty ? 'Unbekannt' : currentUserName,
+          widget.contactId:
+              contactName.isEmpty ? widget.contactName : contactName,
         },
         'contactPhones': {
           currentUserId: currentUserPhone,
@@ -204,20 +209,17 @@ class _CreateAppointmentPageState extends State<CreateAppointmentPage> {
 
   void _showMessage(String text) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(text),
-        behavior: SnackBarBehavior.floating,
-      ),
+      SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
     );
   }
 
   String _formattedDate() {
-    if (_selectedDate == null) return 'Datum auswählen';
+    if (_selectedDate == null) return 'Datum auswaehlen';
     return DateFormat('dd.MM.yyyy', 'de_DE').format(_selectedDate!);
   }
 
   String _formattedTime() {
-    if (_selectedTime == null) return 'Uhrzeit auswählen';
+    if (_selectedTime == null) return 'Uhrzeit auswaehlen';
     final hour = _selectedTime!.hour.toString().padLeft(2, '0');
     final minute = _selectedTime!.minute.toString().padLeft(2, '0');
     return '$hour:$minute Uhr';
@@ -225,91 +227,110 @@ class _CreateAppointmentPageState extends State<CreateAppointmentPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Termin vorschlagen'),
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: colorScheme.surface,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: colorScheme.outlineVariant),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Neuer Termin mit ${widget.contactName}',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+      appBar: AppBar(title: const Text('Termin vorschlagen')),
+      body: CheckMyTimeGradientBackground(
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            children: [
+              CheckMyTimeHeroCard(
+                eyebrow: 'Neuer Vorschlag',
+                title: 'Termin mit ${widget.contactName}',
+                description:
+                    'Lege Titel, Datum und Uhrzeit fest. Die Anfrage wird direkt im gemeinsamen Chat sichtbar.',
+                trailing: Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(24),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Für die erste Version erfassen wir nur Titel, Datum und Uhrzeit.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.calendar_month_rounded,
+                    color: Colors.white,
+                    size: 34,
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _titleController,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Titel',
-                hintText: 'z. B. Treffen oder Termin',
-              ),
-            ),
-            const SizedBox(height: 16),
-            InkWell(
-              onTap: _pickDate,
-              borderRadius: BorderRadius.circular(16),
-              child: InputDecorator(
-                decoration: const InputDecoration(
-                  labelText: 'Datum',
-                  suffixIcon: Icon(Icons.calendar_today_outlined),
                 ),
-                child: Text(_formattedDate()),
               ),
-            ),
-            const SizedBox(height: 16),
-            InkWell(
-              onTap: _pickTime,
-              borderRadius: BorderRadius.circular(16),
-              child: InputDecorator(
-                decoration: const InputDecoration(
-                  labelText: 'Uhrzeit',
-                  suffixIcon: Icon(Icons.access_time_outlined),
+              const SizedBox(height: 20),
+              CheckMyTimeSectionCard(
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: _titleController,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Titel',
+                        hintText: 'z. B. Treffen oder Termin',
+                        prefixIcon: Icon(Icons.edit_calendar_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    InkWell(
+                      onTap: _pickDate,
+                      borderRadius: BorderRadius.circular(16),
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Datum',
+                          suffixIcon: Icon(Icons.calendar_today_outlined),
+                        ),
+                        child: Text(_formattedDate()),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    InkWell(
+                      onTap: _pickTime,
+                      borderRadius: BorderRadius.circular(16),
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Uhrzeit',
+                          suffixIcon: Icon(Icons.access_time_outlined),
+                        ),
+                        child: Text(_formattedTime()),
+                      ),
+                    ),
+                  ],
                 ),
-                child: Text(_formattedTime()),
               ),
-            ),
-            const SizedBox(height: 28),
-            FilledButton.icon(
-              onPressed: _isSubmitting ? null : _submit,
-              icon: _isSubmitting
-                  ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-                  : const Icon(Icons.send_outlined),
-              label: Text(
-                _isSubmitting ? 'Wird gesendet...' : 'Terminanfrage senden',
+              const SizedBox(height: 16),
+              CheckMyTimeSectionCard(
+                child: Column(
+                  children: [
+                    CheckMyTimeInfoRow(
+                      icon: Icons.person_outline,
+                      label: 'Empfaenger',
+                      value: widget.contactName,
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: _isSubmitting ? null : _submit,
+                        icon:
+                            _isSubmitting
+                                ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                                : const Icon(Icons.send_outlined),
+                        label: Text(
+                          _isSubmitting
+                              ? 'Wird gesendet...'
+                              : 'Terminanfrage senden',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

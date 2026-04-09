@@ -1,16 +1,37 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:termini/checkmytime/services/notification_service.dart';
+import 'package:termini/checkmytime/services/push_notification_service.dart';
 
 import 'checkmytime/pages/home_page.dart';
 import 'firebase_options.dart';
 
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await NotificationService.instance.initialize();
+  await NotificationService.instance.showRemoteMessage(message);
+
+  final badgeCount = int.tryParse(
+    (message.data['badgeCount'] ?? '').toString(),
+  );
+  if (badgeCount != null) {
+    await NotificationService.instance.setAppBadgeCount(badgeCount);
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  await PushNotificationService.instance.initialize(
+    navigatorKey: appNavigatorKey,
   );
 
   await initializeDateFormatting('de_DE', null);
@@ -24,6 +45,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'CheckMyTime',
       theme: ThemeData(
@@ -47,10 +69,7 @@ class MyApp extends StatelessWidget {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(
-              color: Color(0xFF5B67CA),
-              width: 1.4,
-            ),
+            borderSide: const BorderSide(color: Color(0xFF5B67CA), width: 1.4),
           ),
         ),
         cardTheme: CardThemeData(
@@ -97,10 +116,6 @@ class _StartupLoadingPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: CircularProgressIndicator(),
-      ),
-    );
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }

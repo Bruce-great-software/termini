@@ -160,10 +160,11 @@ class _EventDetailPageState extends State<EventDetailPage> {
         ),
       );
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isUpdatingStatus = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isUpdatingStatus = false;
+        });
+      }
     }
   }
 
@@ -220,10 +221,11 @@ class _EventDetailPageState extends State<EventDetailPage> {
         ),
       );
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isDeleting = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isDeleting = false;
+        });
+      }
     }
   }
 
@@ -323,7 +325,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
                           vertical: 12,
                         ),
                         decoration: BoxDecoration(
-                          color: colorScheme.primary.withOpacity(0.95),
+                          color: colorScheme.primary.withValues(alpha: 0.95),
                           borderRadius: const BorderRadius.only(
                             topLeft: Radius.circular(24),
                             topRight: Radius.circular(24),
@@ -376,7 +378,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
                                 CircleAvatar(
                                   radius: 24,
                                   backgroundColor:
-                                  colorScheme.primary.withOpacity(0.10),
+                                  colorScheme.primary.withValues(alpha: 0.10),
                                   child: Icon(
                                     Icons.celebration_outlined,
                                     color: colorScheme.primary,
@@ -414,7 +416,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
                                   ),
                                   decoration: BoxDecoration(
                                     color:
-                                    currentStatusColor.withOpacity(0.10),
+                                    currentStatusColor.withValues(alpha: 0.10),
                                     borderRadius: BorderRadius.circular(999),
                                   ),
                                   child: Text(
@@ -857,7 +859,7 @@ class _ParticipantGroup extends StatelessWidget {
                   vertical: 10,
                 ),
                 decoration: BoxDecoration(
-                  color: colorScheme.primary.withOpacity(0.04),
+                  color: colorScheme.primary.withValues(alpha: 0.04),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: colorScheme.outlineVariant),
                 ),
@@ -865,7 +867,7 @@ class _ParticipantGroup extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 18,
-                      backgroundColor: colorScheme.primary.withOpacity(0.10),
+                      backgroundColor: colorScheme.primary.withValues(alpha: 0.10),
                       child: Text(
                         person.name.isNotEmpty
                             ? person.name.characters.first.toUpperCase()
@@ -895,7 +897,7 @@ class _ParticipantGroup extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         color: _badgeColor(context, person.status)
-                            .withOpacity(0.10),
+                            .withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
@@ -972,7 +974,7 @@ class _DetailChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: colorScheme.primary.withOpacity(0.08),
+        color: colorScheme.primary.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -1015,7 +1017,7 @@ class _StatusCounterChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: resolvedColor.withOpacity(0.10),
+        color: resolvedColor.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -1059,7 +1061,7 @@ class _ResponseButton extends StatelessWidget {
       onPressed: isLoading ? null : onPressed,
       style: ElevatedButton.styleFrom(
         elevation: 0,
-        backgroundColor: isSelected ? color : color.withOpacity(0.10),
+        backgroundColor: isSelected ? color : color.withValues(alpha: 0.10),
         foregroundColor: isSelected ? Colors.white : color,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         shape: RoundedRectangleBorder(

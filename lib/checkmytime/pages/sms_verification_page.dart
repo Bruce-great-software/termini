@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:termini/checkmytime/pages/home_page.dart';
+import 'package:termini/checkmytime/widgets/checkmytime_ui.dart';
 
 class SmsVerificationPage extends StatefulWidget {
   const SmsVerificationPage({
@@ -39,7 +40,7 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
   Future<void> _verifyCodeAndContinue() async {
     final smsCode = _codeController.text.trim();
     if (smsCode.isEmpty) {
-      _showSnackBar('Bitte gib den Bestätigungscode ein.');
+      _showSnackBar('Bitte gib den Bestaetigungscode ein.');
       return;
     }
     if (_verificationId == null || _verificationId!.isEmpty) {
@@ -76,7 +77,9 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
         timeout: const Duration(seconds: 60),
         verificationCompleted: (PhoneAuthCredential credential) {},
         verificationFailed: (FirebaseAuthException error) {
-          _showSnackBar(error.message ?? 'Neuer Code konnte nicht gesendet werden.');
+          _showSnackBar(
+            error.message ?? 'Neuer Code konnte nicht gesendet werden.',
+          );
         },
         codeSent: (String verificationId, int? resendToken) {
           if (!mounted) return;
@@ -139,7 +142,9 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
     final auth = FirebaseAuth.instance;
 
     try {
-      final phoneUserCredential = await auth.signInWithCredential(phoneCredential);
+      final phoneUserCredential = await auth.signInWithCredential(
+        phoneCredential,
+      );
       final currentUser = phoneUserCredential.user;
 
       if (currentUser == null) {
@@ -147,8 +152,9 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
         return;
       }
 
-      final userDocRef =
-      FirebaseFirestore.instance.collection('users').doc(currentUser.uid);
+      final userDocRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser.uid);
       final userDoc = await userDocRef.get();
 
       if (!userDoc.exists) {
@@ -168,11 +174,11 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
 
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const CheckMyTimeHomePage()),
-            (route) => false,
+        (route) => false,
       );
     } on FirebaseAuthException catch (error) {
       if (error.code == 'invalid-verification-code') {
-        _showSnackBar('Der eingegebene Code ist ungültig.');
+        _showSnackBar('Der eingegebene Code ist ungueltig.');
       } else if (error.code == 'session-expired') {
         _showSnackBar('Der Code ist abgelaufen. Bitte fordere einen neuen an.');
       } else {
@@ -193,13 +199,16 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
 
   void _showSnackBar(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -207,111 +216,124 @@ class _SmsVerificationPageState extends State<SmsVerificationPage> {
           onPressed: _isSaving ? null : () => Navigator.of(context).pop(),
         ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              widget.isLoginMode ? 'Login per SMS' : 'Registrierung per SMS',
-              style: const TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF101828),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Bitte geben Sie den SMS-Bestätigungscode ein, der an folgende Nummer '
-                  'verschickt wurde: ${widget.phoneNumberE164}',
-              style: const TextStyle(
-                fontSize: 20,
-                height: 1.35,
-                color: Color(0xFF344054),
-              ),
-            ),
-            const SizedBox(height: 18),
-            TextField(
-              controller: _codeController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                hintText: 'Bestätigungscode - Beispiel: 123456',
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Sie haben keine SMS erhalten?',
-              style: TextStyle(
-                fontSize: 16,
-                color: Color(0xFF475467),
-              ),
-            ),
-            const SizedBox(height: 4),
-            TextButton(
-              onPressed: _isSaving || _isResending ? null : _resendCode,
-              style: TextButton.styleFrom(
-                alignment: Alignment.centerLeft,
-                padding: EdgeInsets.zero,
-                foregroundColor: const Color(0xFF101828),
-              ),
-              child: Text(
-                _isResending ? 'Code wird angefordert...' : 'Einen neuen Code anfordern',
-                style: const TextStyle(
-                  fontSize: 28,
-                  decoration: TextDecoration.underline,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isSaving ? null : _verifyCodeAndContinue,
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(54),
-                  backgroundColor: const Color(0xFF1F1F1F),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+      body: CheckMyTimeGradientBackground(
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            children: [
+              CheckMyTimeHeroCard(
+                eyebrow: widget.isLoginMode ? 'SMS Login' : 'SMS Registrierung',
+                title: 'Code bestaetigen',
+                description:
+                    'Wir haben einen SMS-Code an ${widget.phoneNumberE164} geschickt. Gib ihn hier ein, um fortzufahren.',
+                trailing: Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(24),
                   ),
-                ),
-                child: _isSaving
-                    ? const SizedBox(
-                  height: 18,
-                  width: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.sms_outlined,
                     color: Colors.white,
-                  ),
-                )
-                    : const Text(
-                  'Speichern',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w600,
+                    size: 34,
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: _isSaving ? null : _logoutAndCancel,
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(54),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  side: const BorderSide(color: Color(0xFF98A2B3)),
-                ),
-                child: const Text(
-                  'Ausloggen',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w500),
+              const SizedBox(height: 20),
+              CheckMyTimeSectionCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Bestaetigungscode',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Der Code besteht in der Regel aus sechs Ziffern. Falls nichts ankommt, kannst du unten einen neuen Code anfordern.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    TextField(
+                      controller: _codeController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        hintText: 'Bestaetigungscode, z. B. 123456',
+                        prefixIcon: Icon(Icons.password_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: _isSaving ? null : _verifyCodeAndContinue,
+                        icon:
+                            _isSaving
+                                ? const SizedBox(
+                                  height: 18,
+                                  width: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                                : const Icon(Icons.check_circle_outline),
+                        label: Text(
+                          _isSaving ? 'Wird geprueft...' : 'Code bestaetigen',
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+              CheckMyTimeSectionCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Kein Code angekommen?',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Fordere eine neue SMS an oder brich den Vorgang ab, wenn du eine andere Nummer verwenden willst.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextButton.icon(
+                      onPressed: _isSaving || _isResending ? null : _resendCode,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: Text(
+                        _isResending
+                            ? 'Code wird angefordert...'
+                            : 'Neuen Code anfordern',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _isSaving ? null : _logoutAndCancel,
+                        icon: const Icon(Icons.logout),
+                        label: const Text('Abbrechen und ausloggen'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

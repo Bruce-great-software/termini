@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:termini/checkmytime/pages/appointments_page.dart';
 import 'package:termini/checkmytime/pages/contact_thread_page.dart';
+import 'package:termini/checkmytime/pages/event_detail_page.dart';
 import 'package:termini/checkmytime/pages/profile_page.dart';
 import 'package:termini/checkmytime/services/notification_service.dart';
 import 'package:termini/checkmytime/pages/events_page.dart';
@@ -27,19 +28,30 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _searchResults = [];
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _threadsSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _eventsSubscription;
   bool _hasInitializedUnreadState = false;
+  bool _hasInitializedInviteState = false;
   Map<String, int> _knownUnreadCountsByThread = {};
+  Set<String> _knownPendingInviteIds = <String>{};
+  int _lastPublishedBadgeCount = -1;
 
   @override
   void initState() {
     super.initState();
     _initializeNotifications();
     _listenForIncomingAppointments();
+    _listenForIncomingEventInvites();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await NotificationService.instance.ensureNotificationPermission(context);
+    });
   }
 
   @override
   void dispose() {
     _threadsSubscription?.cancel();
+    _eventsSubscription?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
@@ -47,7 +59,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
 
   Future<void> _initializeNotifications() async {
     await NotificationService.instance.initialize();
-    await NotificationService.instance.requestPermissions();
   }
 
   String _buildThreadId(String uidA, String uidB) {
@@ -77,42 +88,95 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       for (final doc in snapshot.docs) {
         final data = doc.data();
         if (data['hiddenFor_$currentUserId'] == true) continue;
-        final unreadCount = (data['unreadCountFor_$currentUserId'] ?? 0) as int;
+        final unreadCount =
+        (data['unreadCountFor_$currentUserId'] ?? 0) as int;
         currentCounts[doc.id] = unreadCount;
       }
 
       if (!_hasInitializedUnreadState) {
         _hasInitializedUnreadState = true;
         _knownUnreadCountsByThread = currentCounts;
+        await _publishBadgeCount();
         return;
       }
 
+      _knownUnreadCountsByThread = currentCounts;
+      await _publishBadgeCount();
+    });
+  }
+
+  bool _isPendingEventInvite(Map<String, dynamic> data, String currentUserId) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final invitedUserIds = List<String>.from(
+      data['invitedUserIds'] ?? const [],
+    );
+    final acceptedUserIds = List<String>.from(
+      data['acceptedUserIds'] ?? const [],
+    );
+    final maybeUserIds = List<String>.from(data['maybeUserIds'] ?? const []);
+    final declinedUserIds = List<String>.from(
+      data['declinedUserIds'] ?? const [],
+    );
+
+    if (createdBy == currentUserId) return false;
+    if (!invitedUserIds.contains(currentUserId)) return false;
+    if (acceptedUserIds.contains(currentUserId)) return false;
+    if (maybeUserIds.contains(currentUserId)) return false;
+    if (declinedUserIds.contains(currentUserId)) return false;
+    return true;
+  }
+
+  void _listenForIncomingEventInvites() {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+
+    _eventsSubscription?.cancel();
+    _eventsSubscription = FirebaseFirestore.instance
+        .collection('events')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .listen((snapshot) async {
+      final pendingInviteIds = <String>{};
+
       for (final doc in snapshot.docs) {
-        final data = doc.data();
-        if (data['hiddenFor_$currentUserId'] == true) continue;
-
-        final newCount = currentCounts[doc.id] ?? 0;
-        final oldCount = _knownUnreadCountsByThread[doc.id] ?? 0;
-
-        if (newCount > oldCount) {
-          final participants = List<String>.from(data['participants'] ?? const []);
-          final otherId = _otherParticipantId(participants, currentUserId);
-          final contactNames =
-          Map<String, dynamic>.from(data['contactNames'] ?? const {});
-          final otherName =
-          (contactNames[otherId] ?? 'Unbekannt').toString().trim();
-          final lastTitle =
-          (data['lastAppointmentTitle'] ?? 'Termin').toString().trim();
-
-          await NotificationService.instance.showIncomingAppointmentNotification(
-            title: 'Neuer Terminvorschlag',
-            body: '$otherName: $lastTitle',
-          );
+        if (_isPendingEventInvite(doc.data(), currentUserId)) {
+          pendingInviteIds.add(doc.id);
         }
       }
 
-      _knownUnreadCountsByThread = currentCounts;
+      if (!_hasInitializedInviteState) {
+        _hasInitializedInviteState = true;
+        _knownPendingInviteIds = pendingInviteIds;
+        await _publishBadgeCount();
+        return;
+      }
+
+      _knownPendingInviteIds = pendingInviteIds;
+      await _publishBadgeCount();
     });
+  }
+
+  Future<void> _publishBadgeCount() async {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+
+    final unreadAppointments = _knownUnreadCountsByThread.values.fold<int>(
+      0,
+          (total, value) => total + value,
+    );
+    final totalBadgeCount = unreadAppointments + _knownPendingInviteIds.length;
+
+    if (totalBadgeCount == _lastPublishedBadgeCount) return;
+    _lastPublishedBadgeCount = totalBadgeCount;
+
+    await NotificationService.instance.setAppBadgeCount(totalBadgeCount);
+    await FirebaseFirestore.instance.collection('users').doc(currentUserId).set(
+      {
+        'badgeCount': totalBadgeCount,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
   }
 
   Future<_ContactPreviewData> _loadContactPreview({
@@ -126,7 +190,10 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
 
     try {
       final doc =
-      await FirebaseFirestore.instance.collection('users').doc(contactId).get();
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(contactId)
+          .get();
       final data = doc.data();
 
       if (data != null) {
@@ -163,21 +230,57 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     required _ContactPreviewData preview,
     required ThemeData theme,
   }) {
+    final colorScheme = theme.colorScheme;
+
     if (preview.imageUrl.isNotEmpty) {
-      return CircleAvatar(
-        radius: 20,
-        backgroundImage: NetworkImage(preview.imageUrl),
+      return Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: colorScheme.primary.withValues(alpha: 0.18),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: CircleAvatar(
+          radius: 24,
+          backgroundImage: NetworkImage(preview.imageUrl),
+        ),
       );
     }
 
     final letter =
-    preview.name.isNotEmpty ? preview.name.characters.first.toUpperCase() : '?';
+    preview.name.isNotEmpty
+        ? preview.name.characters.first.toUpperCase()
+        : '?';
 
-    return CircleAvatar(
-      radius: 20,
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          colors: [colorScheme.primary, colorScheme.primaryContainer],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.primary.withValues(alpha: 0.22),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      alignment: Alignment.center,
       child: Text(
         letter,
-        style: theme.textTheme.labelLarge,
+        style: theme.textTheme.titleMedium?.copyWith(
+          color: colorScheme.onPrimary,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
@@ -190,50 +293,86 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     required int unreadCount,
     required VoidCallback onTap,
   }) {
-    return Card(
+    final infoText =
+    preview.phone.isNotEmpty
+        ? preview.phone
+        : 'Tippe, um den Chat zu öffnen';
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.white, colorScheme.surfaceContainerLowest],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: colorScheme.outlineVariant),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.shadow.withValues(alpha: 0.06),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(18),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildContactAvatar(
-                preview: preview,
-                theme: theme,
-              ),
-              const SizedBox(width: 14),
+              _buildContactAvatar(preview: preview, theme: theme),
+              const SizedBox(width: 16),
               Expanded(
-                child: Text(
-                  preview.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w600,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      preview.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight:
+                        hasUnread ? FontWeight.w800 : FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      infoText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 12),
-              hasUnread
-                  ? Container(
-                width: 30,
-                height: 30,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFB7E61E),
-                  shape: BoxShape.circle,
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  '$unreadCount',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: Colors.black,
-                    fontWeight: FontWeight.w700,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (hasUnread)
+                    _NewItemsBadge(count: unreadCount)
+                  else
+                    Text(
+                      'Alles gelesen',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  const SizedBox(height: 10),
+                  Icon(
+                    Icons.arrow_forward_rounded,
+                    color:
+                    hasUnread
+                        ? colorScheme.primary
+                        : colorScheme.onSurfaceVariant,
                   ),
-                ),
-              )
-                  : Icon(
-                Icons.chevron_right,
-                color: colorScheme.onSurfaceVariant,
+                ],
               ),
             ],
           ),
@@ -283,16 +422,9 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
             .doc(threadId)
             .set({
           'participants': [currentUserId, contactId]..sort(),
-          'participantMap': {
-            currentUserId: true,
-            contactId: true,
-          },
-          'contactNames': {
-            contactId: safeName,
-          },
-          'contactPhones': {
-            contactId: safePhone,
-          },
+          'participantMap': {currentUserId: true, contactId: true},
+          'contactNames': {contactId: safeName},
+          'contactPhones': {contactId: safePhone},
           'hiddenFor_$currentUserId': false,
           'updatedAt': FieldValue.serverTimestamp(),
           'unreadCountFor_$currentUserId': 0,
@@ -300,9 +432,11 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       } catch (_) {}
     }
 
+    if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => ContactThreadPage(
+        builder:
+            (_) => ContactThreadPage(
           contactId: contactId,
           contactName: safeName,
           phoneNumber: safePhone,
@@ -341,13 +475,15 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
 
       final lowerQuery = query.toLowerCase();
 
-      final filtered = snapshot.docs.where((doc) {
+      final filtered =
+      snapshot.docs.where((doc) {
         if (doc.id == currentUid) return false;
 
         final data = doc.data();
         final displayName =
         (data['displayName'] ?? '').toString().trim().toLowerCase();
-        final legacyName = (data['name'] ?? '').toString().trim().toLowerCase();
+        final legacyName =
+        (data['name'] ?? '').toString().trim().toLowerCase();
         final phoneNumber =
         (data['phoneNumber'] ?? '').toString().trim().toLowerCase();
 
@@ -389,10 +525,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       return Padding(
         padding: const EdgeInsets.only(top: 20),
         child: Center(
-          child: Text(
-            _searchError!,
-            style: const TextStyle(color: Colors.red),
-          ),
+          child: Text(_searchError!, style: const TextStyle(color: Colors.red)),
         ),
       );
     }
@@ -400,9 +533,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     if (_searchResults.isEmpty) {
       return const Padding(
         padding: EdgeInsets.only(top: 20),
-        child: Center(
-          child: Text('Keine Person gefunden.'),
-        ),
+        child: Center(child: Text('Keine Person gefunden.')),
       );
     }
 
@@ -413,10 +544,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Gefundene Personen',
-            style: theme.textTheme.titleMedium,
-          ),
+          Text('Gefundene Personen', style: theme.textTheme.titleMedium),
           const SizedBox(height: 12),
           ..._searchResults.map((doc) {
             final data = doc.data();
@@ -433,26 +561,17 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                 fallbackPhone: fallbackPhone,
               ),
               builder: (context, snapshot) {
-                final preview = snapshot.data ??
-                    _ContactPreviewData(
-                      name: fallbackName.isEmpty ? 'Unbekannt' : fallbackName,
-                      phone: fallbackPhone,
-                      imageUrl: '',
-                    );
+                final preview =
+                    snapshot.data ??
+                        _ContactPreviewData(
+                          name: fallbackName.isEmpty ? 'Unbekannt' : fallbackName,
+                          phone: fallbackPhone,
+                          imageUrl: '',
+                        );
 
                 return Card(
-                  child: ListTile(
-                    leading: _buildContactAvatar(
-                      preview: preview,
-                      theme: theme,
-                    ),
-                    title: Text(preview.name),
-                    subtitle: Text(
-                      preview.phone.isNotEmpty
-                          ? preview.phone
-                          : 'Keine Nummer vorhanden',
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
                     onTap: () {
                       _openContact(
                         contactId: doc.id,
@@ -460,11 +579,213 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                         phoneNumber: preview.phone,
                       );
                     },
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          _buildContactAvatar(preview: preview, theme: theme),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  preview.name,
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  preview.phone.isNotEmpty
+                                      ? preview.phone
+                                      : 'Keine Nummer vorhanden',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary.withValues(
+                                alpha: 0.10,
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            alignment: Alignment.center,
+                            child: Icon(
+                              Icons.arrow_forward_rounded,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 );
               },
             );
           }),
+        ],
+      ),
+    );
+  }
+
+  String _buildGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 11) return 'Guten Morgen';
+    if (hour < 18) return 'Guten Tag';
+    return 'Guten Abend';
+  }
+
+  int _totalUnreadMessages() {
+    return _knownUnreadCountsByThread.values.fold<int>(
+      0,
+          (runningTotal, unreadCount) => runningTotal + unreadCount,
+    );
+  }
+
+  Widget _buildHeroSection(ThemeData theme, ColorScheme colorScheme) {
+    final unreadTotal = _totalUnreadMessages();
+    final activeThreads = _knownUnreadCountsByThread.length;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            colorScheme.primary,
+            const Color(0xFF7C8AF4),
+            colorScheme.primaryContainer,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(32),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.primary.withValues(alpha: 0.28),
+            blurRadius: 28,
+            offset: const Offset(0, 18),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              _buildGreeting(),
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Alles Wichtige an einem Ort',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              height: 1.1,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Starte neue Unterhaltungen, behalte offene Termine im Blick und springe schneller in deine wichtigsten Bereiche.',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: Colors.white.withValues(alpha: 0.88),
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 22),
+          Row(
+            children: [
+              Expanded(
+                child: _HeroStatCard(
+                  label: 'Ungelesen',
+                  value: '$unreadTotal',
+                  icon: Icons.mark_chat_unread_rounded,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _HeroStatCard(
+                  label: 'Kontakte',
+                  value: '$activeThreads',
+                  icon: Icons.people_alt_outlined,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchPanel(ThemeData theme, ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: colorScheme.outlineVariant),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.shadow.withValues(alpha: 0.05),
+            blurRadius: 22,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Personen finden',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Suche nach Namen oder Telefonnummern und öffne direkt einen Kontakt.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _searchController,
+            focusNode: _searchFocusNode,
+            onChanged: _searchUsers,
+            decoration: InputDecoration(
+              hintText: 'Nach Name oder Nummer suchen',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon:
+              _searchController.text.isNotEmpty
+                  ? IconButton(
+                onPressed: _resetSearch,
+                icon: const Icon(Icons.close),
+              )
+                  : IconButton(
+                onPressed: () => _showComingSoon('Filter'),
+                icon: const Icon(Icons.tune),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -506,7 +827,8 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     final colorScheme = theme.colorScheme;
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
+      stream:
+      FirebaseFirestore.instance
           .collection('contact_threads')
           .where('participantMap.$currentUserId', isEqualTo: true)
           .snapshots(),
@@ -518,14 +840,17 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
           );
         }
 
-        final docs = [...snapshot.data?.docs ?? []]
+        final docs =
+        [...snapshot.data?.docs ?? []]
             .where((doc) => doc.data()['hiddenFor_$currentUserId'] != true)
             .toList()
           ..sort((a, b) {
             final aData = a.data();
             final bData = b.data();
-            final aUnread = (aData['unreadCountFor_$currentUserId'] ?? 0) as int;
-            final bUnread = (bData['unreadCountFor_$currentUserId'] ?? 0) as int;
+            final aUnread =
+            (aData['unreadCountFor_$currentUserId'] ?? 0) as int;
+            final bUnread =
+            (bData['unreadCountFor_$currentUserId'] ?? 0) as int;
 
             if (aUnread != bUnread) {
               return bUnread.compareTo(aUnread);
@@ -548,20 +873,30 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
           children: [
             Text(
               'Kontakte',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Deine letzten Unterhaltungen und neue Vorschläge.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 12),
             ...docs.map((doc) {
               final data = doc.data();
-              final participants =
-              List<String>.from(data['participants'] ?? const []);
+              final participants = List<String>.from(
+                data['participants'] ?? const [],
+              );
               final otherId = _otherParticipantId(participants, currentUserId);
-              final contactNames =
-              Map<String, dynamic>.from(data['contactNames'] ?? const {});
-              final contactPhones =
-              Map<String, dynamic>.from(data['contactPhones'] ?? const {});
+              final contactNames = Map<String, dynamic>.from(
+                data['contactNames'] ?? const {},
+              );
+              final contactPhones = Map<String, dynamic>.from(
+                data['contactPhones'] ?? const {},
+              );
 
               final fallbackName =
               (contactNames[otherId] ?? 'Unbekannt').toString().trim();
@@ -578,12 +913,13 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                   fallbackPhone: fallbackPhone,
                 ),
                 builder: (context, previewSnapshot) {
-                  final preview = previewSnapshot.data ??
-                      _ContactPreviewData(
-                        name: fallbackName.isEmpty ? 'Unbekannt' : fallbackName,
-                        phone: fallbackPhone,
-                        imageUrl: '',
-                      );
+                  final preview =
+                      previewSnapshot.data ??
+                          _ContactPreviewData(
+                            name: fallbackName.isEmpty ? 'Unbekannt' : fallbackName,
+                            phone: fallbackPhone,
+                            imageUrl: '',
+                          );
 
                   return Dismissible(
                     key: ValueKey(doc.id),
@@ -593,7 +929,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                       alignment: Alignment.centerRight,
                       padding: const EdgeInsets.symmetric(horizontal: 20),
                       decoration: BoxDecoration(
-                        color: colorScheme.error.withOpacity(0.12),
+                        color: colorScheme.error.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Icon(
@@ -633,32 +969,112 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     );
   }
 
+  String _formatInviteDate(Timestamp? timestamp) {
+    if (timestamp == null) return 'Kein Datum';
+    final date = timestamp.toDate();
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final year = date.year.toString();
+    return '$day.$month.$year';
+  }
+
+  Widget _buildEventInvitesSection(String currentUserId) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream:
+      FirebaseFirestore.instance
+          .collection('events')
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.only(top: 8, bottom: 16),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final pendingInvites =
+        [...snapshot.data?.docs ?? []]
+            .where(
+              (doc) => _isPendingEventInvite(doc.data(), currentUserId),
+        )
+            .toList()
+          ..sort((a, b) {
+            final aDate = a.data()['eventDate'] as Timestamp?;
+            final bDate = b.data()['eventDate'] as Timestamp?;
+            if (aDate == null && bDate == null) return 0;
+            if (aDate == null) return 1;
+            if (bDate == null) return -1;
+            return aDate.compareTo(bDate);
+          });
+
+        if (pendingInvites.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Einladungen',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Neue Event-Einladungen für dich.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...pendingInvites.take(3).map((doc) {
+              final data = doc.data();
+              final title = (data['title'] ?? 'Event').toString().trim();
+              final creator =
+              (data['createdByName'] ?? 'Unbekannt').toString().trim();
+              final eventDate = data['eventDate'] as Timestamp?;
+
+              return _ActionCard(
+                icon: Icons.mail_outline_rounded,
+                title: title.isEmpty ? 'Event' : title,
+                subtitle:
+                'Von $creator - ${_formatInviteDate(eventDate)}. Tippe zum Antworten.',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder:
+                          (_) => EventDetailPage(
+                        eventId: doc.id,
+                        view: EventDetailView.invitation,
+                      ),
+                    ),
+                  );
+                },
+              );
+            }),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildHomeTab(
       ColorScheme colorScheme,
       ThemeData theme,
       String? currentUserId,
       ) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
       children: [
-        TextField(
-          controller: _searchController,
-          focusNode: _searchFocusNode,
-          onChanged: _searchUsers,
-          decoration: InputDecoration(
-            hintText: 'Nach Name oder Nummer suchen',
-            prefixIcon: const Icon(Icons.search),
-            suffixIcon: _searchController.text.isNotEmpty
-                ? IconButton(
-              onPressed: _resetSearch,
-              icon: const Icon(Icons.close),
-            )
-                : IconButton(
-              onPressed: () => _showComingSoon('Filter'),
-              icon: const Icon(Icons.tune),
-            ),
-          ),
-        ),
+        _buildHeroSection(theme, colorScheme),
+        const SizedBox(height: 20),
+        _buildSearchPanel(theme, colorScheme),
         if (_searchQuery.isNotEmpty)
           _buildSearchResults()
         else
@@ -668,21 +1084,55 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (currentUserId != null) _buildThreadsSection(currentUserId),
+                if (currentUserId != null)
+                  _buildEventInvitesSection(currentUserId),
                 Text(
                   'Schnellaktionen',
-                  style: theme.textTheme.titleMedium,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Die wichtigsten Bereiche für deinen nächsten Schritt.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 const SizedBox(height: 12),
-                _ActionCard(
-                  icon: Icons.celebration_outlined,
-                  title: 'Events',
-                  subtitle:
-                  'Hier planst und verwaltest du später gemeinsame Aktivitäten und Einladungen.',
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const EventsPage(),
-                      ),
+                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream:
+                  currentUserId == null
+                      ? null
+                      : FirebaseFirestore.instance
+                      .collection('events')
+                      .orderBy('createdAt', descending: true)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    var newEventsCount = 0;
+                    if (currentUserId != null && snapshot.hasData) {
+                      newEventsCount =
+                          snapshot.data!.docs
+                              .where(
+                                (doc) => _isPendingEventInvite(
+                              doc.data(),
+                              currentUserId,
+                            ),
+                          )
+                              .length;
+                    }
+
+                    return _ActionCard(
+                      icon: Icons.celebration_outlined,
+                      title: 'Events',
+                      subtitle:
+                      'Hier planst und verwaltest du später gemeinsame Aktivitäten und Einladungen.',
+                      badgeCount: newEventsCount,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const EventsPage()),
+                        );
+                      },
                     );
                   },
                 ),
@@ -742,7 +1192,8 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
         title: const Text('CheckMyTime'),
         actions: [
           IconButton(
-            onPressed: () => setState(() {
+            onPressed:
+                () => setState(() {
               _selectedIndex = 2;
             }),
             icon: const Icon(Icons.settings_outlined),
@@ -752,11 +1203,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       body: SafeArea(
         child: GestureDetector(
           onTap: () => _searchFocusNode.unfocus(),
-          child: _buildBody(
-            colorScheme,
-            theme,
-            currentUserId,
-          ),
+          child: _buildBody(colorScheme, theme, currentUserId),
         ),
       ),
       bottomNavigationBar: NavigationBar(
@@ -793,57 +1240,190 @@ class _ActionCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final int badgeCount;
 
   const _ActionCard({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.badgeCount = 0,
   });
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final resolvedAccent = colorScheme.primary;
 
-    return Card(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 24,
-                backgroundColor: colorScheme.primary.withOpacity(0.10),
-                child: Icon(icon, color: colorScheme.primary),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: colorScheme.outlineVariant),
+          boxShadow: [
+            BoxShadow(
+              color: colorScheme.shadow.withValues(alpha: 0.05),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(24),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: resolvedAccent.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(icon, color: resolvedAccent),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
+                      const SizedBox(height: 6),
+                      Text(
+                        subtitle,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (badgeCount > 0) _NewItemsBadge(count: badgeCount),
+                    if (badgeCount > 0) const SizedBox(height: 10),
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        Icons.arrow_forward_rounded,
+                        color: colorScheme.onSurface,
                       ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              const Icon(Icons.chevron_right),
-            ],
+              ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _NewItemsBadge extends StatelessWidget {
+  final int count;
+
+  const _NewItemsBadge({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFB7E61E),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        count == 1 ? '1 neu' : '$count neu',
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: Colors.black,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroStatCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+
+  const _HeroStatCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            alignment: Alignment.center,
+            child: Icon(icon, color: Colors.white, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.82),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

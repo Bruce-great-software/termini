@@ -4,6 +4,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:termini/checkmytime/pages/login_register_page.dart';
+import 'package:termini/checkmytime/widgets/checkmytime_ui.dart';
 
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
@@ -14,9 +15,7 @@ class ProfilePage extends StatelessWidget {
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(),
-          );
+          return const Center(child: CircularProgressIndicator());
         }
 
         final user = snapshot.data;
@@ -25,10 +24,7 @@ class ProfilePage extends StatelessWidget {
           return const _LoggedOutProfileView();
         }
 
-        return _LoggedInProfileView(
-          key: ValueKey(user.uid),
-          user: user,
-        );
+        return _LoggedInProfileView(key: ValueKey(user.uid), user: user);
       },
     );
   }
@@ -42,71 +38,67 @@ class _LoggedOutProfileView extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: colorScheme.outlineVariant),
+    return CheckMyTimeGradientBackground(
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
+          CheckMyTimeHeroCard(
+            eyebrow: 'Profil',
+            title: 'Profil und Login',
+            description:
+                'Melde dich an oder registriere dich, damit du dein Profil bearbeiten und CheckMyTime vollstaendig nutzen kannst.',
+            trailing: Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(24),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.person_outline,
+                size: 34,
+                color: Colors.white,
+              ),
+            ),
           ),
-          child: Column(
-            children: [
-              CircleAvatar(
-                radius: 36,
-                backgroundColor: colorScheme.primary.withOpacity(0.10),
-                child: Icon(
-                  Icons.person_outline,
-                  size: 34,
-                  color: colorScheme.primary,
+          const SizedBox(height: 16),
+          CheckMyTimeSectionCard(
+            child: Column(
+              children: [
+                Text(
+                  'Mit deinem Profil kannst du Kontaktdaten pflegen, ein Bild hinterlegen und spaeter leichter gefunden werden.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Profil & Login',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const LoginRegisterPage(),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.login),
+                    label: const Text('Einloggen oder registrieren'),
+                  ),
                 ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Melde dich an oder registriere dich, damit du dein Profil bearbeiten und CheckMyTime vollständig nutzen kannst.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const LoginRegisterPage(),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.login),
-                  label: const Text('Einloggen oder registrieren'),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
 class _LoggedInProfileView extends StatefulWidget {
-  const _LoggedInProfileView({
-    super.key,
-    required this.user,
-  });
+  const _LoggedInProfileView({super.key, required this.user});
 
   final User user;
 
@@ -141,27 +133,31 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
 
   Future<void> _loadProfile() async {
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.user.uid)
-          .get();
+      final doc =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(widget.user.uid)
+              .get();
 
       final data = doc.data() ?? <String, dynamic>{};
 
       _nameController.text =
           (data['displayName'] ?? data['name'] ?? '').toString().trim();
       _phoneNumber =
-          (data['phoneNumber'] ?? widget.user.phoneNumber ?? '').toString().trim();
+          (data['phoneNumber'] ?? widget.user.phoneNumber ?? '')
+              .toString()
+              .trim();
       _profileImageUrl = (data['profileImageUrl'] ?? '').toString().trim();
       _profileImagePath = (data['profileImagePath'] ?? '').toString().trim();
     } catch (_) {
       if (!mounted) return;
       _showMessage('Profil konnte nicht geladen werden.');
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -175,12 +171,12 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
             children: [
               ListTile(
                 leading: const Icon(Icons.photo_library_outlined),
-                title: const Text('Aus Galerie auswählen'),
+                title: const Text('Aus Galerie auswaehlen'),
                 onTap: () => Navigator.of(context).pop(ImageSource.gallery),
               ),
               ListTile(
                 leading: const Icon(Icons.photo_camera_outlined),
-                title: const Text('Kamera öffnen'),
+                title: const Text('Kamera oeffnen'),
                 onTap: () => Navigator.of(context).pop(ImageSource.camera),
               ),
             ],
@@ -220,7 +216,10 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
 
       if (_profileImagePath.isNotEmpty) {
         try {
-          await FirebaseStorage.instance.ref().child(_profileImagePath).delete();
+          await FirebaseStorage.instance
+              .ref()
+              .child(_profileImagePath)
+              .delete();
         } catch (_) {}
       }
 
@@ -228,10 +227,10 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
           .collection('users')
           .doc(widget.user.uid)
           .set({
-        'profileImageUrl': downloadUrl,
-        'profileImagePath': storagePath,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+            'profileImageUrl': downloadUrl,
+            'profileImagePath': storagePath,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
 
       if (!mounted) return;
 
@@ -245,10 +244,11 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
       if (!mounted) return;
       _showMessage('Profilbild konnte nicht hochgeladen werden.');
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isUploadingImage = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isUploadingImage = false;
+        });
+      }
     }
   }
 
@@ -269,14 +269,14 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
           .collection('users')
           .doc(widget.user.uid)
           .set({
-        'displayName': displayName,
-        'name': displayName,
-        'phoneNumber': _phoneNumber,
-        'profileImageUrl': _profileImageUrl,
-        'profileImagePath': _profileImagePath,
-        'profileCompleted': true,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+            'displayName': displayName,
+            'name': displayName,
+            'phoneNumber': _phoneNumber,
+            'profileImageUrl': _profileImageUrl,
+            'profileImagePath': _profileImagePath,
+            'profileCompleted': true,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
 
       if (!mounted) return;
       _showMessage('Profil wurde gespeichert.');
@@ -284,10 +284,11 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
       if (!mounted) return;
       _showMessage('Profil konnte nicht gespeichert werden.');
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isSaving = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
     }
   }
 
@@ -304,19 +305,17 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
       if (!mounted) return;
       _showMessage('Ausloggen fehlgeschlagen.');
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isSigningOut = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isSigningOut = false;
+        });
+      }
     }
   }
 
   void _showMessage(String text) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(text),
-        behavior: SnackBarBehavior.floating,
-      ),
+      SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
     );
   }
 
@@ -331,20 +330,21 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
           onTap: _isUploadingImage ? null : _showImageSourceSheet,
           child: CircleAvatar(
             radius: 52,
-            backgroundColor: colorScheme.primary.withOpacity(0.10),
+            backgroundColor: colorScheme.primary.withValues(alpha: 0.10),
             backgroundImage: hasImage ? NetworkImage(_profileImageUrl) : null,
-            child: hasImage
-                ? null
-                : Text(
-              trimmedName.isNotEmpty
-                  ? trimmedName.characters.first.toUpperCase()
-                  : 'P',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w700,
-                color: colorScheme.primary,
-              ),
-            ),
+            child:
+                hasImage
+                    ? null
+                    : Text(
+                      trimmedName.isNotEmpty
+                          ? trimmedName.characters.first.toUpperCase()
+                          : 'P',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w700,
+                        color: colorScheme.primary,
+                      ),
+                    ),
           ),
         ),
         Positioned(
@@ -358,37 +358,26 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
               customBorder: const CircleBorder(),
               child: Padding(
                 padding: const EdgeInsets.all(10),
-                child: _isUploadingImage
-                    ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-                    : const Icon(
-                  Icons.camera_alt_outlined,
-                  color: Colors.white,
-                  size: 18,
-                ),
+                child:
+                    _isUploadingImage
+                        ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                        : const Icon(
+                          Icons.camera_alt_outlined,
+                          color: Colors.white,
+                          size: 18,
+                        ),
               ),
             ),
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildReadOnlyField({
-    required String label,
-    required String value,
-  }) {
-    return InputDecorator(
-      decoration: InputDecoration(
-        labelText: label,
-      ),
-      child: Text(value.isEmpty ? 'Keine Angabe' : value),
     );
   }
 
@@ -398,96 +387,112 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
     final colorScheme = theme.colorScheme;
 
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: colorScheme.outlineVariant),
+    return CheckMyTimeGradientBackground(
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
+          CheckMyTimeHeroCard(
+            eyebrow: 'Mein Profil',
+            title: 'Profilbild und persoenliche Daten',
+            description:
+                'Hier kannst du deinen Namen und dein Profilbild fuer CheckMyTime bearbeiten.',
+            trailing: _buildAvatar(colorScheme),
           ),
-          child: Column(
-            children: [
-              _buildAvatar(colorScheme),
-              const SizedBox(height: 16),
-              Text(
-                'Profilbild und persönliche Daten',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-                textAlign: TextAlign.center,
+          const SizedBox(height: 20),
+          CheckMyTimeSectionCard(
+            child: TextField(
+              controller: _nameController,
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(
+                labelText: 'Name',
+                hintText: 'Dein Name',
+                prefixIcon: Icon(Icons.badge_outlined),
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Hier kannst du deinen Namen und dein Profilbild für CheckMyTime bearbeiten.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-        TextField(
-          controller: _nameController,
-          textInputAction: TextInputAction.done,
-          decoration: const InputDecoration(
-            labelText: 'Name',
-            hintText: 'Dein Name',
-          ),
-          onChanged: (_) {
-            setState(() {});
-          },
-        ),
-        const SizedBox(height: 16),
-        _buildReadOnlyField(
-          label: 'Telefonnummer',
-          value: _phoneNumber,
-        ),
-        const SizedBox(height: 24),
-        FilledButton.icon(
-          onPressed: (_isSaving || _isUploadingImage || _isSigningOut)
-              ? null
-              : _saveProfile,
-          icon: _isSaving
-              ? const SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: Colors.white,
+              onChanged: (_) {
+                setState(() {});
+              },
             ),
-          )
-              : const Icon(Icons.save_outlined),
-          label: Text(
-            _isSaving ? 'Wird gespeichert...' : 'Profil speichern',
           ),
-        ),
-        const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: (_isSaving || _isUploadingImage || _isSigningOut)
-              ? null
-              : _signOut,
-          icon: _isSigningOut
-              ? const SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          )
-              : const Icon(Icons.logout),
-          label: Text(
-            _isSigningOut ? 'Wird ausgeloggt...' : 'Ausloggen',
+          const SizedBox(height: 16),
+          CheckMyTimeSectionCard(
+            padding: const EdgeInsets.all(16),
+            child: CheckMyTimeInfoRow(
+              icon: Icons.phone_outlined,
+              label: 'Telefonnummer',
+              value: _phoneNumber.isEmpty ? 'Keine Angabe' : _phoneNumber,
+            ),
           ),
-        ),
-      ],
+          const SizedBox(height: 16),
+          CheckMyTimeSectionCard(
+            child: Column(
+              children: [
+                Text(
+                  'Profilbild aendern',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Tippe auf dein Avatarbild oben, um ein Foto aus der Galerie oder Kamera zu waehlen.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed:
+                        (_isSaving || _isUploadingImage || _isSigningOut)
+                            ? null
+                            : _saveProfile,
+                    icon:
+                        _isSaving
+                            ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                            : const Icon(Icons.save_outlined),
+                    label: Text(
+                      _isSaving ? 'Wird gespeichert...' : 'Profil speichern',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed:
+                        (_isSaving || _isUploadingImage || _isSigningOut)
+                            ? null
+                            : _signOut,
+                    icon:
+                        _isSigningOut
+                            ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                            : const Icon(Icons.logout),
+                    label: Text(
+                      _isSigningOut ? 'Wird ausgeloggt...' : 'Ausloggen',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
