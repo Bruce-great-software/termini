@@ -119,6 +119,13 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     return DateTime.now().difference(lastSeen.toDate()) <= _onlineGracePeriod;
   }
 
+  int _safeUnreadCount(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value.trim()) ?? 0;
+    return 0;
+  }
+
   String _buildThreadId(String uidA, String uidB) {
     final ids = [uidA, uidB]..sort();
     return '${ids[0]}_${ids[1]}';
@@ -146,8 +153,9 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       for (final doc in snapshot.docs) {
         final data = doc.data();
         if (data['hiddenFor_$currentUserId'] == true) continue;
-        final unreadCount =
-        (data['unreadCountFor_$currentUserId'] ?? 0) as int;
+        final unreadCount = _safeUnreadCount(
+          data['unreadCountFor_$currentUserId'],
+        );
         currentCounts[doc.id] = unreadCount;
       }
 
@@ -943,10 +951,12 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
           ..sort((a, b) {
             final aData = a.data();
             final bData = b.data();
-            final aUnread =
-            (aData['unreadCountFor_$currentUserId'] ?? 0) as int;
-            final bUnread =
-            (bData['unreadCountFor_$currentUserId'] ?? 0) as int;
+            final aUnread = _safeUnreadCount(
+              aData['unreadCountFor_$currentUserId'],
+            );
+            final bUnread = _safeUnreadCount(
+              bData['unreadCountFor_$currentUserId'],
+            );
 
             if (aUnread != bUnread) {
               return bUnread.compareTo(aUnread);
@@ -998,8 +1008,9 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
               (contactNames[otherId] ?? 'Unbekannt').toString().trim();
               final fallbackPhone =
               (contactPhones[otherId] ?? '').toString().trim();
-              final unreadCount =
-              (data['unreadCountFor_$currentUserId'] ?? 0) as int;
+              final unreadCount = _safeUnreadCount(
+                data['unreadCountFor_$currentUserId'],
+              );
               final hasUnread = unreadCount > 0;
 
               return FutureBuilder<_ContactPreviewData>(

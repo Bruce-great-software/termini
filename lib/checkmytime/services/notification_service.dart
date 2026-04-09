@@ -1,6 +1,7 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_app_badger/flutter_app_badger.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_new_badger/flutter_new_badger.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -193,6 +194,7 @@ class NotificationService {
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
+      channelShowBadge: true,
       number: unreadCount,
       groupKey: groupKey,
     );
@@ -236,6 +238,7 @@ class NotificationService {
       groupKey: groupKey,
       importance: Importance.high,
       priority: Priority.high,
+      channelShowBadge: true,
       number: unreadCount,
       styleInformation: InboxStyleInformation(
         const <String>[],
@@ -354,13 +357,28 @@ class NotificationService {
   }
 
   Future<void> setAppBadgeCount(int count) async {
+    final safeCount = count < 0 ? 0 : count;
     try {
-      if (count <= 0) {
+      if (safeCount <= 0) {
         await clearAppBadge();
         return;
       }
 
-      await FlutterNewBadger.setBadge(count);
+      var appBadgeUpdated = false;
+      try {
+        final supported = await FlutterAppBadger.isAppBadgeSupported();
+        if (supported) {
+          FlutterAppBadger.updateBadgeCount(safeCount);
+          appBadgeUpdated = true;
+        }
+      } catch (error, stackTrace) {
+        debugPrint('FlutterAppBadger update failed: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+
+      if (!appBadgeUpdated) {
+        await FlutterNewBadger.setBadge(safeCount);
+      }
     } catch (error, stackTrace) {
       debugPrint('setAppBadgeCount failed: $error');
       debugPrintStack(stackTrace: stackTrace);
@@ -369,7 +387,8 @@ class NotificationService {
 
   Future<int?> getAppBadgeCount() async {
     try {
-      return await FlutterNewBadger.getBadge();
+      final localUnread = await _unreadCountRepository.getUnreadCount();
+      return localUnread < 0 ? 0 : localUnread;
     } catch (error, stackTrace) {
       debugPrint('getAppBadgeCount failed: $error');
       debugPrintStack(stackTrace: stackTrace);
@@ -400,6 +419,12 @@ class NotificationService {
   Future<void> clearAppBadge() async {
     try {
       await _unreadCountRepository.setUnreadCount(0);
+      try {
+        FlutterAppBadger.removeBadge();
+      } catch (error, stackTrace) {
+        debugPrint('FlutterAppBadger remove failed: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
       await FlutterNewBadger.removeBadge();
     } catch (error, stackTrace) {
       debugPrint('clearAppBadge failed: $error');
