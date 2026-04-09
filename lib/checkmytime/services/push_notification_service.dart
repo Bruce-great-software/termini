@@ -186,11 +186,11 @@ class PushOpenTarget {
 
 class PushNotificationService {
   PushNotificationService._()
-    : _auth = FirebasePushAuthClient(),
-      _messaging = FirebasePushMessagingClient(FirebaseMessaging.instance),
-      _notifications = DefaultPushNotificationClient(),
-      _tokenRepository = FirestorePushTokenRepository(),
-      _onOpenTarget = null;
+      : _auth = FirebasePushAuthClient(),
+        _messaging = FirebasePushMessagingClient(FirebaseMessaging.instance),
+        _notifications = DefaultPushNotificationClient(),
+        _tokenRepository = FirestorePushTokenRepository(),
+        _onOpenTarget = null;
 
   PushNotificationService.forTesting({
     required PushAuthClient auth,
@@ -199,10 +199,10 @@ class PushNotificationService {
     required PushTokenRepository tokenRepository,
     void Function(PushOpenTarget target)? onOpenTarget,
   }) : _auth = auth,
-       _messaging = messaging,
-       _notifications = notifications,
-       _tokenRepository = tokenRepository,
-       _onOpenTarget = onOpenTarget;
+        _messaging = messaging,
+        _notifications = notifications,
+        _tokenRepository = tokenRepository,
+        _onOpenTarget = onOpenTarget;
 
   static final PushNotificationService instance = PushNotificationService._();
 
@@ -331,9 +331,9 @@ class PushNotificationService {
             MaterialPageRoute(
               builder:
                   (_) => EventDetailPage(
-                    eventId: eventId,
-                    view: EventDetailView.invitation,
-                  ),
+                eventId: eventId,
+                view: EventDetailView.invitation,
+              ),
             ),
           );
           return;
@@ -352,10 +352,10 @@ class PushNotificationService {
             MaterialPageRoute(
               builder:
                   (_) => ContactThreadPage(
-                    contactId: contactId,
-                    contactName: contactName,
-                    phoneNumber: phone,
-                  ),
+                contactId: contactId,
+                contactName: contactName,
+                phoneNumber: phone,
+              ),
             ),
           );
           return;

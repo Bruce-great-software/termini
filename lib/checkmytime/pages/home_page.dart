@@ -17,7 +17,9 @@ class CheckMyTimeHomePage extends StatefulWidget {
   State<CheckMyTimeHomePage> createState() => _CheckMyTimeHomePageState();
 }
 
-class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
+class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
+    with WidgetsBindingObserver {
+  static const Duration _onlineGracePeriod = Duration(minutes: 3);
   int _selectedIndex = 0;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
@@ -34,11 +36,14 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
   Map<String, int> _knownUnreadCountsByThread = {};
   Set<String> _knownPendingInviteIds = <String>{};
   int _lastPublishedBadgeCount = -1;
+  Timer? _presenceHeartbeat;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializeNotifications();
+    _startPresenceTracking();
     _listenForIncomingAppointments();
     _listenForIncomingEventInvites();
 
@@ -50,6 +55,9 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _presenceHeartbeat?.cancel();
+    unawaited(_setCurrentUserPresence(isOnline: false));
     _threadsSubscription?.cancel();
     _eventsSubscription?.cancel();
     _searchController.dispose();
@@ -59,6 +67,56 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
 
   Future<void> _initializeNotifications() async {
     await NotificationService.instance.initialize();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startPresenceTracking();
+      return;
+    }
+
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _presenceHeartbeat?.cancel();
+      unawaited(_setCurrentUserPresence(isOnline: false));
+    }
+  }
+
+  Future<void> _startPresenceTracking() async {
+    _presenceHeartbeat?.cancel();
+    await _setCurrentUserPresence(isOnline: true);
+    _presenceHeartbeat = Timer.periodic(const Duration(minutes: 1), (_) {
+      unawaited(_setCurrentUserPresence(isOnline: true));
+    });
+  }
+
+  Future<void> _setCurrentUserPresence({required bool isOnline}) async {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(currentUserId).set(
+        {
+          'isOnline': isOnline,
+          'lastSeenAt': FieldValue.serverTimestamp(),
+          'presenceUpdatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    } catch (_) {}
+  }
+
+  bool _isUserOnline(Map<String, dynamic>? data) {
+    if (data == null || data['isOnline'] != true) {
+      return false;
+    }
+
+    final lastSeen = data['lastSeenAt'];
+    if (lastSeen is! Timestamp) return true;
+
+    return DateTime.now().difference(lastSeen.toDate()) <= _onlineGracePeriod;
   }
 
   String _buildThreadId(String uidA, String uidB) {
@@ -285,18 +343,52 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     );
   }
 
+  Widget _buildPresenceAvatar({
+    required _ContactPreviewData preview,
+    required ThemeData theme,
+    required bool isOnline,
+  }) {
+    final avatar = _buildContactAvatar(preview: preview, theme: theme);
+    if (!isOnline) return avatar;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        avatar,
+        Positioned(
+          right: -1,
+          bottom: -1,
+          child: Container(
+            width: 14,
+            height: 14,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFF19B35E),
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildThreadRow({
     required ThemeData theme,
     required ColorScheme colorScheme,
     required _ContactPreviewData preview,
     required bool hasUnread,
     required int unreadCount,
+    required bool isOnline,
     required VoidCallback onTap,
   }) {
     final infoText =
     preview.phone.isNotEmpty
         ? preview.phone
         : 'Tippe, um den Chat zu öffnen';
+    final subtitle =
+    isOnline
+        ? (preview.phone.isNotEmpty ? 'Online jetzt • $infoText' : 'Online jetzt')
+        : infoText;
 
     return Container(
       decoration: BoxDecoration(
@@ -323,7 +415,11 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildContactAvatar(preview: preview, theme: theme),
+              _buildPresenceAvatar(
+                preview: preview,
+                theme: theme,
+                isOnline: isOnline,
+              ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
@@ -340,7 +436,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      infoText,
+                      subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(
@@ -921,43 +1017,57 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                             imageUrl: '',
                           );
 
-                  return Dismissible(
-                    key: ValueKey(doc.id),
-                    direction: DismissDirection.endToStart,
-                    background: Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      alignment: Alignment.centerRight,
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      decoration: BoxDecoration(
-                        color: colorScheme.error.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Icon(
-                        Icons.delete_outline,
-                        color: colorScheme.error,
-                      ),
-                    ),
-                    confirmDismiss: (_) async {
-                      await _hideThreadForCurrentUser(doc.id, currentUserId);
-                      return true;
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _buildThreadRow(
-                        theme: theme,
-                        colorScheme: colorScheme,
-                        preview: preview,
-                        hasUnread: hasUnread,
-                        unreadCount: unreadCount,
-                        onTap: () {
-                          _openContact(
-                            contactId: otherId,
-                            contactName: preview.name,
-                            phoneNumber: preview.phone,
-                          );
+                  return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                    stream:
+                    FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(otherId)
+                        .snapshots(),
+                    builder: (context, presenceSnapshot) {
+                      final isOnline = _isUserOnline(
+                        presenceSnapshot.data?.data(),
+                      );
+
+                      return Dismissible(
+                        key: ValueKey(doc.id),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          decoration: BoxDecoration(
+                            color: colorScheme.error.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Icon(
+                            Icons.delete_outline,
+                            color: colorScheme.error,
+                          ),
+                        ),
+                        confirmDismiss: (_) async {
+                          await _hideThreadForCurrentUser(doc.id, currentUserId);
+                          return true;
                         },
-                      ),
-                    ),
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _buildThreadRow(
+                            theme: theme,
+                            colorScheme: colorScheme,
+                            preview: preview,
+                            hasUnread: hasUnread,
+                            unreadCount: unreadCount,
+                            isOnline: isOnline,
+                            onTap: () {
+                              _openContact(
+                                contactId: otherId,
+                                contactName: preview.name,
+                                phoneNumber: preview.phone,
+                              );
+                            },
+                          ),
+                        ),
+                      );
+                    },
                   );
                 },
               );

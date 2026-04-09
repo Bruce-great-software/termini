@@ -159,7 +159,7 @@ void main() {
     messaging.onMessageController.add(
       RemoteMessage(data: <String, dynamic>{'badgeCount': 0}),
     );
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(notifications.shownMessages.length, 2);
     expect(notifications.badgeCounts, <int>[5, 0]);
