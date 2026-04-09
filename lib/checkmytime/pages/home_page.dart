@@ -407,14 +407,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     required bool isOnline,
     required VoidCallback onTap,
   }) {
-    final infoText =
-    preview.phone.isNotEmpty
-        ? preview.phone
-        : 'Tippe, um den Chat zu öffnen';
-    final subtitle =
-    isOnline
-        ? (preview.phone.isNotEmpty ? 'Online jetzt • $infoText' : 'Online jetzt')
-        : infoText;
+    final subtitle = isOnline ? 'Online jetzt' : '';
 
     return Container(
       decoration: BoxDecoration(
@@ -479,14 +472,8 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                   if (hasUnread)
                     _NewItemsBadge(count: unreadCount)
                   else
-                    Text(
-                      'Alles gelesen',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  const SizedBox(height: 10),
+
+
                   Icon(
                     Icons.arrow_forward_rounded,
                     color:
