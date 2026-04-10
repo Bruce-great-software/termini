@@ -7,8 +7,19 @@ import 'package:termini/checkmytime/widgets/checkmytime_ui.dart';
 
 class CreateEventPage extends StatefulWidget {
   final String? eventId;
+  final String? initialSelectedUserId;
+  final String? initialSelectedUserName;
+  final String? initialSelectedUserPhone;
+  final String? initialSelectedUserImageUrl;
 
-  const CreateEventPage({super.key, this.eventId});
+  const CreateEventPage({
+    super.key,
+    this.eventId,
+    this.initialSelectedUserId,
+    this.initialSelectedUserName,
+    this.initialSelectedUserPhone,
+    this.initialSelectedUserImageUrl,
+  });
 
   bool get isEditMode => eventId != null && eventId!.trim().isNotEmpty;
 
@@ -89,9 +100,27 @@ class _CreateEventPageState extends State<CreateEventPage> {
   @override
   void initState() {
     super.initState();
+    _applyInitialSelectedUser();
     if (_isEditMode) {
       _loadExistingEvent();
     }
+  }
+
+  void _applyInitialSelectedUser() {
+    final userId = (widget.initialSelectedUserId ?? '').trim();
+    if (userId.isEmpty) return;
+
+    _selectedUsers = [
+      _SelectableUser(
+        id: userId,
+        name: (widget.initialSelectedUserName ?? '').trim().isEmpty
+            ? 'Unbekannt'
+            : (widget.initialSelectedUserName ?? '').trim(),
+        phone: (widget.initialSelectedUserPhone ?? '').trim(),
+        imageUrl: (widget.initialSelectedUserImageUrl ?? '').trim(),
+        selected: true,
+      ),
+    ];
   }
 
   @override
