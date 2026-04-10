@@ -338,28 +338,65 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     return 'pending';
   }
 
-  String _responseLabel(String response) {
-    switch (response) {
+  String _displayStatusForCard({
+    required Map<String, dynamic> data,
+    required bool isCreatedByMe,
+    required String myResponse,
+    required String contactResponse,
+  }) {
+    final rawStatus = (data['status'] ?? '').toString().trim();
+    if (rawStatus == 'cancelled' || rawStatus == 'done' || rawStatus == 'open') {
+      return rawStatus;
+    }
+
+    final visibleResponse = isCreatedByMe ? contactResponse : myResponse;
+    if (visibleResponse == 'declined' ||
+        visibleResponse == 'maybe' ||
+        visibleResponse == 'pending') {
+      return visibleResponse;
+    }
+
+    if (rawStatus == 'confirmed') {
+      return 'confirmed';
+    }
+
+    return 'accepted';
+  }
+
+  String _statusLabel(String status) {
+    switch (status) {
       case 'accepted':
+      case 'confirmed':
         return 'Bestätigt';
       case 'declined':
         return 'Abgelehnt';
       case 'maybe':
         return 'Vielleicht';
+      case 'open':
+        return 'Offen';
+      case 'cancelled':
+        return 'Abgesagt';
+      case 'done':
+        return 'Abgeschlossen';
       case 'pending':
       default:
         return 'Ausstehend';
     }
   }
 
-  Color _responseColor(ColorScheme colorScheme, String response) {
-    switch (response) {
+  Color _statusColor(ColorScheme colorScheme, String status) {
+    switch (status) {
       case 'accepted':
+      case 'confirmed':
+      case 'done':
         return Colors.green;
       case 'declined':
+      case 'cancelled':
         return colorScheme.error;
       case 'maybe':
         return Colors.orange;
+      case 'open':
+        return Colors.deepPurple;
       case 'pending':
       default:
         return colorScheme.primary;
@@ -684,6 +721,36 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     );
   }
 
+  Widget _buildInfoPill({
+    required ThemeData theme,
+    required Color backgroundColor,
+    required Color foregroundColor,
+    required IconData icon,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: foregroundColor),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: foregroundColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPlanCard({
     required ThemeData theme,
     required ColorScheme colorScheme,
@@ -700,9 +767,17 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     final myResponse = _responseForUser(data, currentUserId);
     final contactResponse = _responseForUser(data, widget.contactId);
     final isCreatedByMe = createdBy == currentUserId;
-    final visibleResponse = isCreatedByMe ? contactResponse : myResponse;
-    final statusColor = _responseColor(colorScheme, visibleResponse);
+    final displayedStatus = _displayStatusForCard(
+      data: data,
+      isCreatedByMe: isCreatedByMe,
+      myResponse: myResponse,
+      contactResponse: contactResponse,
+    );
+    final statusColor = _statusColor(colorScheme, displayedStatus);
     final isUpdating = _updatingEventIds.contains(eventId);
+    final metaText = isCreatedByMe
+        ? 'Von dir vorgeschlagen'
+        : 'Von $safeName vorgeschlagen';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -716,7 +791,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
         children: [
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: colorScheme.primary.withValues(alpha: 0.95),
               borderRadius: const BorderRadius.only(
@@ -725,36 +800,81 @@ class _ContactThreadPageState extends State<ContactThreadPage>
               ),
             ),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(
-                  Icons.calendar_today_outlined,
-                  size: 16,
-                  color: Colors.white,
-                ),
-                const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    _formatDateHeader(timestamp),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.calendar_today_outlined,
+                            size: 16,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _formatDateHeader(timestamp),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.schedule_outlined,
+                            size: 16,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _formatTime(timestamp),
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 10),
-                const Icon(
-                  Icons.schedule_outlined,
-                  size: 16,
-                  color: Colors.white,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  _formatTime(timestamp),
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
+                const SizedBox(width: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.18),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _kindIcon(kind),
+                        size: 14,
+                        color: Colors.white,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _kindLabel(kind),
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -763,99 +883,66 @@ class _ContactThreadPageState extends State<ContactThreadPage>
           Padding(
             padding: const EdgeInsets.all(14),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildContactAvatar(theme, safeName),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  safeName,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: colorScheme.primary.withValues(alpha: 0.10),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      _kindIcon(kind),
-                                      size: 14,
-                                      color: colorScheme.primary,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      _kindLabel(kind),
-                                      style: theme.textTheme.labelMedium?.copyWith(
-                                        color: colorScheme.primary,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            title.isEmpty ? 'Ohne Titel' : title,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            isCreatedByMe
-                                ? 'Von dir erstellt'
-                                : 'Von $safeName vorgeschlagen',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          if (description.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              description,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: colorScheme.onSurface,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
+                Text(
+                  title.isEmpty ? 'Ohne Titel' : title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (description.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    description,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurface,
+                      height: 1.35,
                     ),
-                    const SizedBox(width: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _buildInfoPill(
+                      theme: theme,
+                      backgroundColor: statusColor.withValues(alpha: 0.10),
+                      foregroundColor: statusColor,
+                      icon: displayedStatus == 'declined' || displayedStatus == 'cancelled'
+                          ? Icons.close_rounded
+                          : displayedStatus == 'open'
+                          ? Icons.public_rounded
+                          : displayedStatus == 'done'
+                          ? Icons.check_circle_rounded
+                          : Icons.schedule_rounded,
+                      label: _statusLabel(displayedStatus),
+                    ),
+                    if (timestamp != null)
+                      _buildInfoPill(
+                        theme: theme,
+                        backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.75),
+                        foregroundColor: colorScheme.onSurfaceVariant,
+                        icon: Icons.access_time_rounded,
+                        label: _formatTime(timestamp),
                       ),
-                      decoration: BoxDecoration(
-                        color: statusColor.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.person_outline_rounded,
+                      size: 16,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
                       child: Text(
-                        _responseLabel(visibleResponse),
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: statusColor,
-                          fontWeight: FontWeight.w700,
+                        metaText,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ),
@@ -866,7 +953,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                   if (isUpdating)
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 8),
-                      child: CircularProgressIndicator(),
+                      child: Center(child: CircularProgressIndicator()),
                     )
                   else
                     Row(
