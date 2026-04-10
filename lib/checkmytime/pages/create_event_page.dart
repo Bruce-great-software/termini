@@ -100,9 +100,10 @@ class _CreateEventPageState extends State<CreateEventPage> {
   @override
   void initState() {
     super.initState();
-    _applyInitialSelectedUser();
     if (_isEditMode) {
       _loadExistingEvent();
+    } else {
+      _applyInitialSelectedUser();
     }
   }
 
@@ -110,14 +111,16 @@ class _CreateEventPageState extends State<CreateEventPage> {
     final userId = (widget.initialSelectedUserId ?? '').trim();
     if (userId.isEmpty) return;
 
-    _selectedUsers = [
+    final userName = (widget.initialSelectedUserName ?? '').trim();
+    final userPhone = (widget.initialSelectedUserPhone ?? '').trim();
+    final userImageUrl = (widget.initialSelectedUserImageUrl ?? '').trim();
+
+    _selectedUsers = <_SelectableUser>[
       _SelectableUser(
         id: userId,
-        name: (widget.initialSelectedUserName ?? '').trim().isEmpty
-            ? 'Unbekannt'
-            : (widget.initialSelectedUserName ?? '').trim(),
-        phone: (widget.initialSelectedUserPhone ?? '').trim(),
-        imageUrl: (widget.initialSelectedUserImageUrl ?? '').trim(),
+        name: userName.isEmpty ? 'Unbekannt' : userName,
+        phone: userPhone,
+        imageUrl: userImageUrl,
         selected: true,
       ),
     ];
