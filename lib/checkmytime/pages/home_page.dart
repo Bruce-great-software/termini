@@ -474,13 +474,13 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                   else
 
 
-                  Icon(
-                    Icons.arrow_forward_rounded,
-                    color:
-                    hasUnread
-                        ? colorScheme.primary
-                        : colorScheme.onSurfaceVariant,
-                  ),
+                    Icon(
+                      Icons.arrow_forward_rounded,
+                      color:
+                      hasUnread
+                          ? colorScheme.primary
+                          : colorScheme.onSurfaceVariant,
+                    ),
                 ],
               ),
             ],
@@ -752,6 +752,17 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     return 'Guten Abend';
   }
 
+  String _buildGreetingWithName(String? displayName) {
+    final baseGreeting = _buildGreeting();
+    final resolvedName = (displayName ?? '').trim();
+    if (resolvedName.isEmpty) return baseGreeting;
+
+    final firstName = resolvedName.split(RegExp(r'\s+')).first.trim();
+    if (firstName.isEmpty) return baseGreeting;
+
+    return '$baseGreeting, $firstName';
+  }
+
   int _totalUnreadMessages() {
     return _knownUnreadCountsByThread.values.fold<int>(
       0,
@@ -759,13 +770,18 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     );
   }
 
-  Widget _buildHeroSection(ThemeData theme, ColorScheme colorScheme) {
+  Widget _buildHeroSection(
+      ThemeData theme,
+      ColorScheme colorScheme,
+      String? currentUserId,
+      ) {
     final unreadTotal = _totalUnreadMessages();
     final activeThreads = _knownUnreadCountsByThread.length;
+    final authDisplayName = FirebaseAuth.instance.currentUser?.displayName;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -788,38 +804,47 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              _buildGreeting(),
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+          StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            stream:
+            currentUserId == null
+                ? null
+                : FirebaseFirestore.instance
+                .collection('users')
+                .doc(currentUserId)
+                .snapshots(),
+            builder: (context, snapshot) {
+              final userData = snapshot.data?.data();
+              final firestoreName =
+              (userData?['displayName'] ?? userData?['name'] ?? '')
+                  .toString()
+                  .trim();
+              final greetingText = _buildGreetingWithName(
+                firestoreName.isNotEmpty ? firestoreName : authDisplayName,
+              );
+
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  greetingText,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 14),
+          Divider(
+            height: 1,
+            thickness: 1,
+            color: Colors.white.withValues(alpha: 0.28),
           ),
           const SizedBox(height: 18),
-          Text(
-            'Alles Wichtige an einem Ort',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-              height: 1.1,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'Starte neue Unterhaltungen, behalte offene Termine im Blick und springe schneller in deine wichtigsten Bereiche.',
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: Colors.white.withValues(alpha: 0.88),
-              height: 1.35,
-            ),
-          ),
-          const SizedBox(height: 22),
           Row(
             children: [
               Expanded(
@@ -841,6 +866,117 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildOnlineUsersSection(
+      ThemeData theme,
+      ColorScheme colorScheme,
+      String? currentUserId,
+      ) {
+    if (currentUserId == null) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream:
+      FirebaseFirestore.instance
+          .collection('users')
+          .where('isOnline', isEqualTo: true)
+          .limit(12)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const SizedBox.shrink();
+        }
+
+        final onlineUsers = snapshot.data!.docs.where((doc) {
+          if (doc.id == currentUserId) return false;
+          return _isUserOnline(doc.data());
+        }).toList()
+          ..sort((a, b) {
+            final aName =
+            (a.data()['displayName'] ?? a.data()['name'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
+            final bName =
+            (b.data()['displayName'] ?? b.data()['name'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
+            return aName.compareTo(bName);
+          });
+
+        if (onlineUsers.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final visibleUsers = onlineUsers.take(10).toList();
+
+        return Container(
+          margin: const EdgeInsets.only(top: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: colorScheme.outlineVariant),
+            boxShadow: [
+              BoxShadow(
+                color: colorScheme.shadow.withValues(alpha: 0.04),
+                blurRadius: 18,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: SizedBox(
+            height: 58,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: visibleUsers.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final doc = visibleUsers[index];
+                final data = doc.data();
+                final displayName =
+                (data['displayName'] ?? data['name'] ?? 'Unbekannt')
+                    .toString()
+                    .trim();
+                final preview = _ContactPreviewData(
+                  name: displayName.isEmpty ? 'Unbekannt' : displayName,
+                  phone: (data['phoneNumber'] ?? '').toString().trim(),
+                  imageUrl: (data['profileImageUrl'] ?? '').toString().trim(),
+                );
+
+                return Tooltip(
+                  message: preview.name,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(18),
+                    onTap: () {
+                      _openContact(
+                        contactId: doc.id,
+                        contactName: preview.name,
+                        phoneNumber: preview.phone,
+                      );
+                    },
+                    child: SizedBox(
+                      width: 54,
+                      child: Center(
+                        child: _buildPresenceAvatar(
+                          preview: preview,
+                          theme: theme,
+                          isOnline: true,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1195,8 +1331,9 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
       children: [
-        _buildHeroSection(theme, colorScheme),
-        const SizedBox(height: 20),
+        _buildHeroSection(theme, colorScheme, currentUserId),
+        _buildOnlineUsersSection(theme, colorScheme, currentUserId),
+        const SizedBox(height: 16),
         _buildSearchPanel(theme, colorScheme),
         if (_searchQuery.isNotEmpty)
           _buildSearchResults()
