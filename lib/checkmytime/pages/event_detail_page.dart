@@ -31,6 +31,10 @@ class _EventDetailPageState extends State<EventDetailPage> {
 
   String get _currentUserId => FirebaseAuth.instance.currentUser?.uid ?? '';
 
+  Timestamp? _scheduledTimestamp(Map<String, dynamic> data) {
+    return data['scheduledAt'] as Timestamp? ?? data['eventDate'] as Timestamp?;
+  }
+
   String _formatHeaderDate(Timestamp? timestamp) {
     if (timestamp == null) return 'Kein Datum';
     return DateFormat('EEEE, d. MMMM yyyy', 'de_DE').format(timestamp.toDate());
@@ -56,54 +60,188 @@ class _EventDetailPageState extends State<EventDetailPage> {
       if (value.isNotEmpty) return value;
     }
 
+    final scheduledAt = _scheduledTimestamp(data)?.toDate();
+    if (scheduledAt != null &&
+        (scheduledAt.hour != 0 || scheduledAt.minute != 0)) {
+      return DateFormat('HH:mm', 'de_DE').format(scheduledAt);
+    }
+
     return 'Ganztägig';
   }
 
-  String _eventTypeLabel(String rawType) {
-    switch (rawType) {
-      case 'private':
-        return 'Privat';
-      case 'invite':
-        return 'Einladung';
+  String _normalizeKind(Map<String, dynamic> data) {
+    final raw = (data['kind'] ?? data['type'] ?? 'open').toString().trim();
+    switch (raw) {
+      case 'appointment':
+      case 'activity':
+      case 'service':
       case 'open':
+        return raw;
       default:
-        return 'Offenes Event';
+        return 'open';
     }
   }
 
-  String _currentUserStatus(Map<String, dynamic> data) {
+  String _kindLabel(Map<String, dynamic> data) {
+    switch (_normalizeKind(data)) {
+      case 'appointment':
+        return 'Termin';
+      case 'activity':
+        return 'Treffen';
+      case 'service':
+        return 'Dienstleistung';
+      case 'open':
+      default:
+        return 'Event';
+    }
+  }
+
+  Color _kindColor(ColorScheme colorScheme, Map<String, dynamic> data) {
+    switch (_normalizeKind(data)) {
+      case 'appointment':
+        return Colors.indigo;
+      case 'activity':
+        return Colors.teal;
+      case 'service':
+        return Colors.deepOrange;
+      case 'open':
+      default:
+        return colorScheme.primary;
+    }
+  }
+
+  String _overallStatus(Map<String, dynamic> data) {
+    final raw = (data['status'] ?? '').toString().trim();
+    if (raw.isEmpty) return 'pending';
+    return raw;
+  }
+
+  String _responseForUser(Map<String, dynamic> data, String userId) {
+    final responseMap = Map<String, dynamic>.from(
+      data['responseMap'] ?? const <String, dynamic>{},
+    );
+    final mapped = (responseMap[userId] ?? '').toString().trim();
+    if (mapped.isNotEmpty) return mapped;
+
     final accepted = List<String>.from(data['acceptedUserIds'] ?? const []);
     final maybe = List<String>.from(data['maybeUserIds'] ?? const []);
     final declined = List<String>.from(data['declinedUserIds'] ?? const []);
 
-    if (accepted.contains(_currentUserId)) return 'Zugesagt';
-    if (maybe.contains(_currentUserId)) return 'Vielleicht';
-    if (declined.contains(_currentUserId)) return 'Abgesagt';
+    if (accepted.contains(userId)) return 'accepted';
+    if (maybe.contains(userId)) return 'maybe';
+    if (declined.contains(userId)) return 'declined';
+    return 'pending';
+  }
 
-    switch (widget.view) {
-      case EventDetailView.myEvent:
-        return 'Geplant';
-      case EventDetailView.invitation:
-        return 'Eingeladen';
-      case EventDetailView.openEvent:
+  String _statusLabel(String rawStatus) {
+    switch (rawStatus) {
+      case 'accepted':
+      case 'confirmed':
+        return 'Bestätigt';
+      case 'maybe':
+        return 'Vielleicht';
+      case 'declined':
+      case 'cancelled':
+        return 'Abgelehnt';
+      case 'open':
         return 'Offen';
+      case 'done':
+        return 'Erledigt';
+      case 'pending':
+      default:
+        return 'Ausstehend';
     }
   }
 
-  Color _statusColor(ColorScheme colorScheme, String label) {
-    switch (label) {
-      case 'Zugesagt':
+  Color _statusColor(ColorScheme colorScheme, String rawStatus) {
+    switch (rawStatus) {
+      case 'accepted':
+      case 'confirmed':
         return Colors.green;
-      case 'Vielleicht':
+      case 'maybe':
         return Colors.orange;
-      case 'Abgesagt':
+      case 'declined':
+      case 'cancelled':
         return colorScheme.error;
-      case 'Geplant':
-      case 'Eingeladen':
-      case 'Offen':
+      case 'open':
+        return colorScheme.primary;
+      case 'done':
+        return Colors.teal;
+      case 'pending':
       default:
         return colorScheme.primary;
     }
+  }
+
+  _ParticipantBuckets _participantBuckets(Map<String, dynamic> data) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final memberIds = <String>{
+      ...List<String>.from(data['memberIds'] ?? const []),
+      ...List<String>.from(data['invitedUserIds'] ?? const []),
+      ...List<String>.from(data['participantIds'] ?? const []),
+      createdBy,
+    }..removeWhere((id) => id.trim().isEmpty);
+
+    final accepted = <String>{};
+    final maybe = <String>{};
+    final declined = <String>{};
+    final pending = <String>{};
+
+    final responseMap = Map<String, dynamic>.from(
+      data['responseMap'] ?? const <String, dynamic>{},
+    );
+
+    if (responseMap.isNotEmpty) {
+      for (final entry in responseMap.entries) {
+        final userId = entry.key.trim();
+        if (userId.isEmpty) continue;
+        memberIds.add(userId);
+        switch (entry.value.toString().trim()) {
+          case 'accepted':
+            accepted.add(userId);
+            break;
+          case 'maybe':
+            maybe.add(userId);
+            break;
+          case 'declined':
+            declined.add(userId);
+            break;
+          case 'pending':
+          default:
+            pending.add(userId);
+            break;
+        }
+      }
+    } else {
+      accepted.addAll(List<String>.from(data['acceptedUserIds'] ?? const []));
+      maybe.addAll(List<String>.from(data['maybeUserIds'] ?? const []));
+      declined.addAll(List<String>.from(data['declinedUserIds'] ?? const []));
+      pending.addAll(List<String>.from(data['invitedUserIds'] ?? const []));
+    }
+
+    accepted.remove(createdBy);
+    maybe.remove(createdBy);
+    declined.remove(createdBy);
+    pending.remove(createdBy);
+
+    pending.removeAll(accepted);
+    pending.removeAll(maybe);
+    pending.removeAll(declined);
+
+    return _ParticipantBuckets(
+      accepted: accepted.toList()..sort(),
+      maybe: maybe.toList()..sort(),
+      pending: pending.toList()..sort(),
+      declined: declined.toList()..sort(),
+    );
+  }
+
+  String _currentHeaderStatus(Map<String, dynamic> data) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    if (createdBy == _currentUserId) {
+      return _overallStatus(data);
+    }
+    return _responseForUser(data, _currentUserId);
   }
 
   Future<void> _setResponseStatus(String statusKey) async {
@@ -117,37 +255,62 @@ class _EventDetailPageState extends State<EventDetailPage> {
       final docRef = FirebaseFirestore.instance
           .collection('events')
           .doc(widget.eventId);
+      final snapshot = await docRef.get();
+      final data = snapshot.data() ?? <String, dynamic>{};
 
-      await docRef.update({
-        'acceptedUserIds': FieldValue.arrayRemove([_currentUserId]),
-        'maybeUserIds': FieldValue.arrayRemove([_currentUserId]),
-        'declinedUserIds': FieldValue.arrayRemove([_currentUserId]),
-      });
-
-      final Map<String, dynamic> updateData = {
-        'updatedAt': FieldValue.serverTimestamp(),
+      final createdBy = (data['createdBy'] ?? '').toString().trim();
+      final accepted = <String>{
+        ...List<String>.from(data['acceptedUserIds'] ?? const []),
       };
+      final maybe = <String>{
+        ...List<String>.from(data['maybeUserIds'] ?? const []),
+      };
+      final declined = <String>{
+        ...List<String>.from(data['declinedUserIds'] ?? const []),
+      };
+      final responseMap = Map<String, dynamic>.from(
+        data['responseMap'] ?? const <String, dynamic>{},
+      );
+
+      accepted.remove(_currentUserId);
+      maybe.remove(_currentUserId);
+      declined.remove(_currentUserId);
 
       switch (statusKey) {
         case 'accepted':
-          updateData['acceptedUserIds'] = FieldValue.arrayUnion([_currentUserId]);
+          accepted.add(_currentUserId);
+          responseMap[_currentUserId] = 'accepted';
           break;
         case 'maybe':
-          updateData['maybeUserIds'] = FieldValue.arrayUnion([_currentUserId]);
+          maybe.add(_currentUserId);
+          responseMap[_currentUserId] = 'maybe';
           break;
         case 'declined':
-          updateData['declinedUserIds'] = FieldValue.arrayUnion([_currentUserId]);
+          declined.add(_currentUserId);
+          responseMap[_currentUserId] = 'declined';
           break;
         case 'clear':
+        default:
+          responseMap[_currentUserId] = 'pending';
           break;
       }
 
-      await docRef.update(updateData);
+      final participantIds = <String>{createdBy, ...accepted}
+        ..removeWhere((id) => id.trim().isEmpty);
+
+      await docRef.update({
+        'acceptedUserIds': accepted.toList(),
+        'maybeUserIds': maybe.toList(),
+        'declinedUserIds': declined.toList(),
+        'participantIds': participantIds.toList(),
+        'responseMap': responseMap,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Dein Event-Status wurde aktualisiert.'),
+          content: Text('Dein Status wurde aktualisiert.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -281,29 +444,20 @@ class _EventDetailPageState extends State<EventDetailPage> {
 
             final title = (data['title'] ?? 'Event').toString().trim();
             final description = (data['description'] ?? '').toString().trim();
-            final location = (data['location'] ?? '').toString().trim();
+            final location =
+            (data['locationText'] ?? data['location'] ?? '').toString().trim();
             final createdBy = (data['createdBy'] ?? '').toString().trim();
             final createdByName =
             (data['createdByName'] ?? 'Unbekannt').toString().trim();
-            final rawType = (data['type'] ?? 'open').toString().trim();
-            final eventDate = data['eventDate'] as Timestamp?;
-            final invited = List<String>.from(data['invitedUserIds'] ?? const []);
-            final accepted = List<String>.from(data['acceptedUserIds'] ?? const []);
-            final maybe = List<String>.from(data['maybeUserIds'] ?? const []);
-            final declined = List<String>.from(data['declinedUserIds'] ?? const []);
-
-            final pendingInvited = invited
-                .where(
-                  (id) =>
-              !accepted.contains(id) &&
-                  !maybe.contains(id) &&
-                  !declined.contains(id),
-            )
-                .toList();
-
-            final currentStatus = _currentUserStatus(data);
-            final currentStatusColor =
-            _statusColor(colorScheme, currentStatus);
+            final scheduledAt = _scheduledTimestamp(data);
+            final kindLabel = _kindLabel(data);
+            final kindColor = _kindColor(colorScheme, data);
+            final rawHeaderStatus = _currentHeaderStatus(data);
+            final statusLabel = _statusLabel(rawHeaderStatus);
+            final statusColor = _statusColor(colorScheme, rawHeaderStatus);
+            final participantBuckets = _participantBuckets(data);
+            final currentUserResponse = _responseForUser(data, _currentUserId);
+            final isOwner = createdBy == _currentUserId;
 
             return ListView(
               physics: const BouncingScrollPhysics(),
@@ -341,7 +495,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                _formatHeaderDate(eventDate),
+                                _formatHeaderDate(scheduledAt),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.labelLarge?.copyWith(
@@ -378,10 +532,10 @@ class _EventDetailPageState extends State<EventDetailPage> {
                                 CircleAvatar(
                                   radius: 24,
                                   backgroundColor:
-                                  colorScheme.primary.withValues(alpha: 0.10),
+                                  kindColor.withValues(alpha: 0.10),
                                   child: Icon(
                                     Icons.celebration_outlined,
-                                    color: colorScheme.primary,
+                                    color: kindColor,
                                   ),
                                 ),
                                 const SizedBox(width: 12),
@@ -390,14 +544,57 @@ class _EventDetailPageState extends State<EventDetailPage> {
                                     crossAxisAlignment:
                                     CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        _eventTypeLabel(rawType),
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(
-                                          color: colorScheme.onSurfaceVariant,
-                                        ),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 6,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: kindColor.withValues(
+                                                alpha: 0.10,
+                                              ),
+                                              borderRadius:
+                                              BorderRadius.circular(999),
+                                            ),
+                                            child: Text(
+                                              kindLabel,
+                                              style: theme.textTheme.labelMedium
+                                                  ?.copyWith(
+                                                color: kindColor,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 6,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: statusColor.withValues(
+                                                alpha: 0.10,
+                                              ),
+                                              borderRadius:
+                                              BorderRadius.circular(999),
+                                            ),
+                                            child: Text(
+                                              statusLabel,
+                                              style: theme.textTheme.labelMedium
+                                                  ?.copyWith(
+                                                color: statusColor,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                      const SizedBox(height: 4),
+                                      const SizedBox(height: 10),
                                       Text(
                                         title,
                                         style: theme.textTheme.headlineSmall
@@ -405,27 +602,18 @@ class _EventDetailPageState extends State<EventDetailPage> {
                                           fontWeight: FontWeight.w700,
                                         ),
                                       ),
+                                      if (description.isNotEmpty) ...[
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          description,
+                                          style: theme.textTheme.bodyMedium
+                                              ?.copyWith(
+                                            color:
+                                            colorScheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ],
                                     ],
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color:
-                                    currentStatusColor.withValues(alpha: 0.10),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    currentStatus,
-                                    style:
-                                    theme.textTheme.labelMedium?.copyWith(
-                                      color: currentStatusColor,
-                                      fontWeight: FontWeight.w700,
-                                    ),
                                   ),
                                 ),
                               ],
@@ -437,7 +625,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
                               children: [
                                 _DetailChip(
                                   icon: Icons.event_outlined,
-                                  label: _formatShortDate(eventDate),
+                                  label: _formatShortDate(scheduledAt),
                                 ),
                                 _DetailChip(
                                   icon: Icons.schedule_outlined,
@@ -450,7 +638,9 @@ class _EventDetailPageState extends State<EventDetailPage> {
                                   ),
                                 _DetailChip(
                                   icon: Icons.person_outline,
-                                  label: createdByName,
+                                  label: createdByName.isEmpty
+                                      ? 'Unbekannt'
+                                      : createdByName,
                                 ),
                               ],
                             ),
@@ -462,44 +652,32 @@ class _EventDetailPageState extends State<EventDetailPage> {
                 ),
                 const SizedBox(height: 14),
                 _DetailSection(
-                  title: 'Beschreibung',
-                  child: Text(
-                    description.isEmpty
-                        ? 'Für dieses Event wurde noch keine Beschreibung hinterlegt.'
-                        : description,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _DetailSection(
                   title: 'Teilnehmerstatus',
                   child: Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
                       _StatusCounterChip(
-                        icon: Icons.mail_outline,
-                        label: 'Einladungen',
-                        count: invited.length,
-                      ),
-                      _StatusCounterChip(
                         icon: Icons.check_circle_outline,
-                        label: 'Zugesagt',
-                        count: accepted.length,
+                        label: 'Bestätigt',
+                        count: participantBuckets.accepted.length,
                         color: Colors.green,
                       ),
                       _StatusCounterChip(
                         icon: Icons.help_outline,
                         label: 'Vielleicht',
-                        count: maybe.length,
+                        count: participantBuckets.maybe.length,
                         color: Colors.orange,
                       ),
                       _StatusCounterChip(
+                        icon: Icons.mail_outline,
+                        label: 'Ausstehend',
+                        count: participantBuckets.pending.length,
+                      ),
+                      _StatusCounterChip(
                         icon: Icons.cancel_outlined,
-                        label: 'Abgesagt',
-                        count: declined.length,
+                        label: 'Abgelehnt',
+                        count: participantBuckets.declined.length,
                         color: colorScheme.error,
                       ),
                     ],
@@ -509,10 +687,10 @@ class _EventDetailPageState extends State<EventDetailPage> {
                 _ParticipantGroupsSection(
                   createdBy: createdBy,
                   createdByName: createdByName,
-                  acceptedIds: accepted,
-                  maybeIds: maybe,
-                  pendingInvitedIds: pendingInvited,
-                  declinedIds: declined,
+                  acceptedIds: participantBuckets.accepted,
+                  maybeIds: participantBuckets.maybe,
+                  pendingIds: participantBuckets.pending,
+                  declinedIds: participantBuckets.declined,
                   currentUserId: _currentUserId,
                 ),
                 const SizedBox(height: 14),
@@ -520,7 +698,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   context: context,
                   theme: theme,
                   colorScheme: colorScheme,
-                  currentStatus: currentStatus,
+                  currentUserResponse: currentUserResponse,
+                  isOwner: isOwner,
                 ),
               ],
             );
@@ -534,121 +713,104 @@ class _EventDetailPageState extends State<EventDetailPage> {
     required BuildContext context,
     required ThemeData theme,
     required ColorScheme colorScheme,
-    required String currentStatus,
+    required String currentUserResponse,
+    required bool isOwner,
   }) {
-    switch (widget.view) {
-      case EventDetailView.myEvent:
-        return _DetailSection(
-          title: 'Aktionen',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              OutlinedButton.icon(
-                onPressed: _openEditPage,
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('Event bearbeiten'),
-              ),
-              const SizedBox(height: 10),
-              FilledButton.icon(
-                onPressed: _isDeleting ? null : _deleteEvent,
-                icon: _isDeleting
-                    ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-                    : const Icon(Icons.delete_outline),
-                label: const Text('Event löschen'),
-              ),
-            ],
-          ),
-        );
-      case EventDetailView.invitation:
-        return _DetailSection(
-          title: 'Deine Antwort',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  _ResponseButton(
-                    label: 'Zusagen',
-                    icon: Icons.check_circle_outline,
-                    isSelected: currentStatus == 'Zugesagt',
-                    color: Colors.green,
-                    isLoading: _isUpdatingStatus,
-                    onPressed: () => _setResponseStatus('accepted'),
-                  ),
-                  _ResponseButton(
-                    label: 'Vielleicht',
-                    icon: Icons.help_outline,
-                    isSelected: currentStatus == 'Vielleicht',
-                    color: Colors.orange,
-                    isLoading: _isUpdatingStatus,
-                    onPressed: () => _setResponseStatus('maybe'),
-                  ),
-                  _ResponseButton(
-                    label: 'Absagen',
-                    icon: Icons.cancel_outlined,
-                    isSelected: currentStatus == 'Abgesagt',
-                    color: colorScheme.error,
-                    isLoading: _isUpdatingStatus,
-                    onPressed: () => _setResponseStatus('declined'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      case EventDetailView.openEvent:
-        return _DetailSection(
-          title: 'Teilnahme',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Du kannst Interesse zeigen oder direkt teilnehmen. Dein Status wird danach sofort in der Übersicht aktualisiert.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  _ResponseButton(
-                    label: 'Interesse',
-                    icon: Icons.favorite_border,
-                    isSelected: currentStatus == 'Vielleicht',
-                    color: Colors.orange,
-                    isLoading: _isUpdatingStatus,
-                    onPressed: () => _setResponseStatus('maybe'),
-                  ),
-                  _ResponseButton(
-                    label: 'Teilnehmen',
-                    icon: Icons.check_circle_outline,
-                    isSelected: currentStatus == 'Zugesagt',
-                    color: Colors.green,
-                    isLoading: _isUpdatingStatus,
-                    onPressed: () => _setResponseStatus('accepted'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _isUpdatingStatus
-                        ? null
-                        : () => _setResponseStatus('clear'),
-                    icon: const Icon(Icons.refresh_outlined),
-                    label: const Text('Zurücksetzen'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
+    if (isOwner) {
+      return _DetailSection(
+        title: 'Aktionen',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _openEditPage,
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Event bearbeiten'),
+            ),
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              onPressed: _isDeleting ? null : _deleteEvent,
+              icon: _isDeleting
+                  ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+                  : const Icon(Icons.delete_outline),
+              label: const Text('Event löschen'),
+            ),
+          ],
+        ),
+      );
     }
+
+    return _DetailSection(
+      title: 'Deine Antwort',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Du kannst hier direkt zusagen, vielleicht markieren oder absagen. Deine Antwort wird sofort in den Uebersichten aktualisiert.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _ResponseButton(
+                label: 'Zusagen',
+                icon: Icons.check_circle_outline,
+                isSelected: currentUserResponse == 'accepted',
+                color: Colors.green,
+                isLoading: _isUpdatingStatus,
+                onPressed: () => _setResponseStatus('accepted'),
+              ),
+              _ResponseButton(
+                label: 'Vielleicht',
+                icon: Icons.help_outline,
+                isSelected: currentUserResponse == 'maybe',
+                color: Colors.orange,
+                isLoading: _isUpdatingStatus,
+                onPressed: () => _setResponseStatus('maybe'),
+              ),
+              _ResponseButton(
+                label: 'Absagen',
+                icon: Icons.cancel_outlined,
+                isSelected: currentUserResponse == 'declined',
+                color: colorScheme.error,
+                isLoading: _isUpdatingStatus,
+                onPressed: () => _setResponseStatus('declined'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isUpdatingStatus
+                    ? null
+                    : () => _setResponseStatus('clear'),
+                icon: const Icon(Icons.refresh_outlined),
+                label: const Text('Zurücksetzen'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
+}
+
+class _ParticipantBuckets {
+  final List<String> accepted;
+  final List<String> maybe;
+  final List<String> pending;
+  final List<String> declined;
+
+  const _ParticipantBuckets({
+    required this.accepted,
+    required this.maybe,
+    required this.pending,
+    required this.declined,
+  });
 }
 
 class _ParticipantGroupsSection extends StatelessWidget {
@@ -656,7 +818,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
   final String createdByName;
   final List<String> acceptedIds;
   final List<String> maybeIds;
-  final List<String> pendingInvitedIds;
+  final List<String> pendingIds;
   final List<String> declinedIds;
   final String currentUserId;
 
@@ -665,7 +827,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
     required this.createdByName,
     required this.acceptedIds,
     required this.maybeIds,
-    required this.pendingInvitedIds,
+    required this.pendingIds,
     required this.declinedIds,
     required this.currentUserId,
   });
@@ -676,9 +838,11 @@ class _ParticipantGroupsSection extends StatelessWidget {
     for (final id in ids) {
       if (id.trim().isEmpty) continue;
       try {
-        final doc = await FirebaseFirestore.instance.collection('users').doc(id).get();
+        final doc =
+        await FirebaseFirestore.instance.collection('users').doc(id).get();
         final data = doc.data() ?? <String, dynamic>{};
-        final name = (data['displayName'] ?? data['name'] ?? '').toString().trim();
+        final name =
+        (data['displayName'] ?? data['name'] ?? '').toString().trim();
         result[id] = name.isEmpty ? 'Unbekannt' : name;
       } catch (_) {
         result[id] = 'Unbekannt';
@@ -694,7 +858,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
       createdBy,
       ...acceptedIds,
       ...maybeIds,
-      ...pendingInvitedIds,
+      ...pendingIds,
       ...declinedIds,
     }..removeWhere((id) => id.trim().isEmpty);
 
@@ -707,30 +871,30 @@ class _ParticipantGroupsSection extends StatelessWidget {
             : (loadedNames[createdBy] ?? 'Unbekannt');
 
         return _DetailSection(
-          title: 'Teilnehmer & Einladungen',
+          title: 'Teilnehmer & Antworten',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _ParticipantGroup(
-                title: 'Veranstalter',
-                emptyLabel: 'Kein Veranstalter hinterlegt.',
+                title: 'Erstellt von',
+                emptyLabel: 'Kein Ersteller hinterlegt.',
                 people: [
                   _ParticipantItemData(
                     name: resolvedCreatorName,
-                    status: 'Veranstalter',
+                    status: 'Ersteller',
                     isCurrentUser: createdBy == currentUserId,
                   ),
                 ],
               ),
               const SizedBox(height: 12),
               _ParticipantGroup(
-                title: 'Zugesagt',
-                emptyLabel: 'Noch keine Zusagen.',
+                title: 'Bestätigt',
+                emptyLabel: 'Noch keine Bestätigungen.',
                 people: acceptedIds
                     .map(
                       (id) => _ParticipantItemData(
                     name: loadedNames[id] ?? 'Unbekannt',
-                    status: 'Zugesagt',
+                    status: 'Bestätigt',
                     isCurrentUser: id == currentUserId,
                   ),
                 )
@@ -739,7 +903,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
               const SizedBox(height: 12),
               _ParticipantGroup(
                 title: 'Vielleicht',
-                emptyLabel: 'Noch keine Interessenten.',
+                emptyLabel: 'Noch keine Vielleicht-Antworten.',
                 people: maybeIds
                     .map(
                       (id) => _ParticipantItemData(
@@ -752,13 +916,13 @@ class _ParticipantGroupsSection extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               _ParticipantGroup(
-                title: 'Eingeladen',
-                emptyLabel: 'Aktuell keine offenen Einladungen.',
-                people: pendingInvitedIds
+                title: 'Ausstehend',
+                emptyLabel: 'Keine offenen Antworten.',
+                people: pendingIds
                     .map(
                       (id) => _ParticipantItemData(
                     name: loadedNames[id] ?? 'Unbekannt',
-                    status: 'Eingeladen',
+                    status: 'Ausstehend',
                     isCurrentUser: id == currentUserId,
                   ),
                 )
@@ -766,13 +930,13 @@ class _ParticipantGroupsSection extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               _ParticipantGroup(
-                title: 'Abgesagt',
-                emptyLabel: 'Bisher keine Absagen.',
+                title: 'Abgelehnt',
+                emptyLabel: 'Bisher keine Ablehnungen.',
                 people: declinedIds
                     .map(
                       (id) => _ParticipantItemData(
                     name: loadedNames[id] ?? 'Unbekannt',
-                    status: 'Abgesagt',
+                    status: 'Abgelehnt',
                     isCurrentUser: id == currentUserId,
                   ),
                 )
@@ -813,14 +977,14 @@ class _ParticipantGroup extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     switch (status) {
-      case 'Veranstalter':
-      case 'Eingeladen':
+      case 'Ersteller':
+      case 'Ausstehend':
         return colorScheme.primary;
-      case 'Zugesagt':
+      case 'Bestätigt':
         return Colors.green;
       case 'Vielleicht':
         return Colors.orange;
-      case 'Abgesagt':
+      case 'Abgelehnt':
         return colorScheme.error;
       default:
         return colorScheme.primary;
@@ -867,7 +1031,8 @@ class _ParticipantGroup extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 18,
-                      backgroundColor: colorScheme.primary.withValues(alpha: 0.10),
+                      backgroundColor:
+                      colorScheme.primary.withValues(alpha: 0.10),
                       child: Text(
                         person.name.isNotEmpty
                             ? person.name.characters.first.toUpperCase()

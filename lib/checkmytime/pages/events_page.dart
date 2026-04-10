@@ -28,6 +28,10 @@ class _EventsPageState extends State<EventsPage>
     super.dispose();
   }
 
+  Timestamp? _scheduledTimestamp(Map<String, dynamic> data) {
+    return data['scheduledAt'] as Timestamp? ?? data['eventDate'] as Timestamp?;
+  }
+
   String _formatHeaderDate(Timestamp? timestamp) {
     if (timestamp == null) return 'Kein Datum';
     return DateFormat('EEEE, d. MMMM', 'de_DE').format(timestamp.toDate());
@@ -53,6 +57,12 @@ class _EventsPageState extends State<EventsPage>
       if (value.isNotEmpty) return value;
     }
 
+    final scheduledAt = _scheduledTimestamp(data)?.toDate();
+    if (scheduledAt != null &&
+        (scheduledAt.hour != 0 || scheduledAt.minute != 0)) {
+      return DateFormat('HH:mm', 'de_DE').format(scheduledAt);
+    }
+
     return 'Ganztägig';
   }
 
@@ -61,8 +71,8 @@ class _EventsPageState extends State<EventsPage>
       ) {
     final sorted = docs.toList();
     sorted.sort((a, b) {
-      final aDate = a.data()['eventDate'] as Timestamp?;
-      final bDate = b.data()['eventDate'] as Timestamp?;
+      final aDate = _scheduledTimestamp(a.data());
+      final bDate = _scheduledTimestamp(b.data());
 
       if (aDate == null && bDate == null) return 0;
       if (aDate == null) return 1;
@@ -72,42 +82,120 @@ class _EventsPageState extends State<EventsPage>
     return sorted;
   }
 
-  String _inviteStatusLabel(Map<String, dynamic> data, String currentUserId) {
-    final accepted = List<String>.from(data['acceptedUserIds'] ?? const []);
-    final maybe = List<String>.from(data['maybeUserIds'] ?? const []);
-    final declined = List<String>.from(data['declinedUserIds'] ?? const []);
-
-    if (accepted.contains(currentUserId)) return 'Zugesagt';
-    if (maybe.contains(currentUserId)) return 'Vielleicht';
-    if (declined.contains(currentUserId)) return 'Abgesagt';
-    return 'Eingeladen';
+  String _normalizeKind(Map<String, dynamic> data) {
+    final raw = (data['kind'] ?? data['type'] ?? 'open').toString().trim();
+    switch (raw) {
+      case 'appointment':
+      case 'activity':
+      case 'service':
+      case 'open':
+        return raw;
+      default:
+        return 'open';
+    }
   }
 
-  String _openEventStatusLabel(Map<String, dynamic> data, String currentUserId) {
-    final accepted = List<String>.from(data['acceptedUserIds'] ?? const []);
-    final maybe = List<String>.from(data['maybeUserIds'] ?? const []);
-    final declined = List<String>.from(data['declinedUserIds'] ?? const []);
-
-    if (accepted.contains(currentUserId)) return 'Zugesagt';
-    if (maybe.contains(currentUserId)) return 'Vielleicht';
-    if (declined.contains(currentUserId)) return 'Abgesagt';
-    return 'Offen';
+  String _kindLabel(Map<String, dynamic> data) {
+    switch (_normalizeKind(data)) {
+      case 'appointment':
+        return 'Termin';
+      case 'activity':
+        return 'Treffen';
+      case 'service':
+        return 'Dienstleistung';
+      case 'open':
+      default:
+        return 'Event';
+    }
   }
 
-  Color _statusColor(ColorScheme colorScheme, String label) {
-    switch (label) {
-      case 'Zugesagt':
-        return Colors.green;
-      case 'Vielleicht':
-        return Colors.orange;
-      case 'Abgesagt':
-        return colorScheme.error;
-      case 'Mein Event':
-      case 'Eingeladen':
-      case 'Offen':
+  Color _kindColor(ColorScheme colorScheme, Map<String, dynamic> data) {
+    switch (_normalizeKind(data)) {
+      case 'appointment':
+        return Colors.indigo;
+      case 'activity':
+        return Colors.teal;
+      case 'service':
+        return Colors.deepOrange;
+      case 'open':
       default:
         return colorScheme.primary;
     }
+  }
+
+  String _responseForUser(Map<String, dynamic> data, String currentUserId) {
+    final responseMap = Map<String, dynamic>.from(
+      data['responseMap'] ?? const <String, dynamic>{},
+    );
+    final directResponse = (responseMap[currentUserId] ?? '').toString().trim();
+    if (directResponse.isNotEmpty) return directResponse;
+
+    final accepted = List<String>.from(data['acceptedUserIds'] ?? const []);
+    final maybe = List<String>.from(data['maybeUserIds'] ?? const []);
+    final declined = List<String>.from(data['declinedUserIds'] ?? const []);
+
+    if (accepted.contains(currentUserId)) return 'accepted';
+    if (maybe.contains(currentUserId)) return 'maybe';
+    if (declined.contains(currentUserId)) return 'declined';
+    return 'pending';
+  }
+
+  String _overallStatus(Map<String, dynamic> data) {
+    final raw = (data['status'] ?? '').toString().trim();
+    if (raw.isEmpty) return 'pending';
+    return raw;
+  }
+
+  String _statusLabel(String rawStatus) {
+    switch (rawStatus) {
+      case 'accepted':
+      case 'confirmed':
+        return 'Bestätigt';
+      case 'maybe':
+        return 'Vielleicht';
+      case 'declined':
+      case 'cancelled':
+        return 'Abgelehnt';
+      case 'open':
+        return 'Offen';
+      case 'done':
+        return 'Erledigt';
+      case 'pending':
+      default:
+        return 'Ausstehend';
+    }
+  }
+
+  Color _statusColor(ColorScheme colorScheme, String rawStatus) {
+    switch (rawStatus) {
+      case 'accepted':
+      case 'confirmed':
+        return Colors.green;
+      case 'maybe':
+        return Colors.orange;
+      case 'declined':
+      case 'cancelled':
+        return colorScheme.error;
+      case 'open':
+        return colorScheme.primary;
+      case 'done':
+        return Colors.teal;
+      case 'pending':
+      default:
+        return colorScheme.primary;
+    }
+  }
+
+  String _metaText(Map<String, dynamic> data, String currentUserId) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final createdByName =
+    (data['createdByName'] ?? 'Unbekannt').toString().trim();
+
+    if (createdBy == currentUserId) {
+      return 'Von dir vorgeschlagen';
+    }
+
+    return 'Von ${createdByName.isEmpty ? 'Unbekannt' : createdByName} vorgeschlagen';
   }
 
   Widget _buildTabContent({
@@ -135,7 +223,7 @@ class _EventsPageState extends State<EventsPage>
       itemBuilder: (context, index) {
         final doc = docs[index];
         final data = doc.data();
-        final statusLabel = statusResolver(data);
+        final rawStatus = statusResolver(data);
 
         return _EventCard(
           eventId: doc.id,
@@ -145,8 +233,12 @@ class _EventsPageState extends State<EventsPage>
           formatHeaderDate: _formatHeaderDate,
           formatShortDate: _formatShortDate,
           formatTime: _formatTime,
-          statusLabel: statusLabel,
-          statusColor: _statusColor(colorScheme, statusLabel),
+          kindLabel: _kindLabel(data),
+          kindColor: _kindColor(colorScheme, data),
+          statusLabel: _statusLabel(rawStatus),
+          statusColor: _statusColor(colorScheme, rawStatus),
+          metaText: _metaText(data, currentUserId),
+          scheduledAt: _scheduledTimestamp(data),
           onTap: () {
             Navigator.of(context).push(
               MaterialPageRoute(
@@ -208,11 +300,18 @@ class _EventsPageState extends State<EventsPage>
 
             final invitedEvents = _sortEvents(
               docs.where((doc) {
+                final data = doc.data();
+                final createdBy = (data['createdBy'] ?? '').toString();
                 final invited = List<String>.from(
-                  doc.data()['invitedUserIds'] ?? const [],
+                  data['invitedUserIds'] ?? const [],
                 );
-                return invited.contains(currentUserId) &&
-                    (doc.data()['createdBy'] ?? '').toString() != currentUserId;
+                final memberIds = List<String>.from(
+                  data['memberIds'] ?? const [],
+                );
+
+                return createdBy != currentUserId &&
+                    (invited.contains(currentUserId) ||
+                        memberIds.contains(currentUserId));
               }),
             );
 
@@ -223,11 +322,20 @@ class _EventsPageState extends State<EventsPage>
                 final invited = List<String>.from(
                   data['invitedUserIds'] ?? const [],
                 );
-                final type = (data['type'] ?? 'open').toString();
+                final memberIds = List<String>.from(
+                  data['memberIds'] ?? const [],
+                );
+                final kind = _normalizeKind(data);
+                final visibility =
+                (data['visibility'] ?? '').toString().trim().toLowerCase();
 
-                return type == 'open' &&
-                    createdBy != currentUserId &&
-                    !invited.contains(currentUserId);
+                final isOpenKind = kind == 'open';
+                final isOpenVisibility = visibility == 'open';
+
+                return createdBy != currentUserId &&
+                    !invited.contains(currentUserId) &&
+                    !memberIds.contains(currentUserId) &&
+                    (isOpenKind || isOpenVisibility);
               }),
             );
 
@@ -254,7 +362,7 @@ class _EventsPageState extends State<EventsPage>
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Hier planst du gemeinsame Aktivitäten, Einladungen und offene Unternehmungen mit anderen Personen.',
+                          'Hier siehst du deine eigenen Planungen, Einladungen und offene Events in einem einheitlichen Stil.',
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
@@ -317,7 +425,7 @@ class _EventsPageState extends State<EventsPage>
                         docs: myEvents,
                         view: EventDetailView.myEvent,
                         currentUserId: currentUserId,
-                        statusResolver: (_) => 'Mein Event',
+                        statusResolver: (data) => _overallStatus(data),
                         emptyState: const _EventEmptyState(
                           icon: Icons.event_busy_outlined,
                           title: 'Noch keine eigenen Events',
@@ -333,7 +441,7 @@ class _EventsPageState extends State<EventsPage>
                         view: EventDetailView.invitation,
                         currentUserId: currentUserId,
                         statusResolver: (data) =>
-                            _inviteStatusLabel(data, currentUserId),
+                            _responseForUser(data, currentUserId),
                         emptyState: const _EventEmptyState(
                           icon: Icons.mail_outline_rounded,
                           title: 'Keine Einladungen vorhanden',
@@ -348,8 +456,7 @@ class _EventsPageState extends State<EventsPage>
                         docs: openEvents,
                         view: EventDetailView.openEvent,
                         currentUserId: currentUserId,
-                        statusResolver: (data) =>
-                            _openEventStatusLabel(data, currentUserId),
+                        statusResolver: (_) => 'open',
                         emptyState: const _EventEmptyState(
                           icon: Icons.public_off_outlined,
                           title: 'Keine offenen Events',
@@ -377,8 +484,12 @@ class _EventCard extends StatelessWidget {
   final String Function(Timestamp?) formatHeaderDate;
   final String Function(Timestamp?) formatShortDate;
   final String Function(Map<String, dynamic>) formatTime;
+  final String kindLabel;
+  final Color kindColor;
   final String statusLabel;
   final Color statusColor;
+  final String metaText;
+  final Timestamp? scheduledAt;
   final VoidCallback onTap;
 
   const _EventCard({
@@ -389,8 +500,12 @@ class _EventCard extends StatelessWidget {
     required this.formatHeaderDate,
     required this.formatShortDate,
     required this.formatTime,
+    required this.kindLabel,
+    required this.kindColor,
     required this.statusLabel,
     required this.statusColor,
+    required this.metaText,
+    required this.scheduledAt,
     required this.onTap,
   });
 
@@ -398,13 +513,6 @@ class _EventCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = (data['title'] ?? 'Event').toString().trim();
     final description = (data['description'] ?? '').toString().trim();
-    final createdByName =
-    (data['createdByName'] ?? 'Unbekannt').toString().trim();
-    final eventDate = data['eventDate'] as Timestamp?;
-    final invited = List<String>.from(data['invitedUserIds'] ?? const []);
-    final accepted = List<String>.from(data['acceptedUserIds'] ?? const []);
-    final maybe = List<String>.from(data['maybeUserIds'] ?? const []);
-    final declined = List<String>.from(data['declinedUserIds'] ?? const []);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -445,7 +553,7 @@ class _EventCard extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          formatHeaderDate(eventDate),
+                          formatHeaderDate(scheduledAt),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.labelLarge?.copyWith(
@@ -479,40 +587,45 @@ class _EventCard extends StatelessWidget {
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          CircleAvatar(
-                            radius: 22,
-                            backgroundColor:
-                            colorScheme.primary.withValues(alpha: 0.10),
-                            child: Icon(
-                              Icons.celebration_outlined,
-                              color: colorScheme.primary,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  createdByName,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: kindColor.withValues(alpha: 0.10),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    kindLabel,
+                                    style: theme.textTheme.labelMedium?.copyWith(
+                                      color: kindColor,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
                                 ),
-                                const SizedBox(height: 4),
+                                const SizedBox(height: 12),
                                 Text(
                                   title,
                                   style: theme.textTheme.titleMedium?.copyWith(
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Datum: ${formatShortDate(eventDate)}',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
+                                if (description.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    description,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
                                   ),
-                                ),
+                                ],
                               ],
                             ),
                           ),
@@ -546,39 +659,20 @@ class _EventCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                      if (description.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          description,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
                       const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _EventCountChip(
-                            label: 'Einladungen',
-                            count: invited.length,
-                          ),
-                          _EventCountChip(
-                            label: 'Zusagen',
-                            count: accepted.length,
-                          ),
-                          _EventCountChip(
-                            label: 'Vielleicht',
-                            count: maybe.length,
-                          ),
-                          _EventCountChip(
-                            label: 'Absagen',
-                            count: declined.length,
-                          ),
-                        ],
+                      Text(
+                        'Datum: ${formatShortDate(scheduledAt)}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        metaText,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
@@ -586,37 +680,6 @@ class _EventCard extends StatelessWidget {
               ],
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _EventCountChip extends StatelessWidget {
-  final String label;
-  final int count;
-
-  const _EventCountChip({
-    required this.label,
-    required this.count,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: colorScheme.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        '$label: $count',
-        style: theme.textTheme.labelMedium?.copyWith(
-          color: colorScheme.primary,
-          fontWeight: FontWeight.w700,
         ),
       ),
     );
