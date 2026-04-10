@@ -1,7 +1,14 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:intl/intl.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 import 'package:termini/checkmytime/pages/create_event_page.dart';
 import 'package:termini/checkmytime/pages/event_detail_page.dart';
 import 'package:termini/checkmytime/services/notification_dispatch_service.dart';
@@ -27,6 +34,11 @@ class _ContactThreadPageState extends State<ContactThreadPage>
   final Set<String> _updatingEventIds = <String>{};
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _messagesScrollController = ScrollController();
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
+  StreamSubscription<PlayerState>? _playerStateSubscription;
+  Timer? _recordingTimer;
 
   late final TabController _tabController;
 
@@ -35,8 +47,14 @@ class _ContactThreadPageState extends State<ContactThreadPage>
   String _profileImageUrl = '';
 
   bool _isSendingMessage = false;
+  bool _isUploadingAudio = false;
+  bool _isRecordingAudio = false;
   bool _isMarkingIncomingMessagesAsRead = false;
   int _lastRenderedMessageCount = -1;
+  String? _recordingPath;
+  Duration _recordingDuration = Duration.zero;
+  String? _activeAudioMessageId;
+  bool _isActiveAudioPlaying = false;
 
   String get _threadId {
     final ids = [FirebaseAuth.instance.currentUser?.uid ?? '', widget.contactId]
@@ -51,6 +69,22 @@ class _ContactThreadPageState extends State<ContactThreadPage>
       ..addListener(_handleTabChanged);
     _resolvedContactName = widget.contactName.trim();
     _resolvedPhoneNumber = widget.phoneNumber.trim();
+    _messageController.addListener(_handleComposerChanged);
+    _playerStateSubscription = _audioPlayer.playerStateStream.listen((state) {
+      if (!mounted) return;
+      final playing = state.playing;
+      if (state.processingState == ProcessingState.completed ||
+          (!playing && state.processingState == ProcessingState.idle)) {
+        setState(() {
+          _activeAudioMessageId = null;
+          _isActiveAudioPlaying = false;
+        });
+        return;
+      }
+      setState(() {
+        _isActiveAudioPlaying = playing;
+      });
+    });
     _loadContactProfile();
     _markThreadAsRead();
     _markIncomingMessagesAsRead();
@@ -61,8 +95,13 @@ class _ContactThreadPageState extends State<ContactThreadPage>
   void dispose() {
     _tabController.removeListener(_handleTabChanged);
     _tabController.dispose();
+    _messageController.removeListener(_handleComposerChanged);
     _messageController.dispose();
     _messagesScrollController.dispose();
+    _recordingTimer?.cancel();
+    _playerStateSubscription?.cancel();
+    unawaited(_audioRecorder.dispose());
+    unawaited(_audioPlayer.dispose());
     super.dispose();
   }
 
@@ -75,6 +114,11 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     } else {
       _markIncomingEventsAsRead();
     }
+  }
+
+  void _handleComposerChanged() {
+    if (!mounted) return;
+    setState(() {});
   }
 
   Future<void> _loadContactProfile() async {
@@ -218,6 +262,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
         builder: (_) => CreateEventPage(
           initialContactId: widget.contactId,
           initialContactName: safeName,
+
         ),
       ),
     );
@@ -500,9 +545,480 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     }
   }
 
+  String _formatDuration(Duration duration) {
+    final totalSeconds = duration.inSeconds;
+    final minutes = (totalSeconds ~/ 60).toString().padLeft(2, '0');
+    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  Future<void> _startAudioRecording() async {
+    if (_isRecordingAudio || _isUploadingAudio || _isSendingMessage) return;
+
+    try {
+      final hasPermission = await _audioRecorder.hasPermission();
+      if (!hasPermission) {
+        _showMessage('Bitte Mikrofonzugriff für Sprachnachrichten erlauben.');
+        return;
+      }
+
+      final tempDir = await getTemporaryDirectory();
+      final path = '${tempDir.path}/cmt_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+      await _audioRecorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 128000,
+          sampleRate: 44100,
+        ),
+        path: path,
+      );
+
+      _recordingTimer?.cancel();
+      setState(() {
+        _isRecordingAudio = true;
+        _recordingPath = path;
+        _recordingDuration = Duration.zero;
+      });
+
+      _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted || !_isRecordingAudio) return;
+        setState(() {
+          _recordingDuration += const Duration(seconds: 1);
+        });
+      });
+    } catch (_) {
+      _recordingTimer?.cancel();
+      if (!mounted) return;
+      _showMessage('Sprachnachricht konnte nicht gestartet werden.');
+    }
+  }
+
+  Future<String?> _stopAudioRecording({bool cancel = false}) async {
+    if (!_isRecordingAudio) return null;
+
+    _recordingTimer?.cancel();
+
+    try {
+      final path = await _audioRecorder.stop();
+      final finalPath = path ?? _recordingPath;
+
+      if (cancel && finalPath != null) {
+        final file = File(finalPath);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      }
+
+      if (!mounted) return cancel ? null : finalPath;
+      setState(() {
+        _isRecordingAudio = false;
+        if (cancel) {
+          _recordingPath = null;
+          _recordingDuration = Duration.zero;
+        }
+      });
+
+      return cancel ? null : finalPath;
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isRecordingAudio = false;
+          _recordingPath = null;
+          _recordingDuration = Duration.zero;
+        });
+      }
+      return null;
+    }
+  }
+
+  Future<void> _cancelAudioRecording() async {
+    await _stopAudioRecording(cancel: true);
+  }
+
+  Future<void> _sendRecordedAudio() async {
+    if (!_isRecordingAudio || _isUploadingAudio || _isSendingMessage) return;
+
+    final recordedDuration = _recordingDuration;
+    final recordedPath = await _stopAudioRecording();
+    if (recordedPath == null || recordedPath.isEmpty) {
+      if (mounted) {
+        _showMessage('Sprachnachricht konnte nicht gespeichert werden.');
+      }
+      return;
+    }
+
+    final file = File(recordedPath);
+    if (!await file.exists()) {
+      if (mounted) {
+        _showMessage('Sprachnachricht konnte nicht gefunden werden.');
+      }
+      return;
+    }
+
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final currentUserId = currentUser?.uid;
+    if (currentUserId == null || widget.contactId.isEmpty) {
+      _showMessage('Du bist aktuell nicht eingeloggt.');
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
+
+    setState(() {
+      _isUploadingAudio = true;
+    });
+
+    try {
+      final firestore = FirebaseFirestore.instance;
+      final storage = FirebaseStorage.instance;
+      final participants = [currentUserId, widget.contactId]..sort();
+
+      final currentUserDoc = await firestore.collection('users').doc(currentUserId).get();
+      final contactUserDoc = await firestore.collection('users').doc(widget.contactId).get();
+      final threadRef = firestore.collection('contact_threads').doc(_threadId);
+      final existingThread = await threadRef.get();
+      final messageRef = threadRef.collection('messages').doc();
+
+      final storageRef = storage
+          .ref()
+          .child('checkmytime')
+          .child('contact_threads')
+          .child(_threadId)
+          .child('audio')
+          .child('${messageRef.id}.m4a');
+
+      await storageRef.putFile(file, SettableMetadata(contentType: 'audio/mp4'));
+      final audioUrl = await storageRef.getDownloadURL();
+      final fileSize = await file.length();
+
+      final currentUserData = currentUserDoc.data() ?? <String, dynamic>{};
+      final contactUserData = contactUserDoc.data() ?? <String, dynamic>{};
+
+      final currentUserName =
+      (currentUserData['displayName'] ?? currentUserData['name'] ?? 'Ich')
+          .toString()
+          .trim();
+      final currentUserPhone =
+      (currentUserData['phoneNumber'] ?? '').toString().trim();
+      final contactName =
+      (contactUserData['displayName'] ?? contactUserData['name'] ?? widget.contactName)
+          .toString()
+          .trim();
+      final contactPhone =
+      (contactUserData['phoneNumber'] ?? '').toString().trim();
+
+      final batch = firestore.batch();
+
+      batch.set(messageRef, {
+        'threadId': _threadId,
+        'type': 'audio',
+        'audioUrl': audioUrl,
+        'audioDurationMs': recordedDuration.inMilliseconds,
+        'fileSize': fileSize,
+        'senderId': currentUserId,
+        'receiverId': widget.contactId,
+        'participants': participants,
+        'isRead': false,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      final threadData = <String, dynamic>{
+        'participants': participants,
+        'participantMap': {for (final id in participants) id: true},
+        'contactNames': {
+          currentUserId: currentUserName.isEmpty ? 'Ich' : currentUserName,
+          widget.contactId: contactName.isEmpty ? widget.contactName : contactName,
+        },
+        'contactPhones': {
+          currentUserId: currentUserPhone,
+          widget.contactId: contactPhone,
+        },
+        'lastMessageText': '🎤 Sprachnachricht',
+        'lastInteractionType': 'audio',
+        'lastInteractionAt': FieldValue.serverTimestamp(),
+        'lastCreatedBy': currentUserId,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'hiddenFor_$currentUserId': false,
+        'hiddenFor_${widget.contactId}': false,
+        'unreadCountFor_$currentUserId': 0,
+        'unreadCountFor_${widget.contactId}': FieldValue.increment(1),
+      };
+
+      if (!existingThread.exists) {
+        threadData['createdAt'] = FieldValue.serverTimestamp();
+      }
+
+      batch.set(threadRef, threadData, SetOptions(merge: true));
+
+      await batch.commit();
+
+      try {
+        await NotificationDispatchService.instance.queueChatMessageNotification(
+          recipientUserId: widget.contactId,
+          senderId: currentUserId,
+          senderName: currentUserName.isEmpty ? 'Ich' : currentUserName,
+          senderPhoneNumber: currentUserPhone,
+          messageText: '🎤 Sprachnachricht',
+        );
+      } catch (_) {}
+
+      _recordingPath = null;
+      _recordingDuration = Duration.zero;
+      _scheduleScrollToBottom();
+    } catch (_) {
+      if (mounted) {
+        _showMessage('Sprachnachricht konnte nicht gesendet werden.');
+      }
+    } finally {
+      try {
+        if (await file.exists()) {
+          await file.delete();
+        }
+      } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _isUploadingAudio = false;
+          _recordingPath = null;
+          _recordingDuration = Duration.zero;
+        });
+      }
+    }
+  }
+
+  Future<void> _toggleAudioPlayback({
+    required String messageId,
+    required String audioUrl,
+  }) async {
+    try {
+      if (_activeAudioMessageId == messageId && _isActiveAudioPlaying) {
+        await _audioPlayer.pause();
+        if (!mounted) return;
+        setState(() {
+          _isActiveAudioPlaying = false;
+        });
+        return;
+      }
+
+      if (_activeAudioMessageId != messageId) {
+        await _audioPlayer.stop();
+        await _audioPlayer.setUrl(audioUrl);
+        if (!mounted) return;
+        setState(() {
+          _activeAudioMessageId = messageId;
+        });
+      }
+
+      await _audioPlayer.play();
+      if (!mounted) return;
+      setState(() {
+        _activeAudioMessageId = messageId;
+        _isActiveAudioPlaying = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      _showMessage('Sprachnachricht konnte nicht abgespielt werden.');
+    }
+  }
+
+
+  Future<void> _showDeleteMessageSheet({
+    required String messageId,
+    required bool isMe,
+    required bool isDeletedForEveryone,
+  }) async {
+    if (isDeletedForEveryone) return;
+
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (context) {
+        final theme = Theme.of(context);
+        final colorScheme = theme.colorScheme;
+
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded),
+                title: const Text('Für mich löschen'),
+                onTap: () async {
+                  Navigator.of(context).pop();
+                  await _deleteMessageForMe(messageId: messageId, userId: currentUserId);
+                },
+              ),
+              if (isMe)
+                ListTile(
+                  leading: Icon(
+                    Icons.delete_forever_rounded,
+                    color: colorScheme.error,
+                  ),
+                  title: Text(
+                    'Für alle löschen',
+                    style: TextStyle(color: colorScheme.error),
+                  ),
+                  onTap: () async {
+                    Navigator.of(context).pop();
+                    await _deleteMessageForEveryone(messageId: messageId);
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteMessageForMe({
+    required String messageId,
+    required String userId,
+  }) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('contact_threads')
+          .doc(_threadId)
+          .collection('messages')
+          .doc(messageId)
+          .set({
+        'deletedForUserIds': FieldValue.arrayUnion([userId]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (_) {
+      if (!mounted) return;
+      _showMessage('Nachricht konnte nicht gelöscht werden.');
+    }
+  }
+
+  Future<void> _deleteMessageForEveryone({
+    required String messageId,
+  }) async {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+
+    try {
+      final messageRef = FirebaseFirestore.instance
+          .collection('contact_threads')
+          .doc(_threadId)
+          .collection('messages')
+          .doc(messageId);
+
+      final snapshot = await messageRef.get();
+      final data = snapshot.data();
+      if (data == null) return;
+      final senderId = (data['senderId'] ?? '').toString();
+      if (senderId != currentUserId) {
+        if (!mounted) return;
+        _showMessage('Du kannst nur eigene Nachrichten für alle löschen.');
+        return;
+      }
+
+      await messageRef.set({
+        'type': 'deleted',
+        'text': '',
+        'audioUrl': '',
+        'audioDurationMs': 0,
+        'deletedForEveryone': true,
+        'deletedBy': currentUserId,
+        'deletedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (_) {
+      if (!mounted) return;
+      _showMessage('Nachricht konnte nicht für alle gelöscht werden.');
+    }
+  }
+
+  Future<void> _confirmClearChat() async {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Chat leeren'),
+        content: const Text(
+          'Alle Nachrichten werden nur für dich aus diesem Chat entfernt.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Leeren'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+    await _clearChatForMe(userId: currentUserId);
+  }
+
+  Future<void> _clearChatForMe({
+    required String userId,
+  }) async {
+    try {
+      final messagesRef = FirebaseFirestore.instance
+          .collection('contact_threads')
+          .doc(_threadId)
+          .collection('messages');
+
+      DocumentSnapshot<Map<String, dynamic>>? lastDoc;
+      var updatedCount = 0;
+
+      while (true) {
+        Query<Map<String, dynamic>> query = messagesRef
+            .orderBy('createdAt', descending: false)
+            .limit(400);
+
+        if (lastDoc != null) {
+          query = query.startAfterDocument(lastDoc);
+        }
+
+        final snapshot = await query.get();
+        if (snapshot.docs.isEmpty) break;
+
+        final batch = FirebaseFirestore.instance.batch();
+        for (final doc in snapshot.docs) {
+          batch.set(
+            doc.reference,
+            {
+              'deletedForUserIds': FieldValue.arrayUnion([userId]),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
+          updatedCount++;
+        }
+
+        await batch.commit();
+        lastDoc = snapshot.docs.last;
+
+        if (snapshot.docs.length < 400) break;
+      }
+
+      if (!mounted) return;
+      _showMessage(
+        updatedCount == 0
+            ? 'Der Chat ist bereits leer.'
+            : 'Der Chat wurde für dich geleert.',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showMessage('Der Chat konnte nicht geleert werden.');
+    }
+  }
+
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
-    if (text.isEmpty || _isSendingMessage) return;
+    if (text.isEmpty || _isSendingMessage || _isUploadingAudio || _isRecordingAudio) return;
 
     final currentUser = FirebaseAuth.instance.currentUser;
     final currentUserId = currentUser?.uid;
@@ -1067,10 +1583,12 @@ class _ContactThreadPageState extends State<ContactThreadPage>
   Widget _buildMessageBubble({
     required ThemeData theme,
     required ColorScheme colorScheme,
+    required String messageId,
     required String text,
     required bool isMe,
     required Timestamp? createdAt,
     required bool isRead,
+    required bool isDeletedForEveryone,
   }) {
     final bubbleColor =
     isMe ? colorScheme.primary.withValues(alpha: 0.14) : colorScheme.surface;
@@ -1086,51 +1604,189 @@ class _ContactThreadPageState extends State<ContactThreadPage>
       children: [
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 290),
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: bubbleColor,
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(18),
-                topRight: const Radius.circular(18),
-                bottomLeft: Radius.circular(isMe ? 18 : 4),
-                bottomRight: Radius.circular(isMe ? 4 : 18),
+          child: GestureDetector(
+            onLongPress: () => _showDeleteMessageSheet(
+              messageId: messageId,
+              isMe: isMe,
+              isDeletedForEveryone: isDeletedForEveryone,
+            ),
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: bubbleColor,
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(18),
+                  topRight: const Radius.circular(18),
+                  bottomLeft: Radius.circular(isMe ? 18 : 4),
+                  bottomRight: Radius.circular(isMe ? 4 : 18),
+                ),
+                border: Border.all(
+                  color: isMe
+                      ? colorScheme.primary.withValues(alpha: 0.18)
+                      : colorScheme.outlineVariant,
+                ),
               ),
-              border: Border.all(
-                color: isMe
-                    ? colorScheme.primary.withValues(alpha: 0.18)
-                    : colorScheme.outlineVariant,
+              child: Column(
+                crossAxisAlignment: bubbleAlignment,
+                children: [
+                  Text(
+                    text,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      height: 1.35,
+                      fontStyle: isDeletedForEveryone ? FontStyle.italic : null,
+                      color: isDeletedForEveryone
+                          ? colorScheme.onSurfaceVariant
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _formatMessageBubbleTime(createdAt),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: timeColor,
+                        ),
+                      ),
+                      if (isMe) ...[
+                        const SizedBox(width: 6),
+                        Icon(
+                          isRead ? Icons.done_all : Icons.done,
+                          size: 15,
+                          color: timeColor,
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
               ),
             ),
-            child: Column(
-              crossAxisAlignment: bubbleAlignment,
-              children: [
-                Text(
-                  text,
-                  style: theme.textTheme.bodyMedium?.copyWith(height: 1.35),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAudioMessageBubble({
+    required ThemeData theme,
+    required ColorScheme colorScheme,
+    required String messageId,
+    required String audioUrl,
+    required Duration audioDuration,
+    required bool isMe,
+    required Timestamp? createdAt,
+    required bool isRead,
+    required bool isDeletedForEveryone,
+  }) {
+    final bubbleColor =
+    isMe ? colorScheme.primary.withValues(alpha: 0.14) : colorScheme.surface;
+    final bubbleAlignment =
+    isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    final rowAlignment = isMe ? MainAxisAlignment.end : MainAxisAlignment.start;
+    final timeColor = isMe
+        ? colorScheme.primary.withValues(alpha: 0.85)
+        : colorScheme.onSurfaceVariant;
+    final isActive = _activeAudioMessageId == messageId;
+    final isPlaying = isActive && _isActiveAudioPlaying;
+
+    return Row(
+      mainAxisAlignment: rowAlignment,
+      children: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 290),
+          child: GestureDetector(
+            onLongPress: () => _showDeleteMessageSheet(
+              messageId: messageId,
+              isMe: isMe,
+              isDeletedForEveryone: isDeletedForEveryone,
+            ),
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: bubbleColor,
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(18),
+                  topRight: const Radius.circular(18),
+                  bottomLeft: Radius.circular(isMe ? 18 : 4),
+                  bottomRight: Radius.circular(isMe ? 4 : 18),
                 ),
-                const SizedBox(height: 6),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _formatMessageBubbleTime(createdAt),
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: timeColor,
+                border: Border.all(
+                  color: isMe
+                      ? colorScheme.primary.withValues(alpha: 0.18)
+                      : colorScheme.outlineVariant,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: bubbleAlignment,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      InkWell(
+                        borderRadius: BorderRadius.circular(999),
+                        onTap: () => _toggleAudioPlayback(
+                          messageId: messageId,
+                          audioUrl: audioUrl,
+                        ),
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: colorScheme.primary.withValues(alpha: 0.12),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                            color: colorScheme.primary,
+                          ),
+                        ),
                       ),
-                    ),
-                    if (isMe) ...[
-                      const SizedBox(width: 6),
-                      Icon(
-                        isRead ? Icons.done_all : Icons.done,
-                        size: 15,
-                        color: timeColor,
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Sprachnachricht',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _formatDuration(audioDuration),
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
-                  ],
-                ),
-              ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _formatMessageBubbleTime(createdAt),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: timeColor,
+                        ),
+                      ),
+                      if (isMe) ...[
+                        const SizedBox(width: 6),
+                        Icon(
+                          isRead ? Icons.done_all : Icons.done,
+                          size: 15,
+                          color: timeColor,
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1235,15 +1891,25 @@ class _ContactThreadPageState extends State<ContactThreadPage>
 
               for (final doc in docs) {
                 final data = doc.data();
+                final type = (data['type'] ?? 'text').toString().trim();
                 final text = (data['text'] ?? '').toString().trim();
-                if (text.isEmpty) continue;
-
+                final audioUrl = (data['audioUrl'] ?? '').toString().trim();
                 final senderId = (data['senderId'] ?? '').toString();
                 final isMe = senderId == currentUserId;
                 final createdAt = data['createdAt'] as Timestamp?;
                 final isRead = data['isRead'] == true;
+                final deletedForEveryone = data['deletedForEveryone'] == true || type == 'deleted';
+                final deletedForUserIds = List<String>.from(data['deletedForUserIds'] ?? const []);
+                final isDeletedForMe = deletedForUserIds.contains(currentUserId);
                 final messageDate =
                     createdAt?.toDate() ?? DateTime.fromMillisecondsSinceEpoch(0);
+
+                if (isDeletedForMe) continue;
+
+                final hasRenderablePayload = deletedForEveryone ||
+                    (type == 'audio' && audioUrl.isNotEmpty) ||
+                    (type != 'audio' && text.isNotEmpty);
+                if (!hasRenderablePayload) continue;
 
                 if (lastDate == null || !_isSameDay(lastDate, messageDate)) {
                   children.add(
@@ -1256,16 +1922,48 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                   lastDate = messageDate;
                 }
 
-                children.add(
-                  _buildMessageBubble(
-                    theme: theme,
-                    colorScheme: colorScheme,
-                    text: text,
-                    isMe: isMe,
-                    createdAt: createdAt,
-                    isRead: isRead,
-                  ),
-                );
+                if (deletedForEveryone) {
+                  children.add(
+                    _buildMessageBubble(
+                      theme: theme,
+                      colorScheme: colorScheme,
+                      messageId: doc.id,
+                      text: 'Diese Nachricht wurde gelöscht.',
+                      isMe: isMe,
+                      createdAt: createdAt,
+                      isRead: isRead,
+                      isDeletedForEveryone: true,
+                    ),
+                  );
+                } else if (type == 'audio' && audioUrl.isNotEmpty) {
+                  final audioDurationMs = (data['audioDurationMs'] as num?)?.toInt() ?? 0;
+                  children.add(
+                    _buildAudioMessageBubble(
+                      theme: theme,
+                      colorScheme: colorScheme,
+                      messageId: doc.id,
+                      audioUrl: audioUrl,
+                      audioDuration: Duration(milliseconds: audioDurationMs),
+                      isMe: isMe,
+                      createdAt: createdAt,
+                      isRead: isRead,
+                      isDeletedForEveryone: false,
+                    ),
+                  );
+                } else {
+                  children.add(
+                    _buildMessageBubble(
+                      theme: theme,
+                      colorScheme: colorScheme,
+                      messageId: doc.id,
+                      text: text,
+                      isMe: isMe,
+                      createdAt: createdAt,
+                      isRead: isRead,
+                      isDeletedForEveryone: false,
+                    ),
+                  );
+                }
               }
 
               return ListView(
@@ -1284,7 +1982,73 @@ class _ContactThreadPageState extends State<ContactThreadPage>
           ),
           child: SafeArea(
             top: false,
-            child: Row(
+            child: _isRecordingAudio
+                ? Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.mic_rounded,
+                          color: colorScheme.error,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Aufnahme läuft · ${_formatDuration(_recordingDuration)}',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: OutlinedButton(
+                    onPressed: _cancelAudioRecording,
+                    style: OutlinedButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      shape: const CircleBorder(),
+                    ),
+                    child: const Icon(Icons.close_rounded),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: FilledButton(
+                    onPressed: _isUploadingAudio ? null : _sendRecordedAudio,
+                    style: FilledButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      shape: const CircleBorder(),
+                    ),
+                    child: _isUploadingAudio
+                        ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                        : const Icon(Icons.send_rounded),
+                  ),
+                ),
+              ],
+            )
+                : Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Expanded(
@@ -1292,14 +2056,14 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                     controller: _messageController,
                     minLines: 1,
                     maxLines: 4,
+                    enabled: !_isUploadingAudio,
                     textInputAction: TextInputAction.send,
                     onTap: _scheduleScrollToBottom,
                     onSubmitted: (_) => _sendMessage(),
                     decoration: InputDecoration(
                       hintText: 'Nachricht schreiben',
                       filled: true,
-                      fillColor:
-                      colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+                      fillColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 12,
@@ -1326,18 +2090,26 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                   width: 48,
                   height: 48,
                   child: FilledButton(
-                    onPressed: _isSendingMessage ? null : _sendMessage,
+                    onPressed: _isUploadingAudio
+                        ? null
+                        : (_messageController.text.trim().isNotEmpty
+                        ? _sendMessage
+                        : _startAudioRecording),
                     style: FilledButton.styleFrom(
                       padding: EdgeInsets.zero,
                       shape: const CircleBorder(),
                     ),
-                    child: _isSendingMessage
+                    child: _isSendingMessage || _isUploadingAudio
                         ? const SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                        : const Icon(Icons.send_rounded),
+                        : Icon(
+                      _messageController.text.trim().isNotEmpty
+                          ? Icons.send_rounded
+                          : Icons.mic_rounded,
+                    ),
                   ),
                 ),
               ],
@@ -1415,10 +2187,18 @@ class _ContactThreadPageState extends State<ContactThreadPage>
             onPressed: () => _openCreateEventPage(safeName),
             icon: const Icon(Icons.calendar_month_outlined),
           ),
-          IconButton(
-            onPressed: () =>
-                _showMessage('Weitere Optionen kommen als Nächstes.'),
-            icon: const Icon(Icons.more_vert),
+          PopupMenuButton<String>(
+            onSelected: (value) async {
+              if (value == 'clear_chat') {
+                await _confirmClearChat();
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem<String>(
+                value: 'clear_chat',
+                child: Text('Chat leeren'),
+              ),
+            ],
           ),
         ],
       ),
