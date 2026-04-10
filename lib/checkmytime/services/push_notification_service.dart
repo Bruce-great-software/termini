@@ -3,7 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:termini/checkmytime/pages/appointments_page.dart';
 import 'package:termini/checkmytime/pages/contact_thread_page.dart';
 import 'package:termini/checkmytime/pages/event_detail_page.dart';
 import 'package:termini/checkmytime/pages/events_page.dart';
@@ -233,10 +232,6 @@ class PushNotificationService {
 
     _messaging.onMessage.listen((message) async {
       await _notifications.showRemoteMessage(message);
-      final badgeCount = _parseBadgeCount(message.data['badgeCount']);
-      if (badgeCount != null) {
-        await _notifications.setAppBadgeCount(badgeCount);
-      }
     });
 
     _messaging.onMessageOpenedApp.listen(_handleMessageOpen);
@@ -318,7 +313,7 @@ class PushNotificationService {
     switch (target.type) {
       case PushOpenTargetType.appointments:
         navigator.push(
-          MaterialPageRoute(builder: (_) => const AppointmentsPage()),
+          MaterialPageRoute(builder: (_) => const EventsPage()),
         );
         return;
       case PushOpenTargetType.events:
@@ -361,7 +356,7 @@ class PushNotificationService {
           return;
         }
         navigator.push(
-          MaterialPageRoute(builder: (_) => const AppointmentsPage()),
+          MaterialPageRoute(builder: (_) => const EventsPage()),
         );
         return;
     }
@@ -372,7 +367,7 @@ class PushNotificationService {
     final route = (data['route'] ?? data['target'] ?? '').toString().trim();
     switch (route) {
       case 'appointments':
-        return PushOpenTarget(type: PushOpenTargetType.appointments);
+        return PushOpenTarget(type: PushOpenTargetType.events);
       case 'events':
         return PushOpenTarget(type: PushOpenTargetType.events);
       case 'event_detail':

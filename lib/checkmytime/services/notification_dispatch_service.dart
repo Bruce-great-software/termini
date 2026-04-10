@@ -4,7 +4,7 @@ class NotificationDispatchService {
   NotificationDispatchService._();
 
   static final NotificationDispatchService instance =
-      NotificationDispatchService._();
+  NotificationDispatchService._();
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -45,16 +45,16 @@ class NotificationDispatchService {
     required String appointmentTitle,
   }) async {
     final safeSenderName = _fallback(senderName, 'CheckMyTime');
-    final safeAppointmentTitle = _fallback(appointmentTitle, 'Neue Terminanfrage');
+    final safeAppointmentTitle = _fallback(appointmentTitle, 'Neue Planung');
 
     await _queueNotification(
       recipientUserId: recipientUserId,
       channelId: 'incoming_appointments_v2',
-      title: 'Neue Terminanfrage',
+      title: 'Neue Planung',
       body: '$safeSenderName: $safeAppointmentTitle',
       data: {
         'type': 'appointment',
-        'route': 'appointments',
+        'route': 'events',
         'appointmentId': appointmentId,
         'contactId': senderId,
         'contactName': safeSenderName,

@@ -216,12 +216,8 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => CreateEventPage(
-          initialSelectedUserId: widget.contactId,
-          initialSelectedUserName: safeName,
-          initialSelectedUserPhone: _resolvedPhoneNumber.isEmpty
-              ? widget.phoneNumber
-              : _resolvedPhoneNumber,
-          initialSelectedUserImageUrl: _profileImageUrl,
+          initialContactId: widget.contactId,
+          initialContactName: safeName,
         ),
       ),
     );
@@ -720,7 +716,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
             ),
           ),
           child: Text(
-            'Hier siehst du gemeinsame Planungen mit $safeName – zum Beispiel Termine, Treffen oder Dienstleistungen.',
+            'Hier siehst du gemeinsame Events mit $safeName – zum Beispiel Typen wie Termin, Treffen oder Dienstleistung.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurface,
             ),

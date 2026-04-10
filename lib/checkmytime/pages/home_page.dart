@@ -3,10 +3,11 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:termini/checkmytime/pages/events_page.dart';
 import 'package:termini/checkmytime/pages/contact_thread_page.dart';
+import 'package:termini/checkmytime/pages/event_detail_page.dart';
 import 'package:termini/checkmytime/pages/profile_page.dart';
 import 'package:termini/checkmytime/services/notification_service.dart';
+import 'package:termini/checkmytime/pages/events_page.dart';
 
 class CheckMyTimeHomePage extends StatefulWidget {
   const CheckMyTimeHomePage({super.key});
@@ -15,36 +16,49 @@ class CheckMyTimeHomePage extends StatefulWidget {
   State<CheckMyTimeHomePage> createState() => _CheckMyTimeHomePageState();
 }
 
-class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
+class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
+    with WidgetsBindingObserver {
+  static const Duration _onlineGracePeriod = Duration(minutes: 3);
   int _selectedIndex = 0;
-
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
-
-  String? _currentUserId;
 
   bool _isSearching = false;
   String _searchQuery = '';
   String? _searchError;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _searchResults = [];
 
-  StreamSubscription<User?>? _authSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _threadsSubscription;
-
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _eventsSubscription;
   bool _hasInitializedUnreadState = false;
+  bool _hasInitializedInviteState = false;
   Map<String, int> _knownUnreadCountsByThread = {};
+  Set<String> _knownPendingInviteIds = <String>{};
+  int _lastPublishedBadgeCount = -1;
+  Timer? _presenceHeartbeat;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializeNotifications();
-    _bindAuthListener();
+    _startPresenceTracking();
+    _listenForIncomingAppointments();
+    _listenForIncomingEventInvites();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await NotificationService.instance.ensureNotificationPermission(context);
+    });
   }
 
   @override
   void dispose() {
-    _authSubscription?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _presenceHeartbeat?.cancel();
+    unawaited(_setCurrentUserPresence(isOnline: false));
     _threadsSubscription?.cancel();
+    _eventsSubscription?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
@@ -55,64 +69,54 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     await NotificationService.instance.requestPermissions();
   }
 
-  void _bindAuthListener() {
-    _handleAuthChanged(FirebaseAuth.instance.currentUser);
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startPresenceTracking();
+      return;
+    }
 
-    _authSubscription = FirebaseAuth.instance.authStateChanges().listen(
-      _handleAuthChanged,
-    );
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _presenceHeartbeat?.cancel();
+      unawaited(_setCurrentUserPresence(isOnline: false));
+    }
   }
 
-  void _handleAuthChanged(User? user) {
-    final newUserId = user?.uid;
-
-    _threadsSubscription?.cancel();
-    _threadsSubscription = null;
-    _hasInitializedUnreadState = false;
-    _knownUnreadCountsByThread = {};
-
-    if (!mounted) return;
-
-    setState(() {
-      _currentUserId = newUserId;
-
-      if (newUserId == null) {
-        _searchQuery = '';
-        _searchError = null;
-        _searchResults = [];
-        _isSearching = false;
-        _searchController.clear();
-
-        if (_selectedIndex == 1) {
-          _selectedIndex = 2;
-        }
-      }
+  Future<void> _startPresenceTracking() async {
+    _presenceHeartbeat?.cancel();
+    await _setCurrentUserPresence(isOnline: true);
+    _presenceHeartbeat = Timer.periodic(const Duration(minutes: 1), (_) {
+      unawaited(_setCurrentUserPresence(isOnline: true));
     });
-
-    if (newUserId != null) {
-      _listenForIncomingAppointments(newUserId);
-    }
   }
 
-  bool _requireLogin({int? switchToTab}) {
-    if (_currentUserId != null) {
-      return true;
+  Future<void> _setCurrentUserPresence({required bool isOnline}) async {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(currentUserId).set(
+        {
+          'isOnline': isOnline,
+          'lastSeenAt': FieldValue.serverTimestamp(),
+          'presenceUpdatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    } catch (_) {}
+  }
+
+  bool _isUserOnline(Map<String, dynamic>? data) {
+    if (data == null || data['isOnline'] != true) {
+      return false;
     }
 
-    if (switchToTab != null) {
-      setState(() {
-        _selectedIndex = switchToTab;
-      });
-    }
+    final lastSeen = data['lastSeenAt'];
+    if (lastSeen is! Timestamp) return true;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Bitte logge dich zuerst ein oder registriere dich.'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-
-    return false;
+    return DateTime.now().difference(lastSeen.toDate()) <= _onlineGracePeriod;
   }
 
   String _buildThreadId(String uidA, String uidB) {
@@ -127,6 +131,137 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     return '';
   }
 
+  void _listenForIncomingAppointments() {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+
+    _threadsSubscription?.cancel();
+    _threadsSubscription = FirebaseFirestore.instance
+        .collection('contact_threads')
+        .where('participantMap.$currentUserId', isEqualTo: true)
+        .snapshots()
+        .listen((snapshot) async {
+      final currentCounts = <String, int>{};
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        if (data['hiddenFor_$currentUserId'] == true) continue;
+        final unreadCount =
+        (data['unreadCountFor_$currentUserId'] ?? 0) as int;
+        currentCounts[doc.id] = unreadCount;
+      }
+
+      if (!_hasInitializedUnreadState) {
+        _hasInitializedUnreadState = true;
+        _knownUnreadCountsByThread = currentCounts;
+        await _publishBadgeCount();
+        return;
+      }
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        if (data['hiddenFor_$currentUserId'] == true) continue;
+
+        final newCount = currentCounts[doc.id] ?? 0;
+        final oldCount = _knownUnreadCountsByThread[doc.id] ?? 0;
+
+        if (newCount > oldCount) {
+          final participants =
+          List<String>.from(data['participants'] ?? const []);
+          final otherId = _otherParticipantId(participants, currentUserId);
+          final contactNames =
+          Map<String, dynamic>.from(data['contactNames'] ?? const {});
+          final otherName =
+          (contactNames[otherId] ?? 'Unbekannt').toString().trim();
+          final lastTitle =
+          (data['lastAppointmentTitle'] ?? 'Event').toString().trim();
+
+          await NotificationService.instance.showIncomingAppointmentNotification(
+            title: 'Neue Planung',
+            body: '$otherName: $lastTitle',
+          );
+        }
+      }
+
+      _knownUnreadCountsByThread = currentCounts;
+      await _publishBadgeCount();
+    });
+  }
+
+  bool _isPendingEventInvite(Map<String, dynamic> data, String currentUserId) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final invitedUserIds = List<String>.from(
+      data['invitedUserIds'] ?? const [],
+    );
+    final acceptedUserIds = List<String>.from(
+      data['acceptedUserIds'] ?? const [],
+    );
+    final maybeUserIds = List<String>.from(data['maybeUserIds'] ?? const []);
+    final declinedUserIds = List<String>.from(
+      data['declinedUserIds'] ?? const [],
+    );
+
+    if (createdBy == currentUserId) return false;
+    if (!invitedUserIds.contains(currentUserId)) return false;
+    if (acceptedUserIds.contains(currentUserId)) return false;
+    if (maybeUserIds.contains(currentUserId)) return false;
+    if (declinedUserIds.contains(currentUserId)) return false;
+    return true;
+  }
+
+  void _listenForIncomingEventInvites() {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+
+    _eventsSubscription?.cancel();
+    _eventsSubscription = FirebaseFirestore.instance
+        .collection('events')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .listen((snapshot) async {
+      final pendingInviteIds = <String>{};
+
+      for (final doc in snapshot.docs) {
+        if (_isPendingEventInvite(doc.data(), currentUserId)) {
+          pendingInviteIds.add(doc.id);
+        }
+      }
+
+      if (!_hasInitializedInviteState) {
+        _hasInitializedInviteState = true;
+        _knownPendingInviteIds = pendingInviteIds;
+        await _publishBadgeCount();
+        return;
+      }
+
+      _knownPendingInviteIds = pendingInviteIds;
+      await _publishBadgeCount();
+    });
+  }
+
+  Future<void> _publishBadgeCount() async {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+
+    final unreadAppointments = _knownUnreadCountsByThread.values.fold<int>(
+      0,
+          (total, value) => total + value,
+    );
+    final totalBadgeCount = unreadAppointments + _knownPendingInviteIds.length;
+
+    if (totalBadgeCount == _lastPublishedBadgeCount) return;
+    _lastPublishedBadgeCount = totalBadgeCount;
+
+    await NotificationService.instance.setAppBadgeCount(totalBadgeCount);
+    await FirebaseFirestore.instance.collection('users').doc(currentUserId).set(
+      {
+        'badgeCount': totalBadgeCount,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+  }
+
   Future<_ContactPreviewData> _loadContactPreview({
     required String contactId,
     required String fallbackName,
@@ -138,7 +273,10 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
 
     try {
       final doc =
-      await FirebaseFirestore.instance.collection('users').doc(contactId).get();
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(contactId)
+          .get();
       final data = doc.data();
 
       if (data != null) {
@@ -175,74 +313,180 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     required _ContactPreviewData preview,
     required ThemeData theme,
   }) {
+    final colorScheme = theme.colorScheme;
+
     if (preview.imageUrl.isNotEmpty) {
-      return CircleAvatar(
-        backgroundImage: NetworkImage(preview.imageUrl),
+      return Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: colorScheme.primary.withValues(alpha: 0.18),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: CircleAvatar(
+          radius: 24,
+          backgroundImage: NetworkImage(preview.imageUrl),
+        ),
       );
     }
 
     final letter =
-    preview.name.isNotEmpty ? preview.name.characters.first.toUpperCase() : '?';
+    preview.name.isNotEmpty
+        ? preview.name.characters.first.toUpperCase()
+        : '?';
 
-    return CircleAvatar(
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          colors: [colorScheme.primary, colorScheme.primaryContainer],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.primary.withValues(alpha: 0.22),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      alignment: Alignment.center,
       child: Text(
         letter,
-        style: theme.textTheme.labelLarge,
+        style: theme.textTheme.titleMedium?.copyWith(
+          color: colorScheme.onPrimary,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
 
-  void _listenForIncomingAppointments(String currentUserId) {
-    _threadsSubscription?.cancel();
+  Widget _buildPresenceAvatar({
+    required _ContactPreviewData preview,
+    required ThemeData theme,
+    required bool isOnline,
+  }) {
+    final avatar = _buildContactAvatar(preview: preview, theme: theme);
+    if (!isOnline) return avatar;
 
-    _threadsSubscription = FirebaseFirestore.instance
-        .collection('contact_threads')
-        .where('participantMap.$currentUserId', isEqualTo: true)
-        .snapshots()
-        .listen((snapshot) async {
-      final currentCounts = <String, int>{};
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        avatar,
+        Positioned(
+          right: -1,
+          bottom: -1,
+          child: Container(
+            width: 14,
+            height: 14,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFF19B35E),
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        final unreadCount = (data['unreadCountFor_$currentUserId'] ?? 0) as int;
-        final isHiddenForCurrentUser = data['hiddenFor_$currentUserId'] == true;
+  Widget _buildThreadRow({
+    required ThemeData theme,
+    required ColorScheme colorScheme,
+    required _ContactPreviewData preview,
+    required bool hasUnread,
+    required int unreadCount,
+    required bool isOnline,
+    required VoidCallback onTap,
+  }) {
+    final subtitle = isOnline ? 'Online jetzt' : '';
 
-        if (isHiddenForCurrentUser && unreadCount <= 0) continue;
-        currentCounts[doc.id] = unreadCount;
-      }
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.white, colorScheme.surfaceContainerLowest],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: colorScheme.outlineVariant),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.shadow.withValues(alpha: 0.06),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildPresenceAvatar(
+                preview: preview,
+                theme: theme,
+                isOnline: isOnline,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      preview.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight:
+                        hasUnread ? FontWeight.w800 : FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (hasUnread)
+                    _NewItemsBadge(count: unreadCount)
+                  else
 
-      if (!_hasInitializedUnreadState) {
-        _hasInitializedUnreadState = true;
-        _knownUnreadCountsByThread = currentCounts;
-        return;
-      }
 
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        final newCount = currentCounts[doc.id] ?? 0;
-        if (newCount <= 0) continue;
-
-        final oldCount = _knownUnreadCountsByThread[doc.id] ?? 0;
-
-        if (newCount > oldCount) {
-          final participants = List<String>.from(data['participants'] ?? const []);
-          final otherId = _otherParticipantId(participants, currentUserId);
-          final contactNames =
-          Map<String, dynamic>.from(data['contactNames'] ?? const {});
-          final otherName =
-          (contactNames[otherId] ?? 'Unbekannt').toString().trim();
-          final lastTitle =
-          (data['lastAppointmentTitle'] ?? 'Termin').toString().trim();
-
-          await NotificationService.instance.showIncomingAppointmentNotification(
-            title: 'Neuer Terminvorschlag',
-            body: '$otherName: $lastTitle',
-          );
-        }
-      }
-
-      _knownUnreadCountsByThread = currentCounts;
-    });
+                    Icon(
+                      Icons.arrow_forward_rounded,
+                      color:
+                      hasUnread
+                          ? colorScheme.primary
+                          : colorScheme.onSurfaceVariant,
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _showComingSoon(String label) {
@@ -271,34 +515,24 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     required String contactName,
     required String phoneNumber,
   }) async {
-    if (!_requireLogin()) return;
-
     final safeName =
     contactName.trim().isEmpty ? 'Unbekannt' : contactName.trim();
     final safePhone = phoneNumber.trim();
-    final currentUserId = _currentUserId;
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
     _resetSearch();
 
     if (currentUserId != null && contactId.isNotEmpty) {
       final threadId = _buildThreadId(currentUserId, contactId);
-
       try {
         await FirebaseFirestore.instance
             .collection('contact_threads')
             .doc(threadId)
             .set({
           'participants': [currentUserId, contactId]..sort(),
-          'participantMap': {
-            currentUserId: true,
-            contactId: true,
-          },
-          'contactNames': {
-            contactId: safeName,
-          },
-          'contactPhones': {
-            contactId: safePhone,
-          },
+          'participantMap': {currentUserId: true, contactId: true},
+          'contactNames': {contactId: safeName},
+          'contactPhones': {contactId: safePhone},
           'hiddenFor_$currentUserId': false,
           'updatedAt': FieldValue.serverTimestamp(),
           'unreadCountFor_$currentUserId': 0,
@@ -306,9 +540,11 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       } catch (_) {}
     }
 
+    if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => ContactThreadPage(
+        builder:
+            (_) => ContactThreadPage(
           contactId: contactId,
           contactName: safeName,
           phoneNumber: safePhone,
@@ -336,32 +572,26 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       return;
     }
 
-    if (_currentUserId == null) {
-      setState(() {
-        _searchResults = [];
-        _isSearching = false;
-        _searchError = 'Bitte logge dich ein, um andere Nutzer zu suchen.';
-      });
-      return;
-    }
-
     setState(() {
       _isSearching = true;
     });
 
     try {
+      final currentUid = FirebaseAuth.instance.currentUser?.uid;
       final snapshot =
       await FirebaseFirestore.instance.collection('users').limit(50).get();
 
       final lowerQuery = query.toLowerCase();
 
-      final filtered = snapshot.docs.where((doc) {
-        if (doc.id == _currentUserId) return false;
+      final filtered =
+      snapshot.docs.where((doc) {
+        if (doc.id == currentUid) return false;
 
         final data = doc.data();
         final displayName =
         (data['displayName'] ?? '').toString().trim().toLowerCase();
-        final legacyName = (data['name'] ?? '').toString().trim().toLowerCase();
+        final legacyName =
+        (data['name'] ?? '').toString().trim().toLowerCase();
         final phoneNumber =
         (data['phoneNumber'] ?? '').toString().trim().toLowerCase();
 
@@ -403,11 +633,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       return Padding(
         padding: const EdgeInsets.only(top: 20),
         child: Center(
-          child: Text(
-            _searchError!,
-            style: const TextStyle(color: Colors.red),
-            textAlign: TextAlign.center,
-          ),
+          child: Text(_searchError!, style: const TextStyle(color: Colors.red)),
         ),
       );
     }
@@ -415,9 +641,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     if (_searchResults.isEmpty) {
       return const Padding(
         padding: EdgeInsets.only(top: 20),
-        child: Center(
-          child: Text('Keine Person gefunden.'),
-        ),
+        child: Center(child: Text('Keine Person gefunden.')),
       );
     }
 
@@ -428,10 +652,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Gefundene Personen',
-            style: theme.textTheme.titleMedium,
-          ),
+          Text('Gefundene Personen', style: theme.textTheme.titleMedium),
           const SizedBox(height: 12),
           ..._searchResults.map((doc) {
             final data = doc.data();
@@ -448,26 +669,17 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                 fallbackPhone: fallbackPhone,
               ),
               builder: (context, snapshot) {
-                final preview = snapshot.data ??
-                    _ContactPreviewData(
-                      name: fallbackName.isEmpty ? 'Unbekannt' : fallbackName,
-                      phone: fallbackPhone,
-                      imageUrl: '',
-                    );
+                final preview =
+                    snapshot.data ??
+                        _ContactPreviewData(
+                          name: fallbackName.isEmpty ? 'Unbekannt' : fallbackName,
+                          phone: fallbackPhone,
+                          imageUrl: '',
+                        );
 
                 return Card(
-                  child: ListTile(
-                    leading: _buildContactAvatar(
-                      preview: preview,
-                      theme: theme,
-                    ),
-                    title: Text(preview.name),
-                    subtitle: Text(
-                      preview.phone.isNotEmpty
-                          ? preview.phone
-                          : 'Keine Nummer vorhanden',
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
                     onTap: () {
                       _openContact(
                         contactId: doc.id,
@@ -475,11 +687,349 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                         phoneNumber: preview.phone,
                       );
                     },
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          _buildContactAvatar(preview: preview, theme: theme),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  preview.name,
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  preview.phone.isNotEmpty
+                                      ? preview.phone
+                                      : 'Keine Nummer vorhanden',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary.withValues(
+                                alpha: 0.10,
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            alignment: Alignment.center,
+                            child: Icon(
+                              Icons.arrow_forward_rounded,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 );
               },
             );
           }),
+        ],
+      ),
+    );
+  }
+
+  String _buildGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 11) return 'Guten Morgen';
+    if (hour < 18) return 'Guten Tag';
+    return 'Guten Abend';
+  }
+
+  String _buildGreetingWithName(String? displayName) {
+    final baseGreeting = _buildGreeting();
+    final resolvedName = (displayName ?? '').trim();
+    if (resolvedName.isEmpty) return baseGreeting;
+
+    final firstName = resolvedName.split(RegExp(r'\s+')).first.trim();
+    if (firstName.isEmpty) return baseGreeting;
+
+    return '$baseGreeting, $firstName';
+  }
+
+  int _totalUnreadMessages() {
+    return _knownUnreadCountsByThread.values.fold<int>(
+      0,
+          (runningTotal, unreadCount) => runningTotal + unreadCount,
+    );
+  }
+
+  Widget _buildHeroSection(
+      ThemeData theme,
+      ColorScheme colorScheme,
+      String? currentUserId,
+      ) {
+    final unreadTotal = _totalUnreadMessages();
+    final activeThreads = _knownUnreadCountsByThread.length;
+    final authDisplayName = FirebaseAuth.instance.currentUser?.displayName;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            colorScheme.primary,
+            const Color(0xFF7C8AF4),
+            colorScheme.primaryContainer,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(32),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.primary.withValues(alpha: 0.28),
+            blurRadius: 28,
+            offset: const Offset(0, 18),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            stream:
+            currentUserId == null
+                ? null
+                : FirebaseFirestore.instance
+                .collection('users')
+                .doc(currentUserId)
+                .snapshots(),
+            builder: (context, snapshot) {
+              final userData = snapshot.data?.data();
+              final firestoreName =
+              (userData?['displayName'] ?? userData?['name'] ?? '')
+                  .toString()
+                  .trim();
+              final greetingText = _buildGreetingWithName(
+                firestoreName.isNotEmpty ? firestoreName : authDisplayName,
+              );
+
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  greetingText,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 14),
+          Divider(
+            height: 1,
+            thickness: 1,
+            color: Colors.white.withValues(alpha: 0.28),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: _HeroStatCard(
+                  label: 'Ungelesen',
+                  value: '$unreadTotal',
+                  icon: Icons.mark_chat_unread_rounded,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _HeroStatCard(
+                  label: 'Kontakte',
+                  value: '$activeThreads',
+                  icon: Icons.people_alt_outlined,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOnlineUsersSection(
+      ThemeData theme,
+      ColorScheme colorScheme,
+      String? currentUserId,
+      ) {
+    if (currentUserId == null) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream:
+      FirebaseFirestore.instance
+          .collection('users')
+          .where('isOnline', isEqualTo: true)
+          .limit(12)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const SizedBox.shrink();
+        }
+
+        final onlineUsers = snapshot.data!.docs.where((doc) {
+          if (doc.id == currentUserId) return false;
+          return _isUserOnline(doc.data());
+        }).toList()
+          ..sort((a, b) {
+            final aName =
+            (a.data()['displayName'] ?? a.data()['name'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
+            final bName =
+            (b.data()['displayName'] ?? b.data()['name'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
+            return aName.compareTo(bName);
+          });
+
+        if (onlineUsers.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final visibleUsers = onlineUsers.take(10).toList();
+
+        return Container(
+          margin: const EdgeInsets.only(top: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: colorScheme.outlineVariant),
+            boxShadow: [
+              BoxShadow(
+                color: colorScheme.shadow.withValues(alpha: 0.04),
+                blurRadius: 18,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: SizedBox(
+            height: 58,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: visibleUsers.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final doc = visibleUsers[index];
+                final data = doc.data();
+                final displayName =
+                (data['displayName'] ?? data['name'] ?? 'Unbekannt')
+                    .toString()
+                    .trim();
+                final preview = _ContactPreviewData(
+                  name: displayName.isEmpty ? 'Unbekannt' : displayName,
+                  phone: (data['phoneNumber'] ?? '').toString().trim(),
+                  imageUrl: (data['profileImageUrl'] ?? '').toString().trim(),
+                );
+
+                return Tooltip(
+                  message: preview.name,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(18),
+                    onTap: () {
+                      _openContact(
+                        contactId: doc.id,
+                        contactName: preview.name,
+                        phoneNumber: preview.phone,
+                      );
+                    },
+                    child: SizedBox(
+                      width: 54,
+                      child: Center(
+                        child: _buildPresenceAvatar(
+                          preview: preview,
+                          theme: theme,
+                          isOnline: true,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSearchPanel(ThemeData theme, ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: colorScheme.outlineVariant),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.shadow.withValues(alpha: 0.05),
+            blurRadius: 22,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Personen finden',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Suche nach Namen oder Telefonnummern und öffne direkt einen Kontakt.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _searchController,
+            focusNode: _searchFocusNode,
+            onChanged: _searchUsers,
+            decoration: InputDecoration(
+              hintText: 'Nach Name oder Nummer suchen',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon:
+              _searchController.text.isNotEmpty
+                  ? IconButton(
+                onPressed: _resetSearch,
+                icon: const Icon(Icons.close),
+              )
+                  : IconButton(
+                onPressed: () => _showComingSoon('Filter'),
+                icon: const Icon(Icons.tune),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -499,7 +1049,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       }, SetOptions(merge: true));
 
       if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Kontakt wurde von der Startseite entfernt.'),
@@ -508,7 +1057,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       );
     } catch (_) {
       if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Kontakt konnte nicht entfernt werden.'),
@@ -523,7 +1071,8 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
     final colorScheme = theme.colorScheme;
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
+      stream:
+      FirebaseFirestore.instance
           .collection('contact_threads')
           .where('participantMap.$currentUserId', isEqualTo: true)
           .snapshots(),
@@ -535,17 +1084,24 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
           );
         }
 
-        final docs = [...snapshot.data?.docs ?? []]
-            .where((doc) {
-          final data = doc.data();
-          final isHidden = data['hiddenFor_$currentUserId'] == true;
-          final unreadCount = (data['unreadCountFor_$currentUserId'] ?? 0) as int;
-          return !isHidden || unreadCount > 0;
-        })
+        final docs =
+        [...snapshot.data?.docs ?? []]
+            .where((doc) => doc.data()['hiddenFor_$currentUserId'] != true)
             .toList()
           ..sort((a, b) {
-            final aTs = a.data()['lastInteractionAt'] as Timestamp?;
-            final bTs = b.data()['lastInteractionAt'] as Timestamp?;
+            final aData = a.data();
+            final bData = b.data();
+            final aUnread =
+            (aData['unreadCountFor_$currentUserId'] ?? 0) as int;
+            final bUnread =
+            (bData['unreadCountFor_$currentUserId'] ?? 0) as int;
+
+            if (aUnread != bUnread) {
+              return bUnread.compareTo(aUnread);
+            }
+
+            final aTs = aData['lastInteractionAt'] as Timestamp?;
+            final bTs = bData['lastInteractionAt'] as Timestamp?;
             if (aTs == null && bTs == null) return 0;
             if (aTs == null) return 1;
             if (bTs == null) return -1;
@@ -561,18 +1117,30 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
           children: [
             Text(
               'Kontakte',
-              style: theme.textTheme.titleMedium,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Deine letzten Unterhaltungen und neue Vorschläge.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 12),
             ...docs.map((doc) {
               final data = doc.data();
-              final participants =
-              List<String>.from(data['participants'] ?? const []);
+              final participants = List<String>.from(
+                data['participants'] ?? const [],
+              );
               final otherId = _otherParticipantId(participants, currentUserId);
-              final contactNames =
-              Map<String, dynamic>.from(data['contactNames'] ?? const {});
-              final contactPhones =
-              Map<String, dynamic>.from(data['contactPhones'] ?? const {});
+              final contactNames = Map<String, dynamic>.from(
+                data['contactNames'] ?? const {},
+              );
+              final contactPhones = Map<String, dynamic>.from(
+                data['contactPhones'] ?? const {},
+              );
 
               final fallbackName =
               (contactNames[otherId] ?? 'Unbekannt').toString().trim();
@@ -588,147 +1156,168 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
                   fallbackName: fallbackName,
                   fallbackPhone: fallbackPhone,
                 ),
-                builder: (context, snapshot) {
-                  final preview = snapshot.data ??
-                      _ContactPreviewData(
-                        name: fallbackName.isEmpty ? 'Unbekannt' : fallbackName,
-                        phone: fallbackPhone,
-                        imageUrl: '',
+                builder: (context, previewSnapshot) {
+                  final preview =
+                      previewSnapshot.data ??
+                          _ContactPreviewData(
+                            name: fallbackName.isEmpty ? 'Unbekannt' : fallbackName,
+                            phone: fallbackPhone,
+                            imageUrl: '',
+                          );
+
+                  return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                    stream:
+                    FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(otherId)
+                        .snapshots(),
+                    builder: (context, presenceSnapshot) {
+                      final isOnline = _isUserOnline(
+                        presenceSnapshot.data?.data(),
                       );
 
-                  return Dismissible(
-                    key: ValueKey(doc.id),
-                    direction: DismissDirection.endToStart,
-                    background: Container(
-                      alignment: Alignment.centerRight,
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      decoration: BoxDecoration(
-                        color: colorScheme.error.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Icon(
-                        Icons.delete_outline,
-                        color: colorScheme.error,
-                      ),
-                    ),
-                    confirmDismiss: (_) async {
-                      await _hideThreadForCurrentUser(doc.id, currentUserId);
-                      return true;
-                    },
-                    child: Card(
-                      child: ListTile(
-                        leading: _buildContactAvatar(
-                          preview: preview,
-                          theme: theme,
-                        ),
-                        title: Text(
-                          preview.name,
-                          style: TextStyle(
-                            fontWeight:
-                            hasUnread ? FontWeight.w700 : FontWeight.w500,
+                      return Dismissible(
+                        key: ValueKey(doc.id),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          decoration: BoxDecoration(
+                            color: colorScheme.error.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Icon(
+                            Icons.delete_outline,
+                            color: colorScheme.error,
                           ),
                         ),
-                        subtitle: Text(
-                          preview.phone.isNotEmpty
-                              ? preview.phone
-                              : 'Keine Nummer vorhanden',
-                        ),
-                        trailing: hasUnread
-                            ? Container(
-                          width: 28,
-                          height: 28,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFB7E61E),
-                            shape: BoxShape.circle,
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            '$unreadCount',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: Colors.black,
-                            ),
-                          ),
-                        )
-                            : const Icon(Icons.chevron_right),
-                        onTap: () {
-                          _openContact(
-                            contactId: otherId,
-                            contactName: preview.name,
-                            phoneNumber: preview.phone,
-                          );
+                        confirmDismiss: (_) async {
+                          await _hideThreadForCurrentUser(doc.id, currentUserId);
+                          return true;
                         },
-                      ),
-                    ),
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _buildThreadRow(
+                            theme: theme,
+                            colorScheme: colorScheme,
+                            preview: preview,
+                            hasUnread: hasUnread,
+                            unreadCount: unreadCount,
+                            isOnline: isOnline,
+                            onTap: () {
+                              _openContact(
+                                contactId: otherId,
+                                contactName: preview.name,
+                                phoneNumber: preview.phone,
+                              );
+                            },
+                          ),
+                        ),
+                      );
+                    },
                   );
                 },
               );
             }),
-            const SizedBox(height: 20),
+            const SizedBox(height: 8),
           ],
         );
       },
     );
   }
 
-  Widget _buildLoggedOutAppointmentsPlaceholder(
-      ThemeData theme,
-      ColorScheme colorScheme,
-      ) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: colorScheme.outlineVariant),
-          ),
-          child: Column(
-            children: [
-              CircleAvatar(
-                radius: 34,
-                backgroundColor: colorScheme.primary.withOpacity(0.10),
-                child: Icon(
-                  Icons.calendar_month_outlined,
-                  color: colorScheme.primary,
-                  size: 30,
-                ),
+  String _formatInviteDate(Timestamp? timestamp) {
+    if (timestamp == null) return 'Kein Datum';
+    final date = timestamp.toDate();
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final year = date.year.toString();
+    return '$day.$month.$year';
+  }
+
+  Widget _buildEventInvitesSection(String currentUserId) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream:
+      FirebaseFirestore.instance
+          .collection('events')
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.only(top: 8, bottom: 16),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final pendingInvites =
+        [...snapshot.data?.docs ?? []]
+            .where(
+              (doc) => _isPendingEventInvite(doc.data(), currentUserId),
+        )
+            .toList()
+          ..sort((a, b) {
+            final aDate = a.data()['eventDate'] as Timestamp?;
+            final bDate = b.data()['eventDate'] as Timestamp?;
+            if (aDate == null && bDate == null) return 0;
+            if (aDate == null) return 1;
+            if (bDate == null) return -1;
+            return aDate.compareTo(bDate);
+          });
+
+        if (pendingInvites.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Einladungen',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
               ),
-              const SizedBox(height: 16),
-              Text(
-                'Meine Events',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-                textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Neue Event-Einladungen für dich.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Bitte logge dich ein oder registriere dich, damit du deine Events, Einladungen und Planungen sehen kannst.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _selectedIndex = 2;
-                    });
-                  },
-                  icon: const Icon(Icons.login),
-                  label: const Text('Zum Profil / Login'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
+            ),
+            const SizedBox(height: 12),
+            ...pendingInvites.take(3).map((doc) {
+              final data = doc.data();
+              final title = (data['title'] ?? 'Event').toString().trim();
+              final creator =
+              (data['createdByName'] ?? 'Unbekannt').toString().trim();
+              final eventDate = data['eventDate'] as Timestamp?;
+
+              return _ActionCard(
+                icon: Icons.mail_outline_rounded,
+                title: title.isEmpty ? 'Event' : title,
+                subtitle:
+                'Von $creator - ${_formatInviteDate(eventDate)}. Tippe zum Antworten.',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder:
+                          (_) => EventDetailPage(
+                        eventId: doc.id,
+                        view: EventDetailView.invitation,
+                      ),
+                    ),
+                  );
+                },
+              );
+            }),
+          ],
+        );
+      },
     );
   }
 
@@ -737,29 +1326,14 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       ThemeData theme,
       String? currentUserId,
       ) {
-    final isLoggedIn = currentUserId != null;
-
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
       children: [
-        TextField(
-          controller: _searchController,
-          focusNode: _searchFocusNode,
-          onChanged: _searchUsers,
-          decoration: InputDecoration(
-            hintText: 'Nach Name oder Nummer suchen',
-            prefixIcon: const Icon(Icons.search),
-            suffixIcon: _searchController.text.isNotEmpty
-                ? IconButton(
-              onPressed: _resetSearch,
-              icon: const Icon(Icons.close),
-            )
-                : IconButton(
-              onPressed: () => _showComingSoon('Filter'),
-              icon: const Icon(Icons.tune),
-            ),
-          ),
-        ),
+        _buildHeroSection(theme, colorScheme, currentUserId),
+        _buildOnlineUsersSection(theme, colorScheme, currentUserId),
+        const SizedBox(height: 16),
+        _buildSearchPanel(theme, colorScheme),
         if (_searchQuery.isNotEmpty)
           _buildSearchResults()
         else
@@ -769,78 +1343,63 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (currentUserId != null) _buildThreadsSection(currentUserId),
-                Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: colorScheme.surface,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: colorScheme.outlineVariant),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        isLoggedIn
-                            ? 'Events einfach wie Nachrichten.'
-                            : 'Einloggen und direkt loslegen.',
-                        style: theme.textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        isLoggedIn
-                            ? 'Plane gemeinsame Events, Treffen, Termine und Dienstleistungen direkt mit deinen Kontakten.'
-                            : 'Melde dich zuerst an oder registriere dich im Profil-Tab. Danach kannst du Kontakte finden, anschreiben und direkt gemeinsame Events planen.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton.icon(
-                        onPressed: () {
-                          if (isLoggedIn) {
-                            _showComingSoon('Nutzer finden');
-                          } else {
-                            setState(() {
-                              _selectedIndex = 2;
-                            });
-                          }
-                        },
-                        icon: Icon(
-                          isLoggedIn
-                              ? Icons.person_search_outlined
-                              : Icons.login,
-                        ),
-                        label: Text(
-                          isLoggedIn ? 'Nutzer finden' : 'Jetzt einloggen',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
+                if (currentUserId != null)
+                  _buildEventInvitesSection(currentUserId),
                 Text(
                   'Schnellaktionen',
-                  style: theme.textTheme.titleMedium,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Die wichtigsten Bereiche für deinen nächsten Schritt.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 const SizedBox(height: 12),
-                _ActionCard(
-                  icon: Icons.event_outlined,
-                  title: 'Events',
-                  subtitle: isLoggedIn
-                      ? 'Hier planst und verwaltest du gemeinsame Aktivitäten, Einladungen und offene Unternehmungen.'
-                      : 'Logge dich zuerst ein, damit du Events erstellen und verwalten kannst.',
-                  onTap: () {
-                    setState(() {
-                      _selectedIndex = isLoggedIn ? 1 : 2;
-                    });
+                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream:
+                  currentUserId == null
+                      ? null
+                      : FirebaseFirestore.instance
+                      .collection('events')
+                      .orderBy('createdAt', descending: true)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    var newEventsCount = 0;
+                    if (currentUserId != null && snapshot.hasData) {
+                      newEventsCount =
+                          snapshot.data!.docs
+                              .where(
+                                (doc) => _isPendingEventInvite(
+                              doc.data(),
+                              currentUserId,
+                            ),
+                          )
+                              .length;
+                    }
+
+                    return _ActionCard(
+                      icon: Icons.celebration_outlined,
+                      title: 'Events',
+                      subtitle:
+                      'Hier planst und verwaltest du später gemeinsame Aktivitäten und Einladungen.',
+                      badgeCount: newEventsCount,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const EventsPage()),
+                        );
+                      },
+                    );
                   },
                 ),
                 _ActionCard(
                   icon: Icons.person_outline,
                   title: 'Mein Profil',
-                  subtitle: isLoggedIn
-                      ? 'Hier kannst du Name, Bild und weitere Angaben ergänzen.'
-                      : 'Hier kannst du dich einloggen oder registrieren.',
+                  subtitle:
+                  'Hier kannst du Name, Bild und weitere Angaben ergänzen.',
                   onTap: () {
                     setState(() {
                       _selectedIndex = 2;
@@ -860,9 +1419,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       String? currentUserId,
       ) {
     if (_selectedIndex == 1) {
-      if (currentUserId == null) {
-        return _buildLoggedOutAppointmentsPlaceholder(theme, colorScheme);
-      }
       return const EventsPage();
     }
 
@@ -877,17 +1433,17 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('CheckMyTime'),
         actions: [
           IconButton(
-            onPressed: () {
-              setState(() {
-                _selectedIndex = 2;
-              });
-            },
+            onPressed:
+                () => setState(() {
+              _selectedIndex = 2;
+            }),
             icon: const Icon(Icons.settings_outlined),
           ),
         ],
@@ -895,30 +1451,12 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
       body: SafeArea(
         child: GestureDetector(
           onTap: () => _searchFocusNode.unfocus(),
-          child: _buildBody(
-            colorScheme,
-            theme,
-            _currentUserId,
-          ),
+          child: _buildBody(colorScheme, theme, currentUserId),
         ),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {
-          if (index == 1 && _currentUserId == null) {
-            setState(() {
-              _selectedIndex = 2;
-            });
-
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Bitte logge dich ein, um deine Events zu sehen.'),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-            return;
-          }
-
           setState(() {
             _selectedIndex = index;
           });
@@ -930,8 +1468,8 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage> {
             label: 'Home',
           ),
           NavigationDestination(
-            icon: Icon(Icons.event_outlined),
-            selectedIcon: Icon(Icons.event),
+            icon: Icon(Icons.calendar_month_outlined),
+            selectedIcon: Icon(Icons.calendar_month),
             label: 'Events',
           ),
           NavigationDestination(
@@ -950,57 +1488,190 @@ class _ActionCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final int badgeCount;
 
   const _ActionCard({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.badgeCount = 0,
   });
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final resolvedAccent = colorScheme.primary;
 
-    return Card(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 24,
-                backgroundColor: colorScheme.primary.withOpacity(0.10),
-                child: Icon(icon, color: colorScheme.primary),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: colorScheme.outlineVariant),
+          boxShadow: [
+            BoxShadow(
+              color: colorScheme.shadow.withValues(alpha: 0.05),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(24),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: resolvedAccent.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(icon, color: resolvedAccent),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
+                      const SizedBox(height: 6),
+                      Text(
+                        subtitle,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (badgeCount > 0) _NewItemsBadge(count: badgeCount),
+                    if (badgeCount > 0) const SizedBox(height: 10),
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        Icons.arrow_forward_rounded,
+                        color: colorScheme.onSurface,
                       ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              const Icon(Icons.chevron_right),
-            ],
+              ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _NewItemsBadge extends StatelessWidget {
+  final int count;
+
+  const _NewItemsBadge({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFB7E61E),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        count == 1 ? '1 neu' : '$count neu',
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: Colors.black,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroStatCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+
+  const _HeroStatCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            alignment: Alignment.center,
+            child: Icon(icon, color: Colors.white, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.82),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

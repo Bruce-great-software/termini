@@ -71,8 +71,8 @@ class NotificationService {
       ),
       AndroidNotificationChannel(
         'incoming_appointments_v2',
-        'Eingehende Termine',
-        description: 'Benachrichtigungen fuer neue Terminvorschlaege',
+        'Neue Planungen',
+        description: 'Benachrichtigungen fuer neue Planungen',
         importance: Importance.high,
         showBadge: true,
       ),
@@ -150,7 +150,7 @@ class NotificationService {
         return AlertDialog(
           title: const Text('Benachrichtigungen deaktiviert'),
           content: const Text(
-            'Damit du neue Nachrichten, Termine und Event-Einladungen erhältst, '
+            'Damit du neue Nachrichten, Planungen und Event-Einladungen erhältst, '
                 'musst du Benachrichtigungen in den App-Einstellungen aktivieren.',
           ),
           actions: [
@@ -283,8 +283,8 @@ class NotificationService {
     final channel = switch (type) {
       'appointment' => (
       id: 'incoming_appointments_v2',
-      name: 'Eingehende Termine',
-      description: 'Benachrichtigungen fuer neue Terminvorschlaege',
+      name: 'Neue Planungen',
+      description: 'Benachrichtigungen fuer neue Planungen',
       ),
       'message' => (
       id: 'incoming_messages_v2',
@@ -414,8 +414,8 @@ class NotificationService {
     final unreadCount = await _unreadCountRepository.incrementUnreadCount();
     await _showNotification(
       channelId: 'incoming_appointments_v2',
-      channelName: 'Eingehende Termine',
-      channelDescription: 'Benachrichtigungen für neue Terminvorschläge',
+      channelName: 'Neue Planungen',
+      channelDescription: 'Benachrichtigungen für neue Planungen',
       title: title,
       body: body,
       notificationId: await _unreadCountRepository.nextNotificationSequence(),

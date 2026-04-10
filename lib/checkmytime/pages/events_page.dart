@@ -362,7 +362,7 @@ class _EventsPageState extends State<EventsPage>
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Hier siehst du deine eigenen Planungen, Einladungen und offene Events in einem einheitlichen Stil.',
+                          'Hier siehst du alle deine Events in einem einheitlichen Stil – inklusive Einladungen, offene Events und Typen wie Termin, Treffen oder Dienstleistung.',
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
@@ -430,7 +430,7 @@ class _EventsPageState extends State<EventsPage>
                           icon: Icons.event_busy_outlined,
                           title: 'Noch keine eigenen Events',
                           subtitle:
-                          'Du hast noch keine Events erstellt. Über den Button oben kannst du direkt dein erstes Event planen.',
+                          'Du hast noch keine Events erstellt. Über den Button oben kannst du direkt dein erstes Event anlegen.',
                         ),
                       ),
                       _buildTabContent(
@@ -446,7 +446,7 @@ class _EventsPageState extends State<EventsPage>
                           icon: Icons.mail_outline_rounded,
                           title: 'Keine Einladungen vorhanden',
                           subtitle:
-                          'Sobald dich jemand zu einem Event einlädt, erscheint es hier in deiner Übersicht.',
+                          'Sobald dich jemand zu einem Event einlädt, erscheint es hier in deiner Event-Übersicht.',
                         ),
                       ),
                       _buildTabContent(
@@ -461,7 +461,7 @@ class _EventsPageState extends State<EventsPage>
                           icon: Icons.public_off_outlined,
                           title: 'Keine offenen Events',
                           subtitle:
-                          'Aktuell gibt es keine offenen Events für dich. Neue öffentliche Aktivitäten erscheinen später hier.',
+                          'Aktuell gibt es keine offenen Events für dich. Neue öffentliche oder offene Aktivitäten erscheinen später hier.',
                         ),
                       ),
                     ],
