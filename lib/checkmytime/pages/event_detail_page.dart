@@ -28,6 +28,8 @@ class EventDetailPage extends StatefulWidget {
 class _EventDetailPageState extends State<EventDetailPage> {
   bool _isUpdatingStatus = false;
   bool _isDeleting = false;
+  bool _isModeratingRequest = false;
+  String _moderatingUserId = '';
 
   String get _currentUserId => FirebaseAuth.instance.currentUser?.uid ?? '';
 
@@ -87,7 +89,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
       case 'appointment':
         return 'Termin';
       case 'activity':
-        return 'Treffen';
+        return 'Aktivität';
       case 'service':
         return 'Dienstleistung';
       case 'open':
@@ -331,6 +333,104 @@ class _EventDetailPageState extends State<EventDetailPage> {
     }
   }
 
+  Future<void> _setOwnerParticipantStatus({
+    required String userId,
+    required String statusKey,
+  }) async {
+    if (userId.trim().isEmpty || _isModeratingRequest) return;
+
+    setState(() {
+      _isModeratingRequest = true;
+      _moderatingUserId = userId;
+    });
+
+    try {
+      final docRef = FirebaseFirestore.instance
+          .collection('events')
+          .doc(widget.eventId);
+      final snapshot = await docRef.get();
+      final data = snapshot.data() ?? <String, dynamic>{};
+
+      final createdBy = (data['createdBy'] ?? '').toString().trim();
+      final accepted = <String>{
+        ...List<String>.from(data['acceptedUserIds'] ?? const []),
+      };
+      final maybe = <String>{
+        ...List<String>.from(data['maybeUserIds'] ?? const []),
+      };
+      final declined = <String>{
+        ...List<String>.from(data['declinedUserIds'] ?? const []),
+      };
+      final memberIds = <String>{
+        ...List<String>.from(data['memberIds'] ?? const []),
+      };
+      final responseMap = Map<String, dynamic>.from(
+        data['responseMap'] ?? const <String, dynamic>{},
+      );
+
+      accepted.remove(userId);
+      maybe.remove(userId);
+      declined.remove(userId);
+      memberIds.remove(userId);
+
+      switch (statusKey) {
+        case 'accepted':
+          accepted.add(userId);
+          memberIds.add(userId);
+          responseMap[userId] = 'accepted';
+          break;
+        case 'declined':
+          declined.add(userId);
+          responseMap[userId] = 'declined';
+          break;
+        default:
+          responseMap[userId] = 'pending';
+          break;
+      }
+
+      final participantIds = <String>{createdBy, ...accepted}
+        ..removeWhere((id) => id.trim().isEmpty);
+
+      await docRef.update({
+        'acceptedUserIds': accepted.toList(),
+        'maybeUserIds': maybe.toList(),
+        'declinedUserIds': declined.toList(),
+        'memberIds': memberIds.toList(),
+        'participantIds': participantIds.toList(),
+        'responseMap': responseMap,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+      final wasAccepted = statusKey == 'accepted';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            wasAccepted
+                ? 'Die Anfrage wurde bestätigt.'
+                : 'Die Anfrage wurde abgelehnt.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Die Anfrage konnte nicht aktualisiert werden.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isModeratingRequest = false;
+          _moderatingUserId = '';
+        });
+      }
+    }
+  }
+
   Future<void> _deleteEvent() async {
     if (_isDeleting) return;
 
@@ -416,7 +516,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Event Details'),
+        title: const Text('Event-Details'),
       ),
       body: SafeArea(
         child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -692,6 +792,16 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   pendingIds: participantBuckets.pending,
                   declinedIds: participantBuckets.declined,
                   currentUserId: _currentUserId,
+                  isOwner: isOwner,
+                  moderatingUserId: _moderatingUserId,
+                  onAcceptPending: (userId) => _setOwnerParticipantStatus(
+                    userId: userId,
+                    statusKey: 'accepted',
+                  ),
+                  onDeclinePending: (userId) => _setOwnerParticipantStatus(
+                    userId: userId,
+                    statusKey: 'declined',
+                  ),
                 ),
                 const SizedBox(height: 14),
                 _buildActionSection(
@@ -750,7 +860,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Du kannst hier direkt zusagen, vielleicht markieren oder absagen. Deine Antwort wird sofort in den Uebersichten aktualisiert.',
+            'Du kannst hier direkt zusagen, vielleicht markieren oder absagen. Deine Antwort wird sofort in den Übersichten aktualisiert.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
             ),
@@ -821,6 +931,10 @@ class _ParticipantGroupsSection extends StatelessWidget {
   final List<String> pendingIds;
   final List<String> declinedIds;
   final String currentUserId;
+  final bool isOwner;
+  final String moderatingUserId;
+  final ValueChanged<String> onAcceptPending;
+  final ValueChanged<String> onDeclinePending;
 
   const _ParticipantGroupsSection({
     required this.createdBy,
@@ -830,6 +944,10 @@ class _ParticipantGroupsSection extends StatelessWidget {
     required this.pendingIds,
     required this.declinedIds,
     required this.currentUserId,
+    required this.isOwner,
+    required this.moderatingUserId,
+    required this.onAcceptPending,
+    required this.onDeclinePending,
   });
 
   Future<Map<String, String>> _loadNames(Set<String> ids) async {
@@ -880,6 +998,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                 emptyLabel: 'Kein Ersteller hinterlegt.',
                 people: [
                   _ParticipantItemData(
+                    id: createdBy,
                     name: resolvedCreatorName,
                     status: 'Ersteller',
                     isCurrentUser: createdBy == currentUserId,
@@ -893,6 +1012,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                 people: acceptedIds
                     .map(
                       (id) => _ParticipantItemData(
+                    id: id,
                     name: loadedNames[id] ?? 'Unbekannt',
                     status: 'Bestätigt',
                     isCurrentUser: id == currentUserId,
@@ -907,6 +1027,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                 people: maybeIds
                     .map(
                       (id) => _ParticipantItemData(
+                    id: id,
                     name: loadedNames[id] ?? 'Unbekannt',
                     status: 'Vielleicht',
                     isCurrentUser: id == currentUserId,
@@ -916,17 +1037,24 @@ class _ParticipantGroupsSection extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               _ParticipantGroup(
-                title: 'Ausstehend',
-                emptyLabel: 'Keine offenen Antworten.',
+                title: isOwner ? 'Anfragen' : 'Ausstehend',
+                emptyLabel: isOwner
+                    ? 'Aktuell liegen keine offenen Anfragen vor.'
+                    : 'Keine offenen Antworten.',
                 people: pendingIds
                     .map(
                       (id) => _ParticipantItemData(
+                    id: id,
                     name: loadedNames[id] ?? 'Unbekannt',
                     status: 'Ausstehend',
                     isCurrentUser: id == currentUserId,
                   ),
                 )
                     .toList(),
+                showOwnerActions: isOwner,
+                moderatingUserId: moderatingUserId,
+                onAccept: onAcceptPending,
+                onDecline: onDeclinePending,
               ),
               const SizedBox(height: 12),
               _ParticipantGroup(
@@ -935,6 +1063,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                 people: declinedIds
                     .map(
                       (id) => _ParticipantItemData(
+                    id: id,
                     name: loadedNames[id] ?? 'Unbekannt',
                     status: 'Abgelehnt',
                     isCurrentUser: id == currentUserId,
@@ -951,11 +1080,13 @@ class _ParticipantGroupsSection extends StatelessWidget {
 }
 
 class _ParticipantItemData {
+  final String id;
   final String name;
   final String status;
   final bool isCurrentUser;
 
   const _ParticipantItemData({
+    required this.id,
     required this.name,
     required this.status,
     required this.isCurrentUser,
@@ -966,11 +1097,19 @@ class _ParticipantGroup extends StatelessWidget {
   final String title;
   final String emptyLabel;
   final List<_ParticipantItemData> people;
+  final bool showOwnerActions;
+  final String moderatingUserId;
+  final ValueChanged<String>? onAccept;
+  final ValueChanged<String>? onDecline;
 
   const _ParticipantGroup({
     required this.title,
     required this.emptyLabel,
     required this.people,
+    this.showOwnerActions = false,
+    this.moderatingUserId = '',
+    this.onAccept,
+    this.onDecline,
   });
 
   Color _badgeColor(BuildContext context, String status) {
@@ -1028,6 +1167,7 @@ class _ParticipantGroup extends StatelessWidget {
                   border: Border.all(color: colorScheme.outlineVariant),
                 ),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     CircleAvatar(
                       radius: 18,
@@ -1045,32 +1185,87 @@ class _ParticipantGroup extends StatelessWidget {
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: Text(
-                        person.isCurrentUser
-                            ? '${person.name} (Du)'
-                            : person.name,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _badgeColor(context, person.status)
-                            .withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        person.status,
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: _badgeColor(context, person.status),
-                          fontWeight: FontWeight.w700,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  person.isCurrentUser
+                                      ? '${person.name} (Du)'
+                                      : person.name,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _badgeColor(context, person.status)
+                                      .withValues(alpha: 0.10),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  person.status,
+                                  style: theme.textTheme.labelMedium?.copyWith(
+                                    color: _badgeColor(context, person.status),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (showOwnerActions && person.status == 'Ausstehend') ...[
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: moderatingUserId == person.id
+                                      ? null
+                                      : () => onDecline?.call(person.id),
+                                  icon: moderatingUserId == person.id
+                                      ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                      : const Icon(Icons.close_rounded),
+                                  label: const Text('Ablehnen'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: colorScheme.error,
+                                  ),
+                                ),
+                                FilledButton.icon(
+                                  onPressed: moderatingUserId == person.id
+                                      ? null
+                                      : () => onAccept?.call(person.id),
+                                  icon: moderatingUserId == person.id
+                                      ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                      : const Icon(Icons.check_rounded),
+                                  label: const Text('Bestätigen'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ],
