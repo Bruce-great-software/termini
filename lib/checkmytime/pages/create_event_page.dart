@@ -32,6 +32,7 @@ class _CreateEventPageState extends State<CreateEventPage> {
   final TextEditingController _approxLocationController =
   TextEditingController();
   final TextEditingController _exactLocationController = TextEditingController();
+  final FocusNode _topicFocusNode = FocusNode();
 
   bool _isSubmitting = false;
   bool _isInitialLoading = false;
@@ -50,6 +51,7 @@ class _CreateEventPageState extends State<CreateEventPage> {
   String _locationType = 'none';
   String _exactLocationVisibility = 'all';
   String _loadedTopicKey = '';
+  bool _hideTopicSuggestions = false;
 
   bool get _isEditMode => widget.isEditMode;
 
@@ -94,6 +96,11 @@ class _CreateEventPageState extends State<CreateEventPage> {
   @override
   void initState() {
     super.initState();
+    _topicFocusNode.addListener(() {
+      if (mounted) {
+        setState(() {});
+      }
+    });
     if (_isEditMode) {
       _loadExistingEvent();
     } else {
@@ -111,6 +118,7 @@ class _CreateEventPageState extends State<CreateEventPage> {
     _maxParticipantsController.dispose();
     _approxLocationController.dispose();
     _exactLocationController.dispose();
+    _topicFocusNode.dispose();
     super.dispose();
   }
 
@@ -326,6 +334,204 @@ class _CreateEventPageState extends State<CreateEventPage> {
       default:
         return 'sport';
     }
+  }
+
+  List<_EventTopicSuggestion> _filteredTopicSuggestions(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+      ) {
+    final query = _normalizeTopicKey(_topicController.text);
+    if (query.isEmpty) return const [];
+
+    final seen = <String>{};
+    final suggestions = docs
+        .map(_EventTopicSuggestion.fromDoc)
+        .where((topic) => topic.isActive)
+        .where((topic) {
+      if (topic.nameLc.startsWith(query)) return true;
+      if (topic.nameLc.contains(query)) return true;
+      return topic.defaultTagsLc.any((tag) => tag.contains(query));
+    })
+        .where((topic) => seen.add(topic.nameLc))
+        .toList();
+
+    suggestions.sort((a, b) {
+      final aStarts = a.nameLc.startsWith(query) ? 0 : 1;
+      final bStarts = b.nameLc.startsWith(query) ? 0 : 1;
+      if (aStarts != bStarts) return aStarts.compareTo(bStarts);
+
+      final usageCompare = b.usageCount.compareTo(a.usageCount);
+      if (usageCompare != 0) return usageCompare;
+
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+
+    if (suggestions.length > 6) {
+      return suggestions.take(6).toList();
+    }
+    return suggestions;
+  }
+
+  void _applyTopicSuggestion(_EventTopicSuggestion suggestion) {
+    final text = suggestion.name;
+    setState(() {
+      _topicController.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+      _titleController.text = text;
+      _hideTopicSuggestions = true;
+      if (suggestion.defaultType.isNotEmpty) {
+        _eventType = suggestion.defaultType;
+      }
+      if (suggestion.defaultCategory.isNotEmpty) {
+        _category = suggestion.defaultCategory;
+      }
+      _syncDefaultsForType();
+      _syncJoinModeForVisibility();
+    });
+    FocusScope.of(context).unfocus();
+  }
+
+  void _clearTopicInput() {
+    setState(() {
+      _topicController.clear();
+      _titleController.clear();
+      _hideTopicSuggestions = false;
+    });
+    _topicFocusNode.requestFocus();
+  }
+
+  Widget _buildHighlightedTopicText({
+    required String text,
+    required String query,
+    required TextStyle? style,
+    required TextStyle? highlightStyle,
+  }) {
+    final normalizedText = text.toLowerCase();
+    final normalizedQuery = query.toLowerCase();
+    final start = normalizedText.indexOf(normalizedQuery);
+
+    if (start < 0 || normalizedQuery.isEmpty) {
+      return Text(text, style: style, maxLines: 1, overflow: TextOverflow.ellipsis);
+    }
+
+    final end = start + normalizedQuery.length;
+    return RichText(
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      text: TextSpan(
+        style: style,
+        children: [
+          if (start > 0) TextSpan(text: text.substring(0, start)),
+          TextSpan(
+            text: text.substring(start, end),
+            style: highlightStyle,
+          ),
+          if (end < text.length) TextSpan(text: text.substring(end)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopicSuggestions(ThemeData theme) {
+    final query = _normalizeTopicKey(_topicController.text);
+    if (!_topicFocusNode.hasFocus || query.isEmpty || _hideTopicSuggestions) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('event_topics')
+          .where('isActive', isEqualTo: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const SizedBox.shrink();
+        }
+
+        final docs = snapshot.data?.docs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        final suggestions = _filteredTopicSuggestions(docs);
+
+        if (suggestions.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final borderColor = theme.colorScheme.outlineVariant;
+        final itemTextStyle = theme.textTheme.titleSmall?.copyWith(
+          fontWeight: FontWeight.w600,
+        );
+        final highlightStyle = itemTextStyle?.copyWith(
+          fontWeight: FontWeight.w800,
+        );
+
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: borderColor),
+            ),
+            child: Column(
+              children: [
+                for (int i = 0; i < suggestions.length; i++) ...[
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => _applyTopicSuggestion(suggestions[i]),
+                      borderRadius: BorderRadius.circular(18),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.subdirectory_arrow_right_rounded,
+                              size: 20,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _buildHighlightedTopicText(
+                                    text: suggestions[i].name,
+                                    query: query,
+                                    style: itemTextStyle,
+                                    highlightStyle: highlightStyle,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${_categoryLabel(suggestions[i].defaultCategory)} • ${_typeLabel(suggestions[i].defaultType)}',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (i != suggestions.length - 1)
+                    Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: borderColor,
+                    ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   String _normalizeTopicKey(String value) {
@@ -1038,16 +1244,28 @@ class _CreateEventPageState extends State<CreateEventPage> {
           const SizedBox(height: 16),
           TextField(
             controller: _topicController,
+            focusNode: _topicFocusNode,
             textInputAction: TextInputAction.next,
             onChanged: (value) {
-              _titleController.text = value.trim();
+              setState(() {
+                _titleController.text = value.trim();
+                _hideTopicSuggestions = false;
+              });
             },
             decoration: InputDecoration(
               labelText: 'Was planst du?',
               hintText: _topicHint(),
               prefixIcon: const Icon(Icons.auto_awesome_outlined),
+              suffixIcon: _topicController.text.trim().isEmpty
+                  ? null
+                  : IconButton(
+                tooltip: 'Eingabe löschen',
+                onPressed: _clearTopicInput,
+                icon: const Icon(Icons.close_rounded),
+              ),
             ),
           ),
+          _buildTopicSuggestions(theme),
         ],
       ),
     );
@@ -1518,6 +1736,58 @@ class _CreateEventPageState extends State<CreateEventPage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+
+class _EventTopicSuggestion {
+  final String name;
+  final String nameLc;
+  final String defaultType;
+  final String defaultCategory;
+  final List<String> defaultTags;
+  final List<String> defaultTagsLc;
+  final int usageCount;
+  final bool isActive;
+
+  const _EventTopicSuggestion({
+    required this.name,
+    required this.nameLc,
+    required this.defaultType,
+    required this.defaultCategory,
+    required this.defaultTags,
+    required this.defaultTagsLc,
+    required this.usageCount,
+    required this.isActive,
+  });
+
+  factory _EventTopicSuggestion.fromDoc(
+      QueryDocumentSnapshot<Map<String, dynamic>> doc,
+      ) {
+    final data = doc.data();
+    final name = (data['name'] ?? '').toString().trim();
+    final nameLc = (data['nameLc'] ?? name).toString().trim().toLowerCase();
+    final defaultType = (data['defaultType'] ?? 'activity').toString().trim();
+    final defaultCategory =
+    (data['defaultCategory'] ?? 'sport').toString().trim();
+    final defaultTags = List<String>.from(data['defaultTags'] ?? const <String>[]);
+    final cleanedTags = defaultTags
+        .map((tag) => tag.trim())
+        .where((tag) => tag.isNotEmpty)
+        .toList();
+
+    return _EventTopicSuggestion(
+      name: name.isEmpty ? doc.id : name,
+      nameLc: nameLc,
+      defaultType: defaultType,
+      defaultCategory: defaultCategory,
+      defaultTags: cleanedTags,
+      defaultTagsLc: cleanedTags.map((tag) => tag.toLowerCase()).toList(),
+      usageCount: (data['usageCount'] ?? 0) is int
+          ? (data['usageCount'] ?? 0) as int
+          : int.tryParse((data['usageCount'] ?? '0').toString()) ?? 0,
+      isActive: data['isActive'] != false,
     );
   }
 }
