@@ -237,7 +237,7 @@ class _CreateEventPageState extends State<CreateEventPage> {
       (data['visibility'] ?? 'private').toString().trim().toLowerCase();
       final loadedJoinMode =
       (data['joinMode'] ?? 'invite_only').toString().trim().toLowerCase();
-      final loadedTopic = (data['topic'] ?? '').toString();
+      final loadedTopic = ((data['topic'] ?? data['title']) ?? '').toString();
       final loadedLocationType =
       (data['locationType'] ?? 'none').toString().trim().toLowerCase();
       final loadedApproxLocation =
@@ -579,12 +579,11 @@ class _CreateEventPageState extends State<CreateEventPage> {
   }
 
   bool _validateBeforeSubmit() {
-    final title = _titleController.text.trim();
     final topic = _topicController.text.trim();
     final combined = _combinedStartDateTime();
 
-    if (title.isEmpty) {
-      _showMessage('Bitte gib einen Titel ein.');
+    if (topic.isEmpty) {
+      _showMessage('Bitte gib an, was du planst.');
       return false;
     }
 
@@ -627,11 +626,6 @@ class _CreateEventPageState extends State<CreateEventPage> {
       return false;
     }
 
-    if (_eventType == 'service' && topic.isEmpty) {
-      _showMessage('Bitte gib ein Thema oder Schlagwort an.');
-      return false;
-    }
-
     return true;
   }
 
@@ -644,9 +638,9 @@ class _CreateEventPageState extends State<CreateEventPage> {
 
     if (!_validateBeforeSubmit()) return;
 
-    final title = _titleController.text.trim();
-    final description = _descriptionController.text.trim();
     final topic = _topicController.text.trim();
+    final title = topic.isNotEmpty ? topic : _titleController.text.trim();
+    final description = _descriptionController.text.trim();
     final startAt = _combinedStartDateTime()!;
 
     setState(() {
@@ -1045,6 +1039,9 @@ class _CreateEventPageState extends State<CreateEventPage> {
           TextField(
             controller: _topicController,
             textInputAction: TextInputAction.next,
+            onChanged: (value) {
+              _titleController.text = value.trim();
+            },
             decoration: InputDecoration(
               labelText: 'Was planst du?',
               hintText: _topicHint(),
@@ -1110,16 +1107,6 @@ class _CreateEventPageState extends State<CreateEventPage> {
     return CheckMyTimeSectionCard(
       child: Column(
         children: [
-          TextField(
-            controller: _titleController,
-            textInputAction: TextInputAction.next,
-            decoration: InputDecoration(
-              labelText: 'Titel',
-              hintText: _titleHint(),
-              prefixIcon: const Icon(Icons.title_rounded),
-            ),
-          ),
-          const SizedBox(height: 16),
           TextField(
             controller: _descriptionController,
             minLines: 2,
