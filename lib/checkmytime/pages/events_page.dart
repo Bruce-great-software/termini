@@ -663,71 +663,101 @@ class _EventsPageState extends State<EventsPage>
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: Column(
         children: [
-          Container(
-            decoration: BoxDecoration(
-              color: colorScheme.surface,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: colorScheme.outlineVariant),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    key: const ValueKey('events_search_field'),
-                    controller: _searchController,
-                    focusNode: _searchFocusNode,
-                    autofocus: false,
-                    textInputAction: TextInputAction.search,
-                    decoration: InputDecoration(
-                      hintText: 'Suche nach Billard, Cage Soccer, Kaffee ...',
-                      prefixIcon: const Icon(Icons.search),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 16,
-                      ),
-                      suffixIcon: _searchQuery.trim().isEmpty
-                          ? null
-                          : IconButton(
-                        onPressed: _clearSearch,
-                        icon: const Icon(Icons.close_rounded),
-                      ),
-                    ),
-                    onTap: () {
-                      if (!_searchFocusNode.hasFocus) {
-                        _searchFocusNode.requestFocus();
-                      }
-                    },
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: colorScheme.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: colorScheme.outlineVariant),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Stack(
-                    clipBehavior: Clip.none,
+                  child: Row(
                     children: [
-                      IconButton(
-                        onPressed: _openFilterSheet,
-                        icon: const Icon(Icons.tune_rounded),
-                        tooltip: 'Filter',
-                      ),
-                      if (hasActiveFilter)
-                        Positioned(
-                          right: 8,
-                          top: 8,
-                          child: Container(
-                            width: 10,
-                            height: 10,
-                            decoration: BoxDecoration(
-                              color: colorScheme.primary,
-                              shape: BoxShape.circle,
+                      Expanded(
+                        child: TextField(
+                          key: const ValueKey('events_search_field'),
+                          controller: _searchController,
+                          focusNode: _searchFocusNode,
+                          autofocus: false,
+                          textInputAction: TextInputAction.search,
+                          decoration: InputDecoration(
+                            hintText: 'Suche nach Billard, Cage Soccer, Kaffee ...',
+                            prefixIcon: const Icon(Icons.search),
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 16,
+                            ),
+                            suffixIcon: _searchQuery.trim().isEmpty
+                                ? null
+                                : IconButton(
+                              onPressed: _clearSearch,
+                              icon: const Icon(Icons.close_rounded),
                             ),
                           ),
+                          onTap: () {
+                            if (!_searchFocusNode.hasFocus) {
+                              _searchFocusNode.requestFocus();
+                            }
+                          },
                         ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            IconButton(
+                              onPressed: _openFilterSheet,
+                              icon: const Icon(Icons.tune_rounded),
+                              tooltip: 'Filter',
+                            ),
+                            if (hasActiveFilter)
+                              Positioned(
+                                right: 8,
+                                top: 8,
+                                child: Container(
+                                  width: 10,
+                                  height: 10,
+                                  decoration: BoxDecoration(
+                                    color: colorScheme.primary,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 10),
+              Material(
+                color: colorScheme.primary,
+                borderRadius: BorderRadius.circular(18),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(18),
+                  onTap: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const CreateEventPage(),
+                      ),
+                    );
+                  },
+                  child: const SizedBox(
+                    width: 56,
+                    height: 56,
+                    child: Icon(
+                      Icons.add_rounded,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
           if (_searchQuery.trim().isNotEmpty && suggestions.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -894,48 +924,6 @@ class _EventsPageState extends State<EventsPage>
 
             return Column(
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: colorScheme.surface,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: colorScheme.outlineVariant),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Events entdecken',
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Suche nach sichtbaren Events wie Billard, Cage Soccer oder Kaffee und filtere nach Kategorie, Sichtbarkeit oder freien Plätzen.',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        FilledButton.icon(
-                          onPressed: () async {
-                            await Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const CreateEventPage(),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.add_circle_outline),
-                          label: const Text('Event erstellen'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
                 _buildSearchArea(context, colorScheme, suggestions),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -943,7 +931,9 @@ class _EventsPageState extends State<EventsPage>
                     decoration: BoxDecoration(
                       color: colorScheme.surface,
                       borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: colorScheme.outlineVariant),
+                      border: Border.all(
+                        color: colorScheme.outlineVariant,
+                      ),
                     ),
                     child: TabBar(
                       controller: _tabController,
@@ -966,59 +956,61 @@ class _EventsPageState extends State<EventsPage>
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
                 Expanded(
-                  child: TabBarView(
-                    controller: _tabController,
-                    physics: const BouncingScrollPhysics(),
-                    children: [
-                      _buildTabContent(
-                        context: context,
-                        theme: theme,
-                        colorScheme: colorScheme,
-                        docs: myEvents,
-                        view: EventDetailView.myEvent,
-                        currentUserId: currentUserId,
-                        statusResolver: _overallStatus,
-                        emptyState: const _EventEmptyState(
-                          icon: Icons.event_busy_outlined,
-                          title: 'Noch keine eigenen Events',
-                          subtitle:
-                          'Du hast aktuell keine Events, die zu deiner Suche oder deinen Filtern passen.',
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: TabBarView(
+                      controller: _tabController,
+                      physics: const BouncingScrollPhysics(),
+                      children: [
+                        _buildTabContent(
+                          context: context,
+                          theme: theme,
+                          colorScheme: colorScheme,
+                          docs: myEvents,
+                          view: EventDetailView.myEvent,
+                          currentUserId: currentUserId,
+                          statusResolver: _overallStatus,
+                          emptyState: const _EventEmptyState(
+                            icon: Icons.event_busy_outlined,
+                            title: 'Noch keine eigenen Events',
+                            subtitle:
+                            'Du hast aktuell keine Events, die zu deiner Suche oder deinen Filtern passen.',
+                          ),
                         ),
-                      ),
-                      _buildTabContent(
-                        context: context,
-                        theme: theme,
-                        colorScheme: colorScheme,
-                        docs: invitedEvents,
-                        view: EventDetailView.invitation,
-                        currentUserId: currentUserId,
-                        statusResolver: (data) =>
-                            _responseForUser(data, currentUserId),
-                        emptyState: const _EventEmptyState(
-                          icon: Icons.mail_outline_rounded,
-                          title: 'Keine passenden Einladungen',
-                          subtitle:
-                          'Sobald Einladungen zu deiner Suche oder deinen Filtern passen, erscheinen sie hier.',
+                        _buildTabContent(
+                          context: context,
+                          theme: theme,
+                          colorScheme: colorScheme,
+                          docs: invitedEvents,
+                          view: EventDetailView.invitation,
+                          currentUserId: currentUserId,
+                          statusResolver: (data) =>
+                              _responseForUser(data, currentUserId),
+                          emptyState: const _EventEmptyState(
+                            icon: Icons.mail_outline_rounded,
+                            title: 'Keine passenden Einladungen',
+                            subtitle:
+                            'Sobald Einladungen zu deiner Suche oder deinen Filtern passen, erscheinen sie hier.',
+                          ),
                         ),
-                      ),
-                      _buildTabContent(
-                        context: context,
-                        theme: theme,
-                        colorScheme: colorScheme,
-                        docs: openEvents,
-                        view: EventDetailView.openEvent,
-                        currentUserId: currentUserId,
-                        statusResolver: (_) => 'open',
-                        emptyState: const _EventEmptyState(
-                          icon: Icons.public_off_outlined,
-                          title: 'Keine offenen Events gefunden',
-                          subtitle:
-                          'Aktuell gibt es keine öffentlichen Events, die zu deiner Suche oder deinen Filtern passen.',
+                        _buildTabContent(
+                          context: context,
+                          theme: theme,
+                          colorScheme: colorScheme,
+                          docs: openEvents,
+                          view: EventDetailView.openEvent,
+                          currentUserId: currentUserId,
+                          statusResolver: (_) => 'open',
+                          emptyState: const _EventEmptyState(
+                            icon: Icons.public_off_outlined,
+                            title: 'Keine offenen Events gefunden',
+                            subtitle:
+                            'Aktuell gibt es keine öffentlichen Events, die zu deiner Suche oder deinen Filtern passen.',
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ],
