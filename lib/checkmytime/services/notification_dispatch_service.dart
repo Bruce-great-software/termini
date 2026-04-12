@@ -94,38 +94,27 @@ class NotificationDispatchService {
   }
 
 
-  Future<void> queueEventRequestDecisionNotification({
+  Future<void> queueEventJoinRequestNotification({
     required String recipientUserId,
-    required String senderId,
-    required String senderName,
+    required String requesterUserId,
+    required String requesterName,
     required String eventId,
     required String eventTitle,
-    required String decision,
   }) async {
-    final safeSenderName = _fallback(senderName, 'CheckMyTime');
-    final safeEventTitle = _fallback(eventTitle, 'dein Event');
-    final normalizedDecision = decision.trim().toLowerCase();
-
-    final isAccepted = normalizedDecision == 'accepted';
-    final title = isAccepted
-        ? 'Anfrage angenommen'
-        : 'Anfrage abgelehnt';
-    final body = isAccepted
-        ? '$safeSenderName hat deine Anfrage für "$safeEventTitle" angenommen.'
-        : '$safeSenderName hat deine Anfrage für "$safeEventTitle" abgelehnt.';
+    final safeRequesterName = _fallback(requesterName, 'Jemand');
+    final safeEventTitle = _fallback(eventTitle, 'deinem Event');
 
     await _queueNotification(
       recipientUserId: recipientUserId,
-      channelId: 'incoming_event_updates_v1',
-      title: title,
-      body: body,
+      channelId: 'incoming_event_requests_v2',
+      title: 'Neue Teilnahme-Anfrage',
+      body: '$safeRequesterName möchte an "${safeEventTitle}" teilnehmen.',
       data: {
-        'type': 'event_request_decision',
+        'type': 'event_join_request',
         'route': 'event_detail',
         'eventId': eventId,
-        'senderId': senderId,
-        'senderName': safeSenderName,
-        'decision': normalizedDecision,
+        'senderId': requesterUserId,
+        'senderName': safeRequesterName,
       },
     );
   }

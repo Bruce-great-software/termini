@@ -34,7 +34,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
   bool _hasInitializedInviteState = false;
   Map<String, int> _knownUnreadCountsByThread = {};
   Set<String> _knownPendingInviteIds = <String>{};
-  int _knownPendingJoinRequestCount = 0;
+  Set<String> _knownPendingOwnerRequestKeys = <String>{};
   int _lastPublishedBadgeCount = -1;
   Timer? _presenceHeartbeat;
 
@@ -210,56 +210,48 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     return true;
   }
 
-  String _normalizeJoinMode(Map<String, dynamic> data) {
-    final raw =
-    (data['joinMode'] ?? 'invite_only').toString().trim().toLowerCase();
-    switch (raw) {
-      case 'request':
-      case 'direct':
-      case 'invite_only':
-        return raw;
-      default:
-        return 'invite_only';
-    }
-  }
 
-  int _pendingJoinRequestCountForOwner(
+  Set<String> _pendingRequestKeysForOwner(
+      String eventId,
       Map<String, dynamic> data,
       String currentUserId,
       ) {
     final createdBy = (data['createdBy'] ?? '').toString().trim();
-    if (createdBy != currentUserId) return 0;
-    if (_normalizeJoinMode(data) != 'request') return 0;
+    if (createdBy != currentUserId) return const <String>{};
 
     final responseMap = Map<String, dynamic>.from(
       data['responseMap'] ?? const <String, dynamic>{},
     );
 
-    var count = 0;
+    final pendingKeys = <String>{};
     for (final entry in responseMap.entries) {
-      final responderId = entry.key.trim();
-      final response = entry.value.toString().trim().toLowerCase();
-      if (responderId.isEmpty || responderId == currentUserId) continue;
-      if (response == 'pending') {
-        count += 1;
+      final requesterId = entry.key.toString().trim();
+      final status = entry.value.toString().trim();
+      if (requesterId.isEmpty || requesterId == currentUserId) continue;
+      if (status == 'pending') {
+        pendingKeys.add('$eventId:$requesterId');
       }
     }
-    return count;
+    return pendingKeys;
   }
 
-  int _eventAttentionCountFromSnapshot(
-      QuerySnapshot<Map<String, dynamic>> snapshot,
-      String currentUserId,
-      ) {
-    var total = 0;
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
-      if (_isPendingEventInvite(data, currentUserId)) {
-        total += 1;
-      }
-      total += _pendingJoinRequestCountForOwner(data, currentUserId);
-    }
-    return total;
+  int _eventActionBadgeCount() {
+    return _knownPendingInviteIds.length + _knownPendingOwnerRequestKeys.length;
+  }
+
+  Widget _buildNavigationIcon(IconData icon, int badgeCount) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(icon),
+        if (badgeCount > 0)
+          Positioned(
+            right: -8,
+            top: -6,
+            child: _NewItemsBadge(count: badgeCount),
+          ),
+      ],
+    );
   }
 
   void _listenForIncomingEventInvites() {
@@ -273,29 +265,53 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         .snapshots()
         .listen((snapshot) async {
       final pendingInviteIds = <String>{};
-      var pendingJoinRequests = 0;
+      final pendingOwnerRequestKeys = <String>{};
+      final eventTitlesByRequestKey = <String, String>{};
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
         if (_isPendingEventInvite(data, currentUserId)) {
           pendingInviteIds.add(doc.id);
         }
-        pendingJoinRequests += _pendingJoinRequestCountForOwner(
-          data,
-          currentUserId,
-        );
+
+        final pendingKeys = _pendingRequestKeysForOwner(doc.id, data, currentUserId);
+        if (pendingKeys.isNotEmpty) {
+          final eventTitle = (data['title'] ?? 'deinem Event').toString().trim();
+          for (final key in pendingKeys) {
+            pendingOwnerRequestKeys.add(key);
+            eventTitlesByRequestKey[key] = eventTitle.isEmpty ? 'deinem Event' : eventTitle;
+          }
+        }
       }
 
       if (!_hasInitializedInviteState) {
         _hasInitializedInviteState = true;
         _knownPendingInviteIds = pendingInviteIds;
-        _knownPendingJoinRequestCount = pendingJoinRequests;
+        _knownPendingOwnerRequestKeys = pendingOwnerRequestKeys;
+        if (mounted) {
+          setState(() {});
+        }
         await _publishBadgeCount();
         return;
       }
 
+      final newOwnerRequestKeys = pendingOwnerRequestKeys.difference(
+        _knownPendingOwnerRequestKeys,
+      );
+
+      for (final requestKey in newOwnerRequestKeys) {
+        final eventTitle = eventTitlesByRequestKey[requestKey] ?? 'deinem Event';
+        await NotificationService.instance.showIncomingEventRequestNotification(
+          title: 'Neue Teilnahme-Anfrage',
+          body: 'Für "$eventTitle" gibt es eine neue Anfrage.',
+        );
+      }
+
       _knownPendingInviteIds = pendingInviteIds;
-      _knownPendingJoinRequestCount = pendingJoinRequests;
+      _knownPendingOwnerRequestKeys = pendingOwnerRequestKeys;
+      if (mounted) {
+        setState(() {});
+      }
       await _publishBadgeCount();
     });
   }
@@ -311,7 +327,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     final totalBadgeCount =
         unreadAppointments +
             _knownPendingInviteIds.length +
-            _knownPendingJoinRequestCount;
+            _knownPendingOwnerRequestKeys.length;
 
     if (totalBadgeCount == _lastPublishedBadgeCount) return;
     _lastPublishedBadgeCount = totalBadgeCount;
@@ -1389,7 +1405,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       ColorScheme colorScheme,
       ThemeData theme,
       String? currentUserId,
-      int eventAttentionCount,
       ) {
     return ListView(
       physics: const BouncingScrollPhysics(),
@@ -1428,8 +1443,8 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                   icon: Icons.celebration_outlined,
                   title: 'Events',
                   subtitle:
-                  'Hier planst und verwaltest du später gemeinsame Aktivitäten und Einladungen.',
-                  badgeCount: eventAttentionCount,
+                  'Hier planst und verwaltest du später gemeinsame Aktivitäten, Einladungen und Anfragen.',
+                  badgeCount: _eventActionBadgeCount(),
                   onTap: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => const EventsPage()),
@@ -1458,7 +1473,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       ColorScheme colorScheme,
       ThemeData theme,
       String? currentUserId,
-      int eventAttentionCount,
       ) {
     if (_selectedIndex == 1) {
       return const EventsPage();
@@ -1468,12 +1482,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       return const ProfilePage();
     }
 
-    return _buildHomeTab(
-      colorScheme,
-      theme,
-      currentUserId,
-      eventAttentionCount,
-    );
+    return _buildHomeTab(colorScheme, theme, currentUserId);
   }
 
   @override
@@ -1482,98 +1491,56 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     final colorScheme = theme.colorScheme;
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream:
-      currentUserId == null
-          ? const Stream<QuerySnapshot<Map<String, dynamic>>>.empty()
-          : FirebaseFirestore.instance
-          .collection('events')
-          .orderBy('createdAt', descending: true)
-          .snapshots(),
-      builder: (context, snapshot) {
-        final eventAttentionCount =
-        currentUserId != null && snapshot.hasData
-            ? _eventAttentionCountFromSnapshot(
-          snapshot.data!,
-          currentUserId,
-        )
-            : 0;
-
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('CheckMyTime'),
-            actions: [
-              IconButton(
-                onPressed:
-                    () => setState(() {
-                  _selectedIndex = 2;
-                }),
-                icon: const Icon(Icons.settings_outlined),
-              ),
-            ],
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('CheckMyTime'),
+        actions: [
+          IconButton(
+            onPressed:
+                () => setState(() {
+              _selectedIndex = 2;
+            }),
+            icon: const Icon(Icons.settings_outlined),
           ),
-          body: SafeArea(
-            child: GestureDetector(
-              onTap: () => _searchFocusNode.unfocus(),
-              child: _buildBody(
-                colorScheme,
-                theme,
-                currentUserId,
-                eventAttentionCount,
-              ),
+        ],
+      ),
+      body: SafeArea(
+        child: GestureDetector(
+          onTap: () => _searchFocusNode.unfocus(),
+          child: _buildBody(colorScheme, theme, currentUserId),
+        ),
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+        destinations: [
+          const NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: _buildNavigationIcon(
+              Icons.calendar_month_outlined,
+              _eventActionBadgeCount(),
             ),
+            selectedIcon: _buildNavigationIcon(
+              Icons.calendar_month,
+              _eventActionBadgeCount(),
+            ),
+            label: 'Events',
           ),
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: _selectedIndex,
-            onDestinationSelected: (index) {
-              setState(() {
-                _selectedIndex = index;
-              });
-            },
-            destinations: [
-              const NavigationDestination(
-                icon: Icon(Icons.home_outlined),
-                selectedIcon: Icon(Icons.home),
-                label: 'Home',
-              ),
-              NavigationDestination(
-                icon: _BottomNavBadgeIcon(
-                  icon: Icons.calendar_month_outlined,
-                  count: eventAttentionCount,
-                ),
-                selectedIcon: _BottomNavBadgeIcon(
-                  icon: Icons.calendar_month,
-                  count: eventAttentionCount,
-                ),
-                label: 'Events',
-              ),
-              const NavigationDestination(
-                icon: Icon(Icons.person_outline),
-                selectedIcon: Icon(Icons.person),
-                label: 'Profil',
-              ),
-            ],
+          const NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Profil',
           ),
-        );
-      },
-    );
-  }
-}
-
-class _BottomNavBadgeIcon extends StatelessWidget {
-  final IconData icon;
-  final int count;
-
-  const _BottomNavBadgeIcon({required this.icon, required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    final iconWidget = Icon(icon);
-    if (count <= 0) return iconWidget;
-
-    return Badge.count(
-      count: count,
-      child: iconWidget,
+        ],
+      ),
     );
   }
 }

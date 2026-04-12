@@ -3,7 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:termini/checkmytime/pages/create_event_page.dart';
-import 'package:termini/checkmytime/services/notification_dispatch_service.dart';
 
 /// Legt fest, aus welchem Tab die Detailseite geöffnet wurde.
 enum EventDetailView {
@@ -555,7 +554,6 @@ class _EventDetailPageState extends State<EventDetailPage> {
       final data = snapshot.data() ?? <String, dynamic>{};
 
       final createdBy = (data['createdBy'] ?? '').toString().trim();
-      final joinMode = _normalizeJoinMode(data);
       final accepted = <String>{
         ...List<String>.from(data['acceptedUserIds'] ?? const []),
       };
@@ -568,22 +566,6 @@ class _EventDetailPageState extends State<EventDetailPage> {
       final responseMap = Map<String, dynamic>.from(
         data['responseMap'] ?? const <String, dynamic>{},
       );
-      final previousStatus = _responseForUser(data, _currentUserId);
-
-      if (joinMode == 'request' &&
-          previousStatus == 'declined' &&
-          statusKey == 'accepted') {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Deine Anfrage wurde abgelehnt. Du kannst aktuell nicht selbst zusagen.',
-            ),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
 
       accepted.remove(_currentUserId);
       maybe.remove(_currentUserId);
@@ -644,20 +626,12 @@ class _EventDetailPageState extends State<EventDetailPage> {
     }
   }
 
-  Future<void> _handlePendingRequestDecision({
-    required String requestedUserId,
-    required String decision,
-  }) async {
-    if (_currentUserId.isEmpty ||
-        requestedUserId.trim().isEmpty ||
-        _isUpdatingStatus) {
-      return;
-    }
 
-    final normalizedDecision = decision.trim().toLowerCase();
-    if (normalizedDecision != 'accepted' && normalizedDecision != 'declined') {
-      return;
-    }
+  Future<void> _handlePendingRequestDecision({
+    required String targetUserId,
+    required bool accept,
+  }) async {
+    if (targetUserId.trim().isEmpty || _isUpdatingStatus) return;
 
     setState(() {
       _isUpdatingStatus = true;
@@ -669,26 +643,13 @@ class _EventDetailPageState extends State<EventDetailPage> {
           .doc(widget.eventId);
       final snapshot = await docRef.get();
       final data = snapshot.data() ?? <String, dynamic>{};
-
-      if (normalizedDecision == 'accepted' && !_hasFreeSpots(data)) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Für dieses Event sind aktuell keine Plätze frei.'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
-
-      final title = (data['title'] ?? 'Event').toString().trim();
-      final createdByName =
-      (data['createdByName'] ?? 'CheckMyTime').toString().trim();
       final createdBy = (data['createdBy'] ?? '').toString().trim();
+
       final memberIds = <String>{
         ...List<String>.from(data['memberIds'] ?? const []),
-        requestedUserId,
+        targetUserId,
       }..removeWhere((id) => id.trim().isEmpty);
+
       final accepted = <String>{
         ...List<String>.from(data['acceptedUserIds'] ?? const []),
       };
@@ -702,16 +663,17 @@ class _EventDetailPageState extends State<EventDetailPage> {
         data['responseMap'] ?? const <String, dynamic>{},
       );
 
-      accepted.remove(requestedUserId);
-      maybe.remove(requestedUserId);
-      declined.remove(requestedUserId);
+      accepted.remove(targetUserId);
+      maybe.remove(targetUserId);
+      declined.remove(targetUserId);
 
-      if (normalizedDecision == 'accepted') {
-        accepted.add(requestedUserId);
+      if (accept) {
+        accepted.add(targetUserId);
+        responseMap[targetUserId] = 'accepted';
       } else {
-        declined.add(requestedUserId);
+        declined.add(targetUserId);
+        responseMap[targetUserId] = 'declined';
       }
-      responseMap[requestedUserId] = normalizedDecision;
 
       final participantIds = <String>{
         createdBy,
@@ -728,21 +690,11 @@ class _EventDetailPageState extends State<EventDetailPage> {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      await NotificationDispatchService.instance
-          .queueEventRequestDecisionNotification(
-        recipientUserId: requestedUserId,
-        senderId: _currentUserId,
-        senderName: createdByName,
-        eventId: widget.eventId,
-        eventTitle: title,
-        decision: normalizedDecision,
-      );
-
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            normalizedDecision == 'accepted'
+            accept
                 ? 'Die Anfrage wurde angenommen.'
                 : 'Die Anfrage wurde abgelehnt.',
           ),
@@ -753,7 +705,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Die Anfrage konnte nicht bearbeitet werden.'),
+          content: Text('Die Anfrage konnte nicht aktualisiert werden.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -1137,15 +1089,15 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   pendingIds: participantBuckets.pending,
                   declinedIds: participantBuckets.declined,
                   currentUserId: _currentUserId,
-                  canManagePendingRequests: isOwner && joinMode == 'request',
-                  isUpdating: _isUpdatingStatus,
+                  canManagePendingRequests: isOwner,
+                  isBusy: _isUpdatingStatus,
                   onAcceptPending: (userId) => _handlePendingRequestDecision(
-                    requestedUserId: userId,
-                    decision: 'accepted',
+                    targetUserId: userId,
+                    accept: true,
                   ),
                   onDeclinePending: (userId) => _handlePendingRequestDecision(
-                    requestedUserId: userId,
-                    decision: 'declined',
+                    targetUserId: userId,
+                    accept: false,
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -1412,7 +1364,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
   final List<String> declinedIds;
   final String currentUserId;
   final bool canManagePendingRequests;
-  final bool isUpdating;
+  final bool isBusy;
   final ValueChanged<String>? onAcceptPending;
   final ValueChanged<String>? onDeclinePending;
 
@@ -1425,7 +1377,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
     required this.declinedIds,
     required this.currentUserId,
     required this.canManagePendingRequests,
-    required this.isUpdating,
+    required this.isBusy,
     this.onAcceptPending,
     this.onDeclinePending,
   });
@@ -1529,8 +1481,8 @@ class _ParticipantGroupsSection extends StatelessWidget {
                   ),
                 )
                     .toList(),
-                canManagePending: canManagePendingRequests,
-                isUpdating: isUpdating,
+                canManagePendingRequests: canManagePendingRequests,
+                isBusy: isBusy,
                 onAcceptPending: onAcceptPending,
                 onDeclinePending: onDeclinePending,
               ),
@@ -1575,8 +1527,8 @@ class _ParticipantGroup extends StatelessWidget {
   final String title;
   final String emptyLabel;
   final List<_ParticipantItemData> people;
-  final bool canManagePending;
-  final bool isUpdating;
+  final bool canManagePendingRequests;
+  final bool isBusy;
   final ValueChanged<String>? onAcceptPending;
   final ValueChanged<String>? onDeclinePending;
 
@@ -1584,8 +1536,8 @@ class _ParticipantGroup extends StatelessWidget {
     required this.title,
     required this.emptyLabel,
     required this.people,
-    this.canManagePending = false,
-    this.isUpdating = false,
+    this.canManagePendingRequests = false,
+    this.isBusy = false,
     this.onAcceptPending,
     this.onDeclinePending,
   });
@@ -1632,107 +1584,116 @@ class _ParticipantGroup extends StatelessWidget {
           )
         else
           ...people.map(
-                (person) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: colorScheme.primary.withValues(alpha: 0.04),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: colorScheme.outlineVariant),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 18,
-                          backgroundColor:
-                          colorScheme.primary.withValues(alpha: 0.10),
-                          child: Text(
-                            person.name.isNotEmpty
-                                ? person.name.characters.first.toUpperCase()
-                                : '?',
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              color: colorScheme.primary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            person.isCurrentUser
-                                ? '${person.name} (Du)'
-                                : person.name,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _badgeColor(context, person.status)
-                                .withValues(alpha: 0.10),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            person.status,
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              color: _badgeColor(context, person.status),
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (canManagePending &&
-                        person.status == 'Ausstehend' &&
-                        !person.isCurrentUser) ...[
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
+                (person) {
+              final showPendingActions =
+                  canManagePendingRequests &&
+                      person.status == 'Ausstehend' &&
+                      !person.isCurrentUser &&
+                      person.userId.trim().isNotEmpty;
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary.withValues(alpha: 0.04),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: colorScheme.outlineVariant),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          FilledButton.icon(
-                            onPressed: isUpdating
-                                ? null
-                                : () => onAcceptPending?.call(person.userId),
-                            icon: isUpdating
-                                ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
+                          CircleAvatar(
+                            radius: 18,
+                            backgroundColor:
+                            colorScheme.primary.withValues(alpha: 0.10),
+                            child: Text(
+                              person.name.isNotEmpty
+                                  ? person.name.characters.first.toUpperCase()
+                                  : '?',
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                color: colorScheme.primary,
+                                fontWeight: FontWeight.w700,
                               ),
-                            )
-                                : const Icon(Icons.check_rounded),
-                            label: const Text('Annehmen'),
+                            ),
                           ),
-                          OutlinedButton.icon(
-                            onPressed: isUpdating
-                                ? null
-                                : () => onDeclinePending?.call(person.userId),
-                            icon: const Icon(Icons.close_rounded),
-                            label: const Text('Ablehnen'),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              person.isCurrentUser
+                                  ? '${person.name} (Du)'
+                                  : person.name,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _badgeColor(context, person.status)
+                                  .withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              person.status,
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: _badgeColor(context, person.status),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ],
                       ),
+                      if (showPendingActions) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed: isBusy || onAcceptPending == null
+                                    ? null
+                                    : () => onAcceptPending!(person.userId),
+                                icon: isBusy
+                                    ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                                    : const Icon(Icons.check_rounded),
+                                label: const Text('Annehmen'),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: isBusy || onDeclinePending == null
+                                    ? null
+                                    : () => onDeclinePending!(person.userId),
+                                icon: const Icon(Icons.close_rounded),
+                                label: const Text('Ablehnen'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
       ],
     );

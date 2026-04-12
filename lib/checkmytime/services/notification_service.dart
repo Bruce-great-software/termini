@@ -90,6 +90,13 @@ class NotificationService {
         importance: Importance.high,
         showBadge: true,
       ),
+      AndroidNotificationChannel(
+        'incoming_event_requests_v2',
+        'Teilnahme-Anfragen',
+        description: 'Benachrichtigungen fuer neue Teilnahme-Anfragen',
+        importance: Importance.high,
+        showBadge: true,
+      ),
     ];
   }
 
@@ -296,6 +303,11 @@ class NotificationService {
       name: 'Event-Einladungen',
       description: 'Benachrichtigungen fuer neue Event-Einladungen',
       ),
+      'event_join_request' => (
+      id: 'incoming_event_requests_v2',
+      name: 'Teilnahme-Anfragen',
+      description: 'Benachrichtigungen fuer neue Teilnahme-Anfragen',
+      ),
       _ => (
       id: defaultChannelId,
       name: defaultChannelName,
@@ -460,4 +472,23 @@ class NotificationService {
     );
     await setAppBadgeCount(unreadCount);
   }
+
+  Future<void> showIncomingEventRequestNotification({
+    required String title,
+    required String body,
+  }) async {
+    final unreadCount = await _unreadCountRepository.incrementUnreadCount();
+    await _showNotification(
+      channelId: 'incoming_event_requests_v2',
+      channelName: 'Teilnahme-Anfragen',
+      channelDescription: 'Benachrichtigungen für neue Teilnahme-Anfragen',
+      title: title,
+      body: body,
+      notificationId: await _unreadCountRepository.nextNotificationSequence(),
+      unreadCount: unreadCount,
+      groupKey: '$_groupKeyPrefix:incoming_event_requests_v2',
+    );
+    await setAppBadgeCount(unreadCount);
+  }
+
 }
