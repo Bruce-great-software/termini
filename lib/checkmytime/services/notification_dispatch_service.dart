@@ -63,6 +63,36 @@ class NotificationDispatchService {
     );
   }
 
+
+  Future<void> queueEventJoinDecisionNotification({
+    required String recipientUserId,
+    required String senderId,
+    required String senderName,
+    required String eventId,
+    required String eventTitle,
+    required bool accepted,
+  }) async {
+    final safeSenderName = _fallback(senderName, 'CheckMyTime');
+    final safeEventTitle = _fallback(eventTitle, 'Event');
+
+    await _queueNotification(
+      recipientUserId: recipientUserId,
+      channelId: 'incoming_event_updates_v2',
+      title: accepted ? 'Anfrage angenommen' : 'Anfrage abgelehnt',
+      body: accepted
+          ? '$safeSenderName hat deine Anfrage für "$safeEventTitle" angenommen.'
+          : '$safeSenderName hat deine Anfrage für "$safeEventTitle" abgelehnt.',
+      data: {
+        'type': accepted
+            ? 'event_join_request_accepted'
+            : 'event_join_request_declined',
+        'route': 'event_detail',
+        'eventId': eventId,
+        'senderId': senderId,
+        'senderName': safeSenderName,
+      },
+    );
+  }
   Future<void> queueEventInviteNotifications({
     required Iterable<String> recipientUserIds,
     required String senderId,
@@ -91,32 +121,6 @@ class NotificationDispatchService {
         },
       );
     }
-  }
-
-
-  Future<void> queueEventJoinRequestNotification({
-    required String recipientUserId,
-    required String requesterUserId,
-    required String requesterName,
-    required String eventId,
-    required String eventTitle,
-  }) async {
-    final safeRequesterName = _fallback(requesterName, 'Jemand');
-    final safeEventTitle = _fallback(eventTitle, 'deinem Event');
-
-    await _queueNotification(
-      recipientUserId: recipientUserId,
-      channelId: 'incoming_event_requests_v2',
-      title: 'Neue Teilnahme-Anfrage',
-      body: '$safeRequesterName möchte an "${safeEventTitle}" teilnehmen.',
-      data: {
-        'type': 'event_join_request',
-        'route': 'event_detail',
-        'eventId': eventId,
-        'senderId': requesterUserId,
-        'senderName': safeRequesterName,
-      },
-    );
   }
 
   Future<void> _queueNotification({

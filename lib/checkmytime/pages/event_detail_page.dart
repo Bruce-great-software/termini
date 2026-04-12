@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:termini/checkmytime/pages/create_event_page.dart';
+import 'package:termini/checkmytime/services/notification_dispatch_service.dart';
 
 /// Legt fest, aus welchem Tab die Detailseite geöffnet wurde.
 enum EventDetailView {
@@ -28,6 +29,7 @@ class EventDetailPage extends StatefulWidget {
 class _EventDetailPageState extends State<EventDetailPage> {
   bool _isUpdatingStatus = false;
   bool _isDeleting = false;
+  String? _ownerActionUserId;
 
   String get _currentUserId => FirebaseAuth.instance.currentUser?.uid ?? '';
 
@@ -627,14 +629,15 @@ class _EventDetailPageState extends State<EventDetailPage> {
   }
 
 
-  Future<void> _handlePendingRequestDecision({
-    required String targetUserId,
-    required bool accept,
+  Future<void> _handleOwnerRequestDecision({
+    required String requestUserId,
+    required bool accepted,
   }) async {
-    if (targetUserId.trim().isEmpty || _isUpdatingStatus) return;
+    if (_currentUserId.isEmpty || _isUpdatingStatus) return;
 
     setState(() {
       _isUpdatingStatus = true;
+      _ownerActionUserId = requestUserId;
     });
 
     try {
@@ -643,58 +646,75 @@ class _EventDetailPageState extends State<EventDetailPage> {
           .doc(widget.eventId);
       final snapshot = await docRef.get();
       final data = snapshot.data() ?? <String, dynamic>{};
+
       final createdBy = (data['createdBy'] ?? '').toString().trim();
+      if (createdBy != _currentUserId) {
+        throw StateError('Nur der Ersteller darf Anfragen verwalten.');
+      }
+
+      final eventTitle = (data['title'] ?? 'Event').toString().trim();
+      final createdByName = (data['createdByName'] ?? '').toString().trim();
 
       final memberIds = <String>{
         ...List<String>.from(data['memberIds'] ?? const []),
-        targetUserId,
-      }..removeWhere((id) => id.trim().isEmpty);
-
-      final accepted = <String>{
+      };
+      final acceptedIds = <String>{
         ...List<String>.from(data['acceptedUserIds'] ?? const []),
       };
-      final maybe = <String>{
+      final maybeIds = <String>{
         ...List<String>.from(data['maybeUserIds'] ?? const []),
       };
-      final declined = <String>{
+      final declinedIds = <String>{
         ...List<String>.from(data['declinedUserIds'] ?? const []),
+      };
+      final participantIds = <String>{
+        ...List<String>.from(data['participantIds'] ?? const []),
       };
       final responseMap = Map<String, dynamic>.from(
         data['responseMap'] ?? const <String, dynamic>{},
       );
 
-      accepted.remove(targetUserId);
-      maybe.remove(targetUserId);
-      declined.remove(targetUserId);
+      acceptedIds.remove(requestUserId);
+      maybeIds.remove(requestUserId);
+      declinedIds.remove(requestUserId);
+      participantIds.remove(requestUserId);
 
-      if (accept) {
-        accepted.add(targetUserId);
-        responseMap[targetUserId] = 'accepted';
+      if (accepted) {
+        acceptedIds.add(requestUserId);
+        memberIds.add(requestUserId);
+        participantIds.add(requestUserId);
+        participantIds.add(createdBy);
+        responseMap[requestUserId] = 'accepted';
       } else {
-        declined.add(targetUserId);
-        responseMap[targetUserId] = 'declined';
+        declinedIds.add(requestUserId);
+        memberIds.remove(requestUserId);
+        responseMap[requestUserId] = 'declined';
       }
-
-      final participantIds = <String>{
-        createdBy,
-        ...accepted,
-      }..removeWhere((id) => id.trim().isEmpty);
 
       await docRef.update({
         'memberIds': memberIds.toList(),
-        'acceptedUserIds': accepted.toList(),
-        'maybeUserIds': maybe.toList(),
-        'declinedUserIds': declined.toList(),
+        'acceptedUserIds': acceptedIds.toList(),
+        'maybeUserIds': maybeIds.toList(),
+        'declinedUserIds': declinedIds.toList(),
         'participantIds': participantIds.toList(),
         'responseMap': responseMap,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+      await NotificationDispatchService.instance.queueEventJoinDecisionNotification(
+        recipientUserId: requestUserId,
+        senderId: createdBy,
+        senderName: createdByName,
+        eventId: widget.eventId,
+        eventTitle: eventTitle,
+        accepted: accepted,
+      );
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            accept
+            accepted
                 ? 'Die Anfrage wurde angenommen.'
                 : 'Die Anfrage wurde abgelehnt.',
           ),
@@ -713,6 +733,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
       if (mounted) {
         setState(() {
           _isUpdatingStatus = false;
+          _ownerActionUserId = null;
         });
       }
     }
@@ -1089,16 +1110,14 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   pendingIds: participantBuckets.pending,
                   declinedIds: participantBuckets.declined,
                   currentUserId: _currentUserId,
-                  canManagePendingRequests: isOwner,
-                  isBusy: _isUpdatingStatus,
-                  onAcceptPending: (userId) => _handlePendingRequestDecision(
-                    targetUserId: userId,
-                    accept: true,
-                  ),
-                  onDeclinePending: (userId) => _handlePendingRequestDecision(
-                    targetUserId: userId,
-                    accept: false,
-                  ),
+                  isOwner: isOwner,
+                  isUpdatingStatus: _isUpdatingStatus,
+                  ownerActionUserId: _ownerActionUserId,
+                  onOwnerDecision: ({required userId, required accepted}) =>
+                      _handleOwnerRequestDecision(
+                        requestUserId: userId,
+                        accepted: accepted,
+                      ),
                 ),
                 const SizedBox(height: 14),
                 _buildActionSection(
@@ -1252,6 +1271,23 @@ class _EventDetailPageState extends State<EventDetailPage> {
       );
     }
 
+    if (joinMode == 'request' && currentUserResponse == 'declined') {
+      return _DetailSection(
+        title: 'Deine Anfrage',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Deine Anfrage wurde vom Ersteller abgelehnt. Du kannst diesem Event aktuell nicht direkt beitreten.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     if (joinMode == 'direct' && !hasExistingResponse) {
       return _DetailSection(
         title: 'Teilnahme',
@@ -1363,10 +1399,10 @@ class _ParticipantGroupsSection extends StatelessWidget {
   final List<String> pendingIds;
   final List<String> declinedIds;
   final String currentUserId;
-  final bool canManagePendingRequests;
-  final bool isBusy;
-  final ValueChanged<String>? onAcceptPending;
-  final ValueChanged<String>? onDeclinePending;
+  final bool isOwner;
+  final bool isUpdatingStatus;
+  final String? ownerActionUserId;
+  final Future<void> Function({required String userId, required bool accepted})? onOwnerDecision;
 
   const _ParticipantGroupsSection({
     required this.createdBy,
@@ -1376,10 +1412,10 @@ class _ParticipantGroupsSection extends StatelessWidget {
     required this.pendingIds,
     required this.declinedIds,
     required this.currentUserId,
-    required this.canManagePendingRequests,
-    required this.isBusy,
-    this.onAcceptPending,
-    this.onDeclinePending,
+    required this.isOwner,
+    required this.isUpdatingStatus,
+    required this.ownerActionUserId,
+    this.onOwnerDecision,
   });
 
   Future<Map<String, String>> _loadNames(Set<String> ids) async {
@@ -1471,6 +1507,53 @@ class _ParticipantGroupsSection extends StatelessWidget {
               _ParticipantGroup(
                 title: 'Ausstehend',
                 emptyLabel: 'Keine offenen Antworten.',
+                actionBuilder: isOwner && onOwnerDecision != null
+                    ? (person) {
+                  if (person.isCurrentUser) return null;
+                  final isBusy = isUpdatingStatus && ownerActionUserId == person.userId;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: isUpdatingStatus
+                                ? null
+                                : () => onOwnerDecision!(
+                              userId: person.userId,
+                              accepted: true,
+                            ),
+                            icon: isBusy
+                                ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                                : const Icon(Icons.check_rounded),
+                            label: const Text('Annehmen'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: isUpdatingStatus
+                                ? null
+                                : () => onOwnerDecision!(
+                              userId: person.userId,
+                              accepted: false,
+                            ),
+                            icon: const Icon(Icons.close_rounded),
+                            label: const Text('Ablehnen'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                    : null,
                 people: pendingIds
                     .map(
                       (id) => _ParticipantItemData(
@@ -1481,10 +1564,6 @@ class _ParticipantGroupsSection extends StatelessWidget {
                   ),
                 )
                     .toList(),
-                canManagePendingRequests: canManagePendingRequests,
-                isBusy: isBusy,
-                onAcceptPending: onAcceptPending,
-                onDeclinePending: onDeclinePending,
               ),
               const SizedBox(height: 12),
               _ParticipantGroup(
@@ -1527,19 +1606,13 @@ class _ParticipantGroup extends StatelessWidget {
   final String title;
   final String emptyLabel;
   final List<_ParticipantItemData> people;
-  final bool canManagePendingRequests;
-  final bool isBusy;
-  final ValueChanged<String>? onAcceptPending;
-  final ValueChanged<String>? onDeclinePending;
+  final Widget? Function(_ParticipantItemData person)? actionBuilder;
 
   const _ParticipantGroup({
     required this.title,
     required this.emptyLabel,
     required this.people,
-    this.canManagePendingRequests = false,
-    this.isBusy = false,
-    this.onAcceptPending,
-    this.onDeclinePending,
+    this.actionBuilder,
   });
 
   Color _badgeColor(BuildContext context, String status) {
@@ -1585,12 +1658,7 @@ class _ParticipantGroup extends StatelessWidget {
         else
           ...people.map(
                 (person) {
-              final showPendingActions =
-                  canManagePendingRequests &&
-                      person.status == 'Ausstehend' &&
-                      !person.isCurrentUser &&
-                      person.userId.trim().isNotEmpty;
-
+              final extraAction = actionBuilder?.call(person);
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Container(
@@ -1654,41 +1722,7 @@ class _ParticipantGroup extends StatelessWidget {
                           ),
                         ],
                       ),
-                      if (showPendingActions) ...[
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: isBusy || onAcceptPending == null
-                                    ? null
-                                    : () => onAcceptPending!(person.userId),
-                                icon: isBusy
-                                    ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                                    : const Icon(Icons.check_rounded),
-                                label: const Text('Annehmen'),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: isBusy || onDeclinePending == null
-                                    ? null
-                                    : () => onDeclinePending!(person.userId),
-                                icon: const Icon(Icons.close_rounded),
-                                label: const Text('Ablehnen'),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                      if (extraAction != null) extraAction,
                     ],
                   ),
                 ),

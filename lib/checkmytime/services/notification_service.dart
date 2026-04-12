@@ -91,9 +91,9 @@ class NotificationService {
         showBadge: true,
       ),
       AndroidNotificationChannel(
-        'incoming_event_requests_v2',
-        'Teilnahme-Anfragen',
-        description: 'Benachrichtigungen fuer neue Teilnahme-Anfragen',
+        'incoming_event_updates_v2',
+        'Event-Aktualisierungen',
+        description: 'Benachrichtigungen fuer Event-Anfragen und Entscheidungen',
         importance: Importance.high,
         showBadge: true,
       ),
@@ -304,9 +304,19 @@ class NotificationService {
       description: 'Benachrichtigungen fuer neue Event-Einladungen',
       ),
       'event_join_request' => (
-      id: 'incoming_event_requests_v2',
-      name: 'Teilnahme-Anfragen',
-      description: 'Benachrichtigungen fuer neue Teilnahme-Anfragen',
+      id: 'incoming_event_updates_v2',
+      name: 'Event-Aktualisierungen',
+      description: 'Benachrichtigungen fuer Event-Anfragen und Entscheidungen',
+      ),
+      'event_join_request_accepted' => (
+      id: 'incoming_event_updates_v2',
+      name: 'Event-Aktualisierungen',
+      description: 'Benachrichtigungen fuer Event-Anfragen und Entscheidungen',
+      ),
+      'event_join_request_declined' => (
+      id: 'incoming_event_updates_v2',
+      name: 'Event-Aktualisierungen',
+      description: 'Benachrichtigungen fuer Event-Anfragen und Entscheidungen',
       ),
       _ => (
       id: defaultChannelId,
@@ -455,6 +465,32 @@ class NotificationService {
     await setAppBadgeCount(unreadCount);
   }
 
+
+  Future<void> showIncomingEventRequestNotification({
+    required String title,
+    required String body,
+  }) async {
+    await showIncomingEventUpdateNotification(title: title, body: body);
+  }
+
+  Future<void> showIncomingEventUpdateNotification({
+    required String title,
+    required String body,
+  }) async {
+    final unreadCount = await _unreadCountRepository.incrementUnreadCount();
+    await _showNotification(
+      channelId: 'incoming_event_updates_v2',
+      channelName: 'Event-Aktualisierungen',
+      channelDescription: 'Benachrichtigungen fuer Event-Anfragen und Entscheidungen',
+      title: title,
+      body: body,
+      notificationId: await _unreadCountRepository.nextNotificationSequence(),
+      unreadCount: unreadCount,
+      groupKey: '$_groupKeyPrefix:incoming_event_updates_v2',
+    );
+    await setAppBadgeCount(unreadCount);
+  }
+
   Future<void> showIncomingEventInviteNotification({
     required String title,
     required String body,
@@ -472,23 +508,4 @@ class NotificationService {
     );
     await setAppBadgeCount(unreadCount);
   }
-
-  Future<void> showIncomingEventRequestNotification({
-    required String title,
-    required String body,
-  }) async {
-    final unreadCount = await _unreadCountRepository.incrementUnreadCount();
-    await _showNotification(
-      channelId: 'incoming_event_requests_v2',
-      channelName: 'Teilnahme-Anfragen',
-      channelDescription: 'Benachrichtigungen für neue Teilnahme-Anfragen',
-      title: title,
-      body: body,
-      notificationId: await _unreadCountRepository.nextNotificationSequence(),
-      unreadCount: unreadCount,
-      groupKey: '$_groupKeyPrefix:incoming_event_requests_v2',
-    );
-    await setAppBadgeCount(unreadCount);
-  }
-
 }
