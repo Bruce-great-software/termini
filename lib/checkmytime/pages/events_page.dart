@@ -15,6 +15,7 @@ class EventsPage extends StatefulWidget {
 class _EventsPageState extends State<EventsPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  final Set<String> _updatingEventIds = <String>{};
 
   @override
   void initState() {
@@ -26,6 +27,29 @@ class _EventsPageState extends State<EventsPage>
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  bool _isEventUpdating(String eventId) => _updatingEventIds.contains(eventId);
+
+  void _setEventUpdating(String eventId, bool isUpdating) {
+    if (!mounted || eventId.trim().isEmpty) return;
+    setState(() {
+      if (isUpdating) {
+        _updatingEventIds.add(eventId);
+      } else {
+        _updatingEventIds.remove(eventId);
+      }
+    });
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   Timestamp? _scheduledTimestamp(Map<String, dynamic> data) {
@@ -435,6 +459,487 @@ class _EventsPageState extends State<EventsPage>
   }
 
 
+  bool _hasExistingResponseEntry(Map<String, dynamic> data, String userId) {
+    if (userId.trim().isEmpty) return false;
+
+    final responseMap = Map<String, dynamic>.from(
+      data['responseMap'] ?? const <String, dynamic>{},
+    );
+    if (responseMap.containsKey(userId)) return true;
+
+    final accepted = List<String>.from(data['acceptedUserIds'] ?? const []);
+    final maybe = List<String>.from(data['maybeUserIds'] ?? const []);
+    final declined = List<String>.from(data['declinedUserIds'] ?? const []);
+    final invited = List<String>.from(data['invitedUserIds'] ?? const []);
+    final memberIds = List<String>.from(data['memberIds'] ?? const []);
+    final participantIds = List<String>.from(data['participantIds'] ?? const []);
+
+    return accepted.contains(userId) ||
+        maybe.contains(userId) ||
+        declined.contains(userId) ||
+        invited.contains(userId) ||
+        memberIds.contains(userId) ||
+        participantIds.contains(userId);
+  }
+
+  int? _maxParticipants(Map<String, dynamic> data) {
+    final rawMax = data['maxParticipants'];
+    if (rawMax is int) return rawMax;
+    return int.tryParse((rawMax ?? '').toString().trim());
+  }
+
+  bool _hasFreeSpots(Map<String, dynamic> data) {
+    if (data['hasParticipantLimit'] != true) return true;
+    final maxParticipants = _maxParticipants(data);
+    if (maxParticipants == null || maxParticipants <= 0) return true;
+    return _acceptedCount(data) < maxParticipants;
+  }
+
+  Future<void> _sendJoinRequest(String eventId, String userId) async {
+    if (userId.trim().isEmpty || _isEventUpdating(eventId)) return;
+    _setEventUpdating(eventId, true);
+
+    try {
+      final docRef = FirebaseFirestore.instance.collection('events').doc(eventId);
+      final snapshot = await docRef.get();
+      final data = snapshot.data() ?? <String, dynamic>{};
+
+      final memberIds = <String>{
+        ...List<String>.from(data['memberIds'] ?? const []),
+      }..add(userId);
+
+      final responseMap = Map<String, dynamic>.from(
+        data['responseMap'] ?? const <String, dynamic>{},
+      )..[userId] = 'pending';
+
+      final accepted = <String>{
+        ...List<String>.from(data['acceptedUserIds'] ?? const []),
+      }..remove(userId);
+
+      final maybe = <String>{
+        ...List<String>.from(data['maybeUserIds'] ?? const []),
+      }..remove(userId);
+
+      final declined = <String>{
+        ...List<String>.from(data['declinedUserIds'] ?? const []),
+      }..remove(userId);
+
+      final participantIds = <String>{
+        ...List<String>.from(data['participantIds'] ?? const []),
+      }..remove(userId);
+
+      await docRef.update({
+        'memberIds': memberIds.toList(),
+        'responseMap': responseMap,
+        'acceptedUserIds': accepted.toList(),
+        'maybeUserIds': maybe.toList(),
+        'declinedUserIds': declined.toList(),
+        'participantIds': participantIds.toList(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      _showSnack('Deine Anfrage wurde gesendet.');
+    } catch (_) {
+      _showSnack('Die Anfrage konnte nicht gesendet werden.');
+    } finally {
+      _setEventUpdating(eventId, false);
+    }
+  }
+
+  Future<void> _joinDirectly(String eventId, String userId) async {
+    if (userId.trim().isEmpty || _isEventUpdating(eventId)) return;
+    _setEventUpdating(eventId, true);
+
+    try {
+      final docRef = FirebaseFirestore.instance.collection('events').doc(eventId);
+      final snapshot = await docRef.get();
+      final data = snapshot.data() ?? <String, dynamic>{};
+
+      if (!_hasFreeSpots(data)) {
+        _showSnack('Für dieses Event sind aktuell keine Plätze frei.');
+        return;
+      }
+
+      final createdBy = (data['createdBy'] ?? '').toString().trim();
+
+      final memberIds = <String>{
+        ...List<String>.from(data['memberIds'] ?? const []),
+        userId,
+      };
+
+      final accepted = <String>{
+        ...List<String>.from(data['acceptedUserIds'] ?? const []),
+        userId,
+      };
+
+      final maybe = <String>{
+        ...List<String>.from(data['maybeUserIds'] ?? const []),
+      }..remove(userId);
+
+      final declined = <String>{
+        ...List<String>.from(data['declinedUserIds'] ?? const []),
+      }..remove(userId);
+
+      final responseMap = Map<String, dynamic>.from(
+        data['responseMap'] ?? const <String, dynamic>{},
+      )..[userId] = 'accepted';
+
+      final participantIds = <String>{
+        ...List<String>.from(data['participantIds'] ?? const []),
+        createdBy,
+        userId,
+      }..removeWhere((id) => id.trim().isEmpty);
+
+      await docRef.update({
+        'memberIds': memberIds.toList(),
+        'acceptedUserIds': accepted.toList(),
+        'maybeUserIds': maybe.toList(),
+        'declinedUserIds': declined.toList(),
+        'participantIds': participantIds.toList(),
+        'responseMap': responseMap,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      _showSnack('Du bist jetzt dabei.');
+    } catch (_) {
+      _showSnack('Der Beitritt konnte nicht durchgeführt werden.');
+    } finally {
+      _setEventUpdating(eventId, false);
+    }
+  }
+
+  Future<void> _withdrawRequest(String eventId, String userId) async {
+    if (userId.trim().isEmpty || _isEventUpdating(eventId)) return;
+    _setEventUpdating(eventId, true);
+
+    try {
+      final docRef = FirebaseFirestore.instance.collection('events').doc(eventId);
+      final snapshot = await docRef.get();
+      final data = snapshot.data() ?? <String, dynamic>{};
+
+      final memberIds = <String>{
+        ...List<String>.from(data['memberIds'] ?? const []),
+      }..remove(userId);
+
+      final accepted = <String>{
+        ...List<String>.from(data['acceptedUserIds'] ?? const []),
+      }..remove(userId);
+
+      final maybe = <String>{
+        ...List<String>.from(data['maybeUserIds'] ?? const []),
+      }..remove(userId);
+
+      final declined = <String>{
+        ...List<String>.from(data['declinedUserIds'] ?? const []),
+      }..remove(userId);
+
+      final participantIds = <String>{
+        ...List<String>.from(data['participantIds'] ?? const []),
+      }..remove(userId);
+
+      final responseMap = Map<String, dynamic>.from(
+        data['responseMap'] ?? const <String, dynamic>{},
+      )..remove(userId);
+
+      await docRef.update({
+        'memberIds': memberIds.toList(),
+        'acceptedUserIds': accepted.toList(),
+        'maybeUserIds': maybe.toList(),
+        'declinedUserIds': declined.toList(),
+        'participantIds': participantIds.toList(),
+        'responseMap': responseMap,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      _showSnack('Deine Anfrage wurde zurückgezogen.');
+    } catch (_) {
+      _showSnack('Die Anfrage konnte nicht zurückgezogen werden.');
+    } finally {
+      _setEventUpdating(eventId, false);
+    }
+  }
+
+  Future<void> _setResponseStatus({
+    required String eventId,
+    required String userId,
+    required String statusKey,
+  }) async {
+    if (userId.trim().isEmpty || _isEventUpdating(eventId)) return;
+    _setEventUpdating(eventId, true);
+
+    try {
+      final docRef = FirebaseFirestore.instance.collection('events').doc(eventId);
+      final snapshot = await docRef.get();
+      final data = snapshot.data() ?? <String, dynamic>{};
+
+      final createdBy = (data['createdBy'] ?? '').toString().trim();
+      final joinMode = _normalizeJoinMode(data);
+      final accepted = <String>{
+        ...List<String>.from(data['acceptedUserIds'] ?? const []),
+      };
+      final maybe = <String>{
+        ...List<String>.from(data['maybeUserIds'] ?? const []),
+      };
+      final declined = <String>{
+        ...List<String>.from(data['declinedUserIds'] ?? const []),
+      };
+      final responseMap = Map<String, dynamic>.from(
+        data['responseMap'] ?? const <String, dynamic>{},
+      );
+      final previousStatus = _responseForUser(data, userId);
+
+      if (joinMode == 'request' &&
+          previousStatus == 'declined' &&
+          statusKey == 'accepted') {
+        _showSnack(
+          'Deine Anfrage wurde abgelehnt. Du kannst aktuell nicht selbst zusagen.',
+        );
+        return;
+      }
+
+      accepted.remove(userId);
+      maybe.remove(userId);
+      declined.remove(userId);
+
+      switch (statusKey) {
+        case 'accepted':
+          accepted.add(userId);
+          responseMap[userId] = 'accepted';
+          break;
+        case 'maybe':
+          maybe.add(userId);
+          responseMap[userId] = 'maybe';
+          break;
+        case 'declined':
+          declined.add(userId);
+          responseMap[userId] = 'declined';
+          break;
+        case 'clear':
+        default:
+          responseMap[userId] = 'pending';
+          break;
+      }
+
+      final participantIds = <String>{createdBy, ...accepted}
+        ..removeWhere((id) => id.trim().isEmpty);
+
+      await docRef.update({
+        'acceptedUserIds': accepted.toList(),
+        'maybeUserIds': maybe.toList(),
+        'declinedUserIds': declined.toList(),
+        'participantIds': participantIds.toList(),
+        'responseMap': responseMap,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      _showSnack('Dein Status wurde aktualisiert.');
+    } catch (_) {
+      _showSnack('Der Status konnte nicht aktualisiert werden.');
+    } finally {
+      _setEventUpdating(eventId, false);
+    }
+  }
+
+  Widget? _buildQuickActions({
+    required ThemeData theme,
+    required ColorScheme colorScheme,
+    required String eventId,
+    required Map<String, dynamic> data,
+    required EventDetailView view,
+    required String currentUserId,
+  }) {
+    if (view == EventDetailView.myEvent) return null;
+
+    final joinMode = _normalizeJoinMode(data);
+    final currentResponse = _responseForUser(data, currentUserId);
+    final hasExistingResponse = _hasExistingResponseEntry(data, currentUserId);
+    final isUpdating = _isEventUpdating(eventId);
+
+    if (view == EventDetailView.invitation) {
+      if (joinMode == 'request' &&
+          hasExistingResponse &&
+          currentResponse == 'pending') {
+        return _EventQuickActions(
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              OutlinedButton.icon(
+                onPressed: isUpdating
+                    ? null
+                    : () => _withdrawRequest(eventId, currentUserId),
+                icon: isUpdating
+                    ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                    : const Icon(Icons.undo_rounded),
+                label: const Text('Anfrage zurückziehen'),
+              ),
+            ],
+          ),
+        );
+      }
+
+      return _EventQuickActions(
+        child: Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            _CardResponseButton(
+              label: 'Zusagen',
+              icon: Icons.check_circle_outline,
+              isSelected: currentResponse == 'accepted',
+              color: Colors.green,
+              isLoading: isUpdating,
+              onPressed: () => _setResponseStatus(
+                eventId: eventId,
+                userId: currentUserId,
+                statusKey: 'accepted',
+              ),
+            ),
+            _CardResponseButton(
+              label: 'Vielleicht',
+              icon: Icons.help_outline,
+              isSelected: currentResponse == 'maybe',
+              color: Colors.orange,
+              isLoading: isUpdating,
+              onPressed: () => _setResponseStatus(
+                eventId: eventId,
+                userId: currentUserId,
+                statusKey: 'maybe',
+              ),
+            ),
+            _CardResponseButton(
+              label: 'Absagen',
+              icon: Icons.cancel_outlined,
+              isSelected: currentResponse == 'declined',
+              color: colorScheme.error,
+              isLoading: isUpdating,
+              onPressed: () => _setResponseStatus(
+                eventId: eventId,
+                userId: currentUserId,
+                statusKey: 'declined',
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (joinMode == 'request' && !hasExistingResponse) {
+      return _EventQuickActions(
+        child: FilledButton.icon(
+          onPressed: isUpdating
+              ? null
+              : () => _sendJoinRequest(eventId, currentUserId),
+          icon: isUpdating
+              ? const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white,
+            ),
+          )
+              : const Icon(Icons.mail_outline),
+          label: const Text('Anfrage senden'),
+        ),
+      );
+    }
+
+    if (joinMode == 'request' && currentResponse == 'pending') {
+      return _EventQuickActions(
+        child: OutlinedButton.icon(
+          onPressed: isUpdating
+              ? null
+              : () => _withdrawRequest(eventId, currentUserId),
+          icon: isUpdating
+              ? const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+              : const Icon(Icons.undo_rounded),
+          label: const Text('Anfrage zurückziehen'),
+        ),
+      );
+    }
+
+    if (joinMode == 'direct' && !hasExistingResponse) {
+      return _EventQuickActions(
+        child: FilledButton.icon(
+          onPressed: isUpdating || !_hasFreeSpots(data)
+              ? null
+              : () => _joinDirectly(eventId, currentUserId),
+          icon: isUpdating
+              ? const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white,
+            ),
+          )
+              : const Icon(Icons.login_rounded),
+          label: Text(
+            _hasFreeSpots(data) ? 'Direkt beitreten' : 'Keine Plätze frei',
+          ),
+        ),
+      );
+    }
+
+    if (joinMode == 'invite_only' && !hasExistingResponse) {
+      return null;
+    }
+
+    return _EventQuickActions(
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          _CardResponseButton(
+            label: 'Zusagen',
+            icon: Icons.check_circle_outline,
+            isSelected: currentResponse == 'accepted',
+            color: Colors.green,
+            isLoading: isUpdating,
+            onPressed: () => _setResponseStatus(
+              eventId: eventId,
+              userId: currentUserId,
+              statusKey: 'accepted',
+            ),
+          ),
+          _CardResponseButton(
+            label: 'Vielleicht',
+            icon: Icons.help_outline,
+            isSelected: currentResponse == 'maybe',
+            color: Colors.orange,
+            isLoading: isUpdating,
+            onPressed: () => _setResponseStatus(
+              eventId: eventId,
+              userId: currentUserId,
+              statusKey: 'maybe',
+            ),
+          ),
+          _CardResponseButton(
+            label: 'Absagen',
+            icon: Icons.cancel_outlined,
+            isSelected: currentResponse == 'declined',
+            color: colorScheme.error,
+            isLoading: isUpdating,
+            onPressed: () => _setResponseStatus(
+              eventId: eventId,
+              userId: currentUserId,
+              statusKey: 'declined',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTabContent({
     required ThemeData theme,
     required ColorScheme colorScheme,
@@ -479,6 +984,14 @@ class _EventsPageState extends State<EventsPage>
           scheduledAt: _scheduledTimestamp(data),
           highlights: _cardHighlights(
             colorScheme: colorScheme,
+            data: data,
+            view: view,
+            currentUserId: currentUserId,
+          ),
+          quickActions: _buildQuickActions(
+            theme: theme,
+            colorScheme: colorScheme,
+            eventId: doc.id,
             data: data,
             view: view,
             currentUserId: currentUserId,
@@ -772,6 +1285,7 @@ class _EventCard extends StatelessWidget {
   final String locationText;
   final Timestamp? scheduledAt;
   final List<_EventHighlightData> highlights;
+  final Widget? quickActions;
   final VoidCallback onTap;
 
   const _EventCard({
@@ -791,6 +1305,7 @@ class _EventCard extends StatelessWidget {
     required this.locationText,
     required this.scheduledAt,
     required this.highlights,
+    required this.quickActions,
     required this.onTap,
   });
 
@@ -989,6 +1504,10 @@ class _EventCard extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                      if (quickActions != null) ...[
+                        const SizedBox(height: 12),
+                        quickActions!,
+                      ],
                     ],
                   ),
                 ),
@@ -997,6 +1516,80 @@ class _EventCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _EventQuickActions extends StatelessWidget {
+  final Widget child;
+
+  const _EventQuickActions({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.primary.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _CardResponseButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool isSelected;
+  final Color color;
+  final bool isLoading;
+  final VoidCallback onPressed;
+
+  const _CardResponseButton({
+    required this.label,
+    required this.icon,
+    required this.isSelected,
+    required this.color,
+    required this.isLoading,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final child = isLoading
+        ? const SizedBox(
+      width: 16,
+      height: 16,
+      child: CircularProgressIndicator(strokeWidth: 2),
+    )
+        : Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16),
+        const SizedBox(width: 6),
+        Text(label),
+      ],
+    );
+
+    if (isSelected) {
+      return FilledButton(
+        style: FilledButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+        ),
+        onPressed: isLoading ? null : onPressed,
+        child: child,
+      );
+    }
+
+    return OutlinedButton(
+      style: OutlinedButton.styleFrom(foregroundColor: color),
+      onPressed: isLoading ? null : onPressed,
+      child: child,
     );
   }
 }

@@ -34,6 +34,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
   bool _hasInitializedInviteState = false;
   Map<String, int> _knownUnreadCountsByThread = {};
   Set<String> _knownPendingInviteIds = <String>{};
+  int _knownPendingJoinRequestCount = 0;
   int _lastPublishedBadgeCount = -1;
   Timer? _presenceHeartbeat;
 
@@ -209,6 +210,58 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     return true;
   }
 
+  String _normalizeJoinMode(Map<String, dynamic> data) {
+    final raw =
+    (data['joinMode'] ?? 'invite_only').toString().trim().toLowerCase();
+    switch (raw) {
+      case 'request':
+      case 'direct':
+      case 'invite_only':
+        return raw;
+      default:
+        return 'invite_only';
+    }
+  }
+
+  int _pendingJoinRequestCountForOwner(
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    if (createdBy != currentUserId) return 0;
+    if (_normalizeJoinMode(data) != 'request') return 0;
+
+    final responseMap = Map<String, dynamic>.from(
+      data['responseMap'] ?? const <String, dynamic>{},
+    );
+
+    var count = 0;
+    for (final entry in responseMap.entries) {
+      final responderId = entry.key.trim();
+      final response = entry.value.toString().trim().toLowerCase();
+      if (responderId.isEmpty || responderId == currentUserId) continue;
+      if (response == 'pending') {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  int _eventAttentionCountFromSnapshot(
+      QuerySnapshot<Map<String, dynamic>> snapshot,
+      String currentUserId,
+      ) {
+    var total = 0;
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      if (_isPendingEventInvite(data, currentUserId)) {
+        total += 1;
+      }
+      total += _pendingJoinRequestCountForOwner(data, currentUserId);
+    }
+    return total;
+  }
+
   void _listenForIncomingEventInvites() {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
     if (currentUserId == null) return;
@@ -220,21 +273,29 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         .snapshots()
         .listen((snapshot) async {
       final pendingInviteIds = <String>{};
+      var pendingJoinRequests = 0;
 
       for (final doc in snapshot.docs) {
-        if (_isPendingEventInvite(doc.data(), currentUserId)) {
+        final data = doc.data();
+        if (_isPendingEventInvite(data, currentUserId)) {
           pendingInviteIds.add(doc.id);
         }
+        pendingJoinRequests += _pendingJoinRequestCountForOwner(
+          data,
+          currentUserId,
+        );
       }
 
       if (!_hasInitializedInviteState) {
         _hasInitializedInviteState = true;
         _knownPendingInviteIds = pendingInviteIds;
+        _knownPendingJoinRequestCount = pendingJoinRequests;
         await _publishBadgeCount();
         return;
       }
 
       _knownPendingInviteIds = pendingInviteIds;
+      _knownPendingJoinRequestCount = pendingJoinRequests;
       await _publishBadgeCount();
     });
   }
@@ -247,7 +308,10 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       0,
           (total, value) => total + value,
     );
-    final totalBadgeCount = unreadAppointments + _knownPendingInviteIds.length;
+    final totalBadgeCount =
+        unreadAppointments +
+            _knownPendingInviteIds.length +
+            _knownPendingJoinRequestCount;
 
     if (totalBadgeCount == _lastPublishedBadgeCount) return;
     _lastPublishedBadgeCount = totalBadgeCount;
@@ -1325,6 +1389,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       ColorScheme colorScheme,
       ThemeData theme,
       String? currentUserId,
+      int eventAttentionCount,
       ) {
     return ListView(
       physics: const BouncingScrollPhysics(),
@@ -1359,39 +1424,15 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                   ),
                 ),
                 const SizedBox(height: 12),
-                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream:
-                  currentUserId == null
-                      ? null
-                      : FirebaseFirestore.instance
-                      .collection('events')
-                      .orderBy('createdAt', descending: true)
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    var newEventsCount = 0;
-                    if (currentUserId != null && snapshot.hasData) {
-                      newEventsCount =
-                          snapshot.data!.docs
-                              .where(
-                                (doc) => _isPendingEventInvite(
-                              doc.data(),
-                              currentUserId,
-                            ),
-                          )
-                              .length;
-                    }
-
-                    return _ActionCard(
-                      icon: Icons.celebration_outlined,
-                      title: 'Events',
-                      subtitle:
-                      'Hier planst und verwaltest du später gemeinsame Aktivitäten und Einladungen.',
-                      badgeCount: newEventsCount,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const EventsPage()),
-                        );
-                      },
+                _ActionCard(
+                  icon: Icons.celebration_outlined,
+                  title: 'Events',
+                  subtitle:
+                  'Hier planst und verwaltest du später gemeinsame Aktivitäten und Einladungen.',
+                  badgeCount: eventAttentionCount,
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const EventsPage()),
                     );
                   },
                 ),
@@ -1417,6 +1458,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       ColorScheme colorScheme,
       ThemeData theme,
       String? currentUserId,
+      int eventAttentionCount,
       ) {
     if (_selectedIndex == 1) {
       return const EventsPage();
@@ -1426,7 +1468,12 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       return const ProfilePage();
     }
 
-    return _buildHomeTab(colorScheme, theme, currentUserId);
+    return _buildHomeTab(
+      colorScheme,
+      theme,
+      currentUserId,
+      eventAttentionCount,
+    );
   }
 
   @override
@@ -1435,50 +1482,98 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     final colorScheme = theme.colorScheme;
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('CheckMyTime'),
-        actions: [
-          IconButton(
-            onPressed:
-                () => setState(() {
-              _selectedIndex = 2;
-            }),
-            icon: const Icon(Icons.settings_outlined),
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream:
+      currentUserId == null
+          ? const Stream<QuerySnapshot<Map<String, dynamic>>>.empty()
+          : FirebaseFirestore.instance
+          .collection('events')
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final eventAttentionCount =
+        currentUserId != null && snapshot.hasData
+            ? _eventAttentionCountFromSnapshot(
+          snapshot.data!,
+          currentUserId,
+        )
+            : 0;
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('CheckMyTime'),
+            actions: [
+              IconButton(
+                onPressed:
+                    () => setState(() {
+                  _selectedIndex = 2;
+                }),
+                icon: const Icon(Icons.settings_outlined),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: SafeArea(
-        child: GestureDetector(
-          onTap: () => _searchFocusNode.unfocus(),
-          child: _buildBody(colorScheme, theme, currentUserId),
-        ),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Home',
+          body: SafeArea(
+            child: GestureDetector(
+              onTap: () => _searchFocusNode.unfocus(),
+              child: _buildBody(
+                colorScheme,
+                theme,
+                currentUserId,
+                eventAttentionCount,
+              ),
+            ),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.calendar_month_outlined),
-            selectedIcon: Icon(Icons.calendar_month),
-            label: 'Events',
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _selectedIndex,
+            onDestinationSelected: (index) {
+              setState(() {
+                _selectedIndex = index;
+              });
+            },
+            destinations: [
+              const NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home),
+                label: 'Home',
+              ),
+              NavigationDestination(
+                icon: _BottomNavBadgeIcon(
+                  icon: Icons.calendar_month_outlined,
+                  count: eventAttentionCount,
+                ),
+                selectedIcon: _BottomNavBadgeIcon(
+                  icon: Icons.calendar_month,
+                  count: eventAttentionCount,
+                ),
+                label: 'Events',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.person_outline),
+                selectedIcon: Icon(Icons.person),
+                label: 'Profil',
+              ),
+            ],
           ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Profil',
-          ),
-        ],
-      ),
+        );
+      },
+    );
+  }
+}
+
+class _BottomNavBadgeIcon extends StatelessWidget {
+  final IconData icon;
+  final int count;
+
+  const _BottomNavBadgeIcon({required this.icon, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final iconWidget = Icon(icon);
+    if (count <= 0) return iconWidget;
+
+    return Badge.count(
+      count: count,
+      child: iconWidget,
     );
   }
 }
