@@ -123,6 +123,186 @@ class _EventsPageState extends State<EventsPage>
     }
   }
 
+  String _normalizeJoinMode(Map<String, dynamic> data) {
+    final raw = (data['joinMode'] ?? 'invite_only').toString().trim().toLowerCase();
+    switch (raw) {
+      case 'request':
+      case 'direct':
+      case 'invite_only':
+        return raw;
+      default:
+        return 'invite_only';
+    }
+  }
+
+  int _pendingCount(Map<String, dynamic> data) {
+    final responseMap = Map<String, dynamic>.from(
+      data['responseMap'] ?? const <String, dynamic>{},
+    );
+
+    if (responseMap.isNotEmpty) {
+      return responseMap.values
+          .where((value) => value.toString().trim() == 'pending')
+          .length;
+    }
+
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final invitedUserIds = List<String>.from(data['invitedUserIds'] ?? const []);
+    final acceptedUserIds = List<String>.from(data['acceptedUserIds'] ?? const []);
+    final maybeUserIds = List<String>.from(data['maybeUserIds'] ?? const []);
+    final declinedUserIds = List<String>.from(data['declinedUserIds'] ?? const []);
+
+    final pending = invitedUserIds.toSet()
+      ..remove(createdBy)
+      ..removeAll(acceptedUserIds)
+      ..removeAll(maybeUserIds)
+      ..removeAll(declinedUserIds);
+
+    return pending.length;
+  }
+
+  int _pendingRequestsAcrossEvents(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+      ) {
+    var total = 0;
+    for (final doc in docs) {
+      final data = doc.data();
+      if (_normalizeJoinMode(data) == 'request') {
+        total += _pendingCount(data);
+      }
+    }
+    return total;
+  }
+
+  List<_EventHighlightData> _cardHighlights({
+    required ColorScheme colorScheme,
+    required Map<String, dynamic> data,
+    required EventDetailView view,
+    required String currentUserId,
+  }) {
+    final joinMode = _normalizeJoinMode(data);
+    final pendingCount = _pendingCount(data);
+    final response = _responseForUser(data, currentUserId);
+    final highlights = <_EventHighlightData>[];
+
+    if (view == EventDetailView.myEvent) {
+      if (joinMode == 'request') {
+        highlights.add(
+          _EventHighlightData(
+            icon: Icons.mark_email_unread_outlined,
+            label: pendingCount == 1
+                ? '1 offene Anfrage'
+                : '$pendingCount offene Anfragen',
+            color: pendingCount > 0 ? Colors.orange : Colors.green,
+          ),
+        );
+      } else if (joinMode == 'direct') {
+        highlights.add(
+          const _EventHighlightData(
+            icon: Icons.flash_on_outlined,
+            label: 'Direkter Beitritt',
+            color: Colors.green,
+          ),
+        );
+      } else {
+        highlights.add(
+          _EventHighlightData(
+            icon: Icons.mail_outline_rounded,
+            label: 'Nur Einladung',
+            color: colorScheme.primary,
+          ),
+        );
+      }
+      return highlights;
+    }
+
+    if (view == EventDetailView.invitation) {
+      switch (response) {
+        case 'accepted':
+          highlights.add(
+            const _EventHighlightData(
+              icon: Icons.check_circle_outline_rounded,
+              label: 'Du bist dabei',
+              color: Colors.green,
+            ),
+          );
+          break;
+        case 'maybe':
+          highlights.add(
+            const _EventHighlightData(
+              icon: Icons.help_outline_rounded,
+              label: 'Du bist auf Vielleicht',
+              color: Colors.orange,
+            ),
+          );
+          break;
+        case 'declined':
+          highlights.add(
+            _EventHighlightData(
+              icon: Icons.cancel_outlined,
+              label: 'Du hast abgesagt',
+              color: colorScheme.error,
+            ),
+          );
+          break;
+        case 'pending':
+        default:
+          highlights.add(
+            _EventHighlightData(
+              icon: joinMode == 'request'
+                  ? Icons.send_outlined
+                  : Icons.schedule_outlined,
+              label: joinMode == 'request'
+                  ? 'Anfrage gesendet'
+                  : 'Antwort ausstehend',
+              color: Colors.orange,
+            ),
+          );
+      }
+
+      if (joinMode == 'request') {
+        highlights.add(
+          const _EventHighlightData(
+            icon: Icons.lock_clock_outlined,
+            label: 'Freigabe durch Ersteller',
+            color: Colors.orange,
+          ),
+        );
+      }
+      return highlights;
+    }
+
+    if (view == EventDetailView.openEvent) {
+      if (joinMode == 'request') {
+        highlights.add(
+          const _EventHighlightData(
+            icon: Icons.lock_clock_outlined,
+            label: 'Anfrage nötig',
+            color: Colors.orange,
+          ),
+        );
+      } else if (joinMode == 'direct') {
+        highlights.add(
+          const _EventHighlightData(
+            icon: Icons.flash_on_outlined,
+            label: 'Direkter Beitritt',
+            color: Colors.green,
+          ),
+        );
+      } else {
+        highlights.add(
+          _EventHighlightData(
+            icon: Icons.mail_outline_rounded,
+            label: 'Zugang per Einladung',
+            color: colorScheme.primary,
+          ),
+        );
+      }
+    }
+
+    return highlights;
+  }
+
   String _responseForUser(Map<String, dynamic> data, String currentUserId) {
     final responseMap = Map<String, dynamic>.from(
       data['responseMap'] ?? const <String, dynamic>{},
@@ -256,7 +436,6 @@ class _EventsPageState extends State<EventsPage>
 
 
   Widget _buildTabContent({
-    required BuildContext context,
     required ThemeData theme,
     required ColorScheme colorScheme,
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
@@ -298,6 +477,12 @@ class _EventsPageState extends State<EventsPage>
           participantsText: _participantsText(data),
           locationText: _locationText(data),
           scheduledAt: _scheduledTimestamp(data),
+          highlights: _cardHighlights(
+            colorScheme: colorScheme,
+            data: data,
+            view: view,
+            currentUserId: currentUserId,
+          ),
           onTap: () {
             Navigator.of(context).push(
               MaterialPageRoute(
@@ -399,6 +584,8 @@ class _EventsPageState extends State<EventsPage>
               }),
             );
 
+            final pendingOwnerRequests = _pendingRequestsAcrossEvents(myEvents);
+
             return Column(
               children: [
                 Padding(
@@ -426,6 +613,41 @@ class _EventsPageState extends State<EventsPage>
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _SummaryChip(
+                              icon: Icons.event_note_outlined,
+                              label: '${myEvents.length} eigene',
+                              theme: theme,
+                              colorScheme: colorScheme,
+                            ),
+                            _SummaryChip(
+                              icon: Icons.mail_outline_rounded,
+                              label: '${invitedEvents.length} Einladungen',
+                              theme: theme,
+                              colorScheme: colorScheme,
+                            ),
+                            _SummaryChip(
+                              icon: Icons.public_outlined,
+                              label: '${openEvents.length} offene',
+                              theme: theme,
+                              colorScheme: colorScheme,
+                            ),
+                            if (pendingOwnerRequests > 0)
+                              _SummaryChip(
+                                icon: Icons.mark_email_unread_outlined,
+                                label: pendingOwnerRequests == 1
+                                    ? '1 Anfrage offen'
+                                    : '$pendingOwnerRequests Anfragen offen',
+                                theme: theme,
+                                colorScheme: colorScheme,
+                                color: Colors.orange,
+                              ),
+                          ],
                         ),
                         const SizedBox(height: 16),
                         FilledButton.icon(
@@ -479,7 +701,6 @@ class _EventsPageState extends State<EventsPage>
                     physics: const BouncingScrollPhysics(),
                     children: [
                       _buildTabContent(
-                        context: context,
                         theme: theme,
                         colorScheme: colorScheme,
                         docs: myEvents,
@@ -494,7 +715,6 @@ class _EventsPageState extends State<EventsPage>
                         ),
                       ),
                       _buildTabContent(
-                        context: context,
                         theme: theme,
                         colorScheme: colorScheme,
                         docs: invitedEvents,
@@ -510,7 +730,6 @@ class _EventsPageState extends State<EventsPage>
                         ),
                       ),
                       _buildTabContent(
-                        context: context,
                         theme: theme,
                         colorScheme: colorScheme,
                         docs: openEvents,
@@ -552,6 +771,7 @@ class _EventCard extends StatelessWidget {
   final String participantsText;
   final String locationText;
   final Timestamp? scheduledAt;
+  final List<_EventHighlightData> highlights;
   final VoidCallback onTap;
 
   const _EventCard({
@@ -570,6 +790,7 @@ class _EventCard extends StatelessWidget {
     required this.participantsText,
     required this.locationText,
     required this.scheduledAt,
+    required this.highlights,
     required this.onTap,
   });
 
@@ -723,6 +944,23 @@ class _EventCard extends StatelessWidget {
                           ),
                         ],
                       ),
+                      if (highlights.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: highlights
+                              .map(
+                                (highlight) => _EventHighlightChip(
+                              icon: highlight.icon,
+                              label: highlight.label,
+                              color: highlight.color,
+                              theme: theme,
+                            ),
+                          )
+                              .toList(),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       Wrap(
                         spacing: 8,
@@ -758,6 +996,99 @@ class _EventCard extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _EventHighlightData {
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _EventHighlightData({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+}
+
+class _EventHighlightChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final ThemeData theme;
+
+  const _EventHighlightChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final ThemeData theme;
+  final ColorScheme colorScheme;
+  final Color? color;
+
+  const _SummaryChip({
+    required this.icon,
+    required this.label,
+    required this.theme,
+    required this.colorScheme,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final resolvedColor = color ?? colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: resolvedColor.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: resolvedColor),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: resolvedColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }

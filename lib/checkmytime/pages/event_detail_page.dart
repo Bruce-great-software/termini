@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:termini/checkmytime/pages/create_event_page.dart';
+import 'package:termini/checkmytime/services/notification_dispatch_service.dart';
 
 /// Legt fest, aus welchem Tab die Detailseite geöffnet wurde.
 enum EventDetailView {
@@ -28,8 +29,6 @@ class EventDetailPage extends StatefulWidget {
 class _EventDetailPageState extends State<EventDetailPage> {
   bool _isUpdatingStatus = false;
   bool _isDeleting = false;
-  bool _isModeratingRequest = false;
-  String _moderatingUserId = '';
 
   String get _currentUserId => FirebaseAuth.instance.currentUser?.uid ?? '';
 
@@ -81,6 +80,301 @@ class _EventDetailPageState extends State<EventDetailPage> {
         return raw;
       default:
         return 'open';
+    }
+  }
+
+  String _normalizeJoinMode(Map<String, dynamic> data) {
+    final raw = (data['joinMode'] ?? 'invite_only').toString().trim().toLowerCase();
+    switch (raw) {
+      case 'request':
+      case 'direct':
+      case 'invite_only':
+        return raw;
+      default:
+        return 'invite_only';
+    }
+  }
+
+  bool _hasExistingResponseEntry(Map<String, dynamic> data, String userId) {
+    if (userId.trim().isEmpty) return false;
+
+    final responseMap = Map<String, dynamic>.from(
+      data['responseMap'] ?? const <String, dynamic>{},
+    );
+    if (responseMap.containsKey(userId)) return true;
+
+    final accepted = List<String>.from(data['acceptedUserIds'] ?? const []);
+    final maybe = List<String>.from(data['maybeUserIds'] ?? const []);
+    final declined = List<String>.from(data['declinedUserIds'] ?? const []);
+    final invited = List<String>.from(data['invitedUserIds'] ?? const []);
+    final memberIds = List<String>.from(data['memberIds'] ?? const []);
+    final participantIds = List<String>.from(data['participantIds'] ?? const []);
+
+    return accepted.contains(userId) ||
+        maybe.contains(userId) ||
+        declined.contains(userId) ||
+        invited.contains(userId) ||
+        memberIds.contains(userId) ||
+        participantIds.contains(userId);
+  }
+
+  int _acceptedCount(Map<String, dynamic> data) {
+    final responseMap = Map<String, dynamic>.from(
+      data['responseMap'] ?? const <String, dynamic>{},
+    );
+
+    if (responseMap.isNotEmpty) {
+      return responseMap.values
+          .where((value) => value.toString().trim() == 'accepted')
+          .length;
+    }
+
+    return List<String>.from(data['acceptedUserIds'] ?? const []).length;
+  }
+
+  int? _maxParticipants(Map<String, dynamic> data) {
+    final rawMax = data['maxParticipants'];
+    if (rawMax is int) return rawMax;
+    return int.tryParse((rawMax ?? '').toString().trim());
+  }
+
+  bool _hasFreeSpots(Map<String, dynamic> data) {
+    if (data['hasParticipantLimit'] != true) return true;
+    final maxParticipants = _maxParticipants(data);
+    if (maxParticipants == null || maxParticipants <= 0) return true;
+    return _acceptedCount(data) < maxParticipants;
+  }
+
+  Future<void> _sendJoinRequest() async {
+    if (_currentUserId.isEmpty || _isUpdatingStatus) return;
+
+    setState(() {
+      _isUpdatingStatus = true;
+    });
+
+    try {
+      final docRef = FirebaseFirestore.instance
+          .collection('events')
+          .doc(widget.eventId);
+      final snapshot = await docRef.get();
+      final data = snapshot.data() ?? <String, dynamic>{};
+
+      final memberIds = <String>{
+        ...List<String>.from(data['memberIds'] ?? const []),
+      }..add(_currentUserId);
+
+      final responseMap = Map<String, dynamic>.from(
+        data['responseMap'] ?? const <String, dynamic>{},
+      )..[_currentUserId] = 'pending';
+
+      final accepted = <String>{
+        ...List<String>.from(data['acceptedUserIds'] ?? const []),
+      }..remove(_currentUserId);
+
+      final maybe = <String>{
+        ...List<String>.from(data['maybeUserIds'] ?? const []),
+      }..remove(_currentUserId);
+
+      final declined = <String>{
+        ...List<String>.from(data['declinedUserIds'] ?? const []),
+      }..remove(_currentUserId);
+
+      final participantIds = <String>{
+        ...List<String>.from(data['participantIds'] ?? const []),
+      }..remove(_currentUserId);
+
+      await docRef.update({
+        'memberIds': memberIds.toList(),
+        'responseMap': responseMap,
+        'acceptedUserIds': accepted.toList(),
+        'maybeUserIds': maybe.toList(),
+        'declinedUserIds': declined.toList(),
+        'participantIds': participantIds.toList(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Deine Anfrage wurde gesendet.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Die Anfrage konnte nicht gesendet werden.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdatingStatus = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _joinDirectly() async {
+    if (_currentUserId.isEmpty || _isUpdatingStatus) return;
+
+    setState(() {
+      _isUpdatingStatus = true;
+    });
+
+    try {
+      final docRef = FirebaseFirestore.instance
+          .collection('events')
+          .doc(widget.eventId);
+      final snapshot = await docRef.get();
+      final data = snapshot.data() ?? <String, dynamic>{};
+
+      if (!_hasFreeSpots(data)) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Für dieses Event sind aktuell keine Plätze frei.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      final createdBy = (data['createdBy'] ?? '').toString().trim();
+
+      final memberIds = <String>{
+        ...List<String>.from(data['memberIds'] ?? const []),
+        _currentUserId,
+      };
+
+      final accepted = <String>{
+        ...List<String>.from(data['acceptedUserIds'] ?? const []),
+        _currentUserId,
+      };
+
+      final maybe = <String>{
+        ...List<String>.from(data['maybeUserIds'] ?? const []),
+      }..remove(_currentUserId);
+
+      final declined = <String>{
+        ...List<String>.from(data['declinedUserIds'] ?? const []),
+      }..remove(_currentUserId);
+
+      final responseMap = Map<String, dynamic>.from(
+        data['responseMap'] ?? const <String, dynamic>{},
+      )..[_currentUserId] = 'accepted';
+
+      final participantIds = <String>{
+        ...List<String>.from(data['participantIds'] ?? const []),
+        createdBy,
+        _currentUserId,
+      }..removeWhere((id) => id.trim().isEmpty);
+
+      await docRef.update({
+        'memberIds': memberIds.toList(),
+        'acceptedUserIds': accepted.toList(),
+        'maybeUserIds': maybe.toList(),
+        'declinedUserIds': declined.toList(),
+        'participantIds': participantIds.toList(),
+        'responseMap': responseMap,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Du bist jetzt dabei.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Der Beitritt konnte nicht durchgeführt werden.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdatingStatus = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _withdrawRequest() async {
+    if (_currentUserId.isEmpty || _isUpdatingStatus) return;
+
+    setState(() {
+      _isUpdatingStatus = true;
+    });
+
+    try {
+      final docRef = FirebaseFirestore.instance
+          .collection('events')
+          .doc(widget.eventId);
+      final snapshot = await docRef.get();
+      final data = snapshot.data() ?? <String, dynamic>{};
+
+      final memberIds = <String>{
+        ...List<String>.from(data['memberIds'] ?? const []),
+      }..remove(_currentUserId);
+
+      final accepted = <String>{
+        ...List<String>.from(data['acceptedUserIds'] ?? const []),
+      }..remove(_currentUserId);
+
+      final maybe = <String>{
+        ...List<String>.from(data['maybeUserIds'] ?? const []),
+      }..remove(_currentUserId);
+
+      final declined = <String>{
+        ...List<String>.from(data['declinedUserIds'] ?? const []),
+      }..remove(_currentUserId);
+
+      final participantIds = <String>{
+        ...List<String>.from(data['participantIds'] ?? const []),
+      }..remove(_currentUserId);
+
+      final responseMap = Map<String, dynamic>.from(
+        data['responseMap'] ?? const <String, dynamic>{},
+      )..remove(_currentUserId);
+
+      await docRef.update({
+        'memberIds': memberIds.toList(),
+        'acceptedUserIds': accepted.toList(),
+        'maybeUserIds': maybe.toList(),
+        'declinedUserIds': declined.toList(),
+        'participantIds': participantIds.toList(),
+        'responseMap': responseMap,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Deine Anfrage wurde zurückgezogen.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Die Anfrage konnte nicht zurückgezogen werden.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdatingStatus = false;
+        });
+      }
     }
   }
 
@@ -261,6 +555,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
       final data = snapshot.data() ?? <String, dynamic>{};
 
       final createdBy = (data['createdBy'] ?? '').toString().trim();
+      final joinMode = _normalizeJoinMode(data);
       final accepted = <String>{
         ...List<String>.from(data['acceptedUserIds'] ?? const []),
       };
@@ -273,6 +568,22 @@ class _EventDetailPageState extends State<EventDetailPage> {
       final responseMap = Map<String, dynamic>.from(
         data['responseMap'] ?? const <String, dynamic>{},
       );
+      final previousStatus = _responseForUser(data, _currentUserId);
+
+      if (joinMode == 'request' &&
+          previousStatus == 'declined' &&
+          statusKey == 'accepted') {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Deine Anfrage wurde abgelehnt. Du kannst aktuell nicht selbst zusagen.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
 
       accepted.remove(_currentUserId);
       maybe.remove(_currentUserId);
@@ -333,15 +644,23 @@ class _EventDetailPageState extends State<EventDetailPage> {
     }
   }
 
-  Future<void> _setOwnerParticipantStatus({
-    required String userId,
-    required String statusKey,
+  Future<void> _handlePendingRequestDecision({
+    required String requestedUserId,
+    required String decision,
   }) async {
-    if (userId.trim().isEmpty || _isModeratingRequest) return;
+    if (_currentUserId.isEmpty ||
+        requestedUserId.trim().isEmpty ||
+        _isUpdatingStatus) {
+      return;
+    }
+
+    final normalizedDecision = decision.trim().toLowerCase();
+    if (normalizedDecision != 'accepted' && normalizedDecision != 'declined') {
+      return;
+    }
 
     setState(() {
-      _isModeratingRequest = true;
-      _moderatingUserId = userId;
+      _isUpdatingStatus = true;
     });
 
     try {
@@ -351,7 +670,25 @@ class _EventDetailPageState extends State<EventDetailPage> {
       final snapshot = await docRef.get();
       final data = snapshot.data() ?? <String, dynamic>{};
 
+      if (normalizedDecision == 'accepted' && !_hasFreeSpots(data)) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Für dieses Event sind aktuell keine Plätze frei.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      final title = (data['title'] ?? 'Event').toString().trim();
+      final createdByName =
+      (data['createdByName'] ?? 'CheckMyTime').toString().trim();
       final createdBy = (data['createdBy'] ?? '').toString().trim();
+      final memberIds = <String>{
+        ...List<String>.from(data['memberIds'] ?? const []),
+        requestedUserId,
+      }..removeWhere((id) => id.trim().isEmpty);
       final accepted = <String>{
         ...List<String>.from(data['acceptedUserIds'] ?? const []),
       };
@@ -361,53 +698,52 @@ class _EventDetailPageState extends State<EventDetailPage> {
       final declined = <String>{
         ...List<String>.from(data['declinedUserIds'] ?? const []),
       };
-      final memberIds = <String>{
-        ...List<String>.from(data['memberIds'] ?? const []),
-      };
       final responseMap = Map<String, dynamic>.from(
         data['responseMap'] ?? const <String, dynamic>{},
       );
 
-      accepted.remove(userId);
-      maybe.remove(userId);
-      declined.remove(userId);
-      memberIds.remove(userId);
+      accepted.remove(requestedUserId);
+      maybe.remove(requestedUserId);
+      declined.remove(requestedUserId);
 
-      switch (statusKey) {
-        case 'accepted':
-          accepted.add(userId);
-          memberIds.add(userId);
-          responseMap[userId] = 'accepted';
-          break;
-        case 'declined':
-          declined.add(userId);
-          responseMap[userId] = 'declined';
-          break;
-        default:
-          responseMap[userId] = 'pending';
-          break;
+      if (normalizedDecision == 'accepted') {
+        accepted.add(requestedUserId);
+      } else {
+        declined.add(requestedUserId);
       }
+      responseMap[requestedUserId] = normalizedDecision;
 
-      final participantIds = <String>{createdBy, ...accepted}
-        ..removeWhere((id) => id.trim().isEmpty);
+      final participantIds = <String>{
+        createdBy,
+        ...accepted,
+      }..removeWhere((id) => id.trim().isEmpty);
 
       await docRef.update({
+        'memberIds': memberIds.toList(),
         'acceptedUserIds': accepted.toList(),
         'maybeUserIds': maybe.toList(),
         'declinedUserIds': declined.toList(),
-        'memberIds': memberIds.toList(),
         'participantIds': participantIds.toList(),
         'responseMap': responseMap,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+      await NotificationDispatchService.instance
+          .queueEventRequestDecisionNotification(
+        recipientUserId: requestedUserId,
+        senderId: _currentUserId,
+        senderName: createdByName,
+        eventId: widget.eventId,
+        eventTitle: title,
+        decision: normalizedDecision,
+      );
+
       if (!mounted) return;
-      final wasAccepted = statusKey == 'accepted';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            wasAccepted
-                ? 'Die Anfrage wurde bestätigt.'
+            normalizedDecision == 'accepted'
+                ? 'Die Anfrage wurde angenommen.'
                 : 'Die Anfrage wurde abgelehnt.',
           ),
           behavior: SnackBarBehavior.floating,
@@ -417,15 +753,14 @@ class _EventDetailPageState extends State<EventDetailPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Die Anfrage konnte nicht aktualisiert werden.'),
+          content: Text('Die Anfrage konnte nicht bearbeitet werden.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
     } finally {
       if (mounted) {
         setState(() {
-          _isModeratingRequest = false;
-          _moderatingUserId = '';
+          _isUpdatingStatus = false;
         });
       }
     }
@@ -557,6 +892,10 @@ class _EventDetailPageState extends State<EventDetailPage> {
             final statusColor = _statusColor(colorScheme, rawHeaderStatus);
             final participantBuckets = _participantBuckets(data);
             final currentUserResponse = _responseForUser(data, _currentUserId);
+            final joinMode = _normalizeJoinMode(data);
+            final hasExistingResponse = _hasExistingResponseEntry(data, _currentUserId);
+            final participantCount = _acceptedCount(data);
+            final maxParticipants = _maxParticipants(data);
             final isOwner = createdBy == _currentUserId;
 
             return ListView(
@@ -737,6 +1076,12 @@ class _EventDetailPageState extends State<EventDetailPage> {
                                     label: location,
                                   ),
                                 _DetailChip(
+                                  icon: Icons.group_outlined,
+                                  label: maxParticipants != null && maxParticipants > 0
+                                      ? '$participantCount/$maxParticipants Teilnehmer'
+                                      : '$participantCount Teilnehmer',
+                                ),
+                                _DetailChip(
                                   icon: Icons.person_outline,
                                   label: createdByName.isEmpty
                                       ? 'Unbekannt'
@@ -792,15 +1137,15 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   pendingIds: participantBuckets.pending,
                   declinedIds: participantBuckets.declined,
                   currentUserId: _currentUserId,
-                  isOwner: isOwner,
-                  moderatingUserId: _moderatingUserId,
-                  onAcceptPending: (userId) => _setOwnerParticipantStatus(
-                    userId: userId,
-                    statusKey: 'accepted',
+                  canManagePendingRequests: isOwner && joinMode == 'request',
+                  isUpdating: _isUpdatingStatus,
+                  onAcceptPending: (userId) => _handlePendingRequestDecision(
+                    requestedUserId: userId,
+                    decision: 'accepted',
                   ),
-                  onDeclinePending: (userId) => _setOwnerParticipantStatus(
-                    userId: userId,
-                    statusKey: 'declined',
+                  onDeclinePending: (userId) => _handlePendingRequestDecision(
+                    requestedUserId: userId,
+                    decision: 'declined',
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -808,7 +1153,10 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   context: context,
                   theme: theme,
                   colorScheme: colorScheme,
+                  data: data,
                   currentUserResponse: currentUserResponse,
+                  joinMode: joinMode,
+                  hasExistingResponse: hasExistingResponse,
                   isOwner: isOwner,
                 ),
               ],
@@ -823,7 +1171,10 @@ class _EventDetailPageState extends State<EventDetailPage> {
     required BuildContext context,
     required ThemeData theme,
     required ColorScheme colorScheme,
+    required Map<String, dynamic> data,
     required String currentUserResponse,
+    required String joinMode,
+    required bool hasExistingResponse,
     required bool isOwner,
   }) {
     if (isOwner) {
@@ -848,6 +1199,135 @@ class _EventDetailPageState extends State<EventDetailPage> {
               )
                   : const Icon(Icons.delete_outline),
               label: const Text('Event löschen'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (joinMode == 'invite_only' && !hasExistingResponse) {
+      return _DetailSection(
+        title: 'Teilnahme',
+        child: Text(
+          'Dieses Event ist nur auf Einladung verfügbar.',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+      );
+    }
+
+    if (joinMode == 'request' && !hasExistingResponse) {
+      return _DetailSection(
+        title: 'Teilnahme',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Du kannst dem Ersteller eine Teilnahme-Anfrage senden. Sobald sie bestätigt wird, erscheint dein Status in den Übersichten.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: _isUpdatingStatus ? null : _sendJoinRequest,
+              icon: _isUpdatingStatus
+                  ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+                  : const Icon(Icons.mail_outline),
+              label: const Text('Anfrage senden'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (joinMode == 'request' && hasExistingResponse && currentUserResponse == 'pending') {
+      return _DetailSection(
+        title: 'Deine Anfrage',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Deine Anfrage wurde gesendet und wartet auf eine Rückmeldung.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.hourglass_top_rounded, color: colorScheme.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Anfrage gesendet',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: colorScheme.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _isUpdatingStatus ? null : _withdrawRequest,
+              icon: const Icon(Icons.undo_rounded),
+              label: const Text('Anfrage zurückziehen'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (joinMode == 'direct' && !hasExistingResponse) {
+      return _DetailSection(
+        title: 'Teilnahme',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              _hasFreeSpots(data)
+                  ? 'Du kannst diesem Event direkt beitreten.'
+                  : 'Aktuell sind keine freien Plätze mehr verfügbar.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: _isUpdatingStatus || !_hasFreeSpots(data) ? null : _joinDirectly,
+              icon: _isUpdatingStatus
+                  ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+                  : const Icon(Icons.login_rounded),
+              label: const Text('Direkt beitreten'),
             ),
           ],
         ),
@@ -931,10 +1411,10 @@ class _ParticipantGroupsSection extends StatelessWidget {
   final List<String> pendingIds;
   final List<String> declinedIds;
   final String currentUserId;
-  final bool isOwner;
-  final String moderatingUserId;
-  final ValueChanged<String> onAcceptPending;
-  final ValueChanged<String> onDeclinePending;
+  final bool canManagePendingRequests;
+  final bool isUpdating;
+  final ValueChanged<String>? onAcceptPending;
+  final ValueChanged<String>? onDeclinePending;
 
   const _ParticipantGroupsSection({
     required this.createdBy,
@@ -944,10 +1424,10 @@ class _ParticipantGroupsSection extends StatelessWidget {
     required this.pendingIds,
     required this.declinedIds,
     required this.currentUserId,
-    required this.isOwner,
-    required this.moderatingUserId,
-    required this.onAcceptPending,
-    required this.onDeclinePending,
+    required this.canManagePendingRequests,
+    required this.isUpdating,
+    this.onAcceptPending,
+    this.onDeclinePending,
   });
 
   Future<Map<String, String>> _loadNames(Set<String> ids) async {
@@ -998,7 +1478,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                 emptyLabel: 'Kein Ersteller hinterlegt.',
                 people: [
                   _ParticipantItemData(
-                    id: createdBy,
+                    userId: createdBy,
                     name: resolvedCreatorName,
                     status: 'Ersteller',
                     isCurrentUser: createdBy == currentUserId,
@@ -1012,7 +1492,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                 people: acceptedIds
                     .map(
                       (id) => _ParticipantItemData(
-                    id: id,
+                    userId: id,
                     name: loadedNames[id] ?? 'Unbekannt',
                     status: 'Bestätigt',
                     isCurrentUser: id == currentUserId,
@@ -1027,7 +1507,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                 people: maybeIds
                     .map(
                       (id) => _ParticipantItemData(
-                    id: id,
+                    userId: id,
                     name: loadedNames[id] ?? 'Unbekannt',
                     status: 'Vielleicht',
                     isCurrentUser: id == currentUserId,
@@ -1037,24 +1517,22 @@ class _ParticipantGroupsSection extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               _ParticipantGroup(
-                title: isOwner ? 'Anfragen' : 'Ausstehend',
-                emptyLabel: isOwner
-                    ? 'Aktuell liegen keine offenen Anfragen vor.'
-                    : 'Keine offenen Antworten.',
+                title: 'Ausstehend',
+                emptyLabel: 'Keine offenen Antworten.',
                 people: pendingIds
                     .map(
                       (id) => _ParticipantItemData(
-                    id: id,
+                    userId: id,
                     name: loadedNames[id] ?? 'Unbekannt',
                     status: 'Ausstehend',
                     isCurrentUser: id == currentUserId,
                   ),
                 )
                     .toList(),
-                showOwnerActions: isOwner,
-                moderatingUserId: moderatingUserId,
-                onAccept: onAcceptPending,
-                onDecline: onDeclinePending,
+                canManagePending: canManagePendingRequests,
+                isUpdating: isUpdating,
+                onAcceptPending: onAcceptPending,
+                onDeclinePending: onDeclinePending,
               ),
               const SizedBox(height: 12),
               _ParticipantGroup(
@@ -1063,7 +1541,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                 people: declinedIds
                     .map(
                       (id) => _ParticipantItemData(
-                    id: id,
+                    userId: id,
                     name: loadedNames[id] ?? 'Unbekannt',
                     status: 'Abgelehnt',
                     isCurrentUser: id == currentUserId,
@@ -1080,13 +1558,13 @@ class _ParticipantGroupsSection extends StatelessWidget {
 }
 
 class _ParticipantItemData {
-  final String id;
+  final String userId;
   final String name;
   final String status;
   final bool isCurrentUser;
 
   const _ParticipantItemData({
-    required this.id,
+    required this.userId,
     required this.name,
     required this.status,
     required this.isCurrentUser,
@@ -1097,19 +1575,19 @@ class _ParticipantGroup extends StatelessWidget {
   final String title;
   final String emptyLabel;
   final List<_ParticipantItemData> people;
-  final bool showOwnerActions;
-  final String moderatingUserId;
-  final ValueChanged<String>? onAccept;
-  final ValueChanged<String>? onDecline;
+  final bool canManagePending;
+  final bool isUpdating;
+  final ValueChanged<String>? onAcceptPending;
+  final ValueChanged<String>? onDeclinePending;
 
   const _ParticipantGroup({
     required this.title,
     required this.emptyLabel,
     required this.people,
-    this.showOwnerActions = false,
-    this.moderatingUserId = '',
-    this.onAccept,
-    this.onDecline,
+    this.canManagePending = false,
+    this.isUpdating = false,
+    this.onAcceptPending,
+    this.onDeclinePending,
   });
 
   Color _badgeColor(BuildContext context, String status) {
@@ -1166,108 +1644,91 @@ class _ParticipantGroup extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: colorScheme.outlineVariant),
                 ),
-                child: Row(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    CircleAvatar(
-                      radius: 18,
-                      backgroundColor:
-                      colorScheme.primary.withValues(alpha: 0.10),
-                      child: Text(
-                        person.name.isNotEmpty
-                            ? person.name.characters.first.toUpperCase()
-                            : '?',
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          color: colorScheme.primary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  person.isCurrentUser
-                                      ? '${person.name} (Du)'
-                                      : person.name,
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: _badgeColor(context, person.status)
-                                      .withValues(alpha: 0.10),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  person.status,
-                                  style: theme.textTheme.labelMedium?.copyWith(
-                                    color: _badgeColor(context, person.status),
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          if (showOwnerActions && person.status == 'Ausstehend') ...[
-                            const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                OutlinedButton.icon(
-                                  onPressed: moderatingUserId == person.id
-                                      ? null
-                                      : () => onDecline?.call(person.id),
-                                  icon: moderatingUserId == person.id
-                                      ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                      : const Icon(Icons.close_rounded),
-                                  label: const Text('Ablehnen'),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: colorScheme.error,
-                                  ),
-                                ),
-                                FilledButton.icon(
-                                  onPressed: moderatingUserId == person.id
-                                      ? null
-                                      : () => onAccept?.call(person.id),
-                                  icon: moderatingUserId == person.id
-                                      ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                      : const Icon(Icons.check_rounded),
-                                  label: const Text('Bestätigen'),
-                                ),
-                              ],
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor:
+                          colorScheme.primary.withValues(alpha: 0.10),
+                          child: Text(
+                            person.name.isNotEmpty
+                                ? person.name.characters.first.toUpperCase()
+                                : '?',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              color: colorScheme.primary,
+                              fontWeight: FontWeight.w700,
                             ),
-                          ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            person.isCurrentUser
+                                ? '${person.name} (Du)'
+                                : person.name,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _badgeColor(context, person.status)
+                                .withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            person.status,
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: _badgeColor(context, person.status),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (canManagePending &&
+                        person.status == 'Ausstehend' &&
+                        !person.isCurrentUser) ...[
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: isUpdating
+                                ? null
+                                : () => onAcceptPending?.call(person.userId),
+                            icon: isUpdating
+                                ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                                : const Icon(Icons.check_rounded),
+                            label: const Text('Annehmen'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: isUpdating
+                                ? null
+                                : () => onDeclinePending?.call(person.userId),
+                            icon: const Icon(Icons.close_rounded),
+                            label: const Text('Ablehnen'),
+                          ),
                         ],
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),

@@ -93,6 +93,43 @@ class NotificationDispatchService {
     }
   }
 
+
+  Future<void> queueEventRequestDecisionNotification({
+    required String recipientUserId,
+    required String senderId,
+    required String senderName,
+    required String eventId,
+    required String eventTitle,
+    required String decision,
+  }) async {
+    final safeSenderName = _fallback(senderName, 'CheckMyTime');
+    final safeEventTitle = _fallback(eventTitle, 'dein Event');
+    final normalizedDecision = decision.trim().toLowerCase();
+
+    final isAccepted = normalizedDecision == 'accepted';
+    final title = isAccepted
+        ? 'Anfrage angenommen'
+        : 'Anfrage abgelehnt';
+    final body = isAccepted
+        ? '$safeSenderName hat deine Anfrage für "$safeEventTitle" angenommen.'
+        : '$safeSenderName hat deine Anfrage für "$safeEventTitle" abgelehnt.';
+
+    await _queueNotification(
+      recipientUserId: recipientUserId,
+      channelId: 'incoming_event_updates_v1',
+      title: title,
+      body: body,
+      data: {
+        'type': 'event_request_decision',
+        'route': 'event_detail',
+        'eventId': eventId,
+        'senderId': senderId,
+        'senderName': safeSenderName,
+        'decision': normalizedDecision,
+      },
+    );
+  }
+
   Future<void> _queueNotification({
     required String recipientUserId,
     required String channelId,
