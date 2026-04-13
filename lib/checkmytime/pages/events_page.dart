@@ -15,17 +15,33 @@ class EventsPage extends StatefulWidget {
 class _EventsPageState extends State<EventsPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  final TextEditingController _searchController = TextEditingController();
+
+  String _selectedKindFilter = 'all';
+  String _selectedDateFilter = 'all';
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _eventsStream;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _eventsStream = FirebaseFirestore.instance
+        .collection('events')
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+    _searchController.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
+    _searchController.removeListener(_onSearchChanged);
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  void _onSearchChanged() {
+    if (mounted) setState(() {});
   }
 
   Timestamp? _scheduledTimestamp(Map<String, dynamic> data) {
@@ -66,11 +82,10 @@ class _EventsPageState extends State<EventsPage>
     return 'Ganztägig';
   }
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortEvents(
-      Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  void _sortEventsInPlace(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> list,
       ) {
-    final sorted = docs.toList();
-    sorted.sort((a, b) {
+    list.sort((a, b) {
       final aDate = _scheduledTimestamp(a.data());
       final bDate = _scheduledTimestamp(b.data());
 
@@ -79,7 +94,6 @@ class _EventsPageState extends State<EventsPage>
       if (bDate == null) return -1;
       return aDate.compareTo(bDate);
     });
-    return sorted;
   }
 
   String _normalizeKind(Map<String, dynamic> data) {
@@ -234,7 +248,7 @@ class _EventsPageState extends State<EventsPage>
     return '$acceptedCount Teilnehmer';
   }
 
-  String _locationText(Map<String, dynamic> data) {
+  _LocationInfo _locationInfo(Map<String, dynamic> data) {
     final exactVisibility =
     (data['exactLocationVisibility'] ?? 'all').toString().trim().toLowerCase();
     final exact = (data['exactLocationText'] ?? data['locationText'] ?? '')
@@ -243,15 +257,196 @@ class _EventsPageState extends State<EventsPage>
     final approximate = (data['approxLocationText'] ?? '').toString().trim();
 
     if (exact.isNotEmpty && exactVisibility == 'all') {
-      return exact;
+      return _LocationInfo(
+        label: exact,
+        typeLabel: 'Genauer Ort',
+        icon: Icons.location_on_outlined,
+      );
     }
     if (approximate.isNotEmpty) {
-      return approximate;
+      return _LocationInfo(
+        label: approximate,
+        typeLabel: 'Ungefährer Ort',
+        icon: Icons.place_outlined,
+      );
     }
     if (exact.isNotEmpty) {
-      return exact;
+      return _LocationInfo(
+        label: exact,
+        typeLabel: 'Genauer Ort',
+        icon: Icons.location_on_outlined,
+      );
     }
-    return '';
+    return const _LocationInfo.empty();
+  }
+
+  bool get _hasActiveEventFilters {
+    return _searchController.text.trim().isNotEmpty ||
+        _selectedKindFilter != 'all' ||
+        _selectedDateFilter != 'all';
+  }
+
+  int get _activeFilterCount {
+    var count = 0;
+    if (_selectedKindFilter != 'all') count++;
+    if (_selectedDateFilter != 'all') count++;
+    return count;
+  }
+
+  Future<void> _openFilterSheet() async {
+    String tempKind = _selectedKindFilter;
+    String tempDate = _selectedDateFilter;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            Widget buildChoice({
+              required String value,
+              required String label,
+              required String selectedValue,
+              required ValueChanged<String> onSelected,
+            }) {
+              return ChoiceChip(
+                selected: selectedValue == value,
+                onSelected: (_) {
+                  setModalState(() => onSelected(value));
+                },
+                label: Text(label),
+                showCheckmark: false,
+              );
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Filter',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Typ',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        buildChoice(
+                          value: 'all',
+                          label: 'Alle',
+                          selectedValue: tempKind,
+                          onSelected: (value) => tempKind = value,
+                        ),
+                        buildChoice(
+                          value: 'activity',
+                          label: 'Aktivität',
+                          selectedValue: tempKind,
+                          onSelected: (value) => tempKind = value,
+                        ),
+                        buildChoice(
+                          value: 'appointment',
+                          label: 'Termin',
+                          selectedValue: tempKind,
+                          onSelected: (value) => tempKind = value,
+                        ),
+                        buildChoice(
+                          value: 'service',
+                          label: 'Dienstleistung',
+                          selectedValue: tempKind,
+                          onSelected: (value) => tempKind = value,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      'Datum',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        buildChoice(
+                          value: 'all',
+                          label: 'Alle Daten',
+                          selectedValue: tempDate,
+                          onSelected: (value) => tempDate = value,
+                        ),
+                        buildChoice(
+                          value: 'today',
+                          label: 'Heute',
+                          selectedValue: tempDate,
+                          onSelected: (value) => tempDate = value,
+                        ),
+                        buildChoice(
+                          value: 'next7days',
+                          label: 'Nächste 7 Tage',
+                          selectedValue: tempDate,
+                          onSelected: (value) => tempDate = value,
+                        ),
+                        buildChoice(
+                          value: 'thisMonth',
+                          label: 'Diesen Monat',
+                          selectedValue: tempDate,
+                          onSelected: (value) => tempDate = value,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () {
+                              setState(() {
+                                _selectedKindFilter = 'all';
+                                _selectedDateFilter = 'all';
+                              });
+                              Navigator.of(context).pop();
+                            },
+                            child: const Text('Zurücksetzen'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () {
+                              setState(() {
+                                _selectedKindFilter = tempKind;
+                                _selectedDateFilter = tempDate;
+                              });
+                              Navigator.of(context).pop();
+                            },
+                            child: const Text('Anwenden'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Widget _buildTabContent({
@@ -268,16 +463,45 @@ class _EventsPageState extends State<EventsPage>
       return ListView(
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        children: [emptyState],
+        children: [
+          if (_hasActiveEventFilters)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _ActiveSearchInfo(
+                searchText: _searchController.text.trim(),
+                activeFilterCount: _activeFilterCount,
+              ),
+            ),
+          _hasActiveEventFilters
+              ? const _EventEmptyState(
+            icon: Icons.search_off_rounded,
+            title: 'Keine passenden Events',
+            subtitle:
+            'Für deine aktuelle Suche oder den gewählten Filter wurden keine Events gefunden.',
+          )
+              : emptyState,
+        ],
       );
     }
 
     return ListView.builder(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-      itemCount: docs.length,
+      itemCount: docs.length + (_hasActiveEventFilters ? 1 : 0),
       itemBuilder: (context, index) {
-        final doc = docs[index];
+        if (_hasActiveEventFilters && index == 0) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _ActiveSearchInfo(
+              searchText: _searchController.text.trim(),
+              activeFilterCount: _activeFilterCount,
+              resultCount: docs.length,
+            ),
+          );
+        }
+
+        final docIndex = _hasActiveEventFilters ? index - 1 : index;
+        final doc = docs[docIndex];
         final data = doc.data();
         final rawStatus = statusResolver(data);
 
@@ -295,7 +519,7 @@ class _EventsPageState extends State<EventsPage>
           statusColor: _statusColor(colorScheme, rawStatus),
           metaText: _metaText(data, currentUserId),
           participantsText: _participantsText(data),
-          locationText: _locationText(data),
+          locationInfo: _locationInfo(data),
           scheduledAt: _scheduledTimestamp(data),
           onTap: () {
             Navigator.of(context).push(
@@ -310,18 +534,6 @@ class _EventsPageState extends State<EventsPage>
         );
       },
     );
-  }
-
-  Future<void> _openCreateEventPage() async {
-    final createdOrUpdated = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => const CreateEventPage(),
-      ),
-    );
-
-    if (!mounted || createdOrUpdated != true) return;
-
-    _tabController.animateTo(2);
   }
 
   @override
@@ -343,12 +555,20 @@ class _EventsPageState extends State<EventsPage>
       appBar: AppBar(
         title: const Text('Events'),
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () async {
+          await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => const CreateEventPage(),
+            ),
+          );
+        },
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('Erstellen'),
+      ),
       body: SafeArea(
         child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('events')
-              .orderBy('createdAt', descending: true)
-              .snapshots(),
+          stream: _eventsStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
@@ -362,94 +582,112 @@ class _EventsPageState extends State<EventsPage>
 
             final docs = snapshot.data?.docs ?? [];
 
-            final myEvents = _sortEvents(
-              docs.where(
-                    (doc) => (doc.data()['createdBy'] ?? '').toString() == currentUserId,
-              ),
-            );
+            final myEvents = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+            final invitedEvents = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+            final openEvents = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
-            final invitedEvents = _sortEvents(
-              docs.where((doc) {
-                final data = doc.data();
-                final createdBy = (data['createdBy'] ?? '').toString();
-                final invited = List<String>.from(
-                  data['invitedUserIds'] ?? const [],
-                );
-                final memberIds = List<String>.from(
-                  data['memberIds'] ?? const [],
-                );
+            final query = _searchController.text.trim().toLowerCase();
+            final hasQuery = query.isNotEmpty;
+            final now = DateTime.now();
+            final todayStart = DateTime(now.year, now.month, now.day);
+            final nextWeekEnd = todayStart.add(const Duration(days: 7));
+            final monthEnd = DateTime(now.year, now.month + 1, 1);
 
-                return createdBy != currentUserId &&
-                    (invited.contains(currentUserId) ||
-                        memberIds.contains(currentUserId));
-              }),
-            );
+            for (final doc in docs) {
+              final data = doc.data();
 
-            final openEvents = _sortEvents(
-              docs.where((doc) {
-                final data = doc.data();
-                final createdBy = (data['createdBy'] ?? '').toString();
-                final invited = List<String>.from(
-                  data['invitedUserIds'] ?? const [],
-                );
-                final memberIds = List<String>.from(
-                  data['memberIds'] ?? const [],
-                );
-                final kind = _normalizeKind(data);
-                final visibility =
-                (data['visibility'] ?? '').toString().trim().toLowerCase();
+              final matchesKind = _selectedKindFilter == 'all' ||
+                  _normalizeKind(data) == _selectedKindFilter;
+              if (!matchesKind) continue;
 
-                final isOpenKind = kind == 'open';
-                final isOpenVisibility =
-                    visibility == 'open' || visibility == 'public';
+              bool matchesDate = true;
+              if (_selectedDateFilter != 'all') {
+                final scheduledAt = _scheduledTimestamp(data)?.toDate();
+                if (scheduledAt == null) {
+                  matchesDate = false;
+                } else {
+                  switch (_selectedDateFilter) {
+                    case 'today':
+                      matchesDate = !scheduledAt.isBefore(todayStart) &&
+                          scheduledAt.isBefore(
+                            todayStart.add(const Duration(days: 1)),
+                          );
+                      break;
+                    case 'next7days':
+                      matchesDate = !scheduledAt.isBefore(todayStart) &&
+                          scheduledAt.isBefore(nextWeekEnd);
+                      break;
+                    case 'thisMonth':
+                      matchesDate = !scheduledAt.isBefore(todayStart) &&
+                          scheduledAt.isBefore(monthEnd);
+                      break;
+                  }
+                }
+              }
+              if (!matchesDate) continue;
 
-                return createdBy != currentUserId &&
-                    !invited.contains(currentUserId) &&
-                    !memberIds.contains(currentUserId) &&
-                    (isOpenKind || isOpenVisibility);
-              }),
-            );
+              if (hasQuery) {
+                final locationInfo = _locationInfo(data);
+                final haystack = [
+                  (data['title'] ?? '').toString(),
+                  (data['description'] ?? '').toString(),
+                  (data['createdByName'] ?? '').toString(),
+                  locationInfo.label,
+                  locationInfo.typeLabel,
+                  _kindLabel(data),
+                ].join(' ').toLowerCase();
+
+                if (!haystack.contains(query)) continue;
+              }
+
+              final createdBy = (data['createdBy'] ?? '').toString();
+              if (createdBy == currentUserId) {
+                myEvents.add(doc);
+                continue;
+              }
+
+              final invited = List<String>.from(
+                data['invitedUserIds'] ?? const [],
+              );
+              final memberIds = List<String>.from(
+                data['memberIds'] ?? const [],
+              );
+
+              if (invited.contains(currentUserId) ||
+                  memberIds.contains(currentUserId)) {
+                invitedEvents.add(doc);
+                continue;
+              }
+
+              final kind = _normalizeKind(data);
+              final visibility =
+              (data['visibility'] ?? '').toString().trim().toLowerCase();
+
+              final isOpenKind = kind == 'open';
+              final isOpenVisibility =
+                  visibility == 'open' || visibility == 'public';
+
+              if (isOpenKind || isOpenVisibility) {
+                openEvents.add(doc);
+              }
+            }
+
+            _sortEventsInPlace(myEvents);
+            _sortEventsInPlace(invitedEvents);
+            _sortEventsInPlace(openEvents);
 
             return Column(
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: colorScheme.surface,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: colorScheme.outlineVariant),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Events planen',
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Hier siehst du deine eigenen Planungen, Einladungen und offene Events in einem einheitlichen Stil.',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        FilledButton.icon(
-                          onPressed: _openCreateEventPage,
-                          icon: const Icon(Icons.add_circle_outline),
-                          label: const Text('Event erstellen'),
-                        ),
-                      ],
-                    ),
+                  child: _SearchBarCard(
+                    controller: _searchController,
+                    onFilterTap: _openFilterSheet,
+                    activeFilterCount: _activeFilterCount,
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                   child: Container(
                     decoration: BoxDecoration(
                       color: colorScheme.surface,
@@ -477,7 +715,7 @@ class _EventsPageState extends State<EventsPage>
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 Expanded(
                   child: TabBarView(
                     controller: _tabController,
@@ -526,7 +764,7 @@ class _EventsPageState extends State<EventsPage>
                           icon: Icons.event_busy_outlined,
                           title: 'Noch keine eigenen Events',
                           subtitle:
-                          'Du hast noch keine Events erstellt. Über den Button oben kannst du direkt dein erstes Event planen.',
+                          'Du hast noch keine Events erstellt. Über den Plus-Button kannst du direkt dein erstes Event planen.',
                         ),
                       ),
                     ],
@@ -539,6 +777,162 @@ class _EventsPageState extends State<EventsPage>
       ),
     );
   }
+}
+
+class _SearchBarCard extends StatelessWidget {
+  final TextEditingController controller;
+  final VoidCallback onFilterTap;
+  final int activeFilterCount;
+
+  const _SearchBarCard({
+    required this.controller,
+    required this.onFilterTap,
+    required this.activeFilterCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final hasText = controller.text.trim().isNotEmpty;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: TextField(
+        controller: controller,
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          hintText: 'Suche nach Event, Ort oder Person',
+          prefixIcon: const Icon(Icons.search_rounded),
+          suffixIcon: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (hasText)
+                IconButton(
+                  tooltip: 'Suche löschen',
+                  onPressed: controller.clear,
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    IconButton(
+                      tooltip: 'Filter',
+                      onPressed: onFilterTap,
+                      icon: const Icon(Icons.tune_rounded),
+                    ),
+                    if (activeFilterCount > 0)
+                      Positioned(
+                        right: 4,
+                        top: 4,
+                        child: Container(
+                          constraints: const BoxConstraints(
+                            minWidth: 18,
+                            minHeight: 18,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          decoration: BoxDecoration(
+                            color: colorScheme.primary,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '$activeFilterCount',
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
+                              color: colorScheme.onPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          isDense: true,
+        ),
+      ),
+    );
+  }
+}
+
+class _ActiveSearchInfo extends StatelessWidget {
+  final String searchText;
+  final int activeFilterCount;
+  final int? resultCount;
+
+  const _ActiveSearchInfo({
+    required this.searchText,
+    required this.activeFilterCount,
+    this.resultCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    final parts = <String>[];
+    if (searchText.isNotEmpty) {
+      parts.add('Suche: "$searchText"');
+    }
+    if (activeFilterCount > 0) {
+      parts.add('$activeFilterCount Filter aktiv');
+    }
+    if (resultCount != null) {
+      parts.add('$resultCount Treffer');
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Text(
+        parts.join(' • '),
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: colorScheme.onSurfaceVariant,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+class _LocationInfo {
+  final String label;
+  final String typeLabel;
+  final IconData icon;
+
+  const _LocationInfo({
+    required this.label,
+    required this.typeLabel,
+    required this.icon,
+  });
+
+  const _LocationInfo.empty()
+      : label = '',
+        typeLabel = '',
+        icon = Icons.place_outlined;
+
+  bool get isEmpty => label.trim().isEmpty;
 }
 
 class _EventCard extends StatelessWidget {
@@ -555,7 +949,7 @@ class _EventCard extends StatelessWidget {
   final Color statusColor;
   final String metaText;
   final String participantsText;
-  final String locationText;
+  final _LocationInfo locationInfo;
   final Timestamp? scheduledAt;
   final VoidCallback onTap;
 
@@ -573,7 +967,7 @@ class _EventCard extends StatelessWidget {
     required this.statusColor,
     required this.metaText,
     required this.participantsText,
-    required this.locationText,
+    required this.locationInfo,
     required this.scheduledAt,
     required this.onTap,
   });
@@ -739,13 +1133,21 @@ class _EventCard extends StatelessWidget {
                             theme: theme,
                             colorScheme: colorScheme,
                           ),
-                          if (locationText.trim().isNotEmpty)
+                          if (!locationInfo.isEmpty) ...[
                             _EventInfoChip(
-                              icon: Icons.place_outlined,
-                              label: locationText,
+                              icon: locationInfo.icon,
+                              label: locationInfo.label,
                               theme: theme,
                               colorScheme: colorScheme,
                             ),
+                            _EventInfoChip(
+                              icon: Icons.info_outline_rounded,
+                              label: locationInfo.typeLabel,
+                              theme: theme,
+                              colorScheme: colorScheme,
+                              useSubtleColor: true,
+                            ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 10),
@@ -773,39 +1175,54 @@ class _EventInfoChip extends StatelessWidget {
   final String label;
   final ThemeData theme;
   final ColorScheme colorScheme;
+  final bool useSubtleColor;
 
   const _EventInfoChip({
     required this.icon,
     required this.label,
     required this.theme,
     required this.colorScheme,
+    this.useSubtleColor = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: colorScheme.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(999),
+    final chipColor = useSubtleColor
+        ? colorScheme.onSurfaceVariant
+        : colorScheme.primary;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.of(context).size.width * 0.58,
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 14,
-            color: colorScheme.primary,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: colorScheme.primary,
-              fontWeight: FontWeight.w700,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: chipColor.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 14,
+              color: chipColor,
             ),
-          ),
-        ],
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: chipColor,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
