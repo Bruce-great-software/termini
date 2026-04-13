@@ -1029,49 +1029,117 @@ class _CreateEventPageState extends State<CreateEventPage> {
     final coordinateText = place.latitude == null || place.longitude == null
         ? ''
         : '${place.latitude!.toStringAsFixed(6)}, ${place.longitude!.toStringAsFixed(6)}';
+    final locationMeta = <String>[
+      if (place.streetLine.isNotEmpty) place.streetLine,
+      if (place.city.isNotEmpty) place.city,
+      if (place.postalCode.isNotEmpty) place.postalCode,
+      if (place.country.isNotEmpty) place.country,
+    ];
 
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: theme.colorScheme.primaryContainer.withOpacity(0.35),
-          borderRadius: BorderRadius.circular(16),
+          color: theme.colorScheme.primaryContainer.withOpacity(0.40),
+          borderRadius: BorderRadius.circular(18),
           border: Border.all(color: theme.colorScheme.outlineVariant),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  Icons.check_circle_outline_rounded,
-                  size: 18,
-                  color: theme.colorScheme.primary,
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.check_circle_outline_rounded,
+                    size: 20,
+                    color: theme.colorScheme.primary,
+                  ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    place.displayText.isEmpty ? 'Ort ausgewählt' : place.displayText,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Ort bestätigt',
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        place.displayText.isEmpty
+                            ? 'Ort ausgewählt'
+                            : place.displayText,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
             if (place.formattedAddress.isNotEmpty) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Text(
                 place.formattedAddress,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
+                  height: 1.35,
                 ),
               ),
             ],
+            if (locationMeta.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: locationMeta
+                    .map(
+                      (item) => Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface.withOpacity(0.70),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant,
+                      ),
+                    ),
+                    child: Text(
+                      item,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                )
+                    .toList(),
+              ),
+            ],
             if (coordinateText.isNotEmpty) ...[
-              const SizedBox(height: 6),
+              const SizedBox(height: 10),
               Text(
                 coordinateText,
                 style: theme.textTheme.bodySmall?.copyWith(
@@ -1079,6 +1147,20 @@ class _CreateEventPageState extends State<CreateEventPage> {
                 ),
               ),
             ],
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _hideExactLocationSuggestions = false;
+                  });
+                  _exactLocationFocusNode.requestFocus();
+                },
+                icon: const Icon(Icons.edit_location_alt_outlined),
+                label: const Text('Ort ändern'),
+              ),
+            ),
           ],
         ),
       ),

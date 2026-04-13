@@ -1122,6 +1122,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
                                   _DetailChip(
                                     icon: Icons.place_outlined,
                                     label: location,
+                                    onTap: () => _openNavigation(data),
                                   ),
                                 _DetailChip(
                                   icon: Icons.group_outlined,
@@ -1949,10 +1950,12 @@ class _DetailSection extends StatelessWidget {
 class _DetailChip extends StatelessWidget {
   final IconData icon;
   final String label;
+  final VoidCallback? onTap;
 
   const _DetailChip({
     required this.icon,
     required this.label,
+    this.onTap,
   });
 
   @override
@@ -1960,25 +1963,45 @@ class _DetailChip extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return Container(
+    final chipChild = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: colorScheme.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(999),
-      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 16, color: colorScheme.primary),
           const SizedBox(width: 6),
-          Text(
-            label,
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: colorScheme.primary,
-              fontWeight: FontWeight.w700,
+          Flexible(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: colorScheme.primary,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
+      ),
+    );
+
+    final decoratedChild = Ink(
+      decoration: BoxDecoration(
+        color: colorScheme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: chipChild,
+    );
+
+    if (onTap == null) {
+      return decoratedChild;
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: decoratedChild,
       ),
     );
   }
