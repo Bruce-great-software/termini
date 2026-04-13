@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:termini/checkmytime/pages/create_event_page.dart';
 import 'package:termini/checkmytime/pages/event_detail_page.dart';
@@ -19,7 +20,10 @@ class _EventsPageState extends State<EventsPage>
 
   String _selectedKindFilter = 'all';
   String _selectedDateFilter = 'all';
+  String _selectedRadiusFilter = 'all';
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _eventsStream;
+  Position? _userPosition;
+  bool _isLoadingUserLocation = false;
 
   @override
   void initState() {
@@ -30,6 +34,7 @@ class _EventsPageState extends State<EventsPage>
         .orderBy('createdAt', descending: true)
         .snapshots();
     _searchController.addListener(_onSearchChanged);
+    _loadUserLocation();
   }
 
   @override
@@ -46,6 +51,64 @@ class _EventsPageState extends State<EventsPage>
 
   Timestamp? _scheduledTimestamp(Map<String, dynamic> data) {
     return data['scheduledAt'] as Timestamp? ?? data['eventDate'] as Timestamp?;
+  }
+
+  double? _parseDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
+  }
+
+  double? _distanceInMeters(Map<String, dynamic> data) {
+    final userPosition = _userPosition;
+    if (userPosition == null) return null;
+
+    final lat = _parseDouble(data['exactLocationLat']);
+    final lng = _parseDouble(data['exactLocationLng']);
+    if (lat == null || lng == null) return null;
+
+    final distanceInMeters = Geolocator.distanceBetween(
+      userPosition.latitude,
+      userPosition.longitude,
+      lat,
+      lng,
+    );
+
+    if (distanceInMeters.isNaN || distanceInMeters.isInfinite) return null;
+    return distanceInMeters;
+  }
+
+  Future<void> _loadUserLocation() async {
+    if (_isLoadingUserLocation) return;
+    _isLoadingUserLocation = true;
+
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever ||
+          permission == LocationPermission.unableToDetermine) {
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+        ),
+      );
+
+      if (!mounted) return;
+      setState(() => _userPosition = position);
+    } catch (_) {
+      // Falls Standort nicht verfügbar ist, zeigen wir die Entfernung einfach nicht an.
+    } finally {
+      _isLoadingUserLocation = false;
+    }
   }
 
   String _formatHeaderDate(Timestamp? timestamp) {
@@ -86,6 +149,32 @@ class _EventsPageState extends State<EventsPage>
       List<QueryDocumentSnapshot<Map<String, dynamic>>> list,
       ) {
     list.sort((a, b) {
+      final aDate = _scheduledTimestamp(a.data());
+      final bDate = _scheduledTimestamp(b.data());
+
+      if (aDate == null && bDate == null) return 0;
+      if (aDate == null) return 1;
+      if (bDate == null) return -1;
+      return aDate.compareTo(bDate);
+    });
+  }
+
+  void _sortOpenEventsByDistanceInPlace(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> list,
+      ) {
+    list.sort((a, b) {
+      final aDistance = _distanceInMeters(a.data());
+      final bDistance = _distanceInMeters(b.data());
+
+      if (aDistance != null && bDistance != null) {
+        final byDistance = aDistance.compareTo(bDistance);
+        if (byDistance != 0) return byDistance;
+      } else if (aDistance != null) {
+        return -1;
+      } else if (bDistance != null) {
+        return 1;
+      }
+
       final aDate = _scheduledTimestamp(a.data());
       final bDate = _scheduledTimestamp(b.data());
 
@@ -248,6 +337,22 @@ class _EventsPageState extends State<EventsPage>
     return '$acceptedCount Teilnehmer';
   }
 
+  String? _distanceText(Map<String, dynamic> data) {
+    final distanceInMeters = _distanceInMeters(data);
+    if (distanceInMeters == null) return null;
+
+    if (distanceInMeters < 1000) {
+      return '${distanceInMeters.round()} m entfernt';
+    }
+
+    final distanceInKilometers = distanceInMeters / 1000;
+    if (distanceInKilometers < 10) {
+      return '${NumberFormat('0.0', 'de_DE').format(distanceInKilometers)} km entfernt';
+    }
+
+    return '${NumberFormat('0', 'de_DE').format(distanceInKilometers.round())} km entfernt';
+  }
+
   _LocationInfo _locationInfo(Map<String, dynamic> data) {
     final exactVisibility =
     (data['exactLocationVisibility'] ?? 'all').toString().trim().toLowerCase();
@@ -270,13 +375,6 @@ class _EventsPageState extends State<EventsPage>
         icon: Icons.place_outlined,
       );
     }
-    if (exact.isNotEmpty) {
-      return _LocationInfo(
-        label: exact,
-        typeLabel: 'Genauer Ort',
-        icon: Icons.location_on_outlined,
-      );
-    }
     return const _LocationInfo.empty();
   }
 
@@ -290,12 +388,14 @@ class _EventsPageState extends State<EventsPage>
     var count = 0;
     if (_selectedKindFilter != 'all') count++;
     if (_selectedDateFilter != 'all') count++;
+    if (_selectedRadiusFilter != 'all') count++;
     return count;
   }
 
   Future<void> _openFilterSheet() async {
     String tempKind = _selectedKindFilter;
     String tempDate = _selectedDateFilter;
+    String tempRadius = _selectedRadiusFilter;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -409,6 +509,56 @@ class _EventsPageState extends State<EventsPage>
                         ),
                       ],
                     ),
+                    const SizedBox(height: 18),
+                    Text(
+                      'Umkreis',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        buildChoice(
+                          value: 'all',
+                          label: 'Überall',
+                          selectedValue: tempRadius,
+                          onSelected: (value) => tempRadius = value,
+                        ),
+                        buildChoice(
+                          value: '5',
+                          label: '5 km',
+                          selectedValue: tempRadius,
+                          onSelected: (value) => tempRadius = value,
+                        ),
+                        buildChoice(
+                          value: '10',
+                          label: '10 km',
+                          selectedValue: tempRadius,
+                          onSelected: (value) => tempRadius = value,
+                        ),
+                        buildChoice(
+                          value: '25',
+                          label: '25 km',
+                          selectedValue: tempRadius,
+                          onSelected: (value) => tempRadius = value,
+                        ),
+                        buildChoice(
+                          value: '50',
+                          label: '50 km',
+                          selectedValue: tempRadius,
+                          onSelected: (value) => tempRadius = value,
+                        ),
+                        buildChoice(
+                          value: '100',
+                          label: '100 km',
+                          selectedValue: tempRadius,
+                          onSelected: (value) => tempRadius = value,
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 20),
                     Row(
                       children: [
@@ -418,6 +568,7 @@ class _EventsPageState extends State<EventsPage>
                               setState(() {
                                 _selectedKindFilter = 'all';
                                 _selectedDateFilter = 'all';
+                                _selectedRadiusFilter = 'all';
                               });
                               Navigator.of(context).pop();
                             },
@@ -431,6 +582,7 @@ class _EventsPageState extends State<EventsPage>
                               setState(() {
                                 _selectedKindFilter = tempKind;
                                 _selectedDateFilter = tempDate;
+                                _selectedRadiusFilter = tempRadius;
                               });
                               Navigator.of(context).pop();
                             },
@@ -520,6 +672,7 @@ class _EventsPageState extends State<EventsPage>
           metaText: _metaText(data, currentUserId),
           participantsText: _participantsText(data),
           locationInfo: _locationInfo(data),
+          distanceText: _distanceText(data),
           scheduledAt: _scheduledTimestamp(data),
           onTap: () {
             Navigator.of(context).push(
@@ -668,13 +821,24 @@ class _EventsPageState extends State<EventsPage>
                   visibility == 'open' || visibility == 'public';
 
               if (isOpenKind || isOpenVisibility) {
+                if (_selectedRadiusFilter != 'all') {
+                  final maxDistanceKm = double.tryParse(_selectedRadiusFilter);
+                  final distanceInMeters = _distanceInMeters(data);
+                  if (maxDistanceKm != null) {
+                    if (distanceInMeters == null ||
+                        distanceInMeters > maxDistanceKm * 1000) {
+                      continue;
+                    }
+                  }
+                }
+
                 openEvents.add(doc);
               }
             }
 
             _sortEventsInPlace(myEvents);
             _sortEventsInPlace(invitedEvents);
-            _sortEventsInPlace(openEvents);
+            _sortOpenEventsByDistanceInPlace(openEvents);
 
             return Column(
               children: [
@@ -950,6 +1114,7 @@ class _EventCard extends StatelessWidget {
   final String metaText;
   final String participantsText;
   final _LocationInfo locationInfo;
+  final String? distanceText;
   final Timestamp? scheduledAt;
   final VoidCallback onTap;
 
@@ -968,6 +1133,7 @@ class _EventCard extends StatelessWidget {
     required this.metaText,
     required this.participantsText,
     required this.locationInfo,
+    required this.distanceText,
     required this.scheduledAt,
     required this.onTap,
   });
@@ -1133,13 +1299,22 @@ class _EventCard extends StatelessWidget {
                             theme: theme,
                             colorScheme: colorScheme,
                           ),
-                          if (!locationInfo.isEmpty) ...[
+                          if (!locationInfo.isEmpty)
                             _EventInfoChip(
                               icon: locationInfo.icon,
                               label: locationInfo.label,
                               theme: theme,
                               colorScheme: colorScheme,
                             ),
+                          if (distanceText != null && distanceText!.trim().isNotEmpty)
+                            _EventInfoChip(
+                              icon: Icons.near_me_outlined,
+                              label: distanceText!,
+                              theme: theme,
+                              colorScheme: colorScheme,
+                            ),
+                          if (!locationInfo.isEmpty &&
+                              locationInfo.typeLabel.trim().isNotEmpty)
                             _EventInfoChip(
                               icon: Icons.info_outline_rounded,
                               label: locationInfo.typeLabel,
@@ -1147,7 +1322,6 @@ class _EventCard extends StatelessWidget {
                               colorScheme: colorScheme,
                               useSubtleColor: true,
                             ),
-                          ],
                         ],
                       ),
                       const SizedBox(height: 10),
