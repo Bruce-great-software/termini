@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:termini/checkmytime/services/google_places_service.dart';
 import 'package:termini/checkmytime/services/notification_dispatch_service.dart';
 import 'package:termini/checkmytime/widgets/checkmytime_ui.dart';
 
@@ -33,6 +36,15 @@ class _CreateEventPageState extends State<CreateEventPage> {
   TextEditingController();
   final TextEditingController _exactLocationController = TextEditingController();
   final FocusNode _topicFocusNode = FocusNode();
+  final FocusNode _exactLocationFocusNode = FocusNode();
+
+  Timer? _exactLocationDebounce;
+  List<GooglePlaceSuggestion> _exactLocationSuggestions = const [];
+  GooglePlaceDetails? _selectedExactPlace;
+
+  bool _isExactLocationLoading = false;
+  bool _hideExactLocationSuggestions = false;
+  String _placesSessionToken = _newPlacesSessionToken();
 
   bool _isSubmitting = false;
   bool _isInitialLoading = false;
@@ -93,12 +105,31 @@ class _CreateEventPageState extends State<CreateEventPage> {
     _ChoiceOption('participants_only', 'Nur für Teilnehmer', Icons.group_outlined),
   ];
 
+  static String _newPlacesSessionToken() {
+    return DateTime.now().microsecondsSinceEpoch.toString();
+  }
+
   @override
   void initState() {
     super.initState();
     _topicFocusNode.addListener(() {
       if (mounted) {
         setState(() {});
+      }
+    });
+    _exactLocationFocusNode.addListener(() {
+      if (!mounted) return;
+      if (!_exactLocationFocusNode.hasFocus) {
+        Future<void>.delayed(const Duration(milliseconds: 120), () {
+          if (!mounted || _exactLocationFocusNode.hasFocus) return;
+          setState(() {
+            _hideExactLocationSuggestions = true;
+          });
+        });
+      } else {
+        setState(() {
+          _hideExactLocationSuggestions = false;
+        });
       }
     });
     if (_isEditMode) {
@@ -119,6 +150,8 @@ class _CreateEventPageState extends State<CreateEventPage> {
     _approxLocationController.dispose();
     _exactLocationController.dispose();
     _topicFocusNode.dispose();
+    _exactLocationFocusNode.dispose();
+    _exactLocationDebounce?.cancel();
     super.dispose();
   }
 
@@ -254,6 +287,24 @@ class _CreateEventPageState extends State<CreateEventPage> {
       (data['exactLocationText'] ?? data['locationText'] ?? '').toString().trim();
       final loadedExactVisibility =
       (data['exactLocationVisibility'] ?? 'all').toString().trim().toLowerCase();
+      final loadedExactPlaceId =
+      (data['exactLocationPlaceId'] ?? '').toString().trim();
+      final loadedExactPlaceName =
+      (data['exactLocationName'] ?? loadedExactLocation).toString().trim();
+      final loadedExactAddress =
+      (data['exactLocationAddress'] ?? '').toString().trim();
+      final loadedExactCity =
+      (data['exactLocationCity'] ?? '').toString().trim();
+      final loadedExactPostalCode =
+      (data['exactLocationPostalCode'] ?? '').toString().trim();
+      final loadedExactCountry =
+      (data['exactLocationCountry'] ?? '').toString().trim();
+      final loadedExactStreet =
+      (data['exactLocationStreet'] ?? '').toString().trim();
+      final loadedExactStreetNumber =
+      (data['exactLocationStreetNumber'] ?? '').toString().trim();
+      final loadedExactLat = _parseDouble(data['exactLocationLat']);
+      final loadedExactLng = _parseDouble(data['exactLocationLng']);
       final hasParticipantLimit = data['hasParticipantLimit'] == true;
       final maxParticipants = (data['maxParticipants'] ?? '').toString().trim();
       final deadlineAt = data['participationDeadlineAt'];
@@ -279,6 +330,24 @@ class _CreateEventPageState extends State<CreateEventPage> {
         _locationType = _normalizeLocationType(loadedLocationType);
         _approxLocationController.text = loadedApproxLocation;
         _exactLocationController.text = loadedExactLocation;
+        _selectedExactPlace = loadedExactPlaceId.isEmpty &&
+            loadedExactPlaceName.isEmpty &&
+            loadedExactAddress.isEmpty &&
+            loadedExactLat == null &&
+            loadedExactLng == null
+            ? null
+            : GooglePlaceDetails(
+          placeId: loadedExactPlaceId,
+          name: loadedExactPlaceName,
+          formattedAddress: loadedExactAddress,
+          latitude: loadedExactLat,
+          longitude: loadedExactLng,
+          city: loadedExactCity,
+          postalCode: loadedExactPostalCode,
+          country: loadedExactCountry,
+          street: loadedExactStreet,
+          streetNumber: loadedExactStreetNumber,
+        );
         _exactLocationVisibility =
         loadedExactVisibility == 'participants_only' ? 'participants_only' : 'all';
         _loadedTopicKey = _normalizeTopicKey(loadedTopic);
@@ -729,6 +798,293 @@ class _CreateEventPageState extends State<CreateEventPage> {
         .format(_participationDeadline!);
   }
 
+  double? _parseDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
+  }
+
+  void _clearExactLocationSelection({bool keepInput = true}) {
+    setState(() {
+      _selectedExactPlace = null;
+      _exactLocationSuggestions = const [];
+      _hideExactLocationSuggestions = false;
+      _isExactLocationLoading = false;
+      _placesSessionToken = _newPlacesSessionToken();
+      if (!keepInput) {
+        _exactLocationController.clear();
+      }
+    });
+  }
+
+  void _clearExactLocationInput() {
+    _exactLocationDebounce?.cancel();
+    _clearExactLocationSelection(keepInput: false);
+    _exactLocationFocusNode.requestFocus();
+  }
+
+  void _onExactLocationChanged(String value) {
+    final query = value.trim();
+    _exactLocationDebounce?.cancel();
+
+    setState(() {
+      _selectedExactPlace = null;
+      _hideExactLocationSuggestions = false;
+      if (query.length < 2) {
+        _exactLocationSuggestions = const [];
+        _isExactLocationLoading = false;
+        _placesSessionToken = _newPlacesSessionToken();
+      } else {
+        _isExactLocationLoading = true;
+      }
+    });
+
+    if (query.length < 2) {
+      return;
+    }
+
+    final expectedQuery = query;
+    final sessionToken = _placesSessionToken;
+
+    _exactLocationDebounce = Timer(const Duration(milliseconds: 350), () async {
+      final suggestions = await GooglePlacesService.instance.fetchAutocomplete(
+        input: expectedQuery,
+        sessionToken: sessionToken,
+      );
+
+      if (!mounted) return;
+      if (_exactLocationController.text.trim() != expectedQuery) return;
+
+      setState(() {
+        _exactLocationSuggestions = suggestions;
+        _isExactLocationLoading = false;
+      });
+    });
+  }
+
+  Future<void> _selectExactLocationSuggestion(
+      GooglePlaceSuggestion suggestion,
+      ) async {
+    _exactLocationDebounce?.cancel();
+
+    setState(() {
+      _isExactLocationLoading = true;
+      _hideExactLocationSuggestions = true;
+    });
+
+    final details = await GooglePlacesService.instance.fetchPlaceDetails(
+      placeId: suggestion.placeId,
+      sessionToken: _placesSessionToken,
+    );
+
+    if (!mounted) return;
+
+    if (details == null) {
+      setState(() {
+        _isExactLocationLoading = false;
+        _hideExactLocationSuggestions = false;
+      });
+      _showMessage('Die Ortsdetails konnten nicht geladen werden.');
+      return;
+    }
+
+    final displayText = details.displayText.isEmpty
+        ? suggestion.mainText
+        : details.displayText;
+
+    setState(() {
+      _selectedExactPlace = details;
+      _exactLocationController.value = TextEditingValue(
+        text: displayText,
+        selection: TextSelection.collapsed(offset: displayText.length),
+      );
+      _exactLocationSuggestions = const [];
+      _isExactLocationLoading = false;
+      _hideExactLocationSuggestions = true;
+      _placesSessionToken = _newPlacesSessionToken();
+    });
+
+    FocusScope.of(context).unfocus();
+  }
+
+  Widget _buildExactLocationSuggestions(ThemeData theme) {
+    final query = _exactLocationController.text.trim();
+    if (_locationType != 'exact' ||
+        !_exactLocationFocusNode.hasFocus ||
+        _hideExactLocationSuggestions ||
+        query.length < 2) {
+      return const SizedBox.shrink();
+    }
+
+    if (_isExactLocationLoading && _exactLocationSuggestions.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Suche Orte ...',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_exactLocationSuggestions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: theme.colorScheme.outlineVariant),
+        ),
+        child: Column(
+          children: [
+            for (int i = 0; i < _exactLocationSuggestions.length; i++) ...[
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => _selectExactLocationSuggestion(
+                    _exactLocationSuggestions[i],
+                  ),
+                  borderRadius: BorderRadius.circular(18),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.location_on_outlined,
+                          size: 20,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _exactLocationSuggestions[i].mainText,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              if (_exactLocationSuggestions[i]
+                                  .secondaryText
+                                  .isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  _exactLocationSuggestions[i].secondaryText,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              if (i != _exactLocationSuggestions.length - 1)
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: theme.colorScheme.outlineVariant,
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSelectedExactLocationSummary(ThemeData theme) {
+    final place = _selectedExactPlace;
+    if (place == null) {
+      return const SizedBox.shrink();
+    }
+
+    final coordinateText = place.latitude == null || place.longitude == null
+        ? ''
+        : '${place.latitude!.toStringAsFixed(6)}, ${place.longitude!.toStringAsFixed(6)}';
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primaryContainer.withOpacity(0.35),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: theme.colorScheme.outlineVariant),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.check_circle_outline_rounded,
+                  size: 18,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    place.displayText.isEmpty ? 'Ort ausgewählt' : place.displayText,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (place.formattedAddress.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                place.formattedAddress,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            if (coordinateText.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                coordinateText,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _openUserPicker() async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
@@ -877,11 +1233,15 @@ class _CreateEventPageState extends State<CreateEventPage> {
       final maxParticipants = _hasParticipantLimit
           ? int.tryParse(_maxParticipantsController.text.trim())
           : null;
+      final exactLocationInput = _exactLocationController.text.trim();
+      final approximateLocationInput = _approxLocationController.text.trim();
+      final isExactLocation = _locationType == 'exact';
+      final isApproximateLocation = _locationType == 'approximate';
 
-      final locationText = _locationType == 'exact'
-          ? _exactLocationController.text.trim()
-          : _locationType == 'approximate'
-          ? _approxLocationController.text.trim()
+      final locationText = isExactLocation
+          ? exactLocationInput
+          : isApproximateLocation
+          ? approximateLocationInput
           : '';
 
       final basePayload = <String, dynamic>{
@@ -912,10 +1272,20 @@ class _CreateEventPageState extends State<CreateEventPage> {
             ? null
             : Timestamp.fromDate(_participationDeadline!),
         'locationType': _locationType,
-        'approxLocationText': _approxLocationController.text.trim(),
-        'exactLocationText': _exactLocationController.text.trim(),
+        'approxLocationText': isApproximateLocation ? approximateLocationInput : '',
+        'exactLocationText': isExactLocation ? exactLocationInput : '',
+        'exactLocationPlaceId': isExactLocation ? _selectedExactPlace?.placeId : null,
+        'exactLocationName': isExactLocation ? _selectedExactPlace?.name : null,
+        'exactLocationAddress': isExactLocation ? _selectedExactPlace?.formattedAddress : null,
+        'exactLocationLat': isExactLocation ? _selectedExactPlace?.latitude : null,
+        'exactLocationLng': isExactLocation ? _selectedExactPlace?.longitude : null,
+        'exactLocationCity': isExactLocation ? _selectedExactPlace?.city : null,
+        'exactLocationPostalCode': isExactLocation ? _selectedExactPlace?.postalCode : null,
+        'exactLocationCountry': isExactLocation ? _selectedExactPlace?.country : null,
+        'exactLocationStreet': isExactLocation ? _selectedExactPlace?.street : null,
+        'exactLocationStreetNumber': isExactLocation ? _selectedExactPlace?.streetNumber : null,
         'locationText': locationText,
-        'exactLocationVisibility': _exactLocationVisibility,
+        'exactLocationVisibility': isExactLocation ? _exactLocationVisibility : 'all',
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -1547,7 +1917,16 @@ class _CreateEventPageState extends State<CreateEventPage> {
             theme: theme,
             options: _locationTypeOptions,
             selectedValue: _locationType,
-            onSelected: (value) => setState(() => _locationType = value),
+            onSelected: (value) {
+              setState(() {
+                _locationType = value;
+                if (value != 'exact') {
+                  _hideExactLocationSuggestions = true;
+                  _exactLocationSuggestions = const [];
+                  _isExactLocationLoading = false;
+                }
+              });
+            },
           ),
           if (_locationType == 'approximate') ...[
             const SizedBox(height: 16),
@@ -1564,12 +1943,33 @@ class _CreateEventPageState extends State<CreateEventPage> {
             const SizedBox(height: 16),
             TextField(
               controller: _exactLocationController,
-              decoration: const InputDecoration(
+              focusNode: _exactLocationFocusNode,
+              textInputAction: TextInputAction.done,
+              onChanged: _onExactLocationChanged,
+              decoration: InputDecoration(
                 labelText: 'Genauer Ort',
                 hintText: 'z. B. Cage Soccer Arena Duisburg',
-                prefixIcon: Icon(Icons.location_on_outlined),
+                prefixIcon: const Icon(Icons.location_on_outlined),
+                suffixIcon: _isExactLocationLoading
+                    ? const Padding(
+                  padding: EdgeInsets.all(14),
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+                    : _exactLocationController.text.trim().isEmpty
+                    ? null
+                    : IconButton(
+                  tooltip: 'Ort löschen',
+                  onPressed: _clearExactLocationInput,
+                  icon: const Icon(Icons.close_rounded),
+                ),
               ),
             ),
+            _buildExactLocationSuggestions(theme),
+            _buildSelectedExactLocationSummary(theme),
             const SizedBox(height: 16),
             _buildChoiceChips(
               theme: theme,

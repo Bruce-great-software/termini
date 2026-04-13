@@ -392,6 +392,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
   Widget _buildContactAvatar({
     required _ContactPreviewData preview,
     required ThemeData theme,
+    bool isOnline = false,
   }) {
     final colorScheme = theme.colorScheme;
 
@@ -399,6 +400,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       return Container(
         decoration: BoxDecoration(
           shape: BoxShape.circle,
+          border: isOnline ? Border.all(color: const Color(0xFF19B35E), width: 2.5) : null,
           boxShadow: [
             BoxShadow(
               color: colorScheme.primary.withValues(alpha: 0.18),
@@ -424,6 +426,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       height: 48,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
+        border: isOnline ? Border.all(color: const Color(0xFF19B35E), width: 2.5) : null,
         gradient: LinearGradient(
           colors: [colorScheme.primary, colorScheme.primaryContainer],
           begin: Alignment.topLeft,
@@ -453,7 +456,11 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     required ThemeData theme,
     required bool isOnline,
   }) {
-    final avatar = _buildContactAvatar(preview: preview, theme: theme);
+    final avatar = _buildContactAvatar(
+      preview: preview,
+      theme: theme,
+      isOnline: isOnline,
+    );
     if (!isOnline) return avatar;
 
     return Stack(
