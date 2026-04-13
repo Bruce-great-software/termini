@@ -133,10 +133,6 @@ class _EventsPageState extends State<EventsPage>
     final maybe = List<String>.from(data['maybeUserIds'] ?? const []);
     final declined = List<String>.from(data['declinedUserIds'] ?? const []);
 
-    // Wichtig für Request-Events:
-    // Wenn der Ersteller eine Anfrage bestätigt oder ablehnt, sollen die
-    // finalen Listen immer Vorrang vor einem eventuell veralteten
-    // responseMap-Eintrag wie "pending" haben.
     if (accepted.contains(currentUserId)) return 'accepted';
     if (maybe.contains(currentUserId)) return 'maybe';
     if (declined.contains(currentUserId)) return 'declined';
@@ -258,7 +254,6 @@ class _EventsPageState extends State<EventsPage>
     return '';
   }
 
-
   Widget _buildTabContent({
     required BuildContext context,
     required ThemeData theme,
@@ -315,6 +310,18 @@ class _EventsPageState extends State<EventsPage>
         );
       },
     );
+  }
+
+  Future<void> _openCreateEventPage() async {
+    final createdOrUpdated = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => const CreateEventPage(),
+      ),
+    );
+
+    if (!mounted || createdOrUpdated != true) return;
+
+    _tabController.animateTo(2);
   }
 
   @override
@@ -433,13 +440,7 @@ class _EventsPageState extends State<EventsPage>
                         ),
                         const SizedBox(height: 16),
                         FilledButton.icon(
-                          onPressed: () async {
-                            await Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const CreateEventPage(),
-                              ),
-                            );
-                          },
+                          onPressed: _openCreateEventPage,
                           icon: const Icon(Icons.add_circle_outline),
                           label: const Text('Event erstellen'),
                         ),
