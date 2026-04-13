@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:termini/checkmytime/pages/create_event_page.dart';
 import 'package:termini/checkmytime/services/notification_dispatch_service.dart';
 
@@ -32,6 +33,80 @@ class _EventDetailPageState extends State<EventDetailPage> {
   String? _ownerActionUserId;
 
   String get _currentUserId => FirebaseAuth.instance.currentUser?.uid ?? '';
+
+  void _showMessage(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(text),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  double? _parseDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
+  }
+
+  String _resolvedLocationText(Map<String, dynamic> data) {
+    final candidates = [
+      data['exactLocationText'],
+      data['exactLocationAddress'],
+      data['locationText'],
+      data['location'],
+      data['approxLocationText'],
+    ];
+
+    for (final candidate in candidates) {
+      final value = (candidate ?? '').toString().trim();
+      if (value.isNotEmpty) return value;
+    }
+
+    return '';
+  }
+
+  Uri _buildGoogleMapsDirectionsUri(Map<String, dynamic> data) {
+    final lat = _parseDouble(data['exactLocationLat']);
+    final lng = _parseDouble(data['exactLocationLng']);
+    final locationText = _resolvedLocationText(data);
+
+    if (lat != null && lng != null) {
+      return Uri.parse(
+        'https://www.google.com/maps/dir/?api=1&destination=${Uri.encodeComponent('$lat,$lng')}',
+      );
+    }
+
+    return Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=${Uri.encodeComponent(locationText)}',
+    );
+  }
+
+  Future<void> _openNavigation(Map<String, dynamic> data) async {
+    final lat = _parseDouble(data['exactLocationLat']);
+    final lng = _parseDouble(data['exactLocationLng']);
+    final locationText = _resolvedLocationText(data);
+
+    if (locationText.isEmpty && (lat == null || lng == null)) {
+      _showMessage('Für dieses Event ist kein navigierbarer Ort hinterlegt.');
+      return;
+    }
+
+    final uri = _buildGoogleMapsDirectionsUri(data);
+
+    try {
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+
+      if (!launched) {
+        _showMessage('Google Maps konnte nicht geöffnet werden.');
+      }
+    } catch (_) {
+      _showMessage('Google Maps konnte nicht geöffnet werden.');
+    }
+  }
 
   Timestamp? _scheduledTimestamp(Map<String, dynamic> data) {
     return data['scheduledAt'] as Timestamp? ?? data['eventDate'] as Timestamp?;
@@ -849,8 +924,11 @@ class _EventDetailPageState extends State<EventDetailPage> {
 
             final title = (data['title'] ?? 'Event').toString().trim();
             final description = (data['description'] ?? '').toString().trim();
-            final location =
-            (data['locationText'] ?? data['location'] ?? '').toString().trim();
+            final location = _resolvedLocationText(data);
+            final exactLat = _parseDouble(data['exactLocationLat']);
+            final exactLng = _parseDouble(data['exactLocationLng']);
+            final hasNavigableLocation =
+                location.isNotEmpty || (exactLat != null && exactLng != null);
             final createdBy = (data['createdBy'] ?? '').toString().trim();
             final createdByName =
             (data['createdByName'] ?? 'Unbekannt').toString().trim();
@@ -1065,6 +1143,57 @@ class _EventDetailPageState extends State<EventDetailPage> {
                     ],
                   ),
                 ),
+                if (hasNavigableLocation) ...[
+                  const SizedBox(height: 14),
+                  _DetailSection(
+                    title: 'Ort & Navigation',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.place_outlined,
+                              color: colorScheme.primary,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    location.isNotEmpty
+                                        ? location
+                                        : '${exactLat?.toStringAsFixed(6)}, ${exactLng?.toStringAsFixed(6)}',
+                                    style: theme.textTheme.bodyLarge?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  if (exactLat != null && exactLng != null) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      '${exactLat.toStringAsFixed(6)}, ${exactLng.toStringAsFixed(6)}',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        FilledButton.icon(
+                          onPressed: () => _openNavigation(data),
+                          icon: const Icon(Icons.navigation_outlined),
+                          label: const Text('Navigation starten'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 14),
                 _DetailSection(
                   title: 'Teilnehmerstatus',
