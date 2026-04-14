@@ -30,6 +30,7 @@ class EventDetailPage extends StatefulWidget {
 class _EventDetailPageState extends State<EventDetailPage> {
   bool _isUpdatingStatus = false;
   bool _isDeleting = false;
+  bool _isCancelling = false;
   bool _hasMarkedInviteSeen = false;
   String? _ownerActionUserId;
 
@@ -298,6 +299,27 @@ class _EventDetailPageState extends State<EventDetailPage> {
     return _acceptedCount(data) < maxParticipants;
   }
 
+  bool _isCancelledEvent(Map<String, dynamic> data) {
+    return _overallStatus(data) == 'cancelled';
+  }
+
+  Set<String> _eventRecipientUserIds(Map<String, dynamic> data) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final recipientIds = <String>{
+      ...List<String>.from(data['memberIds'] ?? const []),
+      ...List<String>.from(data['invitedUserIds'] ?? const []),
+      ...List<String>.from(data['participantIds'] ?? const []),
+      ...List<String>.from(data['acceptedUserIds'] ?? const []),
+      ...List<String>.from(data['maybeUserIds'] ?? const []),
+      ...List<String>.from(data['declinedUserIds'] ?? const []),
+      ...Map<String, dynamic>.from(
+        data['responseMap'] ?? const <String, dynamic>{},
+      ).keys,
+    }..removeWhere((id) => id.trim().isEmpty || id == createdBy);
+
+    return recipientIds;
+  }
+
   Future<void> _sendJoinRequest() async {
     if (_currentUserId.isEmpty || _isUpdatingStatus) return;
 
@@ -311,6 +333,11 @@ class _EventDetailPageState extends State<EventDetailPage> {
           .doc(widget.eventId);
       final snapshot = await docRef.get();
       final data = snapshot.data() ?? <String, dynamic>{};
+
+      if (_isCancelledEvent(data)) {
+        _showMessage('Dieses Event wurde bereits abgesagt.');
+        return;
+      }
 
       final memberIds = <String>{
         ...List<String>.from(data['memberIds'] ?? const []),
@@ -383,6 +410,11 @@ class _EventDetailPageState extends State<EventDetailPage> {
           .doc(widget.eventId);
       final snapshot = await docRef.get();
       final data = snapshot.data() ?? <String, dynamic>{};
+
+      if (_isCancelledEvent(data)) {
+        _showMessage('Dieses Event wurde abgesagt.');
+        return;
+      }
 
       if (!_hasFreeSpots(data)) {
         if (!mounted) return;
@@ -472,6 +504,11 @@ class _EventDetailPageState extends State<EventDetailPage> {
           .doc(widget.eventId);
       final snapshot = await docRef.get();
       final data = snapshot.data() ?? <String, dynamic>{};
+
+      if (_isCancelledEvent(data)) {
+        _showMessage('Dieses Event wurde bereits abgesagt.');
+        return;
+      }
 
       final memberIds = <String>{
         ...List<String>.from(data['memberIds'] ?? const []),
@@ -591,8 +628,9 @@ class _EventDetailPageState extends State<EventDetailPage> {
       case 'maybe':
         return 'Vielleicht';
       case 'declined':
-      case 'cancelled':
         return 'Abgelehnt';
+      case 'cancelled':
+        return 'Abgesagt';
       case 'open':
         return 'Offen';
       case 'done':
@@ -680,9 +718,12 @@ class _EventDetailPageState extends State<EventDetailPage> {
   }
 
   String _currentHeaderStatus(Map<String, dynamic> data) {
+    final overallStatus = _overallStatus(data);
+    if (overallStatus == 'cancelled') return 'cancelled';
+
     final createdBy = (data['createdBy'] ?? '').toString().trim();
     if (createdBy == _currentUserId) {
-      return _overallStatus(data);
+      return overallStatus;
     }
     return _responseForUser(data, _currentUserId);
   }
@@ -700,6 +741,11 @@ class _EventDetailPageState extends State<EventDetailPage> {
           .doc(widget.eventId);
       final snapshot = await docRef.get();
       final data = snapshot.data() ?? <String, dynamic>{};
+
+      if (_isCancelledEvent(data)) {
+        _showMessage('Dieses Event wurde abgesagt.');
+        return;
+      }
 
       final createdBy = (data['createdBy'] ?? '').toString().trim();
       final accepted = <String>{
@@ -793,6 +839,11 @@ class _EventDetailPageState extends State<EventDetailPage> {
       final snapshot = await docRef.get();
       final data = snapshot.data() ?? <String, dynamic>{};
 
+      if (_isCancelledEvent(data)) {
+        _showMessage('Dieses Event wurde abgesagt.');
+        return;
+      }
+
       final createdBy = (data['createdBy'] ?? '').toString().trim();
       if (createdBy != _currentUserId) {
         throw StateError('Nur der Ersteller darf Anfragen verwalten.');
@@ -880,6 +931,98 @@ class _EventDetailPageState extends State<EventDetailPage> {
         setState(() {
           _isUpdatingStatus = false;
           _ownerActionUserId = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _cancelEvent() async {
+    if (_isCancelling) return;
+
+    final shouldCancel = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Event absagen'),
+        content: const Text(
+          'Möchtest du dieses Event wirklich absagen? Das Event bleibt sichtbar, aber neue Teilnahmen und Antworten sind danach nicht mehr möglich.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Zurück'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Absagen'),
+          ),
+        ],
+      ),
+    ) ??
+        false;
+
+    if (!shouldCancel) return;
+
+    setState(() {
+      _isCancelling = true;
+    });
+
+    try {
+      final docRef = FirebaseFirestore.instance
+          .collection('events')
+          .doc(widget.eventId);
+      final snapshot = await docRef.get();
+      final data = snapshot.data() ?? <String, dynamic>{};
+
+      final createdBy = (data['createdBy'] ?? '').toString().trim();
+      if (createdBy != _currentUserId) {
+        throw StateError('Nur der Ersteller darf dieses Event absagen.');
+      }
+
+      if (_isCancelledEvent(data)) {
+        _showMessage('Dieses Event wurde bereits abgesagt.');
+        return;
+      }
+
+      final createdByName = (data['createdByName'] ?? '').toString().trim();
+      final eventTitle = (data['title'] ?? 'Event').toString().trim();
+      final recipientUserIds = _eventRecipientUserIds(data);
+
+      await docRef.update({
+        'status': 'cancelled',
+        'cancelledAt': FieldValue.serverTimestamp(),
+        'cancelledBy': _currentUserId,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (recipientUserIds.isNotEmpty) {
+        await NotificationDispatchService.instance.queueEventDeletedNotifications(
+          recipientUserIds: recipientUserIds,
+          senderId: _currentUserId,
+          senderName: createdByName,
+          eventId: widget.eventId,
+          eventTitle: eventTitle,
+        );
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Das Event wurde abgesagt.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Das Event konnte nicht abgesagt werden.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCancelling = false;
         });
       }
     }
@@ -1019,6 +1162,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
             final participantCount = _acceptedCount(data);
             final maxParticipants = _maxParticipants(data);
             final isOwner = createdBy == _currentUserId;
+            final isCancelled = _isCancelledEvent(data);
             final inviteProgressCounts = _inviteProgressCounts(data);
 
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1275,6 +1419,44 @@ class _EventDetailPageState extends State<EventDetailPage> {
                     ),
                   ),
                 ],
+                if (isCancelled) ...[
+                  const SizedBox(height: 14),
+                  _DetailSection(
+                    title: 'Status',
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: colorScheme.error.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: colorScheme.error.withValues(alpha: 0.18),
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.event_busy_outlined,
+                            color: colorScheme.error,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              isOwner
+                                  ? 'Du hast dieses Event abgesagt. Es bleibt sichtbar, aber neue Teilnahmen und Antworten sind deaktiviert.'
+                                  : 'Dieses Event wurde vom Ersteller abgesagt. Neue Teilnahmen und Antworten sind nicht mehr möglich.',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: colorScheme.onSurface,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 14),
                 _DetailSection(
                   title: joinMode == 'invite_only' && isOwner
@@ -1326,6 +1508,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   inviteSeenAtMap: _inviteSeenAtMap(data),
                   isUpdatingStatus: _isUpdatingStatus,
                   ownerActionUserId: _ownerActionUserId,
+                  eventCancelled: isCancelled,
                   onOwnerDecision: ({required userId, required accepted}) =>
                       _handleOwnerRequestDecision(
                         requestUserId: userId,
@@ -1342,6 +1525,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   joinMode: joinMode,
                   hasExistingResponse: hasExistingResponse,
                   isOwner: isOwner,
+                  isCancelled: isCancelled,
                 ),
               ],
             );
@@ -1360,6 +1544,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
     required String joinMode,
     required bool hasExistingResponse,
     required bool isOwner,
+    required bool isCancelled,
   }) {
     if (isOwner) {
       return _DetailSection(
@@ -1367,24 +1552,60 @@ class _EventDetailPageState extends State<EventDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            OutlinedButton.icon(
-              onPressed: _openEditPage,
-              icon: const Icon(Icons.edit_outlined),
-              label: const Text('Event bearbeiten'),
-            ),
-            const SizedBox(height: 10),
-            FilledButton.icon(
-              onPressed: _isDeleting ? null : _deleteEvent,
-              icon: _isDeleting
-                  ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-                  : const Icon(Icons.delete_outline),
-              label: const Text('Event löschen'),
-            ),
+            if (!isCancelled) ...[
+              OutlinedButton.icon(
+                onPressed: _openEditPage,
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('Event bearbeiten'),
+              ),
+              const SizedBox(height: 10),
+              FilledButton.icon(
+                onPressed: _isCancelling ? null : _cancelEvent,
+                icon: _isCancelling
+                    ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+                    : const Icon(Icons.event_busy_outlined),
+                label: const Text('Event absagen'),
+              ),
+            ] else ...[
+              Text(
+                'Dieses Event wurde bereits abgesagt und ist für die Teilnehmer weiterhin nachvollziehbar.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 14),
+              OutlinedButton.icon(
+                onPressed: _isDeleting ? null : _deleteEvent,
+                icon: _isDeleting
+                    ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                    : const Icon(Icons.delete_outline),
+                label: const Text('Event endgültig löschen'),
+              ),
+            ],
           ],
+        ),
+      );
+    }
+
+    if (isCancelled) {
+      return _DetailSection(
+        title: 'Teilnahme',
+        child: Text(
+          'Dieses Event wurde abgesagt. Neue Teilnahmen und Antworten sind nicht mehr möglich.',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
         ),
       );
     }
@@ -1706,6 +1927,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
   final Map<String, dynamic> inviteSeenAtMap;
   final bool isUpdatingStatus;
   final String? ownerActionUserId;
+  final bool eventCancelled;
   final Future<void> Function({required String userId, required bool accepted})? onOwnerDecision;
 
   const _ParticipantGroupsSection({
@@ -1721,6 +1943,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
     required this.inviteSeenAtMap,
     required this.isUpdatingStatus,
     required this.ownerActionUserId,
+    required this.eventCancelled,
     this.onOwnerDecision,
   });
 
@@ -1831,7 +2054,8 @@ class _ParticipantGroupsSection extends StatelessWidget {
                     ? 'Keine offenen Einladungen.'
                     : 'Keine offenen Antworten.',
                 joinMode: joinMode,
-                actionBuilder: isOwner &&
+                actionBuilder: !eventCancelled &&
+                    isOwner &&
                     joinMode == 'request' &&
                     onOwnerDecision != null
                     ? (person) {

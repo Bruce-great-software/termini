@@ -297,7 +297,7 @@ class NotificationDispatchService {
         recipientUserId: trimmedRecipient,
         channelId: 'incoming_event_updates_v2',
         title: 'Event abgesagt',
-        body: '$safeSenderName hat "$safeEventTitle" gelöscht.',
+        body: '$safeSenderName hat "$safeEventTitle" abgesagt.',
         data: {
           'type': 'event_deleted',
           'route': 'events',
