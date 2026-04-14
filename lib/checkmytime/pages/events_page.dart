@@ -22,6 +22,7 @@ class _EventsPageState extends State<EventsPage>
   String _selectedDateFilter = 'all';
   String _selectedRadiusFilter = 'all';
   String _selectedOpenEventsSort = 'distance_date';
+  String _selectedOpenQuickFilter = 'all';
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _eventsStream;
   Position? _userPosition;
   bool _isLoadingUserLocation = false;
@@ -493,8 +494,10 @@ class _EventsPageState extends State<EventsPage>
     if (_searchController.text.trim().isNotEmpty) count++;
     if (_selectedKindFilter != 'all') count++;
     if (_selectedDateFilter != 'all') count++;
-    if (_selectedRadiusFilter != 'all') count++;
+    final selectedRadius = double.tryParse(_selectedRadiusFilter);
+    if (selectedRadius != null && selectedRadius < 100) count++;
     if (_selectedOpenEventsSort != 'distance_date') count++;
+    if (_selectedOpenQuickFilter != 'all') count++;
     return count;
   }
 
@@ -524,21 +527,18 @@ class _EventsPageState extends State<EventsPage>
     }
   }
 
+  double? get _effectiveRadiusKm {
+    if (_selectedRadiusFilter == 'all') return null;
+
+    final radius = double.tryParse(_selectedRadiusFilter);
+    if (radius == null || radius >= 100) return null;
+    return radius;
+  }
+
   String? get _selectedRadiusLabel {
-    switch (_selectedRadiusFilter) {
-      case '5':
-        return '5 km';
-      case '10':
-        return '10 km';
-      case '25':
-        return '25 km';
-      case '50':
-        return '50 km';
-      case '100':
-        return '100 km';
-      default:
-        return null;
-    }
+    final radius = int.tryParse(_selectedRadiusFilter);
+    if (radius == null || radius >= 100) return null;
+    return '$radius km';
   }
 
   String? get _selectedOpenEventsSortLabel {
@@ -546,6 +546,19 @@ class _EventsPageState extends State<EventsPage>
       case 'date_distance':
         return 'Chronologisch';
       case 'distance_date':
+      default:
+        return null;
+    }
+  }
+
+  String? get _selectedOpenQuickFilterLabel {
+    switch (_selectedOpenQuickFilter) {
+      case 'today':
+        return 'Heute';
+      case 'tomorrow':
+        return 'Morgen';
+      case 'thisWeek':
+        return 'Diese Woche';
       default:
         return null;
     }
@@ -587,6 +600,8 @@ class _EventsPageState extends State<EventsPage>
     String tempDate = _selectedDateFilter;
     String tempRadius = _selectedRadiusFilter;
     String tempSort = _selectedOpenEventsSort;
+    String tempQuick = _selectedOpenQuickFilter;
+    double tempRadiusKm = double.tryParse(tempRadius) ?? 100;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -676,27 +691,27 @@ class _EventsPageState extends State<EventsPage>
                       children: [
                         buildChoice(
                           value: 'all',
-                          label: 'Alle Daten',
-                          selectedValue: tempDate,
-                          onSelected: (value) => tempDate = value,
+                          label: 'Alle',
+                          selectedValue: tempQuick,
+                          onSelected: (value) => tempQuick = value,
                         ),
                         buildChoice(
                           value: 'today',
                           label: 'Heute',
-                          selectedValue: tempDate,
-                          onSelected: (value) => tempDate = value,
+                          selectedValue: tempQuick,
+                          onSelected: (value) => tempQuick = value,
                         ),
                         buildChoice(
-                          value: 'next7days',
-                          label: 'Nächste 7 Tage',
-                          selectedValue: tempDate,
-                          onSelected: (value) => tempDate = value,
+                          value: 'tomorrow',
+                          label: 'Morgen',
+                          selectedValue: tempQuick,
+                          onSelected: (value) => tempQuick = value,
                         ),
                         buildChoice(
-                          value: 'thisMonth',
-                          label: 'Diesen Monat',
-                          selectedValue: tempDate,
-                          onSelected: (value) => tempDate = value,
+                          value: 'thisWeek',
+                          label: 'Diese Woche',
+                          selectedValue: tempQuick,
+                          onSelected: (value) => tempQuick = value,
                         ),
                       ],
                     ),
@@ -708,45 +723,58 @@ class _EventsPageState extends State<EventsPage>
                       ),
                     ),
                     const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
+                    Text(
+                      '${tempRadiusKm.round()} km',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        buildChoice(
-                          value: 'all',
-                          label: 'Überall',
-                          selectedValue: tempRadius,
-                          onSelected: (value) => tempRadius = value,
+                        Slider(
+                          value: tempRadiusKm.clamp(1, 100),
+                          min: 1,
+                          max: 100,
+                          divisions: 99,
+                          label: '${tempRadiusKm.round()} km',
+                          onChanged: (value) {
+                            setModalState(() {
+                              tempRadiusKm = value;
+                              tempRadius = value.round().toString();
+                            });
+                          },
                         ),
-                        buildChoice(
-                          value: '5',
-                          label: '5 km',
-                          selectedValue: tempRadius,
-                          onSelected: (value) => tempRadius = value,
-                        ),
-                        buildChoice(
-                          value: '10',
-                          label: '10 km',
-                          selectedValue: tempRadius,
-                          onSelected: (value) => tempRadius = value,
-                        ),
-                        buildChoice(
-                          value: '25',
-                          label: '25 km',
-                          selectedValue: tempRadius,
-                          onSelected: (value) => tempRadius = value,
-                        ),
-                        buildChoice(
-                          value: '50',
-                          label: '50 km',
-                          selectedValue: tempRadius,
-                          onSelected: (value) => tempRadius = value,
-                        ),
-                        buildChoice(
-                          value: '100',
-                          label: '100 km',
-                          selectedValue: tempRadius,
-                          onSelected: (value) => tempRadius = value,
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: Row(
+                            children: [
+                              Text(
+                                '1 km',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '100 km',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
@@ -787,7 +815,10 @@ class _EventsPageState extends State<EventsPage>
                                 _selectedDateFilter = 'all';
                                 _selectedRadiusFilter = 'all';
                                 _selectedOpenEventsSort = 'distance_date';
+                                _selectedOpenQuickFilter = 'all';
                               });
+                              tempRadius = 'all';
+                              tempRadiusKm = 100;
                               Navigator.of(context).pop();
                             },
                             child: const Text('Zurücksetzen'),
@@ -802,6 +833,7 @@ class _EventsPageState extends State<EventsPage>
                                 _selectedDateFilter = tempDate;
                                 _selectedRadiusFilter = tempRadius;
                                 _selectedOpenEventsSort = tempSort;
+                                _selectedOpenQuickFilter = tempQuick;
                               });
                               Navigator.of(context).pop();
                             },
@@ -830,6 +862,7 @@ class _EventsPageState extends State<EventsPage>
     required Widget emptyState,
     required String Function(Map<String, dynamic>) statusResolver,
     List<_ActiveFilterChipData> activeChips = const [],
+    Widget? topContent,
     bool groupByDay = false,
   }) {
     if (docs.isEmpty) {
@@ -837,6 +870,11 @@ class _EventsPageState extends State<EventsPage>
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
         children: [
+          if (topContent != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: topContent,
+            ),
           if (_hasActiveEventFilters)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -895,12 +933,23 @@ class _EventsPageState extends State<EventsPage>
     }
 
     if (!groupByDay) {
+      final headerCount =
+          (topContent != null ? 1 : 0) + (_hasActiveEventFilters ? 1 : 0);
+
       return ListView.builder(
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        itemCount: docs.length + (_hasActiveEventFilters ? 1 : 0),
+        itemCount: docs.length + headerCount,
         itemBuilder: (context, index) {
-          if (_hasActiveEventFilters && index == 0) {
+          if (topContent != null && index == 0) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: topContent,
+            );
+          }
+
+          if (_hasActiveEventFilters &&
+              index == (topContent != null ? 1 : 0)) {
             return Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: _ActiveSearchInfo(
@@ -912,13 +961,21 @@ class _EventsPageState extends State<EventsPage>
             );
           }
 
-          final docIndex = _hasActiveEventFilters ? index - 1 : index;
+          final docIndex = index - headerCount;
           return buildEventCard(docs[docIndex]);
         },
       );
     }
 
     final children = <Widget>[];
+    if (topContent != null) {
+      children.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: topContent,
+        ),
+      );
+    }
     if (_hasActiveEventFilters) {
       children.add(
         Padding(
@@ -1101,14 +1158,45 @@ class _EventsPageState extends State<EventsPage>
                   continue;
                 }
 
-                if (_selectedRadiusFilter != 'all') {
-                  final maxDistanceKm = double.tryParse(_selectedRadiusFilter);
+                final scheduledAt = _scheduledTimestamp(data)?.toDate();
+                final currentDay = DateTime(now.year, now.month, now.day);
+                final tomorrow = currentDay.add(const Duration(days: 1));
+                final weekEnd = currentDay.add(const Duration(days: 7));
+
+                if (_selectedOpenQuickFilter != 'all') {
+                  if (scheduledAt == null) {
+                    continue;
+                  }
+
+                  final scheduledDay = DateTime(
+                    scheduledAt.year,
+                    scheduledAt.month,
+                    scheduledAt.day,
+                  );
+
+                  if (_selectedOpenQuickFilter == 'today' &&
+                      scheduledDay != currentDay) {
+                    continue;
+                  }
+
+                  if (_selectedOpenQuickFilter == 'tomorrow' &&
+                      scheduledDay != tomorrow) {
+                    continue;
+                  }
+
+                  if (_selectedOpenQuickFilter == 'thisWeek' &&
+                      (scheduledDay.isBefore(currentDay) ||
+                          scheduledDay.isAfter(weekEnd))) {
+                    continue;
+                  }
+                }
+
+                final maxDistanceKm = _effectiveRadiusKm;
+                if (maxDistanceKm != null) {
                   final distanceInMeters = _distanceInMeters(data);
-                  if (maxDistanceKm != null) {
-                    if (distanceInMeters == null ||
-                        distanceInMeters > maxDistanceKm * 1000) {
-                      continue;
-                    }
+                  if (distanceInMeters == null ||
+                      distanceInMeters > maxDistanceKm * 1000) {
+                    continue;
                   }
                 }
 
@@ -1173,8 +1261,25 @@ class _EventsPageState extends State<EventsPage>
                         view: EventDetailView.openEvent,
                         currentUserId: currentUserId,
                         statusResolver: (_) => 'open',
+                        topContent: _OpenEventsQuickFilterBar(
+                          selectedValue: _selectedOpenQuickFilter,
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedOpenQuickFilter = value;
+                            });
+                          },
+                        ),
                         activeChips: [
                           ..._buildCommonActiveChips(),
+                          if (_selectedOpenQuickFilterLabel != null)
+                            _ActiveFilterChipData(
+                              label: _selectedOpenQuickFilterLabel!,
+                              onRemove: () {
+                                setState(() {
+                                  _selectedOpenQuickFilter = 'all';
+                                });
+                              },
+                            ),
                           if (_selectedOpenEventsSortLabel != null)
                             _ActiveFilterChipData(
                               label: _selectedOpenEventsSortLabel!,
@@ -1243,6 +1348,39 @@ class _EventsPageState extends State<EventsPage>
           },
         ),
       ),
+    );
+  }
+}
+
+class _OpenEventsQuickFilterBar extends StatelessWidget {
+  final String selectedValue;
+  final ValueChanged<String> onChanged;
+
+  const _OpenEventsQuickFilterBar({
+    required this.selectedValue,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    Widget buildChip(String value, String label) {
+      return ChoiceChip(
+        selected: selectedValue == value,
+        onSelected: (_) => onChanged(value),
+        label: Text(label),
+        showCheckmark: false,
+      );
+    }
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        buildChip('all', 'Alle'),
+        buildChip('today', 'Heute'),
+        buildChip('tomorrow', 'Morgen'),
+        buildChip('thisWeek', 'Diese Woche'),
+      ],
     );
   }
 }
