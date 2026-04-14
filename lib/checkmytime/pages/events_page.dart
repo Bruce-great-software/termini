@@ -21,6 +21,7 @@ class _EventsPageState extends State<EventsPage>
   String _selectedKindFilter = 'all';
   String _selectedDateFilter = 'all';
   String _selectedRadiusFilter = 'all';
+  String _selectedOpenEventsSort = 'distance_date';
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _eventsStream;
   Position? _userPosition;
   bool _isLoadingUserLocation = false;
@@ -121,6 +122,26 @@ class _EventsPageState extends State<EventsPage>
     return DateFormat('dd.MM.yyyy', 'de_DE').format(timestamp.toDate());
   }
 
+  DateTime? _normalizedDayFromTimestamp(Timestamp? timestamp) {
+    final date = timestamp?.toDate();
+    if (date == null) return null;
+    return DateTime(date.year, date.month, date.day);
+  }
+
+  String _groupHeaderLabel(Timestamp? timestamp) {
+    final normalizedDay = _normalizedDayFromTimestamp(timestamp);
+    if (normalizedDay == null) return 'Kein Datum';
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final tomorrow = today.add(const Duration(days: 1));
+
+    if (normalizedDay == today) return 'Heute';
+    if (normalizedDay == tomorrow) return 'Morgen';
+
+    return DateFormat('EEEE, d. MMMM', 'de_DE').format(normalizedDay);
+  }
+
   String _formatTime(Map<String, dynamic> data) {
     final candidates = [
       data['timeText'],
@@ -145,6 +166,48 @@ class _EventsPageState extends State<EventsPage>
     return 'Ganztägig';
   }
 
+  bool _hasExplicitTime(Map<String, dynamic> data) {
+    final candidates = [
+      data['timeText'],
+      data['eventTimeText'],
+      data['time'],
+      data['eventTime'],
+      data['startTimeText'],
+      data['startTime'],
+    ];
+
+    for (final candidate in candidates) {
+      final value = (candidate ?? '').toString().trim();
+      if (value.isNotEmpty) return true;
+    }
+
+    final scheduledAt = _scheduledTimestamp(data)?.toDate();
+    if (scheduledAt != null &&
+        (scheduledAt.hour != 0 || scheduledAt.minute != 0)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  bool _isPastOpenEvent(Map<String, dynamic> data, DateTime now) {
+    final scheduledAt = _scheduledTimestamp(data)?.toDate();
+    if (scheduledAt == null) return false;
+
+    if (_hasExplicitTime(data)) {
+      return scheduledAt.isBefore(now);
+    }
+
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final scheduledDay = DateTime(
+      scheduledAt.year,
+      scheduledAt.month,
+      scheduledAt.day,
+    );
+
+    return scheduledDay.isBefore(todayStart);
+  }
+
   void _sortEventsInPlace(
       List<QueryDocumentSnapshot<Map<String, dynamic>>> list,
       ) {
@@ -159,29 +222,46 @@ class _EventsPageState extends State<EventsPage>
     });
   }
 
-  void _sortOpenEventsByDistanceInPlace(
+  void _sortOpenEventsInPlace(
       List<QueryDocumentSnapshot<Map<String, dynamic>>> list,
       ) {
     list.sort((a, b) {
       final aDistance = _distanceInMeters(a.data());
       final bDistance = _distanceInMeters(b.data());
-
-      if (aDistance != null && bDistance != null) {
-        final byDistance = aDistance.compareTo(bDistance);
-        if (byDistance != 0) return byDistance;
-      } else if (aDistance != null) {
-        return -1;
-      } else if (bDistance != null) {
-        return 1;
-      }
-
       final aDate = _scheduledTimestamp(a.data());
       final bDate = _scheduledTimestamp(b.data());
 
-      if (aDate == null && bDate == null) return 0;
-      if (aDate == null) return 1;
-      if (bDate == null) return -1;
-      return aDate.compareTo(bDate);
+      int compareDate() {
+        if (aDate == null && bDate == null) return 0;
+        if (aDate == null) return 1;
+        if (bDate == null) return -1;
+        return aDate.compareTo(bDate);
+      }
+
+      int compareDistance() {
+        if (aDistance != null && bDistance != null) {
+          return aDistance.compareTo(bDistance);
+        }
+        if (aDistance != null) return -1;
+        if (bDistance != null) return 1;
+        return 0;
+      }
+
+      if (_selectedOpenEventsSort == 'date_distance') {
+        final byDate = compareDate();
+        if (byDate != 0) return byDate;
+
+        final byDistance = compareDistance();
+        if (byDistance != 0) return byDistance;
+        return 0;
+      }
+
+      final byDistance = compareDistance();
+      if (byDistance != 0) return byDistance;
+
+      final byDate = compareDate();
+      if (byDate != 0) return byDate;
+      return 0;
     });
   }
 
@@ -381,7 +461,9 @@ class _EventsPageState extends State<EventsPage>
   bool get _hasActiveEventFilters {
     return _searchController.text.trim().isNotEmpty ||
         _selectedKindFilter != 'all' ||
-        _selectedDateFilter != 'all';
+        _selectedDateFilter != 'all' ||
+        _selectedRadiusFilter != 'all' ||
+        _selectedOpenEventsSort != 'distance_date';
   }
 
   int get _activeFilterCount {
@@ -389,13 +471,42 @@ class _EventsPageState extends State<EventsPage>
     if (_selectedKindFilter != 'all') count++;
     if (_selectedDateFilter != 'all') count++;
     if (_selectedRadiusFilter != 'all') count++;
+    if (_selectedOpenEventsSort != 'distance_date') count++;
     return count;
+  }
+
+  String? get _selectedRadiusLabel {
+    switch (_selectedRadiusFilter) {
+      case '5':
+        return '5 km';
+      case '10':
+        return '10 km';
+      case '25':
+        return '25 km';
+      case '50':
+        return '50 km';
+      case '100':
+        return '100 km';
+      default:
+        return null;
+    }
+  }
+
+  String? get _selectedOpenEventsSortLabel {
+    switch (_selectedOpenEventsSort) {
+      case 'date_distance':
+        return 'Chronologisch';
+      case 'distance_date':
+      default:
+        return null;
+    }
   }
 
   Future<void> _openFilterSheet() async {
     String tempKind = _selectedKindFilter;
     String tempDate = _selectedDateFilter;
     String tempRadius = _selectedRadiusFilter;
+    String tempSort = _selectedOpenEventsSort;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -559,6 +670,32 @@ class _EventsPageState extends State<EventsPage>
                         ),
                       ],
                     ),
+                    const SizedBox(height: 18),
+                    Text(
+                      'Sortierung offene Events',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        buildChoice(
+                          value: 'distance_date',
+                          label: 'Nähe zuerst',
+                          selectedValue: tempSort,
+                          onSelected: (value) => tempSort = value,
+                        ),
+                        buildChoice(
+                          value: 'date_distance',
+                          label: 'Chronologisch',
+                          selectedValue: tempSort,
+                          onSelected: (value) => tempSort = value,
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 20),
                     Row(
                       children: [
@@ -569,6 +706,7 @@ class _EventsPageState extends State<EventsPage>
                                 _selectedKindFilter = 'all';
                                 _selectedDateFilter = 'all';
                                 _selectedRadiusFilter = 'all';
+                                _selectedOpenEventsSort = 'distance_date';
                               });
                               Navigator.of(context).pop();
                             },
@@ -583,6 +721,7 @@ class _EventsPageState extends State<EventsPage>
                                 _selectedKindFilter = tempKind;
                                 _selectedDateFilter = tempDate;
                                 _selectedRadiusFilter = tempRadius;
+                                _selectedOpenEventsSort = tempSort;
                               });
                               Navigator.of(context).pop();
                             },
@@ -610,6 +749,8 @@ class _EventsPageState extends State<EventsPage>
     required String currentUserId,
     required Widget emptyState,
     required String Function(Map<String, dynamic>) statusResolver,
+    List<_ActiveFilterChipData> activeChips = const [],
+    bool groupByDay = false,
   }) {
     if (docs.isEmpty) {
       return ListView(
@@ -622,6 +763,7 @@ class _EventsPageState extends State<EventsPage>
               child: _ActiveSearchInfo(
                 searchText: _searchController.text.trim(),
                 activeFilterCount: _activeFilterCount,
+                activeChips: activeChips,
               ),
             ),
           _hasActiveEventFilters
@@ -636,56 +778,102 @@ class _EventsPageState extends State<EventsPage>
       );
     }
 
-    return ListView.builder(
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-      itemCount: docs.length + (_hasActiveEventFilters ? 1 : 0),
-      itemBuilder: (context, index) {
-        if (_hasActiveEventFilters && index == 0) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _ActiveSearchInfo(
-              searchText: _searchController.text.trim(),
-              activeFilterCount: _activeFilterCount,
-              resultCount: docs.length,
+    Widget buildEventCard(
+        QueryDocumentSnapshot<Map<String, dynamic>> doc,
+        ) {
+      final data = doc.data();
+      final rawStatus = statusResolver(data);
+
+      return _EventCard(
+        eventId: doc.id,
+        data: data,
+        theme: theme,
+        colorScheme: colorScheme,
+        formatHeaderDate: _formatHeaderDate,
+        formatShortDate: _formatShortDate,
+        formatTime: _formatTime,
+        kindLabel: _kindLabel(data),
+        kindColor: _kindColor(colorScheme, data),
+        statusLabel: _statusLabel(rawStatus),
+        statusColor: _statusColor(colorScheme, rawStatus),
+        metaText: _metaText(data, currentUserId),
+        participantsText: _participantsText(data),
+        locationInfo: _locationInfo(data),
+        distanceText: _distanceText(data),
+        scheduledAt: _scheduledTimestamp(data),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => EventDetailPage(
+                eventId: doc.id,
+                view: view,
+              ),
             ),
           );
-        }
+        },
+      );
+    }
 
-        final docIndex = _hasActiveEventFilters ? index - 1 : index;
-        final doc = docs[docIndex];
-        final data = doc.data();
-        final rawStatus = statusResolver(data);
-
-        return _EventCard(
-          eventId: doc.id,
-          data: data,
-          theme: theme,
-          colorScheme: colorScheme,
-          formatHeaderDate: _formatHeaderDate,
-          formatShortDate: _formatShortDate,
-          formatTime: _formatTime,
-          kindLabel: _kindLabel(data),
-          kindColor: _kindColor(colorScheme, data),
-          statusLabel: _statusLabel(rawStatus),
-          statusColor: _statusColor(colorScheme, rawStatus),
-          metaText: _metaText(data, currentUserId),
-          participantsText: _participantsText(data),
-          locationInfo: _locationInfo(data),
-          distanceText: _distanceText(data),
-          scheduledAt: _scheduledTimestamp(data),
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => EventDetailPage(
-                  eventId: doc.id,
-                  view: view,
-                ),
+    if (!groupByDay) {
+      return ListView.builder(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        itemCount: docs.length + (_hasActiveEventFilters ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (_hasActiveEventFilters && index == 0) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _ActiveSearchInfo(
+                searchText: _searchController.text.trim(),
+                activeFilterCount: _activeFilterCount,
+                resultCount: docs.length,
+                activeChips: activeChips,
               ),
             );
-          },
+          }
+
+          final docIndex = _hasActiveEventFilters ? index - 1 : index;
+          return buildEventCard(docs[docIndex]);
+        },
+      );
+    }
+
+    final children = <Widget>[];
+    if (_hasActiveEventFilters) {
+      children.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: _ActiveSearchInfo(
+            searchText: _searchController.text.trim(),
+            activeFilterCount: _activeFilterCount,
+            resultCount: docs.length,
+            activeChips: activeChips,
+          ),
+        ),
+      );
+    }
+
+    DateTime? previousDay;
+    for (final doc in docs) {
+      final scheduledAt = _scheduledTimestamp(doc.data());
+      final currentDay = _normalizedDayFromTimestamp(scheduledAt);
+
+      if (previousDay != currentDay) {
+        children.add(
+          _DayGroupHeader(
+            label: _groupHeaderLabel(scheduledAt),
+          ),
         );
-      },
+        previousDay = currentDay;
+      }
+
+      children.add(buildEventCard(doc));
+    }
+
+    return ListView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      children: children,
     );
   }
 
@@ -821,6 +1009,10 @@ class _EventsPageState extends State<EventsPage>
                   visibility == 'open' || visibility == 'public';
 
               if (isOpenKind || isOpenVisibility) {
+                if (_isPastOpenEvent(data, now)) {
+                  continue;
+                }
+
                 if (_selectedRadiusFilter != 'all') {
                   final maxDistanceKm = double.tryParse(_selectedRadiusFilter);
                   final distanceInMeters = _distanceInMeters(data);
@@ -838,7 +1030,7 @@ class _EventsPageState extends State<EventsPage>
 
             _sortEventsInPlace(myEvents);
             _sortEventsInPlace(invitedEvents);
-            _sortOpenEventsByDistanceInPlace(openEvents);
+            _sortOpenEventsInPlace(openEvents);
 
             return Column(
               children: [
@@ -893,6 +1085,27 @@ class _EventsPageState extends State<EventsPage>
                         view: EventDetailView.openEvent,
                         currentUserId: currentUserId,
                         statusResolver: (_) => 'open',
+                        activeChips: [
+                          if (_selectedOpenEventsSortLabel != null)
+                            _ActiveFilterChipData(
+                              label: _selectedOpenEventsSortLabel!,
+                              onRemove: () {
+                                setState(() {
+                                  _selectedOpenEventsSort = 'distance_date';
+                                });
+                              },
+                            ),
+                          if (_selectedRadiusLabel != null)
+                            _ActiveFilterChipData(
+                              label: _selectedRadiusLabel!,
+                              onRemove: () {
+                                setState(() {
+                                  _selectedRadiusFilter = 'all';
+                                });
+                              },
+                            ),
+                        ],
+                        groupByDay: true,
                         emptyState: const _EventEmptyState(
                           icon: Icons.public_off_outlined,
                           title: 'Keine offenen Events',
@@ -938,6 +1151,52 @@ class _EventsPageState extends State<EventsPage>
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+class _ActiveFilterChipData {
+  final String label;
+  final VoidCallback? onRemove;
+
+  const _ActiveFilterChipData({
+    required this.label,
+    this.onRemove,
+  });
+}
+
+class _DayGroupHeader extends StatelessWidget {
+  final String label;
+
+  const _DayGroupHeader({
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 4, 2, 10),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Container(
+              height: 1,
+              color: colorScheme.outlineVariant,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1038,11 +1297,13 @@ class _ActiveSearchInfo extends StatelessWidget {
   final String searchText;
   final int activeFilterCount;
   final int? resultCount;
+  final List<_ActiveFilterChipData> activeChips;
 
   const _ActiveSearchInfo({
     required this.searchText,
     required this.activeFilterCount,
     this.resultCount,
+    this.activeChips = const [],
   });
 
   @override
@@ -1069,12 +1330,64 @@ class _ActiveSearchInfo extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: colorScheme.outlineVariant),
       ),
-      child: Text(
-        parts.join(' • '),
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: colorScheme.onSurfaceVariant,
-          fontWeight: FontWeight.w600,
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            parts.join(' • '),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (activeChips.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final chip in activeChips)
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(999),
+                      onTap: chip.onRemove,
+                      child: Ink(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colorScheme.primary.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              chip.label,
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: colorScheme.primary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (chip.onRemove != null) ...[
+                              const SizedBox(width: 6),
+                              Icon(
+                                Icons.close_rounded,
+                                size: 14,
+                                color: colorScheme.primary,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }
