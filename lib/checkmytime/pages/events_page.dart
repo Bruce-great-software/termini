@@ -226,17 +226,16 @@ class _EventsPageState extends State<EventsPage>
       List<QueryDocumentSnapshot<Map<String, dynamic>>> list,
       ) {
     list.sort((a, b) {
-      final aDistance = _distanceInMeters(a.data());
-      final bDistance = _distanceInMeters(b.data());
-      final aDate = _scheduledTimestamp(a.data());
-      final bDate = _scheduledTimestamp(b.data());
-
-      int compareDate() {
-        if (aDate == null && bDate == null) return 0;
-        if (aDate == null) return 1;
-        if (bDate == null) return -1;
-        return aDate.compareTo(bDate);
-      }
+      final aData = a.data();
+      final bData = b.data();
+      final aDistance = _distanceInMeters(aData);
+      final bDistance = _distanceInMeters(bData);
+      final aDate = _scheduledTimestamp(aData);
+      final bDate = _scheduledTimestamp(bData);
+      final aDateTime = aDate?.toDate();
+      final bDateTime = bDate?.toDate();
+      final aHasExplicitTime = _hasExplicitTime(aData);
+      final bHasExplicitTime = _hasExplicitTime(bData);
 
       int compareDistance() {
         if (aDistance != null && bDistance != null) {
@@ -247,8 +246,31 @@ class _EventsPageState extends State<EventsPage>
         return 0;
       }
 
+      int compareChronologically() {
+        if (aDateTime == null && bDateTime == null) return 0;
+        if (aDateTime == null) return 1;
+        if (bDateTime == null) return -1;
+
+        final aDay = DateTime(aDateTime.year, aDateTime.month, aDateTime.day);
+        final bDay = DateTime(bDateTime.year, bDateTime.month, bDateTime.day);
+
+        final byDay = aDay.compareTo(bDay);
+        if (byDay != 0) return byDay;
+
+        if (aHasExplicitTime != bHasExplicitTime) {
+          return aHasExplicitTime ? -1 : 1;
+        }
+
+        if (aHasExplicitTime && bHasExplicitTime) {
+          final byTime = aDateTime.compareTo(bDateTime);
+          if (byTime != 0) return byTime;
+        }
+
+        return 0;
+      }
+
       if (_selectedOpenEventsSort == 'date_distance') {
-        final byDate = compareDate();
+        final byDate = compareChronologically();
         if (byDate != 0) return byDate;
 
         final byDistance = compareDistance();
@@ -259,7 +281,7 @@ class _EventsPageState extends State<EventsPage>
       final byDistance = compareDistance();
       if (byDistance != 0) return byDistance;
 
-      final byDate = compareDate();
+      final byDate = compareChronologically();
       if (byDate != 0) return byDate;
       return 0;
     });
@@ -911,6 +933,13 @@ class _EventsPageState extends State<EventsPage>
       );
     }
 
+    final dayCounts = <DateTime?, int>{};
+    for (final doc in docs) {
+      final scheduledAt = _scheduledTimestamp(doc.data());
+      final currentDay = _normalizedDayFromTimestamp(scheduledAt);
+      dayCounts[currentDay] = (dayCounts[currentDay] ?? 0) + 1;
+    }
+
     DateTime? previousDay;
     for (final doc in docs) {
       final scheduledAt = _scheduledTimestamp(doc.data());
@@ -920,6 +949,7 @@ class _EventsPageState extends State<EventsPage>
         children.add(
           _DayGroupHeader(
             label: _groupHeaderLabel(scheduledAt),
+            count: dayCounts[currentDay] ?? 0,
           ),
         );
         previousDay = currentDay;
@@ -1229,15 +1259,18 @@ class _ActiveFilterChipData {
 
 class _DayGroupHeader extends StatelessWidget {
   final String label;
+  final int count;
 
   const _DayGroupHeader({
     required this.label,
+    required this.count,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final countLabel = count == 1 ? '1 Event' : '$count Events';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(2, 4, 2, 10),
@@ -1248,6 +1281,14 @@ class _DayGroupHeader extends StatelessWidget {
             style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.w800,
               color: colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '· $countLabel',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(width: 10),
