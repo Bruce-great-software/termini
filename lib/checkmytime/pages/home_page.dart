@@ -37,6 +37,8 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
   Set<String> _knownPendingOwnerRequestKeys = <String>{};
   Set<String> _knownJoinDecisionKeys = <String>{};
   Set<String> _pendingJoinDecisionKeys = <String>{};
+  Map<String, String> _knownOwnerResponseStatuses = <String, String>{};
+  Set<String> _pendingOwnerResponseKeys = <String>{};
   int _lastPublishedBadgeCount = -1;
   int _eventsInitialTabIndex = 0;
   int _eventsPageOpenToken = 0;
@@ -277,13 +279,146 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     return 'neu';
   }
 
+  Map<String, String> _ownerResponseStatusesForEvent(
+      String eventId,
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    if (createdBy != currentUserId) return const <String, String>{};
+
+    final responseMap = Map<String, dynamic>.from(
+      data['responseMap'] ?? const <String, dynamic>{},
+    );
+    final invitedUserIds = List<String>.from(
+      data['invitedUserIds'] ?? const [],
+    );
+    final memberIds = List<String>.from(data['memberIds'] ?? const []);
+    final acceptedUserIds = List<String>.from(
+      data['acceptedUserIds'] ?? const [],
+    );
+    final maybeUserIds = List<String>.from(data['maybeUserIds'] ?? const []);
+    final declinedUserIds = List<String>.from(
+      data['declinedUserIds'] ?? const [],
+    );
+
+    final userIds = <String>{
+      ...invitedUserIds,
+      ...memberIds,
+      ...acceptedUserIds,
+      ...maybeUserIds,
+      ...declinedUserIds,
+      ...responseMap.keys.map((key) => key.toString().trim()),
+    }..removeWhere((id) => id.trim().isEmpty || id == currentUserId);
+
+    final result = <String, String>{};
+    for (final userId in userIds) {
+      String status = '';
+      if (acceptedUserIds.contains(userId)) {
+        status = 'accepted';
+      } else if (maybeUserIds.contains(userId)) {
+        status = 'maybe';
+      } else if (declinedUserIds.contains(userId)) {
+        status = 'declined';
+      } else {
+        status = (responseMap[userId] ?? '').toString().trim().toLowerCase();
+      }
+
+      if (status.isEmpty) {
+        status = 'pending';
+      }
+
+      result['$eventId:$userId'] = status;
+    }
+
+    return result;
+  }
+
+  String _ownerResponseKey(String baseKey, String status) {
+    return '$baseKey:$status';
+  }
+
+  String _ownerResponseBaseKey(String fullKey) {
+    final parts = fullKey.split(':');
+    if (parts.length < 3) return fullKey;
+    return '${parts[0]}:${parts[1]}';
+  }
+
+  String _ownerResponseStatusFromKey(String fullKey) {
+    final parts = fullKey.split(':');
+    return parts.isEmpty ? '' : parts.last;
+  }
+
+  String _ownerResponseUserIdFromKey(String fullKey) {
+    final parts = fullKey.split(':');
+    if (parts.length < 2) return '';
+    return parts[1];
+  }
+
+  String _ownerResponseLabelFromStatus(String status) {
+    switch (status) {
+      case 'accepted':
+        return 'zugesagt';
+      case 'maybe':
+        return 'vielleicht geantwortet';
+      case 'declined':
+        return 'abgesagt';
+      default:
+        return 'reagiert';
+    }
+  }
+
+  String _ownerResponseSubtitle({
+    required Map<String, dynamic> data,
+    required String status,
+    required String actorName,
+  }) {
+    final joinMode = (data['joinMode'] ?? '').toString().trim().toLowerCase();
+
+    if (status == 'accepted' && joinMode == 'direct') {
+      return '$actorName ist direkt beigetreten.';
+    }
+
+    switch (status) {
+      case 'accepted':
+        return '$actorName hat zugesagt.';
+      case 'maybe':
+        return '$actorName hat vielleicht geantwortet.';
+      case 'declined':
+        return '$actorName hat abgesagt.';
+      default:
+        return '$actorName hat reagiert.';
+    }
+  }
+
+  Future<String> _loadUserDisplayName(String userId) async {
+    if (userId.trim().isEmpty) return 'Jemand';
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .get();
+      final data = doc.data() ?? <String, dynamic>{};
+      final name =
+      (data['displayName'] ?? data['name'] ?? '').toString().trim();
+      return name.isEmpty ? 'Jemand' : name;
+    } catch (_) {
+      return 'Jemand';
+    }
+  }
+
   int _eventActionBadgeCount() {
     return _knownPendingInviteIds.length +
         _knownPendingOwnerRequestKeys.length +
-        _pendingJoinDecisionKeys.length;
+        _pendingJoinDecisionKeys.length +
+        _pendingOwnerResponseKeys.length;
   }
 
   int _preferredEventsTabIndex() {
+    if (_knownPendingOwnerRequestKeys.isNotEmpty ||
+        _pendingOwnerResponseKeys.isNotEmpty) {
+      return 2;
+    }
     if (_pendingJoinDecisionKeys.isNotEmpty || _knownPendingInviteIds.isNotEmpty) {
       return 1;
     }
@@ -297,6 +432,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       _eventsInitialTabIndex = initialTabIndex;
       _eventsPageOpenToken++;
       _pendingJoinDecisionKeys = <String>{};
+      _pendingOwnerResponseKeys = <String>{};
     });
 
     unawaited(_publishBadgeCount());
@@ -343,8 +479,11 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       final pendingInviteIds = <String>{};
       final pendingOwnerRequestKeys = <String>{};
       final currentJoinDecisionKeys = <String>{};
+      final currentOwnerResponseStatuses = <String, String>{};
       final eventTitlesByRequestKey = <String, String>{};
       final eventTitlesByDecisionKey = <String, String>{};
+      final eventTitlesByOwnerBaseKey = <String, String>{};
+      final joinModesByOwnerBaseKey = <String, String>{};
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
@@ -352,21 +491,39 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
           pendingInviteIds.add(doc.id);
         }
 
-        final pendingKeys = _pendingRequestKeysForOwner(doc.id, data, currentUserId);
+        final pendingKeys =
+        _pendingRequestKeysForOwner(doc.id, data, currentUserId);
         if (pendingKeys.isNotEmpty) {
           final eventTitle = (data['title'] ?? 'deinem Event').toString().trim();
           for (final key in pendingKeys) {
             pendingOwnerRequestKeys.add(key);
-            eventTitlesByRequestKey[key] = eventTitle.isEmpty ? 'deinem Event' : eventTitle;
+            eventTitlesByRequestKey[key] =
+            eventTitle.isEmpty ? 'deinem Event' : eventTitle;
           }
         }
 
-        final decisionKey = _joinDecisionKeyForRequester(doc.id, data, currentUserId);
+        final decisionKey =
+        _joinDecisionKeyForRequester(doc.id, data, currentUserId);
         if (decisionKey != null) {
           currentJoinDecisionKeys.add(decisionKey);
           final eventTitle = (data['title'] ?? 'dem Event').toString().trim();
           eventTitlesByDecisionKey[decisionKey] =
           eventTitle.isEmpty ? 'dem Event' : eventTitle;
+        }
+
+        final ownerResponses =
+        _ownerResponseStatusesForEvent(doc.id, data, currentUserId);
+        if (ownerResponses.isNotEmpty) {
+          final eventTitle = (data['title'] ?? 'dem Event').toString().trim();
+          final joinMode =
+          (data['joinMode'] ?? '').toString().trim().toLowerCase();
+
+          ownerResponses.forEach((baseKey, status) {
+            currentOwnerResponseStatuses[baseKey] = status;
+            eventTitlesByOwnerBaseKey[baseKey] =
+            eventTitle.isEmpty ? 'dem Event' : eventTitle;
+            joinModesByOwnerBaseKey[baseKey] = joinMode;
+          });
         }
       }
 
@@ -375,6 +532,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         _knownPendingInviteIds = pendingInviteIds;
         _knownPendingOwnerRequestKeys = pendingOwnerRequestKeys;
         _knownJoinDecisionKeys = currentJoinDecisionKeys;
+        _knownOwnerResponseStatuses = currentOwnerResponseStatuses;
         if (mounted) {
           setState(() {});
         }
@@ -407,12 +565,74 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         );
       }
 
+      final newOwnerResponseKeys = <String>{};
+      for (final entry in currentOwnerResponseStatuses.entries) {
+        final baseKey = entry.key;
+        final currentStatus = entry.value;
+        final previousStatus = _knownOwnerResponseStatuses[baseKey];
+        final joinMode = joinModesByOwnerBaseKey[baseKey] ?? '';
+
+        if (currentStatus == 'pending') {
+          continue;
+        }
+
+        bool shouldNotify = false;
+        if (previousStatus == null) {
+          shouldNotify = true;
+        } else if (previousStatus != currentStatus) {
+          final isOwnerDecisionForRequest =
+              joinMode == 'request' &&
+                  previousStatus == 'pending' &&
+                  (currentStatus == 'accepted' || currentStatus == 'declined');
+
+          if (!isOwnerDecisionForRequest) {
+            shouldNotify = true;
+          }
+        }
+
+        if (shouldNotify) {
+          newOwnerResponseKeys.add(_ownerResponseKey(baseKey, currentStatus));
+        }
+      }
+
+      for (final fullKey in newOwnerResponseKeys) {
+        final baseKey = _ownerResponseBaseKey(fullKey);
+        final status = _ownerResponseStatusFromKey(fullKey);
+        final actorUserId = _ownerResponseUserIdFromKey(fullKey);
+        final actorName = await _loadUserDisplayName(actorUserId);
+        final eventTitle = eventTitlesByOwnerBaseKey[baseKey] ?? 'dem Event';
+        final joinMode = joinModesByOwnerBaseKey[baseKey] ?? '';
+
+        final title = status == 'accepted' && joinMode == 'direct'
+            ? 'Neuer Teilnehmer'
+            : 'Teilnahme aktualisiert';
+        final body = _ownerResponseSubtitle(
+          data: {'joinMode': joinMode},
+          status: status,
+          actorName: actorName,
+        );
+
+        await NotificationService.instance.showIncomingEventUpdateNotification(
+          title: title,
+          body: '$body Bei "$eventTitle".',
+        );
+      }
+
       _knownPendingInviteIds = pendingInviteIds;
       _knownPendingOwnerRequestKeys = pendingOwnerRequestKeys;
       _knownJoinDecisionKeys = currentJoinDecisionKeys;
+      _knownOwnerResponseStatuses = currentOwnerResponseStatuses;
       _pendingJoinDecisionKeys = {
         ..._pendingJoinDecisionKeys.where(currentJoinDecisionKeys.contains),
         ...newJoinDecisionKeys,
+      };
+      _pendingOwnerResponseKeys = {
+        ..._pendingOwnerResponseKeys.where((fullKey) {
+          final baseKey = _ownerResponseBaseKey(fullKey);
+          final status = _ownerResponseStatusFromKey(fullKey);
+          return currentOwnerResponseStatuses[baseKey] == status;
+        }),
+        ...newOwnerResponseKeys,
       };
       if (mounted) {
         setState(() {});
@@ -429,10 +649,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       0,
           (total, value) => total + value,
     );
-    final totalBadgeCount =
-        unreadAppointments +
-            _knownPendingInviteIds.length +
-            _knownPendingOwnerRequestKeys.length;
+    final totalBadgeCount = unreadAppointments + _eventActionBadgeCount();
 
     if (totalBadgeCount == _lastPublishedBadgeCount) return;
     _lastPublishedBadgeCount = totalBadgeCount;
@@ -1471,7 +1688,31 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         })
             .toList();
 
-        if (pendingInvites.isEmpty && decisionUpdates.isEmpty) {
+        final ownerResponseUpdates = <_OwnerEventUpdateItem>[];
+        for (final doc in allDocs) {
+          final ownerResponseStatuses = _ownerResponseStatusesForEvent(
+            doc.id,
+            doc.data(),
+            currentUserId,
+          );
+
+          ownerResponseStatuses.forEach((baseKey, status) {
+            final fullKey = _ownerResponseKey(baseKey, status);
+            if (status != 'pending' &&
+                _pendingOwnerResponseKeys.contains(fullKey)) {
+              ownerResponseUpdates.add(
+                _OwnerEventUpdateItem(
+                  doc: doc,
+                  notificationKey: fullKey,
+                ),
+              );
+            }
+          });
+        }
+
+        if (pendingInvites.isEmpty &&
+            decisionUpdates.isEmpty &&
+            ownerResponseUpdates.isEmpty) {
           return const SizedBox.shrink();
         }
 
@@ -1486,12 +1727,54 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
             ),
             const SizedBox(height: 6),
             Text(
-              'Neue Einladungen und Antworten auf deine Anfragen.',
+              'Neue Einladungen, Antworten auf deine Anfragen und Reaktionen auf deine Events.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 12),
+            ...ownerResponseUpdates.take(3).map((item) {
+              final data = item.doc.data();
+              final title = (data['title'] ?? 'Event').toString().trim();
+              final eventDate = data['eventDate'] as Timestamp?;
+              final actorId = _ownerResponseUserIdFromKey(item.notificationKey);
+              final status = _ownerResponseStatusFromKey(item.notificationKey);
+
+              return FutureBuilder<String>(
+                future: _loadUserDisplayName(actorId),
+                builder: (context, snapshot) {
+                  final actorName = snapshot.data ?? 'Jemand';
+                  return _ActionCard(
+                    icon: status == 'declined'
+                        ? Icons.cancel_outlined
+                        : status == 'maybe'
+                        ? Icons.help_outline
+                        : Icons.check_circle_outline,
+                    title: title.isEmpty ? 'Event' : title,
+                    subtitle:
+                    '${_ownerResponseSubtitle(data: data, status: status, actorName: actorName)} - ${_formatInviteDate(eventDate)}.',
+                    badgeCount: 1,
+                    onTap: () {
+                      setState(() {
+                        _pendingOwnerResponseKeys.remove(item.notificationKey);
+                      });
+                      unawaited(_publishBadgeCount());
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => EventDetailPage(
+                            eventId: item.doc.id,
+                            view: EventDetailView.myEvent,
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              );
+            }),
+            if (ownerResponseUpdates.isNotEmpty &&
+                (decisionUpdates.isNotEmpty || pendingInvites.isNotEmpty))
+              const SizedBox(height: 8),
             ...decisionUpdates.take(3).map((doc) {
               final data = doc.data();
               final title = (data['title'] ?? 'Event').toString().trim();
@@ -1710,6 +1993,16 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       ),
     );
   }
+}
+
+class _OwnerEventUpdateItem {
+  final QueryDocumentSnapshot<Map<String, dynamic>> doc;
+  final String notificationKey;
+
+  const _OwnerEventUpdateItem({
+    required this.doc,
+    required this.notificationKey,
+  });
 }
 
 class _ActionCard extends StatelessWidget {

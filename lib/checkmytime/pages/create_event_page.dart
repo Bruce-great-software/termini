@@ -1791,6 +1791,27 @@ class _CreateEventPageState extends State<CreateEventPage> {
           } catch (_) {}
         }
 
+        final updateRecipientIds = <String>{
+          ...invitedUserIds,
+          ...cleanedAccepted,
+          ...cleanedMaybe,
+          ...cleanedDeclined,
+        }..removeWhere(
+              (id) => id.trim().isEmpty || id == currentUser.uid || newlyInvitedUserIds.contains(id),
+        );
+
+        if (updateRecipientIds.isNotEmpty) {
+          try {
+            await NotificationDispatchService.instance.queueEventUpdatedNotifications(
+              recipientUserIds: updateRecipientIds,
+              senderId: currentUser.uid,
+              senderName: creatorName.isEmpty ? 'Unbekannt' : creatorName,
+              eventId: eventId,
+              eventTitle: title,
+            );
+          } catch (_) {}
+        }
+
         final normalizedTopic = _normalizeTopicKey(topic);
         if (normalizedTopic.isNotEmpty && normalizedTopic != _loadedTopicKey) {
           await _upsertEventTopic(

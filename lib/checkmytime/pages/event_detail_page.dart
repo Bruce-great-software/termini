@@ -30,6 +30,7 @@ class EventDetailPage extends StatefulWidget {
 class _EventDetailPageState extends State<EventDetailPage> {
   bool _isUpdatingStatus = false;
   bool _isDeleting = false;
+  bool _hasMarkedInviteSeen = false;
   String? _ownerActionUserId;
 
   String get _currentUserId => FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -169,6 +170,79 @@ class _EventDetailPageState extends State<EventDetailPage> {
       default:
         return 'invite_only';
     }
+  }
+
+  Map<String, dynamic> _inviteSeenAtMap(Map<String, dynamic> data) {
+    return Map<String, dynamic>.from(
+      data['inviteSeenAtMap'] ?? const <String, dynamic>{},
+    );
+  }
+
+  bool _hasSeenInvite(Map<String, dynamic> data, String userId) {
+    if (userId.trim().isEmpty) return false;
+    final seenMap = _inviteSeenAtMap(data);
+    if (seenMap[userId] != null) return true;
+
+    final response = _responseForUser(data, userId);
+    return response == 'accepted' || response == 'maybe' || response == 'declined';
+  }
+
+  Future<void> _markInviteAsSeenIfNeeded(Map<String, dynamic> data) async {
+    if (_hasMarkedInviteSeen || _currentUserId.isEmpty) return;
+    if (_normalizeJoinMode(data) != 'invite_only') return;
+
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    if (createdBy == _currentUserId) return;
+
+    final invitedUserIds = List<String>.from(
+      data['invitedUserIds'] ?? const [],
+    );
+    if (!invitedUserIds.contains(_currentUserId)) return;
+
+    if (_hasSeenInvite(data, _currentUserId)) {
+      _hasMarkedInviteSeen = true;
+      return;
+    }
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('events')
+          .doc(widget.eventId)
+          .update({
+        'inviteSeenAtMap.$_currentUserId': FieldValue.serverTimestamp(),
+      });
+      _hasMarkedInviteSeen = true;
+    } catch (_) {}
+  }
+
+  _InviteProgressCounts _inviteProgressCounts(Map<String, dynamic> data) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final invitedIds = <String>{
+      ...List<String>.from(data['invitedUserIds'] ?? const []),
+    }..removeWhere((id) => id.trim().isEmpty || id == createdBy);
+
+    final acceptedIds = <String>{
+      ...List<String>.from(data['acceptedUserIds'] ?? const []),
+    };
+    final maybeIds = <String>{
+      ...List<String>.from(data['maybeUserIds'] ?? const []),
+    };
+    final declinedIds = <String>{
+      ...List<String>.from(data['declinedUserIds'] ?? const []),
+    };
+
+    final seenCount = invitedIds.where((id) => _hasSeenInvite(data, id)).length;
+    final acceptedCount = invitedIds.where(acceptedIds.contains).length;
+    final maybeCount = invitedIds.where(maybeIds.contains).length;
+    final declinedCount = invitedIds.where(declinedIds.contains).length;
+
+    return _InviteProgressCounts(
+      invitedCount: invitedIds.length,
+      seenCount: seenCount,
+      acceptedCount: acceptedCount,
+      maybeCount: maybeCount,
+      declinedCount: declinedCount,
+    );
   }
 
   bool _hasExistingResponseEntry(Map<String, dynamic> data, String userId) {
@@ -945,6 +1019,12 @@ class _EventDetailPageState extends State<EventDetailPage> {
             final participantCount = _acceptedCount(data);
             final maxParticipants = _maxParticipants(data);
             final isOwner = createdBy == _currentUserId;
+            final inviteProgressCounts = _inviteProgressCounts(data);
+
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              _markInviteAsSeenIfNeeded(data);
+            });
 
             return ListView(
               physics: const BouncingScrollPhysics(),
@@ -1197,8 +1277,12 @@ class _EventDetailPageState extends State<EventDetailPage> {
                 ],
                 const SizedBox(height: 14),
                 _DetailSection(
-                  title: 'Teilnehmerstatus',
-                  child: Wrap(
+                  title: joinMode == 'invite_only' && isOwner
+                      ? 'Einladungsstatus'
+                      : 'Teilnehmerstatus',
+                  child: joinMode == 'invite_only' && isOwner
+                      ? _InviteProgressOverview(counts: inviteProgressCounts)
+                      : Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
@@ -1238,6 +1322,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   declinedIds: participantBuckets.declined,
                   currentUserId: _currentUserId,
                   isOwner: isOwner,
+                  joinMode: joinMode,
+                  inviteSeenAtMap: _inviteSeenAtMap(data),
                   isUpdatingStatus: _isUpdatingStatus,
                   ownerActionUserId: _ownerActionUserId,
                   onOwnerDecision: ({required userId, required accepted}) =>
@@ -1551,6 +1637,22 @@ class _EventDetailPageState extends State<EventDetailPage> {
   }
 }
 
+class _InviteProgressCounts {
+  final int invitedCount;
+  final int seenCount;
+  final int acceptedCount;
+  final int maybeCount;
+  final int declinedCount;
+
+  const _InviteProgressCounts({
+    required this.invitedCount,
+    required this.seenCount,
+    required this.acceptedCount,
+    required this.maybeCount,
+    required this.declinedCount,
+  });
+}
+
 class _HomeStyleBadge extends StatelessWidget {
   final String label;
 
@@ -1600,6 +1702,8 @@ class _ParticipantGroupsSection extends StatelessWidget {
   final List<String> declinedIds;
   final String currentUserId;
   final bool isOwner;
+  final String joinMode;
+  final Map<String, dynamic> inviteSeenAtMap;
   final bool isUpdatingStatus;
   final String? ownerActionUserId;
   final Future<void> Function({required String userId, required bool accepted})? onOwnerDecision;
@@ -1613,6 +1717,8 @@ class _ParticipantGroupsSection extends StatelessWidget {
     required this.declinedIds,
     required this.currentUserId,
     required this.isOwner,
+    required this.joinMode,
+    required this.inviteSeenAtMap,
     required this.isUpdatingStatus,
     required this.ownerActionUserId,
     this.onOwnerDecision,
@@ -1638,6 +1744,11 @@ class _ParticipantGroupsSection extends StatelessWidget {
     return result;
   }
 
+  String _inviteStageForPendingUser(String userId) {
+    if (inviteSeenAtMap[userId] != null) return 'seen';
+    return 'invited';
+  }
+
   @override
   Widget build(BuildContext context) {
     final idsToLoad = <String>{
@@ -1647,6 +1758,8 @@ class _ParticipantGroupsSection extends StatelessWidget {
       ...pendingIds,
       ...declinedIds,
     }..removeWhere((id) => id.trim().isEmpty);
+
+    final isInviteOnlyOwnerView = isOwner && joinMode == 'invite_only';
 
     return FutureBuilder<Map<String, String>>(
       future: _loadNames(idsToLoad),
@@ -1664,25 +1777,31 @@ class _ParticipantGroupsSection extends StatelessWidget {
               _ParticipantGroup(
                 title: 'Erstellt von',
                 emptyLabel: 'Kein Ersteller hinterlegt.',
+                joinMode: joinMode,
                 people: [
                   _ParticipantItemData(
                     userId: createdBy,
                     name: resolvedCreatorName,
                     status: 'Ersteller',
+                    inviteStage: 'creator',
                     isCurrentUser: createdBy == currentUserId,
                   ),
                 ],
               ),
               const SizedBox(height: 12),
               _ParticipantGroup(
-                title: 'Bestätigt',
-                emptyLabel: 'Noch keine Bestätigungen.',
+                title: isInviteOnlyOwnerView ? 'Angenommen' : 'Bestätigt',
+                emptyLabel: isInviteOnlyOwnerView
+                    ? 'Noch keine angenommenen Einladungen.'
+                    : 'Noch keine Bestätigungen.',
+                joinMode: joinMode,
                 people: acceptedIds
                     .map(
                       (id) => _ParticipantItemData(
                     userId: id,
                     name: loadedNames[id] ?? 'Unbekannt',
-                    status: 'Bestätigt',
+                    status: isInviteOnlyOwnerView ? 'Angenommen' : 'Bestätigt',
+                    inviteStage: 'accepted',
                     isCurrentUser: id == currentUserId,
                   ),
                 )
@@ -1692,12 +1811,14 @@ class _ParticipantGroupsSection extends StatelessWidget {
               _ParticipantGroup(
                 title: 'Vielleicht',
                 emptyLabel: 'Noch keine Vielleicht-Antworten.',
+                joinMode: joinMode,
                 people: maybeIds
                     .map(
                       (id) => _ParticipantItemData(
                     userId: id,
                     name: loadedNames[id] ?? 'Unbekannt',
                     status: 'Vielleicht',
+                    inviteStage: 'maybe',
                     isCurrentUser: id == currentUserId,
                   ),
                 )
@@ -1705,12 +1826,18 @@ class _ParticipantGroupsSection extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               _ParticipantGroup(
-                title: 'Ausstehend',
-                emptyLabel: 'Keine offenen Antworten.',
-                actionBuilder: isOwner && onOwnerDecision != null
+                title: isInviteOnlyOwnerView ? 'Eingeladen' : 'Ausstehend',
+                emptyLabel: isInviteOnlyOwnerView
+                    ? 'Keine offenen Einladungen.'
+                    : 'Keine offenen Antworten.',
+                joinMode: joinMode,
+                actionBuilder: isOwner &&
+                    joinMode == 'request' &&
+                    onOwnerDecision != null
                     ? (person) {
                   if (person.isCurrentUser) return null;
-                  final isBusy = isUpdatingStatus && ownerActionUserId == person.userId;
+                  final isBusy = isUpdatingStatus &&
+                      ownerActionUserId == person.userId;
                   return Padding(
                     padding: const EdgeInsets.only(top: 10),
                     child: Row(
@@ -1759,7 +1886,12 @@ class _ParticipantGroupsSection extends StatelessWidget {
                       (id) => _ParticipantItemData(
                     userId: id,
                     name: loadedNames[id] ?? 'Unbekannt',
-                    status: 'Ausstehend',
+                    status: isInviteOnlyOwnerView
+                        ? (inviteSeenAtMap[id] != null ? 'Gesehen' : 'Eingeladen')
+                        : 'Ausstehend',
+                    inviteStage: isInviteOnlyOwnerView
+                        ? _inviteStageForPendingUser(id)
+                        : 'pending',
                     isCurrentUser: id == currentUserId,
                   ),
                 )
@@ -1769,12 +1901,14 @@ class _ParticipantGroupsSection extends StatelessWidget {
               _ParticipantGroup(
                 title: 'Abgelehnt',
                 emptyLabel: 'Bisher keine Ablehnungen.',
+                joinMode: joinMode,
                 people: declinedIds
                     .map(
                       (id) => _ParticipantItemData(
                     userId: id,
                     name: loadedNames[id] ?? 'Unbekannt',
                     status: 'Abgelehnt',
+                    inviteStage: 'declined',
                     isCurrentUser: id == currentUserId,
                   ),
                 )
@@ -1792,12 +1926,14 @@ class _ParticipantItemData {
   final String userId;
   final String name;
   final String status;
+  final String inviteStage;
   final bool isCurrentUser;
 
   const _ParticipantItemData({
     required this.userId,
     required this.name,
     required this.status,
+    required this.inviteStage,
     required this.isCurrentUser,
   });
 }
@@ -1805,12 +1941,14 @@ class _ParticipantItemData {
 class _ParticipantGroup extends StatelessWidget {
   final String title;
   final String emptyLabel;
+  final String joinMode;
   final List<_ParticipantItemData> people;
   final Widget? Function(_ParticipantItemData person)? actionBuilder;
 
   const _ParticipantGroup({
     required this.title,
     required this.emptyLabel,
+    required this.joinMode,
     required this.people,
     this.actionBuilder,
   });
@@ -1821,8 +1959,11 @@ class _ParticipantGroup extends StatelessWidget {
     switch (status) {
       case 'Ersteller':
       case 'Ausstehend':
+      case 'Eingeladen':
+      case 'Gesehen':
         return colorScheme.primary;
       case 'Bestätigt':
+      case 'Angenommen':
         return Colors.green;
       case 'Vielleicht':
         return Colors.orange;
@@ -1831,6 +1972,10 @@ class _ParticipantGroup extends StatelessWidget {
       default:
         return colorScheme.primary;
     }
+  }
+
+  bool _showInviteTimeline(_ParticipantItemData person) {
+    return joinMode == 'invite_only' && person.inviteStage != 'creator';
   }
 
   @override
@@ -1904,6 +2049,8 @@ class _ParticipantGroup extends StatelessWidget {
                           const SizedBox(width: 10),
                           if (person.status == 'Ausstehend')
                             const _HomeStyleBadge(label: 'Neu')
+                          else if (person.status == 'Gesehen')
+                            const _HomeStyleBadge(label: 'Gesehen')
                           else
                             Container(
                               padding: const EdgeInsets.symmetric(
@@ -1925,6 +2072,10 @@ class _ParticipantGroup extends StatelessWidget {
                             ),
                         ],
                       ),
+                      if (_showInviteTimeline(person)) ...[
+                        const SizedBox(height: 12),
+                        _InviteProgressTimeline(stage: person.inviteStage),
+                      ],
                       if (extraAction != null) extraAction,
                     ],
                   ),
@@ -1932,6 +2083,286 @@ class _ParticipantGroup extends StatelessWidget {
               );
             },
           ),
+      ],
+    );
+  }
+}
+
+class _InviteProgressOverview extends StatelessWidget {
+  final _InviteProgressCounts counts;
+
+  const _InviteProgressOverview({
+    required this.counts,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final invitedTotal = counts.invitedCount == 0 ? 1 : counts.invitedCount;
+
+    Widget buildMetric({
+      required String label,
+      required int count,
+      required Color color,
+      required double value,
+    }) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Text(
+                '$count/${counts.invitedCount}',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: value.clamp(0.0, 1.0),
+              minHeight: 10,
+              backgroundColor: color.withValues(alpha: 0.12),
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Fortschritt deiner Einladungen',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 14),
+        _InviteProgressFlowHeader(),
+        const SizedBox(height: 16),
+        buildMetric(
+          label: 'Gesehen',
+          count: counts.seenCount,
+          color: colorScheme.primary,
+          value: counts.seenCount / invitedTotal,
+        ),
+        const SizedBox(height: 12),
+        buildMetric(
+          label: 'Angenommen',
+          count: counts.acceptedCount,
+          color: Colors.green,
+          value: counts.acceptedCount / invitedTotal,
+        ),
+        if (counts.maybeCount > 0) ...[
+          const SizedBox(height: 12),
+          buildMetric(
+            label: 'Vielleicht',
+            count: counts.maybeCount,
+            color: Colors.orange,
+            value: counts.maybeCount / invitedTotal,
+          ),
+        ],
+        const SizedBox(height: 12),
+        buildMetric(
+          label: 'Abgelehnt',
+          count: counts.declinedCount,
+          color: colorScheme.error,
+          value: counts.declinedCount / invitedTotal,
+        ),
+      ],
+    );
+  }
+}
+
+class _InviteProgressFlowHeader extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    Widget buildStep(String text, {required bool active, Color? activeColor}) {
+      final color = active ? (activeColor ?? colorScheme.primary) : colorScheme.outline;
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? color.withValues(alpha: 0.10) : colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: active ? color.withValues(alpha: 0.28) : colorScheme.outlineVariant,
+          ),
+        ),
+        child: Text(
+          text,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: active ? color : colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
+    }
+
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        buildStep('Eingeladen', active: true),
+        Icon(Icons.chevron_right_rounded, color: colorScheme.onSurfaceVariant),
+        buildStep('Gesehen', active: true),
+        Icon(Icons.chevron_right_rounded, color: colorScheme.onSurfaceVariant),
+        buildStep('Angenommen', active: true, activeColor: Colors.green),
+      ],
+    );
+  }
+}
+
+class _InviteProgressTimeline extends StatelessWidget {
+  final String stage;
+
+  const _InviteProgressTimeline({
+    required this.stage,
+  });
+
+  bool _isActive(String step) {
+    switch (stage) {
+      case 'accepted':
+      case 'declined':
+      case 'maybe':
+        return true;
+      case 'seen':
+        return step != 'final';
+      case 'invited':
+      default:
+        return step == 'invited';
+    }
+  }
+
+  Color _finalColor(BuildContext context) {
+    switch (stage) {
+      case 'accepted':
+        return Colors.green;
+      case 'declined':
+        return Theme.of(context).colorScheme.error;
+      case 'maybe':
+        return Colors.orange;
+      default:
+        return Theme.of(context).colorScheme.outline;
+    }
+  }
+
+  String _finalLabel() {
+    switch (stage) {
+      case 'accepted':
+        return 'Angenommen';
+      case 'declined':
+        return 'Abgelehnt';
+      case 'maybe':
+        return 'Vielleicht';
+      default:
+        return 'Angenommen';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final primary = colorScheme.primary;
+    final invitedActive = _isActive('invited');
+    final seenActive = _isActive('seen');
+    final finalActive = _isActive('final');
+    final finalColor = finalActive ? _finalColor(context) : colorScheme.outline;
+
+    Widget dot({
+      required bool active,
+      required Color activeColor,
+    }) {
+      return Container(
+        width: 12,
+        height: 12,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: active ? activeColor : colorScheme.surfaceContainerHighest,
+          border: Border.all(
+            color: active ? activeColor : colorScheme.outlineVariant,
+            width: 1.5,
+          ),
+        ),
+      );
+    }
+
+    Widget line({
+      required bool active,
+      required Color activeColor,
+    }) {
+      return Expanded(
+        child: Container(
+          height: 2,
+          color: active ? activeColor : colorScheme.outlineVariant,
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            dot(active: invitedActive, activeColor: primary),
+            line(active: seenActive, activeColor: primary),
+            dot(active: seenActive, activeColor: primary),
+            line(active: finalActive, activeColor: finalColor),
+            dot(active: finalActive, activeColor: finalColor),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Eingeladen',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: invitedActive ? primary : colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                'Gesehen',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: seenActive ? primary : colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                _finalLabel(),
+                textAlign: TextAlign.end,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: finalActive ? finalColor : colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -2054,30 +2485,23 @@ class _StatusCounterChip extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final resolvedColor = color ?? colorScheme.primary;
-    final useHomeBadgeStyle = label == 'Ausstehend' && count > 0;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: useHomeBadgeStyle
-            ? const Color(0xFFB7E61D)
-            : resolvedColor.withValues(alpha: 0.10),
+        color: resolvedColor.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            size: 16,
-            color: useHomeBadgeStyle ? Colors.black87 : resolvedColor,
-          ),
+          Icon(icon, size: 16, color: resolvedColor),
           const SizedBox(width: 6),
           Text(
             '$label: $count',
             style: theme.textTheme.labelMedium?.copyWith(
-              color: useHomeBadgeStyle ? Colors.black87 : resolvedColor,
-              fontWeight: FontWeight.w800,
+              color: resolvedColor,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
