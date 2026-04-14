@@ -219,6 +219,31 @@ class NotificationDispatchService {
     );
   }
 
+  Future<void> queueEventParticipantRemovedNotification({
+    required String recipientUserId,
+    required String senderId,
+    required String senderName,
+    required String eventId,
+    required String eventTitle,
+  }) async {
+    final safeSenderName = _fallback(senderName, 'CheckMyTime');
+    final safeEventTitle = _fallback(eventTitle, 'Event');
+
+    await _queueNotification(
+      recipientUserId: recipientUserId,
+      channelId: 'incoming_event_updates_v2',
+      title: 'Aus Event entfernt',
+      body: '$safeSenderName hat dich aus "$safeEventTitle" entfernt.',
+      data: {
+        'type': 'event_participant_removed',
+        'route': 'events',
+        'eventId': eventId,
+        'senderId': senderId,
+        'senderName': safeSenderName,
+      },
+    );
+  }
+
   Future<void> queueEventInviteNotifications({
     required Iterable<String> recipientUserIds,
     required String senderId,

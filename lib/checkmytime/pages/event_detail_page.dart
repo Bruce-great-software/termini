@@ -936,6 +936,152 @@ class _EventDetailPageState extends State<EventDetailPage> {
     }
   }
 
+
+  Future<void> _removeParticipant({
+    required String participantUserId,
+    required String participantName,
+  }) async {
+    if (_currentUserId.isEmpty || _isUpdatingStatus) return;
+
+    final trimmedParticipantId = participantUserId.trim();
+    if (trimmedParticipantId.isEmpty || trimmedParticipantId == _currentUserId) {
+      return;
+    }
+
+    final displayName = participantName.trim().isEmpty
+        ? 'diese Person'
+        : participantName.trim();
+
+    final shouldRemove = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Teilnehmer entfernen'),
+        content: Text(
+          'Möchtest du $displayName wirklich aus diesem Event entfernen?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Entfernen'),
+          ),
+        ],
+      ),
+    ) ??
+        false;
+
+    if (!shouldRemove) return;
+
+    setState(() {
+      _isUpdatingStatus = true;
+      _ownerActionUserId = trimmedParticipantId;
+    });
+
+    try {
+      final docRef = FirebaseFirestore.instance
+          .collection('events')
+          .doc(widget.eventId);
+      final snapshot = await docRef.get();
+      final data = snapshot.data() ?? <String, dynamic>{};
+
+      if (_isCancelledEvent(data)) {
+        _showMessage('Dieses Event wurde abgesagt.');
+        return;
+      }
+
+      final createdBy = (data['createdBy'] ?? '').toString().trim();
+      if (createdBy != _currentUserId) {
+        throw StateError('Nur der Ersteller darf Teilnehmer entfernen.');
+      }
+
+      if (trimmedParticipantId == createdBy) {
+        throw StateError('Der Ersteller kann nicht entfernt werden.');
+      }
+
+      final eventTitle = (data['title'] ?? 'Event').toString().trim();
+      final createdByName = (data['createdByName'] ?? '').toString().trim();
+
+      final memberIds = <String>{
+        ...List<String>.from(data['memberIds'] ?? const []),
+      }..remove(trimmedParticipantId);
+
+      final acceptedIds = <String>{
+        ...List<String>.from(data['acceptedUserIds'] ?? const []),
+      }..remove(trimmedParticipantId);
+
+      final maybeIds = <String>{
+        ...List<String>.from(data['maybeUserIds'] ?? const []),
+      }..remove(trimmedParticipantId);
+
+      final declinedIds = <String>{
+        ...List<String>.from(data['declinedUserIds'] ?? const []),
+      }..remove(trimmedParticipantId);
+
+      final participantIds = <String>{
+        ...List<String>.from(data['participantIds'] ?? const []),
+      }..remove(trimmedParticipantId);
+
+      final invitedUserIds = <String>{
+        ...List<String>.from(data['invitedUserIds'] ?? const []),
+      }..remove(trimmedParticipantId);
+
+      final responseMap = Map<String, dynamic>.from(
+        data['responseMap'] ?? const <String, dynamic>{},
+      )..remove(trimmedParticipantId);
+
+      final inviteSeenAtMap = Map<String, dynamic>.from(
+        data['inviteSeenAtMap'] ?? const <String, dynamic>{},
+      )..remove(trimmedParticipantId);
+
+      await docRef.update({
+        'memberIds': memberIds.toList(),
+        'acceptedUserIds': acceptedIds.toList(),
+        'maybeUserIds': maybeIds.toList(),
+        'declinedUserIds': declinedIds.toList(),
+        'participantIds': participantIds.toList(),
+        'invitedUserIds': invitedUserIds.toList(),
+        'responseMap': responseMap,
+        'inviteSeenAtMap': inviteSeenAtMap,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      await NotificationDispatchService.instance
+          .queueEventParticipantRemovedNotification(
+        recipientUserId: trimmedParticipantId,
+        senderId: createdBy,
+        senderName: createdByName,
+        eventId: widget.eventId,
+        eventTitle: eventTitle,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$displayName wurde entfernt.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Der Teilnehmer konnte nicht entfernt werden.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdatingStatus = false;
+          _ownerActionUserId = null;
+        });
+      }
+    }
+  }
+
   Future<void> _cancelEvent() async {
     if (_isCancelling) return;
 
@@ -1514,6 +1660,14 @@ class _EventDetailPageState extends State<EventDetailPage> {
                         requestUserId: userId,
                         accepted: accepted,
                       ),
+                  onRemoveParticipant: ({
+                    required userId,
+                    required userName,
+                  }) =>
+                      _removeParticipant(
+                        participantUserId: userId,
+                        participantName: userName,
+                      ),
                 ),
                 const SizedBox(height: 14),
                 _buildActionSection(
@@ -1929,6 +2083,10 @@ class _ParticipantGroupsSection extends StatelessWidget {
   final String? ownerActionUserId;
   final bool eventCancelled;
   final Future<void> Function({required String userId, required bool accepted})? onOwnerDecision;
+  final Future<void> Function({
+  required String userId,
+  required String userName,
+  })? onRemoveParticipant;
 
   const _ParticipantGroupsSection({
     required this.createdBy,
@@ -1945,6 +2103,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
     required this.ownerActionUserId,
     required this.eventCancelled,
     this.onOwnerDecision,
+    this.onRemoveParticipant,
   });
 
   Future<Map<String, String>> _loadNames(Set<String> ids) async {
@@ -2018,6 +2177,36 @@ class _ParticipantGroupsSection extends StatelessWidget {
                     ? 'Noch keine angenommenen Einladungen.'
                     : 'Noch keine Bestätigungen.',
                 joinMode: joinMode,
+                actionBuilder: !eventCancelled &&
+                    isOwner &&
+                    onRemoveParticipant != null
+                    ? (person) {
+                  if (person.isCurrentUser) return null;
+                  final isBusy = isUpdatingStatus &&
+                      ownerActionUserId == person.userId;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: OutlinedButton.icon(
+                      onPressed: isUpdatingStatus
+                          ? null
+                          : () => onRemoveParticipant!(
+                        userId: person.userId,
+                        userName: person.name,
+                      ),
+                      icon: isBusy
+                          ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                        ),
+                      )
+                          : const Icon(Icons.person_remove_outlined),
+                      label: const Text('Teilnehmer entfernen'),
+                    ),
+                  );
+                }
+                    : null,
                 people: acceptedIds
                     .map(
                       (id) => _ParticipantItemData(
@@ -2054,55 +2243,81 @@ class _ParticipantGroupsSection extends StatelessWidget {
                     ? 'Keine offenen Einladungen.'
                     : 'Keine offenen Antworten.',
                 joinMode: joinMode,
-                actionBuilder: !eventCancelled &&
-                    isOwner &&
-                    joinMode == 'request' &&
-                    onOwnerDecision != null
+                actionBuilder: !eventCancelled && isOwner
                     ? (person) {
                   if (person.isCurrentUser) return null;
                   final isBusy = isUpdatingStatus &&
                       ownerActionUserId == person.userId;
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton.icon(
-                            onPressed: isUpdatingStatus
-                                ? null
-                                : () => onOwnerDecision!(
-                              userId: person.userId,
-                              accepted: true,
-                            ),
-                            icon: isBusy
-                                ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
+
+                  if (joinMode == 'request' && onOwnerDecision != null) {
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: isUpdatingStatus
+                                  ? null
+                                  : () => onOwnerDecision!(
+                                userId: person.userId,
+                                accepted: true,
                               ),
-                            )
-                                : const Icon(Icons.check_rounded),
-                            label: const Text('Annehmen'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: isUpdatingStatus
-                                ? null
-                                : () => onOwnerDecision!(
-                              userId: person.userId,
-                              accepted: false,
+                              icon: isBusy
+                                  ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                                  : const Icon(Icons.check_rounded),
+                              label: const Text('Annehmen'),
                             ),
-                            icon: const Icon(Icons.close_rounded),
-                            label: const Text('Ablehnen'),
                           ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: isUpdatingStatus
+                                  ? null
+                                  : () => onOwnerDecision!(
+                                userId: person.userId,
+                                accepted: false,
+                              ),
+                              icon: const Icon(Icons.close_rounded),
+                              label: const Text('Ablehnen'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  if (isInviteOnlyOwnerView && onRemoveParticipant != null) {
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: OutlinedButton.icon(
+                        onPressed: isUpdatingStatus
+                            ? null
+                            : () => onRemoveParticipant!(
+                          userId: person.userId,
+                          userName: person.name,
                         ),
-                      ],
-                    ),
-                  );
+                        icon: isBusy
+                            ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                          ),
+                        )
+                            : const Icon(Icons.person_remove_outlined),
+                        label: const Text('Einladung entfernen'),
+                      ),
+                    );
+                  }
+
+                  return null;
                 }
                     : null,
                 people: pendingIds
