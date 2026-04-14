@@ -982,9 +982,7 @@ class _EventsPageState extends State<EventsPage>
       );
     }
 
-    Widget buildEventCard(
-        QueryDocumentSnapshot<Map<String, dynamic>> doc,
-        ) {
+    Widget buildEventCard(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
       final data = doc.data();
       final rawStatus = statusResolver(data);
 
@@ -1000,7 +998,8 @@ class _EventsPageState extends State<EventsPage>
         kindColor: _kindColor(colorScheme, data),
         statusLabel: _statusLabel(rawStatus),
         statusColor: _statusColor(colorScheme, rawStatus),
-        interactionBadgeLabel: view == EventDetailView.myEvent &&
+        interactionBadgeLabel:
+        view == EventDetailView.myEvent &&
             _hasPendingOwnerRequests(data, currentUserId)
             ? '${_pendingOwnerRequestCount(data, currentUserId)} neu'
             : null,
@@ -1082,9 +1081,7 @@ class _EventsPageState extends State<EventsPage>
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Events'),
-      ),
+      appBar: AppBar(title: const Text('Events')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
           await Navigator.of(context).push(
@@ -1138,18 +1135,21 @@ class _EventsPageState extends State<EventsPage>
                 } else {
                   switch (_selectedDateFilter) {
                     case 'today':
-                      matchesDate = !scheduledAt.isBefore(todayStart) &&
-                          scheduledAt.isBefore(
-                            todayStart.add(const Duration(days: 1)),
-                          );
+                      matchesDate =
+                          !scheduledAt.isBefore(todayStart) &&
+                              scheduledAt.isBefore(
+                                todayStart.add(const Duration(days: 1)),
+                              );
                       break;
                     case 'next7days':
-                      matchesDate = !scheduledAt.isBefore(todayStart) &&
-                          scheduledAt.isBefore(nextWeekEnd);
+                      matchesDate =
+                          !scheduledAt.isBefore(todayStart) &&
+                              scheduledAt.isBefore(nextWeekEnd);
                       break;
                     case 'thisMonth':
-                      matchesDate = !scheduledAt.isBefore(todayStart) &&
-                          scheduledAt.isBefore(monthEnd);
+                      matchesDate =
+                          !scheduledAt.isBefore(todayStart) &&
+                              scheduledAt.isBefore(monthEnd);
                       break;
                   }
                 }
@@ -1179,9 +1179,7 @@ class _EventsPageState extends State<EventsPage>
               final invited = List<String>.from(
                 data['invitedUserIds'] ?? const [],
               );
-              final memberIds = List<String>.from(
-                data['memberIds'] ?? const [],
-              );
+              final memberIds = List<String>.from(data['memberIds'] ?? const []);
 
               if (invited.contains(currentUserId) ||
                   memberIds.contains(currentUserId)) {
@@ -1298,16 +1296,16 @@ class _EventsPageState extends State<EventsPage>
                 ),
             ];
 
-            final currentActiveChips = currentTabIndex == 0
-                ? openActiveChips
-                : _buildCommonActiveChips();
+            final currentActiveChips =
+            currentTabIndex == 0 ? openActiveChips : _buildCommonActiveChips();
             final currentResultCount = currentTabIndex == 0
                 ? openEvents.length
                 : currentTabIndex == 1
                 ? invitedEvents.length
                 : myEvents.length;
-            final currentSummary =
-            currentTabIndex == 0 ? _buildResultsSummary(openEvents.length) : null;
+            final currentSummary = currentTabIndex == 0
+                ? _buildResultsSummary(openEvents.length)
+                : null;
 
             return Column(
               children: [
@@ -1327,29 +1325,39 @@ class _EventsPageState extends State<EventsPage>
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(color: colorScheme.outlineVariant),
                     ),
-                    child: TabBar(
-                      controller: _tabController,
-                      dividerColor: Colors.transparent,
-                      indicatorSize: TabBarIndicatorSize.tab,
-                      indicator: BoxDecoration(
-                        color: colorScheme.primary.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      labelColor: colorScheme.primary,
-                      unselectedLabelColor: colorScheme.onSurfaceVariant,
-                      labelStyle: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                      tabs: [
-                        const Tab(text: 'Offene Events'),
-                        const Tab(text: 'Einladungen'),
-                        Tab(
-                          child: _TabLabelWithBadge(
-                            label: 'Meine Events',
-                            badgeCount: myPendingRequestCount,
-                          ),
+                    child: MediaQuery(
+                      data: MediaQuery.of(
+                        context,
+                      ).copyWith(textScaler: const TextScaler.linear(1.0)),
+                      child: TabBar(
+                        controller: _tabController,
+                        dividerColor: Colors.transparent,
+                        indicatorSize: TabBarIndicatorSize.tab,
+                        indicator: BoxDecoration(
+                          color: colorScheme.primary.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(14),
                         ),
-                      ],
+                        labelColor: colorScheme.primary,
+                        unselectedLabelColor: colorScheme.onSurfaceVariant,
+                        labelStyle: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                        labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+                        tabs: [
+                          const Tab(
+                            child: _ResponsiveTabLabel(label: 'Offene Events'),
+                          ),
+                          const Tab(
+                            child: _ResponsiveTabLabel(label: 'Einladungen'),
+                          ),
+                          Tab(
+                            child: _TabLabelWithBadge(
+                              label: 'Meine Events',
+                              badgeCount: myPendingRequestCount,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -1492,9 +1500,7 @@ class _EventsPageState extends State<EventsPage>
 class _HomeStyleBadge extends StatelessWidget {
   final String label;
 
-  const _HomeStyleBadge({
-    required this.label,
-  });
+  const _HomeStyleBadge({required this.label});
 
   @override
   Widget build(BuildContext context) {
@@ -1515,6 +1521,27 @@ class _HomeStyleBadge extends StatelessWidget {
   }
 }
 
+class _ResponsiveTabLabel extends StatelessWidget {
+  final String label;
+
+  const _ResponsiveTabLabel({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          label,
+          maxLines: 1,
+          softWrap: false,
+        ),
+      ),
+    );
+  }
+}
+
 class _TabLabelWithBadge extends StatelessWidget {
   final String label;
   final int badgeCount;
@@ -1527,18 +1554,29 @@ class _TabLabelWithBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (badgeCount <= 0) {
-      return Text(label);
+      return const _ResponsiveTabLabel(label: 'Meine Events');
     }
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
-        const SizedBox(width: 8),
-        _HomeStyleBadge(
-          label: badgeCount == 1 ? '1 neu' : '$badgeCount neu',
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(width: 8),
+            _HomeStyleBadge(
+              label: badgeCount == 1 ? '1 neu' : '$badgeCount neu',
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
@@ -1563,15 +1601,19 @@ class _OpenEventsQuickFilterBar extends StatelessWidget {
       );
     }
 
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        buildChip('all', 'Alle'),
-        buildChip('today', 'Heute'),
-        buildChip('tomorrow', 'Morgen'),
-        buildChip('thisWeek', 'Diese Woche'),
-      ],
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          buildChip('all', 'Alle'),
+          const SizedBox(width: 8),
+          buildChip('today', 'Heute'),
+          const SizedBox(width: 8),
+          buildChip('tomorrow', 'Morgen'),
+          const SizedBox(width: 8),
+          buildChip('thisWeek', 'Diese Woche'),
+        ],
+      ),
     );
   }
 }
@@ -1699,9 +1741,7 @@ class _SearchBarCard extends StatelessWidget {
                           alignment: Alignment.center,
                           child: Text(
                             '$activeFilterCount',
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
+                            style: Theme.of(context).textTheme.labelSmall
                                 ?.copyWith(
                               color: colorScheme.onPrimary,
                               fontWeight: FontWeight.w700,
@@ -2009,7 +2049,8 @@ class _EventCard extends StatelessWidget {
                                   ),
                                   child: Text(
                                     kindLabel,
-                                    style: theme.textTheme.labelMedium?.copyWith(
+                                    style: theme.textTheme.labelMedium
+                                        ?.copyWith(
                                       color: kindColor,
                                       fontWeight: FontWeight.w700,
                                     ),
@@ -2039,12 +2080,15 @@ class _EventCard extends StatelessWidget {
                                       vertical: 6,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: Colors.orange.withValues(alpha: 0.10),
+                                      color: Colors.orange.withValues(
+                                        alpha: 0.10,
+                                      ),
                                       borderRadius: BorderRadius.circular(999),
                                     ),
                                     child: Text(
                                       relativeStartText,
-                                      style: theme.textTheme.labelMedium?.copyWith(
+                                      style: theme.textTheme.labelMedium
+                                          ?.copyWith(
                                         color: Colors.orange,
                                         fontWeight: FontWeight.w700,
                                       ),
@@ -2113,7 +2157,8 @@ class _EventCard extends StatelessWidget {
                               theme: theme,
                               colorScheme: colorScheme,
                             ),
-                          if (distanceText != null && distanceText!.trim().isNotEmpty)
+                          if (distanceText != null &&
+                              distanceText!.trim().isNotEmpty)
                             _EventInfoChip(
                               icon: Icons.near_me_outlined,
                               label: distanceText!,
