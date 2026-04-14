@@ -225,6 +225,17 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     final createdBy = (data['createdBy'] ?? '').toString().trim();
     if (createdBy != currentUserId) return const <String>{};
 
+    final joinMode = (data['joinMode'] ?? 'invite_only')
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    // Nur echte Teilnahme-Anfragen des Typs "Anfrage senden" sollen
+    // beim Ersteller als neue Anfrage zählen.
+    // Reine Einladungen bei "Nur Einladung" dürfen hier nicht
+    // als Anfrage/Badge/Notification auftauchen.
+    if (joinMode != 'request') return const <String>{};
+
     final responseMap = Map<String, dynamic>.from(
       data['responseMap'] ?? const <String, dynamic>{},
     );
