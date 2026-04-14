@@ -7,7 +7,12 @@ import 'package:termini/checkmytime/pages/create_event_page.dart';
 import 'package:termini/checkmytime/pages/event_detail_page.dart';
 
 class EventsPage extends StatefulWidget {
-  const EventsPage({super.key});
+  final int initialTabIndex;
+
+  const EventsPage({
+    super.key,
+    this.initialTabIndex = 0,
+  });
 
   @override
   State<EventsPage> createState() => _EventsPageState();
@@ -31,7 +36,7 @@ class _EventsPageState extends State<EventsPage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 3, vsync: this, initialIndex: widget.initialTabIndex.clamp(0, 2));
     _tabController.addListener(_onTabChanged);
     _eventsStream = FirebaseFirestore.instance
         .collection('events')
@@ -353,6 +358,55 @@ class _EventsPageState extends State<EventsPage>
     if (declined.contains(currentUserId)) return 'declined';
     if (directResponse.isNotEmpty) return directResponse;
     return 'pending';
+  }
+
+  bool _isPendingEventInvite(Map<String, dynamic> data, String currentUserId) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final invitedUserIds = List<String>.from(
+      data['invitedUserIds'] ?? const [],
+    );
+    final acceptedUserIds = List<String>.from(
+      data['acceptedUserIds'] ?? const [],
+    );
+    final maybeUserIds = List<String>.from(data['maybeUserIds'] ?? const []);
+    final declinedUserIds = List<String>.from(
+      data['declinedUserIds'] ?? const [],
+    );
+
+    if (createdBy == currentUserId) return false;
+    if (!invitedUserIds.contains(currentUserId)) return false;
+    if (acceptedUserIds.contains(currentUserId)) return false;
+    if (maybeUserIds.contains(currentUserId)) return false;
+    if (declinedUserIds.contains(currentUserId)) return false;
+    return true;
+  }
+
+  bool _isJoinDecisionForRequester(
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    if (createdBy == currentUserId) return false;
+
+    final joinMode = (data['joinMode'] ?? '').toString().trim().toLowerCase();
+    if (joinMode != 'request') return false;
+
+    final response = _responseForUser(data, currentUserId);
+    return response == 'accepted' || response == 'declined';
+  }
+
+  bool _belongsToInvitationsTab(
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    final invited = List<String>.from(
+      data['invitedUserIds'] ?? const [],
+    );
+    final memberIds = List<String>.from(data['memberIds'] ?? const []);
+
+    return invited.contains(currentUserId) ||
+        memberIds.contains(currentUserId) ||
+        _isJoinDecisionForRequester(data, currentUserId);
   }
 
   int _pendingOwnerRequestCount(
@@ -998,10 +1052,12 @@ class _EventsPageState extends State<EventsPage>
         kindColor: _kindColor(colorScheme, data),
         statusLabel: _statusLabel(rawStatus),
         statusColor: _statusColor(colorScheme, rawStatus),
-        interactionBadgeLabel:
-        view == EventDetailView.myEvent &&
+        interactionBadgeLabel: view == EventDetailView.myEvent &&
             _hasPendingOwnerRequests(data, currentUserId)
             ? '${_pendingOwnerRequestCount(data, currentUserId)} neu'
+            : view == EventDetailView.invitation &&
+            _isJoinDecisionForRequester(data, currentUserId)
+            ? 'neu'
             : null,
         metaText: _metaText(data, currentUserId),
         participantsText: _participantsText(data),
@@ -1176,13 +1232,7 @@ class _EventsPageState extends State<EventsPage>
                 continue;
               }
 
-              final invited = List<String>.from(
-                data['invitedUserIds'] ?? const [],
-              );
-              final memberIds = List<String>.from(data['memberIds'] ?? const []);
-
-              if (invited.contains(currentUserId) ||
-                  memberIds.contains(currentUserId)) {
+              if (_belongsToInvitationsTab(data, currentUserId)) {
                 invitedEvents.add(doc);
                 continue;
               }
@@ -1254,7 +1304,21 @@ class _EventsPageState extends State<EventsPage>
               return sum + _pendingOwnerRequestCount(doc.data(), currentUserId);
             });
 
-            if (myPendingRequestCount > 0 &&
+            final invitationAttentionCount = invitedEvents.where((doc) {
+              final data = doc.data();
+              return _isPendingEventInvite(data, currentUserId) ||
+                  _isJoinDecisionForRequester(data, currentUserId);
+            }).length;
+
+            if (invitationAttentionCount > 0 &&
+                !_didAutoJumpToMyEvents &&
+                _tabController.index == 0) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted || _didAutoJumpToMyEvents) return;
+                _didAutoJumpToMyEvents = true;
+                _tabController.animateTo(1);
+              });
+            } else if (myPendingRequestCount > 0 &&
                 !_didAutoJumpToMyEvents &&
                 _tabController.index == 0) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1347,8 +1411,11 @@ class _EventsPageState extends State<EventsPage>
                           const Tab(
                             child: _ResponsiveTabLabel(label: 'Offene Events'),
                           ),
-                          const Tab(
-                            child: _ResponsiveTabLabel(label: 'Einladungen'),
+                          Tab(
+                            child: _TabLabelWithBadge(
+                              label: 'Einladungen',
+                              badgeCount: invitationAttentionCount,
+                            ),
                           ),
                           Tab(
                             child: _TabLabelWithBadge(
@@ -1554,7 +1621,7 @@ class _TabLabelWithBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (badgeCount <= 0) {
-      return const _ResponsiveTabLabel(label: 'Meine Events');
+      return _ResponsiveTabLabel(label: label);
     }
 
     return Padding(

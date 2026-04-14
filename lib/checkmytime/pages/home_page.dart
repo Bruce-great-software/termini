@@ -35,7 +35,11 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
   Map<String, int> _knownUnreadCountsByThread = {};
   Set<String> _knownPendingInviteIds = <String>{};
   Set<String> _knownPendingOwnerRequestKeys = <String>{};
+  Set<String> _knownJoinDecisionKeys = <String>{};
+  Set<String> _pendingJoinDecisionKeys = <String>{};
   int _lastPublishedBadgeCount = -1;
+  int _eventsInitialTabIndex = 0;
+  int _eventsPageOpenToken = 0;
   Timer? _presenceHeartbeat;
 
   @override
@@ -235,8 +239,80 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     return pendingKeys;
   }
 
+  String? _joinDecisionKeyForRequester(
+      String eventId,
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    if (createdBy == currentUserId) return null;
+
+    final joinMode = (data['joinMode'] ?? '').toString().trim().toLowerCase();
+    if (joinMode != 'request') return null;
+
+    final acceptedUserIds = List<String>.from(
+      data['acceptedUserIds'] ?? const [],
+    );
+    final declinedUserIds = List<String>.from(
+      data['declinedUserIds'] ?? const [],
+    );
+    final responseMap = Map<String, dynamic>.from(
+      data['responseMap'] ?? const <String, dynamic>{},
+    );
+    final directResponse =
+    (responseMap[currentUserId] ?? '').toString().trim().toLowerCase();
+
+    if (acceptedUserIds.contains(currentUserId) || directResponse == 'accepted') {
+      return '$eventId:accepted';
+    }
+    if (declinedUserIds.contains(currentUserId) || directResponse == 'declined') {
+      return '$eventId:declined';
+    }
+    return null;
+  }
+
+  String _joinDecisionLabelFromKey(String decisionKey) {
+    if (decisionKey.endsWith(':accepted')) return 'angenommen';
+    if (decisionKey.endsWith(':declined')) return 'abgelehnt';
+    return 'neu';
+  }
+
   int _eventActionBadgeCount() {
-    return _knownPendingInviteIds.length + _knownPendingOwnerRequestKeys.length;
+    return _knownPendingInviteIds.length +
+        _knownPendingOwnerRequestKeys.length +
+        _pendingJoinDecisionKeys.length;
+  }
+
+  int _preferredEventsTabIndex() {
+    if (_pendingJoinDecisionKeys.isNotEmpty || _knownPendingInviteIds.isNotEmpty) {
+      return 1;
+    }
+    return 0;
+  }
+
+  void _openEventsArea({required bool pushRoute}) {
+    final initialTabIndex = _preferredEventsTabIndex();
+
+    setState(() {
+      _eventsInitialTabIndex = initialTabIndex;
+      _eventsPageOpenToken++;
+      _pendingJoinDecisionKeys = <String>{};
+    });
+
+    unawaited(_publishBadgeCount());
+
+    if (pushRoute) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => EventsPage(initialTabIndex: initialTabIndex),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _selectedIndex = 1;
+    });
   }
 
   Widget _buildNavigationIcon(IconData icon, int badgeCount) {
@@ -266,7 +342,9 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         .listen((snapshot) async {
       final pendingInviteIds = <String>{};
       final pendingOwnerRequestKeys = <String>{};
+      final currentJoinDecisionKeys = <String>{};
       final eventTitlesByRequestKey = <String, String>{};
+      final eventTitlesByDecisionKey = <String, String>{};
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
@@ -282,12 +360,21 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
             eventTitlesByRequestKey[key] = eventTitle.isEmpty ? 'deinem Event' : eventTitle;
           }
         }
+
+        final decisionKey = _joinDecisionKeyForRequester(doc.id, data, currentUserId);
+        if (decisionKey != null) {
+          currentJoinDecisionKeys.add(decisionKey);
+          final eventTitle = (data['title'] ?? 'dem Event').toString().trim();
+          eventTitlesByDecisionKey[decisionKey] =
+          eventTitle.isEmpty ? 'dem Event' : eventTitle;
+        }
       }
 
       if (!_hasInitializedInviteState) {
         _hasInitializedInviteState = true;
         _knownPendingInviteIds = pendingInviteIds;
         _knownPendingOwnerRequestKeys = pendingOwnerRequestKeys;
+        _knownJoinDecisionKeys = currentJoinDecisionKeys;
         if (mounted) {
           setState(() {});
         }
@@ -307,8 +394,26 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         );
       }
 
+      final newJoinDecisionKeys = currentJoinDecisionKeys.difference(
+        _knownJoinDecisionKeys,
+      );
+
+      for (final decisionKey in newJoinDecisionKeys) {
+        final eventTitle = eventTitlesByDecisionKey[decisionKey] ?? 'deinem Event';
+        final decisionLabel = _joinDecisionLabelFromKey(decisionKey);
+        await NotificationService.instance.showIncomingEventRequestNotification(
+          title: 'Anfrage beantwortet',
+          body: 'Deine Anfrage für "$eventTitle" wurde $decisionLabel.',
+        );
+      }
+
       _knownPendingInviteIds = pendingInviteIds;
       _knownPendingOwnerRequestKeys = pendingOwnerRequestKeys;
+      _knownJoinDecisionKeys = currentJoinDecisionKeys;
+      _pendingJoinDecisionKeys = {
+        ..._pendingJoinDecisionKeys.where(currentJoinDecisionKeys.contains),
+        ...newJoinDecisionKeys,
+      };
       if (mounted) {
         setState(() {});
       }
@@ -1341,11 +1446,10 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
           );
         }
 
-        final pendingInvites =
-        [...snapshot.data?.docs ?? []]
-            .where(
-              (doc) => _isPendingEventInvite(doc.data(), currentUserId),
-        )
+        final allDocs = [...snapshot.data?.docs ?? []];
+
+        final pendingInvites = allDocs
+            .where((doc) => _isPendingEventInvite(doc.data(), currentUserId))
             .toList()
           ..sort((a, b) {
             final aDate = a.data()['eventDate'] as Timestamp?;
@@ -1356,7 +1460,18 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
             return aDate.compareTo(bDate);
           });
 
-        if (pendingInvites.isEmpty) {
+        final decisionUpdates = allDocs
+            .where((doc) {
+          final key = _joinDecisionKeyForRequester(
+            doc.id,
+            doc.data(),
+            currentUserId,
+          );
+          return key != null && _pendingJoinDecisionKeys.contains(key);
+        })
+            .toList();
+
+        if (pendingInvites.isEmpty && decisionUpdates.isEmpty) {
           return const SizedBox.shrink();
         }
 
@@ -1364,19 +1479,58 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Einladungen',
+              'Events',
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w800,
               ),
             ),
             const SizedBox(height: 6),
             Text(
-              'Neue Event-Einladungen für dich.',
+              'Neue Einladungen und Antworten auf deine Anfragen.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 12),
+            ...decisionUpdates.take(3).map((doc) {
+              final data = doc.data();
+              final title = (data['title'] ?? 'Event').toString().trim();
+              final eventDate = data['eventDate'] as Timestamp?;
+              final decisionKey = _joinDecisionKeyForRequester(
+                doc.id,
+                data,
+                currentUserId,
+              );
+              final decisionLabel = _joinDecisionLabelFromKey(decisionKey ?? '');
+
+              return _ActionCard(
+                icon: decisionLabel == 'abgelehnt'
+                    ? Icons.cancel_outlined
+                    : Icons.check_circle_outline,
+                title: title.isEmpty ? 'Event' : title,
+                subtitle:
+                'Deine Anfrage wurde $decisionLabel - ${_formatInviteDate(eventDate)}.',
+                badgeCount: 1,
+                onTap: () {
+                  if (decisionKey != null) {
+                    setState(() {
+                      _pendingJoinDecisionKeys.remove(decisionKey);
+                    });
+                    unawaited(_publishBadgeCount());
+                  }
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => EventDetailPage(
+                        eventId: doc.id,
+                        view: EventDetailView.invitation,
+                      ),
+                    ),
+                  );
+                },
+              );
+            }),
+            if (decisionUpdates.isNotEmpty && pendingInvites.isNotEmpty)
+              const SizedBox(height: 8),
             ...pendingInvites.take(3).map((doc) {
               final data = doc.data();
               final title = (data['title'] ?? 'Event').toString().trim();
@@ -1453,9 +1607,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                   'Hier planst und verwaltest du später gemeinsame Aktivitäten, Einladungen und Anfragen.',
                   badgeCount: _eventActionBadgeCount(),
                   onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const EventsPage()),
-                    );
+                    _openEventsArea(pushRoute: true);
                   },
                 ),
                 _ActionCard(
@@ -1482,7 +1634,10 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       String? currentUserId,
       ) {
     if (_selectedIndex == 1) {
-      return const EventsPage();
+      return EventsPage(
+        key: ValueKey('events-$_eventsPageOpenToken'),
+        initialTabIndex: _eventsInitialTabIndex,
+      );
     }
 
     if (_selectedIndex == 2) {
@@ -1520,6 +1675,11 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {
+          if (index == 1) {
+            _openEventsArea(pushRoute: false);
+            return;
+          }
+
           setState(() {
             _selectedIndex = index;
           });
