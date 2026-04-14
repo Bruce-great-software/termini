@@ -1551,6 +1551,32 @@ class _EventDetailPageState extends State<EventDetailPage> {
   }
 }
 
+class _HomeStyleBadge extends StatelessWidget {
+  final String label;
+
+  const _HomeStyleBadge({
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFB7E61D),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: Colors.black87,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
 class _ParticipantBuckets {
   final List<String> accepted;
   final List<String> maybe;
@@ -1876,24 +1902,27 @@ class _ParticipantGroup extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 10),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _badgeColor(context, person.status)
-                                  .withValues(alpha: 0.10),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              person.status,
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                color: _badgeColor(context, person.status),
-                                fontWeight: FontWeight.w700,
+                          if (person.status == 'Ausstehend')
+                            const _HomeStyleBadge(label: 'Neu')
+                          else
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _badgeColor(context, person.status)
+                                    .withValues(alpha: 0.10),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                person.status,
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  color: _badgeColor(context, person.status),
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
-                          ),
                         ],
                       ),
                       if (extraAction != null) extraAction,
@@ -2025,23 +2054,30 @@ class _StatusCounterChip extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final resolvedColor = color ?? colorScheme.primary;
+    final useHomeBadgeStyle = label == 'Ausstehend' && count > 0;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: resolvedColor.withValues(alpha: 0.10),
+        color: useHomeBadgeStyle
+            ? const Color(0xFFB7E61D)
+            : resolvedColor.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: resolvedColor),
+          Icon(
+            icon,
+            size: 16,
+            color: useHomeBadgeStyle ? Colors.black87 : resolvedColor,
+          ),
           const SizedBox(width: 6),
           Text(
             '$label: $count',
             style: theme.textTheme.labelMedium?.copyWith(
-              color: resolvedColor,
-              fontWeight: FontWeight.w700,
+              color: useHomeBadgeStyle ? Colors.black87 : resolvedColor,
+              fontWeight: FontWeight.w800,
             ),
           ),
         ],
