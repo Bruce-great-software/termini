@@ -468,11 +468,38 @@ class _EventsPageState extends State<EventsPage>
 
   int get _activeFilterCount {
     var count = 0;
+    if (_searchController.text.trim().isNotEmpty) count++;
     if (_selectedKindFilter != 'all') count++;
     if (_selectedDateFilter != 'all') count++;
     if (_selectedRadiusFilter != 'all') count++;
     if (_selectedOpenEventsSort != 'distance_date') count++;
     return count;
+  }
+
+  String? get _selectedKindFilterLabel {
+    switch (_selectedKindFilter) {
+      case 'activity':
+        return 'Aktivität';
+      case 'appointment':
+        return 'Termin';
+      case 'service':
+        return 'Dienstleistung';
+      default:
+        return null;
+    }
+  }
+
+  String? get _selectedDateFilterLabel {
+    switch (_selectedDateFilter) {
+      case 'today':
+        return 'Heute';
+      case 'next7days':
+        return 'Nächste 7 Tage';
+      case 'thisMonth':
+        return 'Diesen Monat';
+      default:
+        return null;
+    }
   }
 
   String? get _selectedRadiusLabel {
@@ -500,6 +527,37 @@ class _EventsPageState extends State<EventsPage>
       default:
         return null;
     }
+  }
+
+  List<_ActiveFilterChipData> _buildCommonActiveChips() {
+    return [
+      if (_searchController.text.trim().isNotEmpty)
+        _ActiveFilterChipData(
+          label: 'Suche: "${_searchController.text.trim()}"',
+          onRemove: () {
+            _searchController.clear();
+            if (mounted) setState(() {});
+          },
+        ),
+      if (_selectedKindFilterLabel != null)
+        _ActiveFilterChipData(
+          label: _selectedKindFilterLabel!,
+          onRemove: () {
+            setState(() {
+              _selectedKindFilter = 'all';
+            });
+          },
+        ),
+      if (_selectedDateFilterLabel != null)
+        _ActiveFilterChipData(
+          label: _selectedDateFilterLabel!,
+          onRemove: () {
+            setState(() {
+              _selectedDateFilter = 'all';
+            });
+          },
+        ),
+    ];
   }
 
   Future<void> _openFilterSheet() async {
@@ -1086,6 +1144,7 @@ class _EventsPageState extends State<EventsPage>
                         currentUserId: currentUserId,
                         statusResolver: (_) => 'open',
                         activeChips: [
+                          ..._buildCommonActiveChips(),
                           if (_selectedOpenEventsSortLabel != null)
                             _ActiveFilterChipData(
                               label: _selectedOpenEventsSortLabel!,
@@ -1105,7 +1164,7 @@ class _EventsPageState extends State<EventsPage>
                               },
                             ),
                         ],
-                        groupByDay: true,
+                        groupByDay: _selectedOpenEventsSort == 'date_distance',
                         emptyState: const _EventEmptyState(
                           icon: Icons.public_off_outlined,
                           title: 'Keine offenen Events',
@@ -1122,6 +1181,7 @@ class _EventsPageState extends State<EventsPage>
                         currentUserId: currentUserId,
                         statusResolver: (data) =>
                             _responseForUser(data, currentUserId),
+                        activeChips: _buildCommonActiveChips(),
                         emptyState: const _EventEmptyState(
                           icon: Icons.mail_outline_rounded,
                           title: 'Keine Einladungen vorhanden',
@@ -1137,6 +1197,7 @@ class _EventsPageState extends State<EventsPage>
                         view: EventDetailView.myEvent,
                         currentUserId: currentUserId,
                         statusResolver: (data) => _overallStatus(data),
+                        activeChips: _buildCommonActiveChips(),
                         emptyState: const _EventEmptyState(
                           icon: Icons.event_busy_outlined,
                           title: 'Noch keine eigenen Events',
@@ -1312,14 +1373,14 @@ class _ActiveSearchInfo extends StatelessWidget {
     final colorScheme = theme.colorScheme;
 
     final parts = <String>[];
-    if (searchText.isNotEmpty) {
-      parts.add('Suche: "$searchText"');
-    }
     if (activeFilterCount > 0) {
       parts.add('$activeFilterCount Filter aktiv');
     }
     if (resultCount != null) {
       parts.add('$resultCount Treffer');
+    }
+    if (parts.isEmpty && searchText.isNotEmpty) {
+      parts.add('Suche aktiv');
     }
 
     return Container(
@@ -1451,10 +1512,38 @@ class _EventCard extends StatelessWidget {
     required this.onTap,
   });
 
+  String? _relativeStartText() {
+    final startDate = scheduledAt?.toDate();
+    if (startDate == null) return null;
+
+    final now = DateTime.now();
+    if (!startDate.isAfter(now)) return null;
+
+    final startDay = DateTime(startDate.year, startDate.month, startDate.day);
+    final today = DateTime(now.year, now.month, now.day);
+    final dayDiff = startDay.difference(today).inDays;
+    final diff = startDate.difference(now);
+
+    if (dayDiff == 0) {
+      if (diff.inMinutes < 60) {
+        final minutes = diff.inMinutes <= 1 ? 1 : diff.inMinutes;
+        return 'Startet in $minutes Min.';
+      }
+
+      final hours = (diff.inMinutes / 60).ceil();
+      return 'Startet in $hours Std.';
+    }
+
+    if (dayDiff == 1) return 'Startet morgen';
+    if (dayDiff < 7) return 'Startet in $dayDiff Tagen';
+    return 'Startet am ${DateFormat('dd.MM.', 'de_DE').format(startDate)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final title = (data['title'] ?? 'Event').toString().trim();
     final description = (data['description'] ?? '').toString().trim();
+    final relativeStartText = _relativeStartText();
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -1557,6 +1646,26 @@ class _EventCard extends StatelessWidget {
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
+                                if (relativeStartText != null) ...[
+                                  const SizedBox(height: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.orange.withValues(alpha: 0.10),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Text(
+                                      relativeStartText,
+                                      style: theme.textTheme.labelMedium?.copyWith(
+                                        color: Colors.orange,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                                 if (description.isNotEmpty) ...[
                                   const SizedBox(height: 8),
                                   Text(
