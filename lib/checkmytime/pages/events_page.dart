@@ -26,6 +26,7 @@ class _EventsPageState extends State<EventsPage>
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _eventsStream;
   Position? _userPosition;
   bool _isLoadingUserLocation = false;
+  bool _didAutoJumpToMyEvents = false;
 
   @override
   void initState() {
@@ -352,6 +353,40 @@ class _EventsPageState extends State<EventsPage>
     if (declined.contains(currentUserId)) return 'declined';
     if (directResponse.isNotEmpty) return directResponse;
     return 'pending';
+  }
+
+  int _pendingOwnerRequestCount(
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    if (createdBy != currentUserId) return 0;
+
+    final explicitRequestUserIds = List<String>.from(
+      data['requestUserIds'] ?? const [],
+    );
+    if (explicitRequestUserIds.isNotEmpty) {
+      return explicitRequestUserIds.where((id) => id != currentUserId).length;
+    }
+
+    final joinMode = (data['joinMode'] ?? '').toString().trim().toLowerCase();
+    if (joinMode != 'request') return 0;
+
+    final responseMap = Map<String, dynamic>.from(
+      data['responseMap'] ?? const <String, dynamic>{},
+    );
+
+    return responseMap.entries.where((entry) {
+      return entry.key != currentUserId &&
+          entry.value.toString().trim().toLowerCase() == 'pending';
+    }).length;
+  }
+
+  bool _hasPendingOwnerRequests(
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    return _pendingOwnerRequestCount(data, currentUserId) > 0;
   }
 
   String _overallStatus(Map<String, dynamic> data) {
@@ -965,6 +1000,10 @@ class _EventsPageState extends State<EventsPage>
         kindColor: _kindColor(colorScheme, data),
         statusLabel: _statusLabel(rawStatus),
         statusColor: _statusColor(colorScheme, rawStatus),
+        interactionBadgeLabel: view == EventDetailView.myEvent &&
+            _hasPendingOwnerRequests(data, currentUserId)
+            ? '${_pendingOwnerRequestCount(data, currentUserId)} neu'
+            : null,
         metaText: _metaText(data, currentUserId),
         participantsText: _participantsText(data),
         locationInfo: _locationInfo(data),
@@ -1213,6 +1252,20 @@ class _EventsPageState extends State<EventsPage>
             _sortEventsInPlace(invitedEvents);
             _sortOpenEventsInPlace(openEvents);
 
+            final myPendingRequestCount = myEvents.fold<int>(0, (sum, doc) {
+              return sum + _pendingOwnerRequestCount(doc.data(), currentUserId);
+            });
+
+            if (myPendingRequestCount > 0 &&
+                !_didAutoJumpToMyEvents &&
+                _tabController.index == 0) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted || _didAutoJumpToMyEvents) return;
+                _didAutoJumpToMyEvents = true;
+                _tabController.animateTo(2);
+              });
+            }
+
             final currentTabIndex = _tabController.index;
             final openActiveChips = <_ActiveFilterChipData>[
               ..._buildCommonActiveChips(),
@@ -1287,10 +1340,15 @@ class _EventsPageState extends State<EventsPage>
                       labelStyle: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
-                      tabs: const [
-                        Tab(text: 'Offene Events'),
-                        Tab(text: 'Einladungen'),
-                        Tab(text: 'Meine Events'),
+                      tabs: [
+                        const Tab(text: 'Offene Events'),
+                        const Tab(text: 'Einladungen'),
+                        Tab(
+                          child: _TabLabelWithBadge(
+                            label: 'Meine Events',
+                            badgeCount: myPendingRequestCount,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1427,6 +1485,60 @@ class _EventsPageState extends State<EventsPage>
           },
         ),
       ),
+    );
+  }
+}
+
+class _HomeStyleBadge extends StatelessWidget {
+  final String label;
+
+  const _HomeStyleBadge({
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFB7E61D),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: Colors.black87,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _TabLabelWithBadge extends StatelessWidget {
+  final String label;
+  final int badgeCount;
+
+  const _TabLabelWithBadge({
+    required this.label,
+    required this.badgeCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (badgeCount <= 0) {
+      return Text(label);
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
+        const SizedBox(width: 8),
+        _HomeStyleBadge(
+          label: badgeCount == 1 ? '1 neu' : '$badgeCount neu',
+        ),
+      ],
     );
   }
 }
@@ -1747,6 +1859,7 @@ class _EventCard extends StatelessWidget {
   final Color kindColor;
   final String statusLabel;
   final Color statusColor;
+  final String? interactionBadgeLabel;
   final String metaText;
   final String participantsText;
   final _LocationInfo locationInfo;
@@ -1766,6 +1879,7 @@ class _EventCard extends StatelessWidget {
     required this.kindColor,
     required this.statusLabel,
     required this.statusColor,
+    required this.interactionBadgeLabel,
     required this.metaText,
     required this.participantsText,
     required this.locationInfo,
@@ -1908,6 +2022,15 @@ class _EventCard extends StatelessWidget {
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
+                                if (interactionBadgeLabel != null) ...[
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: _HomeStyleBadge(
+                                      label: interactionBadgeLabel!,
+                                    ),
+                                  ),
+                                ],
                                 if (relativeStartText != null) ...[
                                   const SizedBox(height: 8),
                                   Container(
