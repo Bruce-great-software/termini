@@ -31,6 +31,7 @@ class _EventsPageState extends State<EventsPage>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(_onTabChanged);
     _eventsStream = FirebaseFirestore.instance
         .collection('events')
         .orderBy('createdAt', descending: true)
@@ -42,9 +43,16 @@ class _EventsPageState extends State<EventsPage>
   @override
   void dispose() {
     _searchController.removeListener(_onSearchChanged);
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _onTabChanged() {
+    if (!_tabController.indexIsChanging && mounted) {
+      setState(() {});
+    }
   }
 
   void _onSearchChanged() {
@@ -486,7 +494,8 @@ class _EventsPageState extends State<EventsPage>
         _selectedKindFilter != 'all' ||
         _selectedDateFilter != 'all' ||
         _selectedRadiusFilter != 'all' ||
-        _selectedOpenEventsSort != 'distance_date';
+        _selectedOpenEventsSort != 'distance_date' ||
+        _selectedOpenQuickFilter != 'all';
   }
 
   int get _activeFilterCount {
@@ -593,6 +602,59 @@ class _EventsPageState extends State<EventsPage>
           },
         ),
     ];
+  }
+
+  String _buildResultsSummary(int resultCount) {
+    final resultLabel = resultCount == 1 ? '1 Treffer' : '$resultCount Treffer';
+    final contexts = <String>[];
+
+    if (_selectedOpenQuickFilter == 'today') {
+      contexts.add('heute');
+    } else if (_selectedOpenQuickFilter == 'tomorrow') {
+      contexts.add('morgen');
+    } else if (_selectedOpenQuickFilter == 'thisWeek') {
+      contexts.add('diese Woche');
+    } else if (_selectedDateFilter == 'today') {
+      contexts.add('heute');
+    } else if (_selectedDateFilter == 'next7days') {
+      contexts.add('in den nächsten 7 Tagen');
+    } else if (_selectedDateFilter == 'thisMonth') {
+      contexts.add('diesen Monat');
+    }
+
+    if (_selectedKindFilterLabel != null) {
+      contexts.add('für ${_selectedKindFilterLabel!.toLowerCase()}');
+    }
+
+    final radiusKm = _effectiveRadiusKm?.round();
+    if (radiusKm != null) {
+      contexts.add('im Umkreis von $radiusKm km');
+    }
+
+    if (_searchController.text.trim().isNotEmpty) {
+      contexts.add('für deine Suche');
+    }
+
+    if (contexts.isEmpty) return resultLabel;
+    return '$resultLabel ${contexts.join(' • ')}';
+  }
+
+  int _nextRadiusStep(int currentKm) {
+    if (currentKm < 10) return 10;
+    if (currentKm < 25) return 25;
+    if (currentKm < 50) return 50;
+    return 100;
+  }
+
+  void _resetAllEventFilters() {
+    _searchController.clear();
+    setState(() {
+      _selectedKindFilter = 'all';
+      _selectedDateFilter = 'all';
+      _selectedRadiusFilter = 'all';
+      _selectedOpenEventsSort = 'distance_date';
+      _selectedOpenQuickFilter = 'all';
+    });
   }
 
   Future<void> _openFilterSheet() async {
@@ -861,6 +923,8 @@ class _EventsPageState extends State<EventsPage>
     required String currentUserId,
     required Widget emptyState,
     required String Function(Map<String, dynamic>) statusResolver,
+    String? resultsSummary,
+    Widget? filteredEmptyState,
     List<_ActiveFilterChipData> activeChips = const [],
     Widget? topContent,
     bool groupByDay = false,
@@ -870,27 +934,14 @@ class _EventsPageState extends State<EventsPage>
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
         children: [
-          if (topContent != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: topContent,
-            ),
-          if (_hasActiveEventFilters)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _ActiveSearchInfo(
-                searchText: _searchController.text.trim(),
-                activeFilterCount: _activeFilterCount,
-                activeChips: activeChips,
-              ),
-            ),
           _hasActiveEventFilters
-              ? const _EventEmptyState(
-            icon: Icons.search_off_rounded,
-            title: 'Keine passenden Events',
-            subtitle:
-            'Für deine aktuelle Suche oder den gewählten Filter wurden keine Events gefunden.',
-          )
+              ? (filteredEmptyState ??
+              const _EventEmptyState(
+                icon: Icons.search_off_rounded,
+                title: 'Keine passenden Events',
+                subtitle:
+                'Für deine aktuelle Suche oder den gewählten Filter wurden keine Events gefunden.',
+              ))
               : emptyState,
         ],
       );
@@ -933,63 +984,17 @@ class _EventsPageState extends State<EventsPage>
     }
 
     if (!groupByDay) {
-      final headerCount =
-          (topContent != null ? 1 : 0) + (_hasActiveEventFilters ? 1 : 0);
-
       return ListView.builder(
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        itemCount: docs.length + headerCount,
+        itemCount: docs.length,
         itemBuilder: (context, index) {
-          if (topContent != null && index == 0) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: topContent,
-            );
-          }
-
-          if (_hasActiveEventFilters &&
-              index == (topContent != null ? 1 : 0)) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _ActiveSearchInfo(
-                searchText: _searchController.text.trim(),
-                activeFilterCount: _activeFilterCount,
-                resultCount: docs.length,
-                activeChips: activeChips,
-              ),
-            );
-          }
-
-          final docIndex = index - headerCount;
-          return buildEventCard(docs[docIndex]);
+          return buildEventCard(docs[index]);
         },
       );
     }
 
     final children = <Widget>[];
-    if (topContent != null) {
-      children.add(
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: topContent,
-        ),
-      );
-    }
-    if (_hasActiveEventFilters) {
-      children.add(
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: _ActiveSearchInfo(
-            searchText: _searchController.text.trim(),
-            activeFilterCount: _activeFilterCount,
-            resultCount: docs.length,
-            activeChips: activeChips,
-          ),
-        ),
-      );
-    }
-
     final dayCounts = <DateTime?, int>{};
     for (final doc in docs) {
       final scheduledAt = _scheduledTimestamp(doc.data());
@@ -1208,6 +1213,49 @@ class _EventsPageState extends State<EventsPage>
             _sortEventsInPlace(invitedEvents);
             _sortOpenEventsInPlace(openEvents);
 
+            final currentTabIndex = _tabController.index;
+            final openActiveChips = <_ActiveFilterChipData>[
+              ..._buildCommonActiveChips(),
+              if (_selectedOpenQuickFilterLabel != null)
+                _ActiveFilterChipData(
+                  label: _selectedOpenQuickFilterLabel!,
+                  onRemove: () {
+                    setState(() {
+                      _selectedOpenQuickFilter = 'all';
+                    });
+                  },
+                ),
+              if (_selectedOpenEventsSortLabel != null)
+                _ActiveFilterChipData(
+                  label: _selectedOpenEventsSortLabel!,
+                  onRemove: () {
+                    setState(() {
+                      _selectedOpenEventsSort = 'distance_date';
+                    });
+                  },
+                ),
+              if (_selectedRadiusLabel != null)
+                _ActiveFilterChipData(
+                  label: _selectedRadiusLabel!,
+                  onRemove: () {
+                    setState(() {
+                      _selectedRadiusFilter = 'all';
+                    });
+                  },
+                ),
+            ];
+
+            final currentActiveChips = currentTabIndex == 0
+                ? openActiveChips
+                : _buildCommonActiveChips();
+            final currentResultCount = currentTabIndex == 0
+                ? openEvents.length
+                : currentTabIndex == 1
+                ? invitedEvents.length
+                : myEvents.length;
+            final currentSummary =
+            currentTabIndex == 0 ? _buildResultsSummary(openEvents.length) : null;
+
             return Column(
               children: [
                 Padding(
@@ -1248,6 +1296,29 @@ class _EventsPageState extends State<EventsPage>
                   ),
                 ),
                 const SizedBox(height: 14),
+                if (currentTabIndex == 0)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: _OpenEventsQuickFilterBar(
+                      selectedValue: _selectedOpenQuickFilter,
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedOpenQuickFilter = value;
+                        });
+                      },
+                    ),
+                  ),
+                if (_hasActiveEventFilters)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: _ActiveSearchInfo(
+                      searchText: _searchController.text.trim(),
+                      activeFilterCount: _activeFilterCount,
+                      resultCount: currentResultCount,
+                      summaryText: currentSummary,
+                      activeChips: currentActiveChips,
+                    ),
+                  ),
                 Expanded(
                   child: TabBarView(
                     controller: _tabController,
@@ -1261,14 +1332,22 @@ class _EventsPageState extends State<EventsPage>
                         view: EventDetailView.openEvent,
                         currentUserId: currentUserId,
                         statusResolver: (_) => 'open',
-                        topContent: _OpenEventsQuickFilterBar(
-                          selectedValue: _selectedOpenQuickFilter,
-                          onChanged: (value) {
+                        resultsSummary: _buildResultsSummary(openEvents.length),
+                        filteredEmptyState: _effectiveRadiusKm != null
+                            ? _RadiusEmptyState(
+                          radiusKm: _effectiveRadiusKm!.round(),
+                          onExpand: () {
                             setState(() {
-                              _selectedOpenQuickFilter = value;
+                              final currentRadius =
+                                  _effectiveRadiusKm?.round() ?? 100;
+                              _selectedRadiusFilter =
+                                  _nextRadiusStep(currentRadius)
+                                      .toString();
                             });
                           },
-                        ),
+                          onReset: _resetAllEventFilters,
+                        )
+                            : null,
                         activeChips: [
                           ..._buildCommonActiveChips(),
                           if (_selectedOpenQuickFilterLabel != null)
@@ -1537,12 +1616,14 @@ class _ActiveSearchInfo extends StatelessWidget {
   final String searchText;
   final int activeFilterCount;
   final int? resultCount;
+  final String? summaryText;
   final List<_ActiveFilterChipData> activeChips;
 
   const _ActiveSearchInfo({
     required this.searchText,
     required this.activeFilterCount,
     this.resultCount,
+    this.summaryText,
     this.activeChips = const [],
   });
 
@@ -1555,7 +1636,9 @@ class _ActiveSearchInfo extends StatelessWidget {
     if (activeFilterCount > 0) {
       parts.add('$activeFilterCount Filter aktiv');
     }
-    if (resultCount != null) {
+    if (summaryText != null && summaryText!.trim().isNotEmpty) {
+      parts.add(summaryText!);
+    } else if (resultCount != null) {
       parts.add('$resultCount Treffer');
     }
     if (parts.isEmpty && searchText.isNotEmpty) {
@@ -1998,6 +2081,76 @@ class _EventInfoChip extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _RadiusEmptyState extends StatelessWidget {
+  final int radiusKm;
+  final VoidCallback onExpand;
+  final VoidCallback onReset;
+
+  const _RadiusEmptyState({
+    required this.radiusKm,
+    required this.onExpand,
+    required this.onReset,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.radar_rounded,
+            size: 56,
+            color: colorScheme.primary.withValues(alpha: 0.75),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Keine Events im Umkreis von $radiusKm km',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Erweitere den Umkreis oder setze die Filter zurück, um wieder Ergebnisse zu sehen.',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onExpand,
+                  child: const Text('Umkreis erweitern'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  onPressed: onReset,
+                  child: const Text('Filter zurücksetzen'),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

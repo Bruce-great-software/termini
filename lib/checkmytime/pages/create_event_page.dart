@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:termini/checkmytime/services/google_places_service.dart';
@@ -696,6 +697,359 @@ class _CreateEventPageState extends State<CreateEventPage> {
     return result;
   }
 
+  bool _isSameCalendarDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  bool _isPastStartSelection({
+    required DateTime selectedDate,
+    required TimeOfDay selectedTime,
+  }) {
+    final combined = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedTime.hour,
+      selectedTime.minute,
+    );
+    return !combined.isAfter(DateTime.now());
+  }
+
+  TimeOfDay _nextValidTimeForToday() {
+    final now = DateTime.now().add(const Duration(minutes: 1));
+    return TimeOfDay(hour: now.hour, minute: now.minute);
+  }
+
+  List<int> _availableHoursForDate(DateTime selectedDate) {
+    final now = DateTime.now().add(const Duration(minutes: 1));
+    if (!_isSameCalendarDay(selectedDate, now)) {
+      return List<int>.generate(24, (index) => index);
+    }
+
+    final hours = <int>[];
+    for (var hour = now.hour; hour < 24; hour++) {
+      if (_availableMinutesForDateAndHour(selectedDate, hour).isNotEmpty) {
+        hours.add(hour);
+      }
+    }
+    return hours;
+  }
+
+  List<int> _availableMinutesForDateAndHour(DateTime selectedDate, int hour) {
+    final now = DateTime.now().add(const Duration(minutes: 1));
+    if (!_isSameCalendarDay(selectedDate, now)) {
+      return List<int>.generate(60, (index) => index);
+    }
+
+    if (hour < now.hour) return const [];
+
+    final startMinute = hour == now.hour ? now.minute : 0;
+    if (startMinute > 59) return const [];
+
+    return List<int>.generate(60 - startMinute, (index) => startMinute + index);
+  }
+
+  DateTime _initialFutureDateTimeFor(DateTime selectedDate, DateTime? preferred) {
+    final normalizedDate = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+    final now = DateTime.now().add(const Duration(minutes: 1));
+
+    DateTime candidate;
+    if (preferred != null) {
+      candidate = DateTime(
+        normalizedDate.year,
+        normalizedDate.month,
+        normalizedDate.day,
+        preferred.hour,
+        preferred.minute,
+      );
+    } else {
+      candidate = DateTime(
+        normalizedDate.year,
+        normalizedDate.month,
+        normalizedDate.day,
+        18,
+        0,
+      );
+    }
+
+    if (!_isSameCalendarDay(normalizedDate, now)) {
+      return candidate;
+    }
+
+    if (candidate.isAfter(now)) {
+      return candidate;
+    }
+
+    return DateTime(
+      normalizedDate.year,
+      normalizedDate.month,
+      normalizedDate.day,
+      now.hour,
+      now.minute,
+    );
+  }
+
+  List<_QuickTimeOption> _quickTimeOptionsFor(DateTime selectedDate) {
+    final normalizedDate =
+    DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+
+    return List<_QuickTimeOption>.generate(24, (index) {
+      return _QuickTimeOption(
+        label: '${index.toString().padLeft(2, '0')}:00',
+        dateTime: DateTime(
+          normalizedDate.year,
+          normalizedDate.month,
+          normalizedDate.day,
+          index,
+          0,
+        ),
+      );
+    });
+  }
+
+  Future<DateTime?> _showCustomTimePickerBottomSheet({
+    required DateTime selectedDate,
+    required DateTime? initialDateTime,
+    required String title,
+  }) async {
+    final normalizedDate = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+    );
+
+    return showModalBottomSheet<DateTime>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        DateTime tempDateTime = _initialFutureDateTimeFor(
+          normalizedDate,
+          initialDateTime,
+        );
+
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final hours = List<int>.generate(24, (index) => index);
+            final minutes = List<int>.generate(60, (index) => index);
+            final selectedHourIndex = tempDateTime.hour;
+            final selectedMinuteIndex = tempDateTime.minute;
+            final hourController = FixedExtentScrollController(
+              initialItem: selectedHourIndex,
+            );
+            final minuteController = FixedExtentScrollController(
+              initialItem: selectedMinuteIndex,
+            );
+            final quickOptions = _quickTimeOptionsFor(normalizedDate);
+            final isValidSelection = tempDateTime.isAfter(DateTime.now());
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 8,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      DateFormat('EEEE, dd.MM.yyyy', 'de_DE').format(normalizedDate),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (quickOptions.isNotEmpty) ...[
+                      SizedBox(
+                        height: 46,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: quickOptions.length,
+                          separatorBuilder: (_, __) => const SizedBox(width: 10),
+                          itemBuilder: (context, index) {
+                            final option = quickOptions[index];
+                            final isSelected =
+                                tempDateTime.hour == option.dateTime.hour &&
+                                    tempDateTime.minute == option.dateTime.minute;
+                            final isOptionEnabled =
+                            option.dateTime.isAfter(DateTime.now());
+
+                            return ChoiceChip(
+                              selected: isSelected,
+                              showCheckmark: false,
+                              label: Text(option.label),
+                              onSelected: isOptionEnabled
+                                  ? (_) {
+                                setModalState(() {
+                                  tempDateTime = option.dateTime;
+                                });
+                                hourController.jumpToItem(option.dateTime.hour);
+                                minuteController.jumpToItem(option.dateTime.minute);
+                              }
+                                  : null,
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                    ],
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest
+                            .withOpacity(0.35),
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 180,
+                              child: CupertinoPicker(
+                                scrollController: hourController,
+                                itemExtent: 40,
+                                useMagnifier: true,
+                                magnification: 1.05,
+                                looping: true,
+                                onSelectedItemChanged: (index) {
+                                  setModalState(() {
+                                    final newHour = hours[index % hours.length];
+                                    tempDateTime = DateTime(
+                                      normalizedDate.year,
+                                      normalizedDate.month,
+                                      normalizedDate.day,
+                                      newHour,
+                                      tempDateTime.minute,
+                                    );
+                                  });
+                                },
+                                children: [
+                                  for (final hour in hours)
+                                    Center(
+                                      child: Text(
+                                        hour.toString().padLeft(2, '0'),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .headlineSmall
+                                            ?.copyWith(fontWeight: FontWeight.w700),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          Text(
+                            ':',
+                            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          Expanded(
+                            child: SizedBox(
+                              height: 180,
+                              child: CupertinoPicker(
+                                scrollController: minuteController,
+                                itemExtent: 40,
+                                useMagnifier: true,
+                                magnification: 1.05,
+                                looping: true,
+                                onSelectedItemChanged: (index) {
+                                  setModalState(() {
+                                    tempDateTime = DateTime(
+                                      normalizedDate.year,
+                                      normalizedDate.month,
+                                      normalizedDate.day,
+                                      tempDateTime.hour,
+                                      minutes[index % minutes.length],
+                                    );
+                                  });
+                                },
+                                children: [
+                                  for (final minute in minutes)
+                                    Center(
+                                      child: Text(
+                                        minute.toString().padLeft(2, '0'),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .headlineSmall
+                                            ?.copyWith(fontWeight: FontWeight.w700),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        color: (isValidSelection
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.error)
+                            .withOpacity(0.08),
+                      ),
+                      child: Text(
+                        isValidSelection
+                            ? 'Ausgewählt: ${DateFormat('HH:mm', 'de_DE').format(tempDateTime)} Uhr'
+                            : 'Bitte wähle eine Uhrzeit in der Zukunft.',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: isValidSelection
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('Abbrechen'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: isValidSelection
+                                ? () => Navigator.of(context).pop(tempDateTime)
+                                : null,
+                            child: const Text('Übernehmen'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _pickDate() async {
     final now = DateTime.now();
     final picked = await showDatePicker(
@@ -716,30 +1070,29 @@ class _CreateEventPageState extends State<CreateEventPage> {
   }
 
   Future<void> _pickStartTime() async {
-    final initialTime = _selectedStartTime ??
-        (_selectedDate == null
-            ? const TimeOfDay(hour: 18, minute: 0)
-            : TimeOfDay(hour: _selectedDate!.hour, minute: _selectedDate!.minute));
+    if (_selectedDate == null) {
+      _showMessage('Bitte wähle zuerst ein Datum aus.');
+      return;
+    }
 
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: initialTime,
+    final picked = await _showCustomTimePickerBottomSheet(
+      selectedDate: _selectedDate!,
+      initialDateTime: _combinedStartDateTime(),
+      title: 'Beginn wählen',
     );
 
-    if (picked != null) {
-      setState(() {
-        _selectedStartTime = picked;
-        if (_selectedDate != null) {
-          _selectedDate = DateTime(
-            _selectedDate!.year,
-            _selectedDate!.month,
-            _selectedDate!.day,
-            picked.hour,
-            picked.minute,
-          );
-        }
-      });
-    }
+    if (picked == null) return;
+
+    setState(() {
+      _selectedStartTime = TimeOfDay(hour: picked.hour, minute: picked.minute);
+      _selectedDate = DateTime(
+        _selectedDate!.year,
+        _selectedDate!.month,
+        _selectedDate!.day,
+        picked.hour,
+        picked.minute,
+      );
+    });
   }
 
   Future<void> _pickParticipationDeadline() async {
@@ -755,28 +1108,22 @@ class _CreateEventPageState extends State<CreateEventPage> {
 
     if (pickedDate == null || !mounted) return;
 
-    final initialTime = _participationDeadline == null
-        ? const TimeOfDay(hour: 16, minute: 0)
-        : TimeOfDay(
-      hour: _participationDeadline!.hour,
-      minute: _participationDeadline!.minute,
+    final picked = await _showCustomTimePickerBottomSheet(
+      selectedDate: pickedDate,
+      initialDateTime: _participationDeadline ??
+          DateTime(pickedDate.year, pickedDate.month, pickedDate.day, 16, 0),
+      title: 'Teilnahmeschluss wählen',
     );
 
-    final pickedTime = await showTimePicker(
-      context: context,
-      initialTime: initialTime,
-    );
+    if (picked == null) return;
 
-    if (pickedTime == null) return;
+    if (!picked.isAfter(now)) {
+      _showMessage('Der Teilnahmeschluss muss in der Zukunft liegen.');
+      return;
+    }
 
     setState(() {
-      _participationDeadline = DateTime(
-        pickedDate.year,
-        pickedDate.month,
-        pickedDate.day,
-        pickedTime.hour,
-        pickedTime.minute,
-      );
+      _participationDeadline = picked;
     });
   }
 
@@ -1225,6 +1572,7 @@ class _CreateEventPageState extends State<CreateEventPage> {
   bool _validateBeforeSubmit() {
     final topic = _topicController.text.trim();
     final combined = _combinedStartDateTime();
+    final now = DateTime.now();
 
     if (topic.isEmpty) {
       _showMessage('Bitte gib an, was du planst.');
@@ -1238,6 +1586,11 @@ class _CreateEventPageState extends State<CreateEventPage> {
 
     if (combined == null) {
       _showMessage('Bitte wähle Datum und Uhrzeit aus.');
+      return false;
+    }
+
+    if (!combined.isAfter(now)) {
+      _showMessage('Der Startzeitpunkt muss in der Zukunft liegen.');
       return false;
     }
 
@@ -1255,14 +1608,24 @@ class _CreateEventPageState extends State<CreateEventPage> {
       return false;
     }
 
-    if (_locationType == 'approximate' && _approxLocationController.text.trim().isEmpty) {
+    if (_locationType == 'approximate' &&
+        _approxLocationController.text.trim().isEmpty) {
       _showMessage('Bitte gib einen ungefähren Ort an.');
       return false;
     }
 
-    if (_locationType == 'exact' && _exactLocationController.text.trim().isEmpty) {
-      _showMessage('Bitte gib einen genauen Ort an.');
-      return false;
+    if (_locationType == 'exact') {
+      if (_exactLocationController.text.trim().isEmpty) {
+        _showMessage('Bitte gib einen genauen Ort an.');
+        return false;
+      }
+
+      if (_selectedExactPlace == null ||
+          _selectedExactPlace?.latitude == null ||
+          _selectedExactPlace?.longitude == null) {
+        _showMessage('Bitte wähle den genauen Ort aus den Vorschlägen aus.');
+        return false;
+      }
     }
 
     if (_visibility == 'private' && _selectedUsers.isEmpty) {
@@ -2272,6 +2635,16 @@ class _EventTopicSuggestion {
       isActive: data['isActive'] != false,
     );
   }
+}
+
+class _QuickTimeOption {
+  final String label;
+  final DateTime dateTime;
+
+  const _QuickTimeOption({
+    required this.label,
+    required this.dateTime,
+  });
 }
 
 class _ChoiceOption {
