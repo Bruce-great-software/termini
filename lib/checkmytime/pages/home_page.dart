@@ -472,6 +472,9 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
+        final eventStatus = (data['status'] ?? '').toString().trim().toLowerCase();
+        final isCancelledEvent = eventStatus == 'cancelled' || eventStatus == 'canceled';
+
         if (_isPendingEventInvite(data, currentUserId)) {
           pendingInviteIds.add(doc.id);
           pendingInviteTitles[doc.id] =
@@ -514,6 +517,13 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
             joinModesByOwnerBaseKey[baseKey] = joinMode;
           });
         }
+
+        if (isCancelledEvent) {
+          // Event-Absagen werden bereits serverseitig per Push verschickt.
+          // Hier deshalb keine zusätzlichen lokalen Event-Notifications auslösen,
+          // damit die Absage nicht doppelt erscheint.
+          continue;
+        }
       }
 
       if (!_hasInitializedInviteState) {
@@ -531,13 +541,9 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
 
       final newInviteIds = pendingInviteIds.difference(_knownPendingInviteIds);
       for (final eventId in newInviteIds) {
-        final eventTitle = pendingInviteTitles[eventId] ?? 'Neues Event';
-        final creatorName = pendingInviteCreators[eventId] ?? 'Jemand';
-        await NotificationService.instance.showIncomingEventInviteNotification(
-          title: 'Neue Event-Einladung',
-          body: '${creatorName.isEmpty ? 'Jemand' : creatorName} hat dich zu '
-              '"${eventTitle.isEmpty ? 'Neues Event' : eventTitle}" eingeladen.',
-        );
+        // Die eigentliche Event-Einladung wird bereits serverseitig per FCM
+        // verschickt. Hier keine zweite lokale Notification auslösen,
+        // sonst erscheint dieselbe Einladung doppelt.
         if (mounted) {
           setState(() => _latestInvitedEventId = eventId);
         }

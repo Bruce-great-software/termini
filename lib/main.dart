@@ -15,6 +15,12 @@ final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await NotificationService.instance.initialize();
+
+  if (message.notification != null) {
+    await NotificationService.instance.syncRemoteBadgeOnly(message);
+    return;
+  }
+
   await NotificationService.instance.showRemoteMessage(message);
 }
 

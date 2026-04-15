@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_new_badger/flutter_new_badger.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:termini/checkmytime/services/unread_count_repository.dart';
 
@@ -23,6 +24,9 @@ class NotificationService {
   static const String defaultChannelName = 'CheckMyTime';
   static const String _groupKeyPrefix = 'checkmytime_group';
   static const int _summaryNotificationBaseId = 900000000;
+  static const String _recentRemoteMessageKey = 'recent_remote_messages_v1';
+  static const String _dedupeSeparator = '\u001F';
+  static const Duration _remoteDedupWindow = Duration(seconds: 45);
 
   bool _isInitialized = false;
 
@@ -274,6 +278,10 @@ class NotificationService {
   }
 
   Future<void> showRemoteMessage(RemoteMessage message) async {
+    if (await _shouldSkipDuplicateRemoteMessage(message)) {
+      return;
+    }
+
     final data = message.data;
 
     final title =
@@ -318,6 +326,16 @@ class NotificationService {
       name: 'Event-Aktualisierungen',
       description: 'Benachrichtigungen fuer Event-Anfragen und Entscheidungen',
       ),
+      'event_deleted' => (
+      id: 'incoming_event_updates_v2',
+      name: 'Event-Aktualisierungen',
+      description: 'Benachrichtigungen fuer Event-Anfragen und Entscheidungen',
+      ),
+      'event_updated' => (
+      id: 'incoming_event_updates_v2',
+      name: 'Event-Aktualisierungen',
+      description: 'Benachrichtigungen fuer Event-Anfragen und Entscheidungen',
+      ),
       _ => (
       id: defaultChannelId,
       name: defaultChannelName,
@@ -325,11 +343,7 @@ class NotificationService {
       ),
     };
 
-    final serverBadgeCount = int.tryParse((data['badgeCount'] ?? '').toString());
-    final hasValidServerBadge = serverBadgeCount != null && serverBadgeCount > 0;
-    final unreadCount = hasValidServerBadge
-        ? await _unreadCountRepository.setUnreadCount(serverBadgeCount)
-        : await _unreadCountRepository.incrementUnreadCount();
+    final unreadCount = await _resolveUnreadCount(data);
 
     await _showNotification(
       channelId: channel.id,
@@ -344,6 +358,92 @@ class NotificationService {
     );
 
     await setAppBadgeCount(unreadCount);
+  }
+
+  Future<void> syncRemoteBadgeOnly(RemoteMessage message) async {
+    if (await _shouldSkipDuplicateRemoteMessage(message)) {
+      return;
+    }
+
+    final unreadCount = await _resolveUnreadCount(message.data);
+    await setAppBadgeCount(unreadCount);
+  }
+
+  Future<int> _resolveUnreadCount(Map<String, dynamic> data) async {
+    final serverBadgeCount = int.tryParse((data['badgeCount'] ?? '').toString());
+    final hasValidServerBadge = serverBadgeCount != null && serverBadgeCount > 0;
+    return hasValidServerBadge
+        ? _unreadCountRepository.setUnreadCount(serverBadgeCount)
+        : _unreadCountRepository.incrementUnreadCount();
+  }
+
+  Future<bool> _shouldSkipDuplicateRemoteMessage(RemoteMessage message) async {
+    final dedupeKey = _remoteMessageDedupeKey(message);
+    if (dedupeKey.isEmpty) return false;
+
+    final prefs = await SharedPreferences.getInstance();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final cutoff = now - _remoteDedupWindow.inMilliseconds;
+    final storedEntries = prefs.getStringList(_recentRemoteMessageKey) ?? const <String>[];
+
+    final freshEntries = <String>[];
+    var isDuplicate = false;
+
+    for (final entry in storedEntries) {
+      final separatorIndex = entry.lastIndexOf(_dedupeSeparator);
+      if (separatorIndex <= 0 || separatorIndex >= entry.length - 1) {
+        continue;
+      }
+
+      final key = entry.substring(0, separatorIndex);
+      final timestamp = int.tryParse(entry.substring(separatorIndex + 1));
+      if (timestamp == null || timestamp < cutoff) {
+        continue;
+      }
+
+      if (key == dedupeKey) {
+        isDuplicate = true;
+      }
+
+      freshEntries.add('$key$_dedupeSeparator$timestamp');
+    }
+
+    if (isDuplicate) {
+      await prefs.setStringList(_recentRemoteMessageKey, freshEntries);
+      return true;
+    }
+
+    freshEntries.add('$dedupeKey$_dedupeSeparator$now');
+    await prefs.setStringList(_recentRemoteMessageKey, freshEntries);
+    return false;
+  }
+
+  String _remoteMessageDedupeKey(RemoteMessage message) {
+    final messageId = message.messageId?.trim();
+    if (messageId != null && messageId.isNotEmpty) {
+      return 'messageId:$messageId';
+    }
+
+    final data = message.data;
+    final title =
+    (message.notification?.title ?? data['title'] ?? '').toString().trim();
+    final body =
+    (message.notification?.body ?? data['body'] ?? '').toString().trim();
+
+    final parts = <String>[
+      (data['type'] ?? '').toString().trim(),
+      (data['eventId'] ?? '').toString().trim(),
+      (data['threadId'] ?? '').toString().trim(),
+      (data['contactId'] ?? '').toString().trim(),
+      (data['appointmentId'] ?? '').toString().trim(),
+      (data['senderId'] ?? '').toString().trim(),
+      (data['route'] ?? data['target'] ?? '').toString().trim(),
+      title,
+      body,
+    ].where((part) => part.isNotEmpty).toList();
+
+    if (parts.isEmpty) return '';
+    return parts.join('|');
   }
 
   Future<int> _resolveNotificationId(RemoteMessage message) async {
