@@ -5,7 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:termini/checkmytime/pages/create_event_page.dart';
 import 'package:termini/checkmytime/pages/event_detail_page.dart';
 
@@ -42,9 +41,6 @@ class _EventsPageState extends State<EventsPage>
   final GlobalKey _highlightedCardKey = GlobalKey();
   bool _needsScrollToHighlight = false;
 
-  Set<String> _seenInviteIds = {};
-  Set<String> _currentPendingInviteIds = {};
-  static const String _kSeenInviteIdsKey = 'seen_event_invite_ids';
 
   @override
   void initState() {
@@ -63,7 +59,6 @@ class _EventsPageState extends State<EventsPage>
       });
     }
     _tabController.addListener(_onTabChanged);
-    _loadSeenInviteIds();
     _eventsStream = FirebaseFirestore.instance
         .collection('events')
         .orderBy('createdAt', descending: true)
@@ -81,27 +76,8 @@ class _EventsPageState extends State<EventsPage>
     super.dispose();
   }
 
-  Future<void> _loadSeenInviteIds() async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = prefs.getStringList(_kSeenInviteIdsKey) ?? [];
-    if (mounted) setState(() => _seenInviteIds = Set.from(list));
-  }
-
-  Future<void> _markCurrentInvitesAsSeen() async {
-    if (_currentPendingInviteIds.isEmpty) return;
-    final updated = {..._seenInviteIds, ..._currentPendingInviteIds};
-    if (updated.length == _seenInviteIds.length) return;
-    _seenInviteIds = updated;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_kSeenInviteIdsKey, _seenInviteIds.toList());
-    if (mounted) setState(() {});
-  }
-
   void _onTabChanged() {
     if (!_tabController.indexIsChanging && mounted) {
-      if (_tabController.index == 1) {
-        unawaited(_markCurrentInvitesAsSeen());
-      }
       setState(() {});
     }
   }
@@ -403,6 +379,30 @@ class _EventsPageState extends State<EventsPage>
     if (declined.contains(currentUserId)) return 'declined';
     if (directResponse.isNotEmpty) return directResponse;
     return 'pending';
+  }
+
+
+  Map<String, dynamic> _inviteSeenAtMap(Map<String, dynamic> data) {
+    return Map<String, dynamic>.from(
+      data['inviteSeenAtMap'] ?? const <String, dynamic>{},
+    );
+  }
+
+  bool _hasSeenInvite(Map<String, dynamic> data, String userId) {
+    if (userId.trim().isEmpty) return false;
+    final seenMap = _inviteSeenAtMap(data);
+    if (seenMap[userId] != null) return true;
+
+    final response = _responseForUser(data, userId);
+    return response == 'accepted' || response == 'maybe' || response == 'declined';
+  }
+
+  bool _isUnseenPendingEventInvite(
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    return _isPendingEventInvite(data, currentUserId) &&
+        !_hasSeenInvite(data, currentUserId);
   }
 
   bool _isPendingEventInvite(Map<String, dynamic> data, String currentUserId) {
@@ -1101,8 +1101,7 @@ class _EventsPageState extends State<EventsPage>
       final rawStatus = statusResolver(data);
       final isHighlighted = doc.id == _highlightedEventId;
       final isUnseen = view == EventDetailView.invitation &&
-          _isPendingEventInvite(data, currentUserId) &&
-          !_seenInviteIds.contains(doc.id);
+          _isUnseenPendingEventInvite(data, currentUserId);
 
       return _EventCard(
         key: isHighlighted ? _highlightedCardKey : null,
@@ -1369,19 +1368,13 @@ class _EventsPageState extends State<EventsPage>
             _sortEventsInPlace(invitedEvents);
             _sortOpenEventsInPlace(openEvents);
 
-            // Update pending invite IDs for seen-tracking (no setState needed)
-            _currentPendingInviteIds = {
-              for (final doc in invitedEvents)
-                if (_isPendingEventInvite(doc.data(), currentUserId)) doc.id,
-            };
-
             final myPendingRequestCount = myEvents.fold<int>(0, (sum, doc) {
               return sum + _pendingOwnerRequestCount(doc.data(), currentUserId);
             });
 
             final invitationAttentionCount = invitedEvents.where((doc) {
               final data = doc.data();
-              return _isPendingEventInvite(data, currentUserId) ||
+              return _isUnseenPendingEventInvite(data, currentUserId) ||
                   _isJoinDecisionForRequester(data, currentUserId);
             }).length;
 
@@ -2131,13 +2124,13 @@ class _EventCard extends StatelessWidget {
               ),
               boxShadow: isHighlighted
                   ? [
-                      BoxShadow(
-                        color: highlightColor.withValues(alpha: 0.28),
-                        blurRadius: 18,
-                        spreadRadius: 2,
-                        offset: Offset.zero,
-                      ),
-                    ]
+                BoxShadow(
+                  color: highlightColor.withValues(alpha: 0.28),
+                  blurRadius: 18,
+                  spreadRadius: 2,
+                  offset: Offset.zero,
+                ),
+              ]
                   : null,
             ),
             child: Column(

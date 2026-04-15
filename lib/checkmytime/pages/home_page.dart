@@ -201,6 +201,51 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     return true;
   }
 
+  Map<String, dynamic> _inviteSeenAtMap(Map<String, dynamic> data) {
+    return Map<String, dynamic>.from(
+      data['inviteSeenAtMap'] ?? const <String, dynamic>{},
+    );
+  }
+
+  String _responseForUser(Map<String, dynamic> data, String currentUserId) {
+    final responseMap = Map<String, dynamic>.from(
+      data['responseMap'] ?? const <String, dynamic>{},
+    );
+    final directResponse =
+    (responseMap[currentUserId] ?? '').toString().trim().toLowerCase();
+
+    final acceptedUserIds = List<String>.from(
+      data['acceptedUserIds'] ?? const [],
+    );
+    final maybeUserIds = List<String>.from(data['maybeUserIds'] ?? const []);
+    final declinedUserIds = List<String>.from(
+      data['declinedUserIds'] ?? const [],
+    );
+
+    if (acceptedUserIds.contains(currentUserId)) return 'accepted';
+    if (maybeUserIds.contains(currentUserId)) return 'maybe';
+    if (declinedUserIds.contains(currentUserId)) return 'declined';
+    if (directResponse.isNotEmpty) return directResponse;
+    return 'pending';
+  }
+
+  bool _hasSeenInvite(Map<String, dynamic> data, String currentUserId) {
+    if (currentUserId.trim().isEmpty) return false;
+    final seenMap = _inviteSeenAtMap(data);
+    if (seenMap[currentUserId] != null) return true;
+
+    final response = _responseForUser(data, currentUserId);
+    return response == 'accepted' || response == 'maybe' || response == 'declined';
+  }
+
+  bool _isUnseenPendingEventInvite(
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    return _isPendingEventInvite(data, currentUserId) &&
+        !_hasSeenInvite(data, currentUserId);
+  }
+
 
   Set<String> _pendingRequestKeysForOwner(
       String eventId,
@@ -460,8 +505,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         .snapshots()
         .listen((snapshot) async {
       final pendingInviteIds = <String>{};
-      final pendingInviteTitles = <String, String>{};
-      final pendingInviteCreators = <String, String>{};
       final pendingOwnerRequestKeys = <String>{};
       final currentJoinDecisionKeys = <String>{};
       final currentOwnerResponseStatuses = <String, String>{};
@@ -475,12 +518,8 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         final eventStatus = (data['status'] ?? '').toString().trim().toLowerCase();
         final isCancelledEvent = eventStatus == 'cancelled' || eventStatus == 'canceled';
 
-        if (_isPendingEventInvite(data, currentUserId)) {
+        if (_isUnseenPendingEventInvite(data, currentUserId)) {
           pendingInviteIds.add(doc.id);
-          pendingInviteTitles[doc.id] =
-              (data['title'] ?? 'Neues Event').toString().trim();
-          pendingInviteCreators[doc.id] =
-              (data['createdByName'] ?? 'Jemand').toString().trim();
         }
 
         final pendingKeys =
