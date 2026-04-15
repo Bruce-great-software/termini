@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:termini/checkmytime/pages/contact_thread_page.dart';
 import 'package:termini/checkmytime/pages/event_detail_page.dart';
 import 'package:termini/checkmytime/pages/profile_page.dart';
+import 'package:termini/checkmytime/pages/chat_page.dart';
 import 'package:termini/checkmytime/services/notification_service.dart';
 import 'package:termini/checkmytime/pages/events_page.dart';
+import 'package:termini/checkmytime/pages/notifications_page.dart';
 
 class CheckMyTimeHomePage extends StatefulWidget {
   const CheckMyTimeHomePage({super.key});
@@ -475,7 +477,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     }
 
     setState(() {
-      _selectedIndex = 1;
+      _selectedIndex = 2;
     });
   }
 
@@ -2158,7 +2160,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                   'Hier kannst du Name, Bild und weitere Angaben ergänzen.',
                   onTap: () {
                     setState(() {
-                      _selectedIndex = 2;
+                      _selectedIndex = 3;
                     });
                   },
                 ),
@@ -2175,6 +2177,10 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       String? currentUserId,
       ) {
     if (_selectedIndex == 1) {
+      return const ChatPage();
+    }
+
+    if (_selectedIndex == 2) {
       return EventsPage(
         key: ValueKey('events-$_eventsPageOpenToken'),
         initialTabIndex: _eventsInitialTabIndex,
@@ -2182,7 +2188,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       );
     }
 
-    if (_selectedIndex == 2) {
+    if (_selectedIndex == 3) {
       return const ProfilePage();
     }
 
@@ -2199,11 +2205,23 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         title: const Text('CheckMyTime'),
         actions: [
           IconButton(
+            tooltip: 'Mitteilungen',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const NotificationsPage(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.notifications_none_rounded),
+          ),
+          IconButton(
+            tooltip: 'Kontakte',
             onPressed:
                 () => setState(() {
-              _selectedIndex = 2;
+              _selectedIndex = 3;
             }),
-            icon: const Icon(Icons.settings_outlined),
+            icon: const Icon(Icons.people_outline_rounded),
           ),
         ],
       ),
@@ -2222,7 +2240,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {
-          if (index == 1) {
+          if (index == 2) {
             _openEventsArea(pushRoute: false);
             return;
           }
@@ -2236,6 +2254,11 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home),
             label: 'Home',
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.chat_bubble_outline_rounded),
+            selectedIcon: Icon(Icons.chat_bubble_rounded),
+            label: 'Chat',
           ),
           NavigationDestination(
             icon: _buildNavigationIcon(
