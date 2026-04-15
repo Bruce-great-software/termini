@@ -1102,6 +1102,16 @@ class _EventsPageState extends State<EventsPage>
       final isHighlighted = doc.id == _highlightedEventId;
       final isUnseen = view == EventDetailView.invitation &&
           _isUnseenPendingEventInvite(data, currentUserId);
+      final hasOpenInviteAction = view == EventDetailView.invitation &&
+          _isPendingEventInvite(data, currentUserId);
+      final resolvedStatusLabel = view == EventDetailView.invitation &&
+          rawStatus == 'pending'
+          ? 'Antwort offen'
+          : _statusLabel(rawStatus);
+      final resolvedStatusColor = view == EventDetailView.invitation &&
+          rawStatus == 'pending'
+          ? const Color(0xFFFF6B35)
+          : _statusColor(colorScheme, rawStatus);
 
       return _EventCard(
         key: isHighlighted ? _highlightedCardKey : null,
@@ -1114,8 +1124,8 @@ class _EventsPageState extends State<EventsPage>
         formatTime: _formatTime,
         kindLabel: _kindLabel(data),
         kindColor: _kindColor(colorScheme, data),
-        statusLabel: _statusLabel(rawStatus),
-        statusColor: _statusColor(colorScheme, rawStatus),
+        statusLabel: resolvedStatusLabel,
+        statusColor: resolvedStatusColor,
         interactionBadgeLabel: view == EventDetailView.myEvent &&
             _hasPendingOwnerRequests(data, currentUserId)
             ? '${_pendingOwnerRequestCount(data, currentUserId)} neu'
@@ -1126,7 +1136,7 @@ class _EventsPageState extends State<EventsPage>
             ? 'Neu'
             : null,
         isHighlighted: isHighlighted,
-        isUnseen: isUnseen,
+        showActionRequiredDot: hasOpenInviteAction,
         metaText: _metaText(data, currentUserId),
         participantsText: _participantsText(data),
         locationInfo: _locationInfo(data),
@@ -2042,7 +2052,7 @@ class _EventCard extends StatelessWidget {
   final Timestamp? scheduledAt;
   final VoidCallback onTap;
   final bool isHighlighted;
-  final bool isUnseen;
+  final bool showActionRequiredDot;
 
   const _EventCard({
     super.key,
@@ -2059,7 +2069,7 @@ class _EventCard extends StatelessWidget {
     required this.statusColor,
     required this.interactionBadgeLabel,
     this.isHighlighted = false,
-    this.isUnseen = false,
+    this.showActionRequiredDot = false,
     required this.metaText,
     required this.participantsText,
     required this.locationInfo,
@@ -2294,7 +2304,7 @@ class _EventCard extends StatelessWidget {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              if (isUnseen) ...[
+                              if (showActionRequiredDot) ...[
                                 Container(
                                   width: 10,
                                   height: 10,
