@@ -31,6 +31,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
   bool _isUpdatingStatus = false;
   bool _isDeleting = false;
   bool _isCancelling = false;
+  bool _isTogglingClosed = false;
   bool _hasMarkedInviteSeen = false;
   String? _ownerActionUserId;
 
@@ -303,6 +304,20 @@ class _EventDetailPageState extends State<EventDetailPage> {
     return _overallStatus(data) == 'cancelled';
   }
 
+  bool _isClosedEvent(Map<String, dynamic> data) {
+    return data['isClosed'] == true;
+  }
+
+  bool _isParticipationLocked(Map<String, dynamic> data) {
+    return _isCancelledEvent(data) || _isClosedEvent(data);
+  }
+
+  String _participationLockedMessage(Map<String, dynamic> data) {
+    if (_isCancelledEvent(data)) return 'Dieses Event wurde abgesagt.';
+    if (_isClosedEvent(data)) return 'Dieses Event ist aktuell geschlossen.';
+    return 'Aktion derzeit nicht möglich.';
+  }
+
   Set<String> _eventRecipientUserIds(Map<String, dynamic> data) {
     final createdBy = (data['createdBy'] ?? '').toString().trim();
     final recipientIds = <String>{
@@ -334,8 +349,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
       final snapshot = await docRef.get();
       final data = snapshot.data() ?? <String, dynamic>{};
 
-      if (_isCancelledEvent(data)) {
-        _showMessage('Dieses Event wurde bereits abgesagt.');
+      if (_isParticipationLocked(data)) {
+        _showMessage(_participationLockedMessage(data));
         return;
       }
 
@@ -411,8 +426,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
       final snapshot = await docRef.get();
       final data = snapshot.data() ?? <String, dynamic>{};
 
-      if (_isCancelledEvent(data)) {
-        _showMessage('Dieses Event wurde abgesagt.');
+      if (_isParticipationLocked(data)) {
+        _showMessage(_participationLockedMessage(data));
         return;
       }
 
@@ -505,8 +520,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
       final snapshot = await docRef.get();
       final data = snapshot.data() ?? <String, dynamic>{};
 
-      if (_isCancelledEvent(data)) {
-        _showMessage('Dieses Event wurde bereits abgesagt.');
+      if (_isParticipationLocked(data)) {
+        _showMessage(_participationLockedMessage(data));
         return;
       }
 
@@ -631,6 +646,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
         return 'Abgelehnt';
       case 'cancelled':
         return 'Abgesagt';
+      case 'closed':
+        return 'Geschlossen';
       case 'open':
         return 'Offen';
       case 'done':
@@ -651,6 +668,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
       case 'declined':
       case 'cancelled':
         return colorScheme.error;
+      case 'closed':
+        return Colors.blueGrey;
       case 'open':
         return colorScheme.primary;
       case 'done':
@@ -720,6 +739,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
   String _currentHeaderStatus(Map<String, dynamic> data) {
     final overallStatus = _overallStatus(data);
     if (overallStatus == 'cancelled') return 'cancelled';
+    if (_isClosedEvent(data)) return 'closed';
 
     final createdBy = (data['createdBy'] ?? '').toString().trim();
     if (createdBy == _currentUserId) {
@@ -742,8 +762,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
       final snapshot = await docRef.get();
       final data = snapshot.data() ?? <String, dynamic>{};
 
-      if (_isCancelledEvent(data)) {
-        _showMessage('Dieses Event wurde abgesagt.');
+      if (_isParticipationLocked(data)) {
+        _showMessage(_participationLockedMessage(data));
         return;
       }
 
@@ -839,8 +859,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
       final snapshot = await docRef.get();
       final data = snapshot.data() ?? <String, dynamic>{};
 
-      if (_isCancelledEvent(data)) {
-        _showMessage('Dieses Event wurde abgesagt.');
+      if (_isParticipationLocked(data)) {
+        _showMessage(_participationLockedMessage(data));
         return;
       }
 
@@ -1174,6 +1194,173 @@ class _EventDetailPageState extends State<EventDetailPage> {
     }
   }
 
+
+  Future<void> _closeEvent() async {
+    if (_isTogglingClosed) return;
+
+    final shouldClose = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Event schließen'),
+        content: const Text(
+          'Möchtest du dieses Event schließen? Das Event bleibt sichtbar, aber neue Teilnahmen und Antworten sind bis zum Wiederöffnen nicht mehr möglich.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Schließen'),
+          ),
+        ],
+      ),
+    ) ??
+        false;
+
+    if (!shouldClose) return;
+
+    setState(() {
+      _isTogglingClosed = true;
+    });
+
+    try {
+      final docRef = FirebaseFirestore.instance
+          .collection('events')
+          .doc(widget.eventId);
+      final snapshot = await docRef.get();
+      final data = snapshot.data() ?? <String, dynamic>{};
+
+      final createdBy = (data['createdBy'] ?? '').toString().trim();
+      if (createdBy != _currentUserId) {
+        throw StateError('Nur der Ersteller darf dieses Event schließen.');
+      }
+
+      if (_isCancelledEvent(data)) {
+        _showMessage('Dieses Event wurde bereits abgesagt.');
+        return;
+      }
+
+      if (_isClosedEvent(data)) {
+        _showMessage('Dieses Event ist bereits geschlossen.');
+        return;
+      }
+
+      await docRef.update({
+        'isClosed': true,
+        'closedAt': FieldValue.serverTimestamp(),
+        'closedBy': _currentUserId,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Das Event wurde geschlossen.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Das Event konnte nicht geschlossen werden.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isTogglingClosed = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _reopenEvent() async {
+    if (_isTogglingClosed) return;
+
+    final shouldReopen = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Event wieder öffnen'),
+        content: const Text(
+          'Möchtest du dieses Event wieder öffnen? Danach sind neue Teilnahmen und Antworten wieder möglich.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Wieder öffnen'),
+          ),
+        ],
+      ),
+    ) ??
+        false;
+
+    if (!shouldReopen) return;
+
+    setState(() {
+      _isTogglingClosed = true;
+    });
+
+    try {
+      final docRef = FirebaseFirestore.instance
+          .collection('events')
+          .doc(widget.eventId);
+      final snapshot = await docRef.get();
+      final data = snapshot.data() ?? <String, dynamic>{};
+
+      final createdBy = (data['createdBy'] ?? '').toString().trim();
+      if (createdBy != _currentUserId) {
+        throw StateError('Nur der Ersteller darf dieses Event wieder öffnen.');
+      }
+
+      if (_isCancelledEvent(data)) {
+        _showMessage('Ein abgesagtes Event kann nicht wieder geöffnet werden.');
+        return;
+      }
+
+      if (!_isClosedEvent(data)) {
+        _showMessage('Dieses Event ist bereits geöffnet.');
+        return;
+      }
+
+      await docRef.update({
+        'isClosed': false,
+        'reopenedAt': FieldValue.serverTimestamp(),
+        'reopenedBy': _currentUserId,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Das Event wurde wieder geöffnet.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Das Event konnte nicht wieder geöffnet werden.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isTogglingClosed = false;
+        });
+      }
+    }
+  }
+
   Future<void> _deleteEvent() async {
     if (_isDeleting) return;
 
@@ -1309,6 +1496,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
             final maxParticipants = _maxParticipants(data);
             final isOwner = createdBy == _currentUserId;
             final isCancelled = _isCancelledEvent(data);
+            final isClosed = _isClosedEvent(data);
             final inviteProgressCounts = _inviteProgressCounts(data);
 
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1602,6 +1790,43 @@ class _EventDetailPageState extends State<EventDetailPage> {
                       ),
                     ),
                   ),
+                ] else if (isClosed) ...[
+                  const SizedBox(height: 14),
+                  _DetailSection(
+                    title: 'Status',
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.blueGrey.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.blueGrey.withValues(alpha: 0.18),
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.lock_outline,
+                            color: Colors.blueGrey,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              isOwner
+                                  ? 'Du hast dieses Event geschlossen. Es bleibt sichtbar, aber neue Teilnahmen und Antworten sind bis zum Wiederöffnen pausiert.'
+                                  : 'Dieses Event ist aktuell geschlossen. Neue Teilnahmen und Antworten sind momentan nicht möglich.',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: colorScheme.onSurface,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
                 const SizedBox(height: 14),
                 _DetailSection(
@@ -1655,6 +1880,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   isUpdatingStatus: _isUpdatingStatus,
                   ownerActionUserId: _ownerActionUserId,
                   eventCancelled: isCancelled,
+                  eventClosed: isClosed,
                   onOwnerDecision: ({required userId, required accepted}) =>
                       _handleOwnerRequestDecision(
                         requestUserId: userId,
@@ -1680,6 +1906,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   hasExistingResponse: hasExistingResponse,
                   isOwner: isOwner,
                   isCancelled: isCancelled,
+                  isClosed: isClosed,
                 ),
               ],
             );
@@ -1699,6 +1926,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
     required bool hasExistingResponse,
     required bool isOwner,
     required bool isCancelled,
+    required bool isClosed,
   }) {
     if (isOwner) {
       return _DetailSection(
@@ -1714,8 +1942,10 @@ class _EventDetailPageState extends State<EventDetailPage> {
               ),
               const SizedBox(height: 10),
               FilledButton.icon(
-                onPressed: _isCancelling ? null : _cancelEvent,
-                icon: _isCancelling
+                onPressed: _isTogglingClosed
+                    ? null
+                    : (isClosed ? _reopenEvent : _closeEvent),
+                icon: _isTogglingClosed
                     ? const SizedBox(
                   width: 16,
                   height: 16,
@@ -1723,6 +1953,24 @@ class _EventDetailPageState extends State<EventDetailPage> {
                     strokeWidth: 2,
                     color: Colors.white,
                   ),
+                )
+                    : Icon(
+                  isClosed
+                      ? Icons.lock_open_outlined
+                      : Icons.lock_outline,
+                ),
+                label: Text(
+                  isClosed ? 'Event wieder öffnen' : 'Event schließen',
+                ),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _isCancelling || _isTogglingClosed ? null : _cancelEvent,
+                icon: _isCancelling
+                    ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 )
                     : const Icon(Icons.event_busy_outlined),
                 label: const Text('Event absagen'),
@@ -1757,6 +2005,18 @@ class _EventDetailPageState extends State<EventDetailPage> {
         title: 'Teilnahme',
         child: Text(
           'Dieses Event wurde abgesagt. Neue Teilnahmen und Antworten sind nicht mehr möglich.',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+      );
+    }
+
+    if (isClosed) {
+      return _DetailSection(
+        title: 'Teilnahme',
+        child: Text(
+          'Dieses Event ist aktuell geschlossen. Neue Teilnahmen und Antworten sind erst nach dem Wiederöffnen wieder möglich.',
           style: theme.textTheme.bodyMedium?.copyWith(
             color: colorScheme.onSurfaceVariant,
           ),
@@ -2082,6 +2342,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
   final bool isUpdatingStatus;
   final String? ownerActionUserId;
   final bool eventCancelled;
+  final bool eventClosed;
   final Future<void> Function({required String userId, required bool accepted})? onOwnerDecision;
   final Future<void> Function({
   required String userId,
@@ -2102,6 +2363,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
     required this.isUpdatingStatus,
     required this.ownerActionUserId,
     required this.eventCancelled,
+    required this.eventClosed,
     this.onOwnerDecision,
     this.onRemoveParticipant,
   });
@@ -2256,7 +2518,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                         children: [
                           Expanded(
                             child: FilledButton.icon(
-                              onPressed: isUpdatingStatus
+                              onPressed: isUpdatingStatus || eventClosed
                                   ? null
                                   : () => onOwnerDecision!(
                                 userId: person.userId,
@@ -2278,7 +2540,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                           const SizedBox(width: 10),
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: isUpdatingStatus
+                              onPressed: isUpdatingStatus || eventClosed
                                   ? null
                                   : () => onOwnerDecision!(
                                 userId: person.userId,

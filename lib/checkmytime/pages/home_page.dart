@@ -27,6 +27,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
   String _searchQuery = '';
   String? _searchError;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _searchResults = [];
+  final Map<String, _ContactPreviewData> _contactPreviewCache = {};
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _threadsSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _eventsSubscription;
@@ -42,6 +43,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
   int _lastPublishedBadgeCount = -1;
   int _eventsInitialTabIndex = 0;
   int _eventsPageOpenToken = 0;
+  String? _latestInvitedEventId;
   Timer? _presenceHeartbeat;
 
   @override
@@ -94,7 +96,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
   Future<void> _startPresenceTracking() async {
     _presenceHeartbeat?.cancel();
     await _setCurrentUserPresence(isOnline: true);
-    _presenceHeartbeat = Timer.periodic(const Duration(minutes: 1), (_) {
+    _presenceHeartbeat = Timer.periodic(const Duration(minutes: 2), (_) {
       unawaited(_setCurrentUserPresence(isOnline: true));
     });
   }
@@ -108,7 +110,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         {
           'isOnline': isOnline,
           'lastSeenAt': FieldValue.serverTimestamp(),
-          'presenceUpdatedAt': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
       );
@@ -165,31 +166,15 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         return;
       }
 
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        if (data['hiddenFor_$currentUserId'] == true) continue;
-
-        final newCount = currentCounts[doc.id] ?? 0;
-        final oldCount = _knownUnreadCountsByThread[doc.id] ?? 0;
-
-        if (newCount > oldCount) {
-          final participants =
-          List<String>.from(data['participants'] ?? const []);
-          final otherId = _otherParticipantId(participants, currentUserId);
-          final contactNames =
-          Map<String, dynamic>.from(data['contactNames'] ?? const {});
-          final otherName =
-          (contactNames[otherId] ?? 'Unbekannt').toString().trim();
-          final lastTitle =
-          (data['lastAppointmentTitle'] ?? 'Event').toString().trim();
-
-          await NotificationService.instance.showIncomingAppointmentNotification(
-            title: 'Neue Planung',
-            body: '$otherName: $lastTitle',
-          );
-        }
-      }
-
+      // WICHTIG:
+      // Chat-Nachrichten und Sprachnachrichten erhöhen ebenfalls den
+      // unreadCount eines Threads. Eine lokale "Neue Planung"-Notification
+      // an dieser Stelle würde deshalb bei normalen Nachrichten fälschlich
+      // eine zweite Push auslösen.
+      //
+      // Die eigentlichen Push-Benachrichtigungen kommen bereits über FCM /
+      // PushNotificationService. Hier synchronisieren wir deshalb nur noch
+      // den lokalen Badge-Zustand.
       _knownUnreadCountsByThread = currentCounts;
       await _publishBadgeCount();
     });
@@ -366,19 +351,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     return parts[1];
   }
 
-  String _ownerResponseLabelFromStatus(String status) {
-    switch (status) {
-      case 'accepted':
-        return 'zugesagt';
-      case 'maybe':
-        return 'vielleicht geantwortet';
-      case 'declined':
-        return 'abgesagt';
-      default:
-        return 'reagiert';
-    }
-  }
-
   String _ownerResponseSubtitle({
     required Map<String, dynamic> data,
     required String status,
@@ -488,6 +460,8 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         .snapshots()
         .listen((snapshot) async {
       final pendingInviteIds = <String>{};
+      final pendingInviteTitles = <String, String>{};
+      final pendingInviteCreators = <String, String>{};
       final pendingOwnerRequestKeys = <String>{};
       final currentJoinDecisionKeys = <String>{};
       final currentOwnerResponseStatuses = <String, String>{};
@@ -500,6 +474,10 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         final data = doc.data();
         if (_isPendingEventInvite(data, currentUserId)) {
           pendingInviteIds.add(doc.id);
+          pendingInviteTitles[doc.id] =
+              (data['title'] ?? 'Neues Event').toString().trim();
+          pendingInviteCreators[doc.id] =
+              (data['createdByName'] ?? 'Jemand').toString().trim();
         }
 
         final pendingKeys =
@@ -549,6 +527,20 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         }
         await _publishBadgeCount();
         return;
+      }
+
+      final newInviteIds = pendingInviteIds.difference(_knownPendingInviteIds);
+      for (final eventId in newInviteIds) {
+        final eventTitle = pendingInviteTitles[eventId] ?? 'Neues Event';
+        final creatorName = pendingInviteCreators[eventId] ?? 'Jemand';
+        await NotificationService.instance.showIncomingEventInviteNotification(
+          title: 'Neue Event-Einladung',
+          body: '${creatorName.isEmpty ? 'Jemand' : creatorName} hat dich zu '
+              '"${eventTitle.isEmpty ? 'Neues Event' : eventTitle}" eingeladen.',
+        );
+        if (mounted) {
+          setState(() => _latestInvitedEventId = eventId);
+        }
       }
 
       final newOwnerRequestKeys = pendingOwnerRequestKeys.difference(
@@ -680,6 +672,10 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     required String fallbackName,
     required String fallbackPhone,
   }) async {
+    if (_contactPreviewCache.containsKey(contactId)) {
+      return _contactPreviewCache[contactId]!;
+    }
+
     var resolvedName = fallbackName.trim();
     var resolvedPhone = fallbackPhone.trim();
     var resolvedImageUrl = '';
@@ -715,11 +711,13 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       resolvedName = 'Unbekannt';
     }
 
-    return _ContactPreviewData(
+    final preview = _ContactPreviewData(
       name: resolvedName,
       phone: resolvedPhone,
       imageUrl: resolvedImageUrl,
     );
+    _contactPreviewCache[contactId] = preview;
+    return preview;
   }
 
   Widget _buildContactAvatar({
@@ -905,15 +903,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  void _showComingSoon(String label) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$label kommt als Nächstes.'),
-        behavior: SnackBarBehavior.floating,
       ),
     );
   }
@@ -1276,7 +1265,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
               const SizedBox(width: 12),
               Expanded(
                 child: _HeroStatCard(
-                  label: 'Kontakte',
+                  label: 'Gespräche',
                   value: '$activeThreads',
                   icon: Icons.people_alt_outlined,
                 ),
@@ -1444,10 +1433,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                 onPressed: _resetSearch,
                 icon: const Icon(Icons.close),
               )
-                  : IconButton(
-                onPressed: () => _showComingSoon('Filter'),
-                icon: const Icon(Icons.tune),
-              ),
+                  : null,
             ),
           ),
         ],
@@ -1931,6 +1917,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       return EventsPage(
         key: ValueKey('events-$_eventsPageOpenToken'),
         initialTabIndex: _eventsInitialTabIndex,
+        highlightedEventId: _latestInvitedEventId,
       );
     }
 
@@ -1945,7 +1932,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
     return Scaffold(
       appBar: AppBar(
@@ -1963,7 +1949,13 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       body: SafeArea(
         child: GestureDetector(
           onTap: () => _searchFocusNode.unfocus(),
-          child: _buildBody(colorScheme, theme, currentUserId),
+          child: StreamBuilder<User?>(
+            stream: FirebaseAuth.instance.authStateChanges(),
+            builder: (context, authSnapshot) {
+              final currentUserId = authSnapshot.data?.uid;
+              return _buildBody(colorScheme, theme, currentUserId);
+            },
+          ),
         ),
       ),
       bottomNavigationBar: NavigationBar(

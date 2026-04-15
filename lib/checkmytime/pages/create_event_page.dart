@@ -1779,17 +1779,7 @@ class _CreateEventPageState extends State<CreateEventPage> {
         final newlyInvitedUserIds =
         invitedUserIds.where((id) => !previousInvitedUserIds.contains(id)).toList();
 
-        if (newlyInvitedUserIds.isNotEmpty) {
-          try {
-            await NotificationDispatchService.instance.queueEventInviteNotifications(
-              recipientUserIds: newlyInvitedUserIds,
-              senderId: currentUser.uid,
-              senderName: creatorName.isEmpty ? 'Unbekannt' : creatorName,
-              eventId: eventId,
-              eventTitle: title,
-            );
-          } catch (_) {}
-        }
+        // Event invite push is sent server-side by onEventWritten Cloud Function.
 
         final updateRecipientIds = <String>{
           ...invitedUserIds,
@@ -1841,17 +1831,7 @@ class _CreateEventPageState extends State<CreateEventPage> {
           'createdAt': FieldValue.serverTimestamp(),
         });
 
-        if (invitedUserIds.isNotEmpty) {
-          try {
-            await NotificationDispatchService.instance.queueEventInviteNotifications(
-              recipientUserIds: invitedUserIds,
-              senderId: currentUser.uid,
-              senderName: creatorName.isEmpty ? 'Unbekannt' : creatorName,
-              eventId: eventRef.id,
-              eventTitle: title,
-            );
-          } catch (_) {}
-        }
+        // Event invite push is sent server-side by onEventWritten Cloud Function.
 
         if (topic.isNotEmpty) {
           await _upsertEventTopic(

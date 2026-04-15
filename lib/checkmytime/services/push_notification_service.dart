@@ -242,10 +242,14 @@ class PushNotificationService {
 
     _auth.authStateChanges().listen((user) async {
       if (user != null) {
-        final token = await _messaging.getToken();
-        if (token != null) {
-          await _upsertTokenForCurrentUser(token);
-        }
+        try {
+          final token = await _messaging
+              .getToken()
+              .timeout(const Duration(seconds: 10));
+          if (token != null) {
+            await _upsertTokenForCurrentUser(token);
+          }
+        } catch (_) {}
 
         if (_pendingOpenMessage != null) {
           final pending = _pendingOpenMessage!;
@@ -255,15 +259,24 @@ class PushNotificationService {
       }
     });
 
-    final initialMessage = await _messaging.getInitialMessage();
+    RemoteMessage? initialMessage;
+    try {
+      initialMessage = await _messaging
+          .getInitialMessage()
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {}
     if (initialMessage != null) {
       _handleMessageOpen(initialMessage);
     }
 
-    final token = await _messaging.getToken();
-    if (token != null) {
-      await _upsertTokenForCurrentUser(token);
-    }
+    try {
+      final token = await _messaging
+          .getToken()
+          .timeout(const Duration(seconds: 10));
+      if (token != null) {
+        await _upsertTokenForCurrentUser(token);
+      }
+    } catch (_) {}
   }
 
   Future<void> _upsertTokenForCurrentUser(String token) async {

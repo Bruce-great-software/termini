@@ -1,17 +1,22 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:termini/checkmytime/pages/create_event_page.dart';
 import 'package:termini/checkmytime/pages/event_detail_page.dart';
 
 class EventsPage extends StatefulWidget {
   final int initialTabIndex;
+  final String? highlightedEventId;
 
   const EventsPage({
     super.key,
     this.initialTabIndex = 0,
+    this.highlightedEventId,
   });
 
   @override
@@ -33,11 +38,32 @@ class _EventsPageState extends State<EventsPage>
   bool _isLoadingUserLocation = false;
   bool _didAutoJumpToMyEvents = false;
 
+  String? _highlightedEventId;
+  final GlobalKey _highlightedCardKey = GlobalKey();
+  bool _needsScrollToHighlight = false;
+
+  Set<String> _seenInviteIds = {};
+  Set<String> _currentPendingInviteIds = {};
+  static const String _kSeenInviteIdsKey = 'seen_event_invite_ids';
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this, initialIndex: widget.initialTabIndex.clamp(0, 2));
+    _highlightedEventId = widget.highlightedEventId;
+    _needsScrollToHighlight = widget.highlightedEventId != null;
+
+    final initialTab = widget.highlightedEventId != null
+        ? 1
+        : widget.initialTabIndex.clamp(0, 2);
+    _tabController = TabController(length: 3, vsync: this, initialIndex: initialTab);
+
+    if (_highlightedEventId != null) {
+      Future.delayed(const Duration(seconds: 4), () {
+        if (mounted) setState(() => _highlightedEventId = null);
+      });
+    }
     _tabController.addListener(_onTabChanged);
+    _loadSeenInviteIds();
     _eventsStream = FirebaseFirestore.instance
         .collection('events')
         .orderBy('createdAt', descending: true)
@@ -55,8 +81,27 @@ class _EventsPageState extends State<EventsPage>
     super.dispose();
   }
 
+  Future<void> _loadSeenInviteIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList(_kSeenInviteIdsKey) ?? [];
+    if (mounted) setState(() => _seenInviteIds = Set.from(list));
+  }
+
+  Future<void> _markCurrentInvitesAsSeen() async {
+    if (_currentPendingInviteIds.isEmpty) return;
+    final updated = {..._seenInviteIds, ..._currentPendingInviteIds};
+    if (updated.length == _seenInviteIds.length) return;
+    _seenInviteIds = updated;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_kSeenInviteIdsKey, _seenInviteIds.toList());
+    if (mounted) setState(() {});
+  }
+
   void _onTabChanged() {
     if (!_tabController.indexIsChanging && mounted) {
+      if (_tabController.index == 1) {
+        unawaited(_markCurrentInvitesAsSeen());
+      }
       setState(() {});
     }
   }
@@ -1036,11 +1081,31 @@ class _EventsPageState extends State<EventsPage>
       );
     }
 
+    if (_needsScrollToHighlight && docs.any((d) => d.id == _highlightedEventId)) {
+      _needsScrollToHighlight = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final ctx = _highlightedCardKey.currentContext;
+        if (ctx != null) {
+          Scrollable.ensureVisible(
+            ctx,
+            alignment: 0.15,
+            duration: const Duration(milliseconds: 450),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
+
     Widget buildEventCard(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
       final data = doc.data();
       final rawStatus = statusResolver(data);
+      final isHighlighted = doc.id == _highlightedEventId;
+      final isUnseen = view == EventDetailView.invitation &&
+          _isPendingEventInvite(data, currentUserId) &&
+          !_seenInviteIds.contains(doc.id);
 
       return _EventCard(
+        key: isHighlighted ? _highlightedCardKey : null,
         eventId: doc.id,
         data: data,
         theme: theme,
@@ -1058,7 +1123,11 @@ class _EventsPageState extends State<EventsPage>
             : view == EventDetailView.invitation &&
             _isJoinDecisionForRequester(data, currentUserId)
             ? 'neu'
+            : isUnseen
+            ? 'Neu'
             : null,
+        isHighlighted: isHighlighted,
+        isUnseen: isUnseen,
         metaText: _metaText(data, currentUserId),
         participantsText: _participantsText(data),
         locationInfo: _locationInfo(data),
@@ -1299,6 +1368,12 @@ class _EventsPageState extends State<EventsPage>
             _sortEventsInPlace(myEvents);
             _sortEventsInPlace(invitedEvents);
             _sortOpenEventsInPlace(openEvents);
+
+            // Update pending invite IDs for seen-tracking (no setState needed)
+            _currentPendingInviteIds = {
+              for (final doc in invitedEvents)
+                if (_isPendingEventInvite(doc.data(), currentUserId)) doc.id,
+            };
 
             final myPendingRequestCount = myEvents.fold<int>(0, (sum, doc) {
               return sum + _pendingOwnerRequestCount(doc.data(), currentUserId);
@@ -1973,8 +2048,11 @@ class _EventCard extends StatelessWidget {
   final String? distanceText;
   final Timestamp? scheduledAt;
   final VoidCallback onTap;
+  final bool isHighlighted;
+  final bool isUnseen;
 
   const _EventCard({
+    super.key,
     required this.eventId,
     required this.data,
     required this.theme,
@@ -1987,6 +2065,8 @@ class _EventCard extends StatelessWidget {
     required this.statusLabel,
     required this.statusColor,
     required this.interactionBadgeLabel,
+    this.isHighlighted = false,
+    this.isUnseen = false,
     required this.metaText,
     required this.participantsText,
     required this.locationInfo,
@@ -2028,6 +2108,8 @@ class _EventCard extends StatelessWidget {
     final description = (data['description'] ?? '').toString().trim();
     final relativeStartText = _relativeStartText();
 
+    const highlightColor = Color(0xFF19B35E);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Material(
@@ -2037,9 +2119,26 @@ class _EventCard extends StatelessWidget {
           onTap: onTap,
           child: Ink(
             decoration: BoxDecoration(
-              color: colorScheme.surface,
+              color: isHighlighted
+                  ? highlightColor.withValues(alpha: 0.06)
+                  : colorScheme.surface,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: colorScheme.outlineVariant),
+              border: Border.all(
+                color: isHighlighted
+                    ? highlightColor
+                    : colorScheme.outlineVariant,
+                width: isHighlighted ? 2 : 1,
+              ),
+              boxShadow: isHighlighted
+                  ? [
+                      BoxShadow(
+                        color: highlightColor.withValues(alpha: 0.28),
+                        blurRadius: 18,
+                        spreadRadius: 2,
+                        offset: Offset.zero,
+                      ),
+                    ]
+                  : null,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2051,7 +2150,9 @@ class _EventCard extends StatelessWidget {
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 0.95),
+                    color: isHighlighted
+                        ? highlightColor.withValues(alpha: 0.95)
+                        : colorScheme.primary.withValues(alpha: 0.95),
                     borderRadius: const BorderRadius.only(
                       topLeft: Radius.circular(20),
                       topRight: Radius.circular(20),
@@ -2090,6 +2191,26 @@ class _EventCard extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
+                      if (isHighlighted) ...[
+                        const SizedBox(width: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.25),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            'Neu',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -2180,6 +2301,17 @@ class _EventCard extends StatelessWidget {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
+                              if (isUnseen) ...[
+                                Container(
+                                  width: 10,
+                                  height: 10,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFFF6B35),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                              ],
                               Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 10,

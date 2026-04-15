@@ -1,5 +1,5 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
-const { onDocumentWritten } = require("firebase-functions/v2/firestore");
+const { onDocumentWritten, onDocumentCreated } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 
 admin.initializeApp();
@@ -291,6 +291,11 @@ exports.onContactThreadWritten = onDocumentWritten(
 
       if (newUnreadCount <= oldUnreadCount) continue;
 
+      // Only send push for appointment interactions. Chat messages are handled
+    // by the notification_requests queue via NotificationDispatchService.
+    const interactionType = asNonEmptyString(afterData.lastInteractionType);
+    if (interactionType !== "appointment") continue;
+
       const senderId = participants.find((candidate) => candidate !== userId) || "";
       const contactNames = afterData.contactNames || {};
       const senderName = asNonEmptyString(contactNames[senderId]) || "Jemand";
@@ -358,3 +363,89 @@ exports.onEventWritten = onDocumentWritten("events/{eventId}", async (event) => 
     });
   }
 });
+
+// Processes all notification_requests queued by NotificationDispatchService.
+// Covers: event join requests, responses, removals, updates, deletions,
+// direct joins, invite decisions, and chat messages.
+exports.onNotificationRequestCreated = onDocumentCreated(
+  "notification_requests/{docId}",
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+
+    const requestData = snap.data() || {};
+    if (requestData.status !== "pending") return;
+
+    const recipientUserId = asNonEmptyString(requestData.recipientUserId);
+    const title = asNonEmptyString(requestData.title);
+    const body = asNonEmptyString(requestData.body);
+    const channelId = asNonEmptyString(requestData.channelId) || "checkmytime_general";
+    const notifData = requestData.data || {};
+
+    if (!recipientUserId || !title || !body) {
+      await snap.ref.update({
+        status: "failed",
+        error: "missing required fields",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return;
+    }
+
+    const tokens = await getUserTokens(recipientUserId);
+    if (tokens.length === 0) {
+      await snap.ref.update({
+        status: "no_tokens",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return;
+    }
+
+    const badgeCount = await recomputeAndPersistBadgeCount(recipientUserId);
+
+    const payloadData = sanitizeDataPayload({
+      ...notifData,
+      title,
+      body,
+      badgeCount: String(badgeCount),
+    });
+
+    const message = {
+      tokens,
+      notification: { title, body },
+      data: payloadData,
+      android: {
+        priority: "high",
+        notification: {
+          channelId,
+          sound: "default",
+        },
+      },
+      apns: {
+        headers: { "apns-priority": "10" },
+        payload: {
+          aps: {
+            sound: "default",
+            badge: Math.max(0, toInt(badgeCount)),
+          },
+        },
+      },
+    };
+
+    try {
+      const response = await admin.messaging().sendEachForMulticast(message);
+      await cleanupInvalidTokens(recipientUserId, tokens, response.responses || []);
+      await snap.ref.update({
+        status: "sent",
+        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (err) {
+      console.error("onNotificationRequestCreated failed:", err);
+      await snap.ref.update({
+        status: "failed",
+        error: String(err?.message || err),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+  }
+);

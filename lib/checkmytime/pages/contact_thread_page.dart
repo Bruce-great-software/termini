@@ -30,7 +30,7 @@ class ContactThreadPage extends StatefulWidget {
 }
 
 class _ContactThreadPageState extends State<ContactThreadPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final Set<String> _updatingEventIds = <String>{};
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _messagesScrollController = ScrollController();
@@ -51,6 +51,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
   bool _isRecordingAudio = false;
   bool _isMarkingIncomingMessagesAsRead = false;
   int _lastRenderedMessageCount = -1;
+  double _lastKeyboardHeight = 0;
   String? _recordingPath;
   Duration _recordingDuration = Duration.zero;
   String? _activeAudioMessageId;
@@ -63,13 +64,23 @@ class _ContactThreadPageState extends State<ContactThreadPage>
   }
 
   @override
+  void didChangeMetrics() {
+    final keyboardHeight =
+        WidgetsBinding.instance.platformDispatcher.views.first.viewInsets.bottom;
+    if (keyboardHeight > _lastKeyboardHeight && _tabController.index == 0) {
+      _scheduleScrollToBottom();
+    }
+    _lastKeyboardHeight = keyboardHeight;
+  }
+
+  @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tabController = TabController(length: 2, vsync: this, initialIndex: 0)
       ..addListener(_handleTabChanged);
     _resolvedContactName = widget.contactName.trim();
     _resolvedPhoneNumber = widget.phoneNumber.trim();
-    _messageController.addListener(_handleComposerChanged);
     _playerStateSubscription = _audioPlayer.playerStateStream.listen((state) {
       if (!mounted) return;
       final playing = state.playing;
@@ -93,9 +104,9 @@ class _ContactThreadPageState extends State<ContactThreadPage>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _tabController.removeListener(_handleTabChanged);
     _tabController.dispose();
-    _messageController.removeListener(_handleComposerChanged);
     _messageController.dispose();
     _messagesScrollController.dispose();
     _recordingTimer?.cancel();
@@ -116,12 +127,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     }
   }
 
-  void _handleComposerChanged() {
-    if (!mounted) return;
-    setState(() {});
-  }
-
-  Future<void> _loadContactProfile() async {
+Future<void> _loadContactProfile() async {
     if (widget.contactId.isEmpty) return;
 
     try {
@@ -260,7 +266,8 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => CreateEventPage(
-          initialContactId: widget.contactId,
+          initialContactId
+              : widget.contactId,
           initialContactName: safeName,
 
         ),
@@ -275,21 +282,29 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     );
   }
 
+  void _scrollToBottom({bool animated = true}) {
+    if (!_messagesScrollController.hasClients) return;
+    final maxExtent = _messagesScrollController.position.maxScrollExtent;
+    if (animated) {
+      _messagesScrollController.animateTo(
+        maxExtent,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    } else {
+      _messagesScrollController.jumpTo(maxExtent);
+    }
+  }
+
   void _scheduleScrollToBottom({bool animated = true}) {
+    // Double-postFrameCallback: first frame triggers layout changes
+    // (e.g. TextField shrink after clear), second frame has settled layout
+    // with correct maxScrollExtent.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_messagesScrollController.hasClients) return;
-
-      final maxScrollExtent = _messagesScrollController.position.maxScrollExtent;
-
-      if (animated) {
-        _messagesScrollController.animateTo(
-          maxScrollExtent,
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOut,
-        );
-      } else {
-        _messagesScrollController.jumpTo(maxScrollExtent);
-      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _scrollToBottom(animated: animated);
+      });
     });
   }
 
@@ -532,16 +547,19 @@ class _ContactThreadPageState extends State<ContactThreadPage>
       _showMessage(
         newStatus == 'accepted'
             ? 'Planung wurde angenommen.'
-            : 'Planung wurde abgelehnt.',
+            : newStatus == 'maybe'
+                ? 'Status auf "Vielleicht" gesetzt.'
+                : 'Planung wurde abgelehnt.',
       );
     } catch (_) {
       if (!mounted) return;
       _showMessage('Status konnte nicht aktualisiert werden.');
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _updatingEventIds.remove(eventId);
-      });
+      if (mounted) {
+        setState(() {
+          _updatingEventIds.remove(eventId);
+        });
+      }
     }
   }
 
@@ -663,7 +681,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
       return;
     }
 
-    FocusScope.of(context).unfocus();
+    if (mounted) FocusScope.of(context).unfocus();
 
     setState(() {
       _isUploadingAudio = true;
@@ -1862,8 +1880,8 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                   final aTs = a.data()['createdAt'] as Timestamp?;
                   final bTs = b.data()['createdAt'] as Timestamp?;
                   if (aTs == null && bTs == null) return 0;
-                  if (aTs == null) return -1;
-                  if (bTs == null) return 1;
+                  if (aTs == null) return 1;
+                  if (bTs == null) return -1;
                   return aTs.compareTo(bTs);
                 });
 
@@ -2058,7 +2076,6 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                     maxLines: 4,
                     enabled: !_isUploadingAudio,
                     textInputAction: TextInputAction.send,
-                    onTap: _scheduleScrollToBottom,
                     onSubmitted: (_) => _sendMessage(),
                     decoration: InputDecoration(
                       hintText: 'Nachricht schreiben',
@@ -2086,31 +2103,35 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                   ),
                 ),
                 const SizedBox(width: 10),
-                SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: FilledButton(
-                    onPressed: _isUploadingAudio
-                        ? null
-                        : (_messageController.text.trim().isNotEmpty
-                        ? _sendMessage
-                        : _startAudioRecording),
-                    style: FilledButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      shape: const CircleBorder(),
-                    ),
-                    child: _isSendingMessage || _isUploadingAudio
-                        ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                        : Icon(
-                      _messageController.text.trim().isNotEmpty
-                          ? Icons.send_rounded
-                          : Icons.mic_rounded,
-                    ),
-                  ),
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _messageController,
+                  builder: (context, value, _) {
+                    final hasText = value.text.trim().isNotEmpty;
+                    return SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: FilledButton(
+                        onPressed: _isUploadingAudio
+                            ? null
+                            : (hasText ? _sendMessage : _startAudioRecording),
+                        style: FilledButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          shape: const CircleBorder(),
+                        ),
+                        child: _isSendingMessage || _isUploadingAudio
+                            ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                            : Icon(
+                          hasText
+                              ? Icons.send_rounded
+                              : Icons.mic_rounded,
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -2124,27 +2145,21 @@ class _ContactThreadPageState extends State<ContactThreadPage>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-    final safeName = (_resolvedContactName.isEmpty
-        ? widget.contactName
-        : _resolvedContactName)
-        .trim()
-        .isEmpty
-        ? 'Unbekannt'
-        : (_resolvedContactName.isEmpty
-        ? widget.contactName
-        : _resolvedContactName)
-        .trim();
-    final safePhone = (_resolvedPhoneNumber.isEmpty
-        ? widget.phoneNumber
-        : _resolvedPhoneNumber)
-        .trim()
-        .isEmpty
-        ? 'Keine Nummer vorhanden'
-        : (_resolvedPhoneNumber.isEmpty
-        ? widget.phoneNumber
-        : _resolvedPhoneNumber)
-        .trim();
+
+    final rawName = _resolvedContactName.trim().isEmpty
+        ? widget.contactName.trim()
+        : _resolvedContactName.trim();
+    final safeName = rawName.isEmpty ? 'Unbekannt' : rawName;
+
+    final rawPhone = _resolvedPhoneNumber.trim().isEmpty
+        ? widget.phoneNumber.trim()
+        : _resolvedPhoneNumber.trim();
+    final safePhone = rawPhone.isEmpty ? 'Keine Nummer vorhanden' : rawPhone;
+
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, authSnapshot) {
+        final currentUserId = authSnapshot.data?.uid;
 
     return Scaffold(
       appBar: AppBar(
@@ -2263,6 +2278,8 @@ class _ContactThreadPageState extends State<ContactThreadPage>
           ],
         ),
       ),
+    );
+      },
     );
   }
 }
