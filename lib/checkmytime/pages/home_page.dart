@@ -771,6 +771,15 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       String currentUserId,
       String otherParticipantId,
       ) {
+    final typingTimestamp =
+        data['typingAt'] as Timestamp? ??
+            data['typingUpdatedAt'] as Timestamp? ??
+            data['currentlyTypingAt'] as Timestamp?;
+
+    final isTypingFresh = typingTimestamp != null &&
+        DateTime.now().difference(typingTimestamp.toDate()) <=
+            const Duration(seconds: 8);
+
     final typingBy = (data['typingBy'] ??
         data['typingUserId'] ??
         data['typingUid'] ??
@@ -779,14 +788,17 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         .toString()
         .trim();
     if (typingBy.isNotEmpty) {
-      return typingBy == otherParticipantId && typingBy != currentUserId;
+      return typingBy == otherParticipantId &&
+          typingBy != currentUserId &&
+          isTypingFresh;
     }
 
     final typingIds = List<String>.from(
       data['typingUserIds'] ?? data['currentlyTypingUserIds'] ?? const [],
     );
     return typingIds.contains(otherParticipantId) &&
-        !typingIds.contains(currentUserId);
+        !typingIds.contains(currentUserId) &&
+        isTypingFresh;
   }
 
   String _formatVoiceDuration(dynamic value) {

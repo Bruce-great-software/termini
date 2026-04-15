@@ -39,6 +39,9 @@ class _ContactThreadPageState extends State<ContactThreadPage>
 
   StreamSubscription<PlayerState>? _playerStateSubscription;
   Timer? _recordingTimer;
+  Timer? _typingClearTimer;
+  bool _isCurrentlyTyping = false;
+  DateTime? _lastTypingPingAt;
 
   late final TabController _tabController;
 
@@ -96,6 +99,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
         _isActiveAudioPlaying = playing;
       });
     });
+    _messageController.addListener(_handleTypingChanged);
     _loadContactProfile();
     _markThreadAsRead();
     _markIncomingMessagesAsRead();
@@ -107,6 +111,9 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     WidgetsBinding.instance.removeObserver(this);
     _tabController.removeListener(_handleTabChanged);
     _tabController.dispose();
+    _messageController.removeListener(_handleTypingChanged);
+    _typingClearTimer?.cancel();
+    unawaited(_setTypingState(false, force: true));
     _messageController.dispose();
     _messagesScrollController.dispose();
     _recordingTimer?.cancel();
@@ -123,11 +130,56 @@ class _ContactThreadPageState extends State<ContactThreadPage>
       _markIncomingMessagesAsRead();
       _scheduleScrollToBottom();
     } else {
+      _typingClearTimer?.cancel();
+      unawaited(_setTypingState(false, force: true));
       _markIncomingEventsAsRead();
     }
   }
 
-Future<void> _loadContactProfile() async {
+  void _handleTypingChanged() {
+    final hasText = _messageController.text.trim().isNotEmpty;
+    _typingClearTimer?.cancel();
+
+    if (!hasText) {
+      unawaited(_setTypingState(false));
+      return;
+    }
+
+    final now = DateTime.now();
+    final shouldPing = _lastTypingPingAt == null ||
+        now.difference(_lastTypingPingAt!) >= const Duration(seconds: 2);
+
+    if (shouldPing) {
+      _lastTypingPingAt = now;
+      unawaited(_setTypingState(true));
+    }
+
+    _typingClearTimer = Timer(const Duration(seconds: 4), () {
+      unawaited(_setTypingState(false));
+    });
+  }
+
+  Future<void> _setTypingState(bool isTyping, {bool force = false}) async {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null || widget.contactId.isEmpty) return;
+    if (!force && _isCurrentlyTyping == isTyping) return;
+
+    _isCurrentlyTyping = isTyping;
+    try {
+      await FirebaseFirestore.instance
+          .collection('contact_threads')
+          .doc(_threadId)
+          .set({
+        'typingBy': isTyping ? currentUserId : '',
+        'typingUserId': isTyping ? currentUserId : '',
+        'typingAt': FieldValue.serverTimestamp(),
+        'typingUpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
+
+  Future<void> _loadContactProfile() async {
     if (widget.contactId.isEmpty) return;
 
     try {
@@ -548,8 +600,8 @@ Future<void> _loadContactProfile() async {
         newStatus == 'accepted'
             ? 'Planung wurde angenommen.'
             : newStatus == 'maybe'
-                ? 'Status auf "Vielleicht" gesetzt.'
-                : 'Planung wurde abgelehnt.',
+            ? 'Status auf "Vielleicht" gesetzt.'
+            : 'Planung wurde abgelehnt.',
       );
     } catch (_) {
       if (!mounted) return;
@@ -1136,6 +1188,8 @@ Future<void> _loadContactProfile() async {
       } catch (_) {}
 
       _messageController.clear();
+      _typingClearTimer?.cancel();
+      await _setTypingState(false, force: true);
       _scheduleScrollToBottom();
     } catch (_) {
       if (!mounted) return;
@@ -1149,15 +1203,116 @@ Future<void> _loadContactProfile() async {
     }
   }
 
-  Widget _buildHeaderAvatar(ColorScheme colorScheme, String safeName) {
-    if (_profileImageUrl.isNotEmpty) {
-      return CircleAvatar(
-        radius: 18,
-        backgroundImage: NetworkImage(_profileImageUrl),
-      );
+  bool _isContactOnline(Map<String, dynamic>? userData) {
+    if (userData == null || userData['isOnline'] != true) {
+      return false;
     }
 
-    return CircleAvatar(
+    final lastSeen = userData['lastSeenAt'];
+    if (lastSeen is! Timestamp) return true;
+
+    return DateTime.now().difference(lastSeen.toDate()) <=
+        const Duration(minutes: 3);
+  }
+
+  bool _isContactTyping(
+      Map<String, dynamic>? threadData,
+      String currentUserId,
+      ) {
+    if (threadData == null || currentUserId.trim().isEmpty) {
+      return false;
+    }
+
+    final typingTimestamp =
+        threadData['typingAt'] as Timestamp? ??
+            threadData['typingUpdatedAt'] as Timestamp? ??
+            threadData['currentlyTypingAt'] as Timestamp?;
+
+    final isTypingFresh = typingTimestamp != null &&
+        DateTime.now().difference(typingTimestamp.toDate()) <=
+            const Duration(seconds: 8);
+
+    final typingBy = (threadData['typingBy'] ??
+        threadData['typingUserId'] ??
+        threadData['typingUid'] ??
+        threadData['currentlyTypingUserId'] ??
+        '')
+        .toString()
+        .trim();
+
+    if (typingBy.isNotEmpty) {
+      return typingBy == widget.contactId &&
+          typingBy != currentUserId &&
+          isTypingFresh;
+    }
+
+    final typingIds = List<String>.from(
+      threadData['typingUserIds'] ??
+          threadData['currentlyTypingUserIds'] ??
+          const [],
+    );
+
+    return typingIds.contains(widget.contactId) &&
+        !typingIds.contains(currentUserId) &&
+        isTypingFresh;
+  }
+
+  String _formatLastSeenLabel(Timestamp? timestamp) {
+    if (timestamp == null) return 'Zuletzt online unbekannt';
+
+    final now = DateTime.now();
+    final lastSeen = timestamp.toDate();
+    final diff = now.difference(lastSeen);
+
+    if (diff.inSeconds < 60) {
+      return 'Zuletzt online gerade eben';
+    }
+    if (diff.inMinutes < 60) {
+      return 'Zuletzt online vor ${diff.inMinutes} Min.';
+    }
+    if (diff.inHours < 24) {
+      return 'Zuletzt online vor ${diff.inHours} Std.';
+    }
+
+    final today = DateTime(now.year, now.month, now.day);
+    final lastDay = DateTime(lastSeen.year, lastSeen.month, lastSeen.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+
+    if (lastDay == yesterday) {
+      return 'Zuletzt online gestern um ${DateFormat('HH:mm', 'de_DE').format(lastSeen)}';
+    }
+
+    return 'Zuletzt online ${DateFormat('dd.MM. • HH:mm', 'de_DE').format(lastSeen)}';
+  }
+
+  String _buildPresenceText({
+    required Map<String, dynamic>? userData,
+    required Map<String, dynamic>? threadData,
+    required String currentUserId,
+  }) {
+    if (_isContactTyping(threadData, currentUserId)) {
+      return 'Schreibt gerade…';
+    }
+
+    if (_isContactOnline(userData)) {
+      return 'Online';
+    }
+
+    final lastSeen = userData?['lastSeenAt'];
+    return _formatLastSeenLabel(lastSeen is Timestamp ? lastSeen : null);
+  }
+
+  Widget _buildHeaderAvatar(
+      ColorScheme colorScheme,
+      String safeName, {
+        required bool isOnline,
+      }) {
+    final avatar = _profileImageUrl.isNotEmpty
+        ? CircleAvatar(
+      radius: 18,
+      backgroundImage: NetworkImage(_profileImageUrl),
+    )
+        : CircleAvatar(
       radius: 18,
       backgroundColor: colorScheme.primary.withValues(alpha: 0.12),
       child: Text(
@@ -1167,6 +1322,35 @@ Future<void> _loadContactProfile() async {
           fontWeight: FontWeight.w700,
         ),
       ),
+    );
+
+    if (!isOnline) return avatar;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(2),
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            color: Color(0xFF19B35E),
+          ),
+          child: avatar,
+        ),
+        Positioned(
+          right: -1,
+          bottom: -1,
+          child: Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFF19B35E),
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -2151,134 +2335,172 @@ Future<void> _loadContactProfile() async {
         : _resolvedContactName.trim();
     final safeName = rawName.isEmpty ? 'Unbekannt' : rawName;
 
-    final rawPhone = _resolvedPhoneNumber.trim().isEmpty
-        ? widget.phoneNumber.trim()
-        : _resolvedPhoneNumber.trim();
-    final safePhone = rawPhone.isEmpty ? 'Keine Nummer vorhanden' : rawPhone;
-
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, authSnapshot) {
         final currentUserId = authSnapshot.data?.uid;
 
-    return Scaffold(
-      appBar: AppBar(
-        leadingWidth: 32,
-        titleSpacing: 8,
-        title: Row(
-          children: [
-            _buildHeaderAvatar(colorScheme, safeName),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    safeName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    safePhone,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
+        return Scaffold(
+          appBar: AppBar(
+            leadingWidth: 32,
+            titleSpacing: 8,
+            title: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: widget.contactId.isEmpty
+                  ? null
+                  : FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(widget.contactId)
+                  .snapshots(),
+              builder: (context, userSnapshot) {
+                final contactUserData = userSnapshot.data?.data();
+                final isOnline = _isContactOnline(contactUserData);
+
+                return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream: currentUserId == null
+                      ? null
+                      : FirebaseFirestore.instance
+                      .collection('contact_threads')
+                      .doc(_threadId)
+                      .snapshots(),
+                  builder: (context, threadSnapshot) {
+                    final threadData = threadSnapshot.data?.data();
+                    final presenceText = _buildPresenceText(
+                      userData: contactUserData,
+                      threadData: threadSnapshot.data?.data(),
+                      currentUserId: currentUserId ?? '',
+                    );
+
+                    return Row(
+                      children: [
+                        _buildHeaderAvatar(
+                          colorScheme,
+                          safeName,
+                          isOnline: isOnline,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                safeName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                presenceText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: _isContactTyping(threadData, currentUserId ?? '')
+                                      ? colorScheme.primary
+                                      : isOnline
+                                      ? const Color(0xFF19B35E)
+                                      : colorScheme.onSurfaceVariant,
+                                  fontWeight:
+                                  (_isContactTyping(threadData, currentUserId ?? '') ||
+                                      isOnline)
+                                      ? FontWeight.w600
+                                      : FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
+            ),
+            actions: [
+              IconButton(
+                tooltip: 'Plan erstellen',
+                onPressed: () => _openCreateEventPage(safeName),
+                icon: const Icon(Icons.calendar_month_outlined),
+              ),
+              PopupMenuButton<String>(
+                onSelected: (value) async {
+                  if (value == 'clear_chat') {
+                    await _confirmClearChat();
+                  }
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem<String>(
+                    value: 'clear_chat',
+                    child: Text('Chat leeren'),
                   ),
                 ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Plan erstellen',
-            onPressed: () => _openCreateEventPage(safeName),
-            icon: const Icon(Icons.calendar_month_outlined),
-          ),
-          PopupMenuButton<String>(
-            onSelected: (value) async {
-              if (value == 'clear_chat') {
-                await _confirmClearChat();
-              }
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem<String>(
-                value: 'clear_chat',
-                child: Text('Chat leeren'),
               ),
             ],
           ),
-        ],
-      ),
-      body: SafeArea(
-        child: currentUserId == null
-            ? Center(
-          child: Text(
-            'Du bist aktuell nicht eingeloggt.',
-            style: theme.textTheme.bodyLarge,
+          body: SafeArea(
+            child: currentUserId == null
+                ? Center(
+              child: Text(
+                'Du bist aktuell nicht eingeloggt.',
+                style: theme.textTheme.bodyLarge,
+              ),
+            )
+                : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: colorScheme.surface,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: colorScheme.outlineVariant),
+                    ),
+                    child: TabBar(
+                      controller: _tabController,
+                      dividerColor: Colors.transparent,
+                      indicatorSize: TabBarIndicatorSize.tab,
+                      indicator: BoxDecoration(
+                        color: colorScheme.primary.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      labelColor: colorScheme.primary,
+                      unselectedLabelColor: colorScheme.onSurfaceVariant,
+                      labelStyle: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                      tabs: const [
+                        Tab(text: 'Chat'),
+                        Tab(text: 'Planungen'),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildMessagesTab(
+                        theme: theme,
+                        colorScheme: colorScheme,
+                        safeName: safeName,
+                        currentUserId: currentUserId,
+                      ),
+                      _buildPlansTab(
+                        theme: theme,
+                        colorScheme: colorScheme,
+                        safeName: safeName,
+                        currentUserId: currentUserId,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-        )
-            : Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: colorScheme.surface,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: colorScheme.outlineVariant),
-                ),
-                child: TabBar(
-                  controller: _tabController,
-                  dividerColor: Colors.transparent,
-                  indicatorSize: TabBarIndicatorSize.tab,
-                  indicator: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  labelColor: colorScheme.primary,
-                  unselectedLabelColor: colorScheme.onSurfaceVariant,
-                  labelStyle: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                  tabs: const [
-                    Tab(text: 'Chat'),
-                    Tab(text: 'Planungen'),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildMessagesTab(
-                    theme: theme,
-                    colorScheme: colorScheme,
-                    safeName: safeName,
-                    currentUserId: currentUserId,
-                  ),
-                  _buildPlansTab(
-                    theme: theme,
-                    colorScheme: colorScheme,
-                    safeName: safeName,
-                    currentUserId: currentUserId,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+        );
       },
     );
   }
