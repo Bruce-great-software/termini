@@ -776,18 +776,22 @@ class _UserPageState extends State<UserPage> {
       builder: (context, snap) {
         final isOnline = _isOnlineLive(snap.data?.data());
         return SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (_hasIncomingFollowRequest) _buildNotifBanner(),
               _buildCover(isOnline),
-              _buildProfileInfoArea(isOnline),
-              _buildTabBar(),
-              Container(
-                color: _C.bgTertiary,
-                padding: const EdgeInsets.all(12),
-                constraints: const BoxConstraints(minHeight: 220),
-                child: _buildTabContent(),
+              Transform.translate(
+                offset: const Offset(0, -20),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: _buildProfileInfoArea(isOnline),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+                child: _buildMainContent(),
               ),
             ],
           ),
@@ -929,75 +933,84 @@ class _UserPageState extends State<UserPage> {
 
   Widget _buildProfileInfoArea(bool isOnline) {
     return Container(
-      color: _C.bgPrimary,
-      padding: const EdgeInsets.fromLTRB(16, 36, 16, 14),
+      decoration: BoxDecoration(
+        color: _C.bgPrimary,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: _C.borderTertiary, width: 0.5),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x120F172A),
+            blurRadius: 24,
+            offset: Offset(0, 10),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.fromLTRB(18, 38, 18, 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Name + Follow-Button
+          Text(
+            _displayName.isNotEmpty ? _displayName : 'Unbekannt',
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: _C.textPrimary,
+              height: 1.15,
+            ),
+          ),
+          const SizedBox(height: 6),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _displayName.isNotEmpty ? _displayName : 'Unbekannt',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                        color: _C.textPrimary,
-                        height: 1.2,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _isFollowing && isOnline
-                          ? 'Online'
-                          : (_memberSince.isNotEmpty
-                          ? 'Mitglied seit $_memberSince'
-                          : 'Mitglied'),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _isFollowing && isOnline
-                            ? _C.onlineGreen
-                            : _C.textSecondary,
-                        fontWeight: _isFollowing && isOnline
-                            ? FontWeight.w600
-                            : FontWeight.w400,
-                      ),
-                    ),
-                  ],
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: _isFollowing && isOnline
+                      ? _C.onlineGreen
+                      : _C.textSecondary.withValues(alpha: 0.28),
+                  shape: BoxShape.circle,
                 ),
               ),
-              const SizedBox(width: 10),
-              _buildFollowButton(),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _isFollowing && isOnline
+                      ? 'Online'
+                      : (_memberSince.isNotEmpty
+                      ? 'Mitglied seit $_memberSince'
+                      : 'Mitglied'),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: _isFollowing && isOnline
+                        ? _C.onlineGreen
+                        : _C.textSecondary,
+                    fontWeight: _isFollowing && isOnline
+                        ? FontWeight.w700
+                        : FontWeight.w500,
+                  ),
+                ),
+              ),
             ],
           ),
-
-          // Bio — nur bei public oder following
           if (_canSeeFullProfile && _bio.isNotEmpty) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Text(
               _bio,
               style: const TextStyle(
                 fontSize: 13,
                 color: _C.textSecondary,
-                height: 1.5,
+                height: 1.55,
               ),
             ),
           ],
-
-          // Stats-Row (Konzept: Divider oben 0.5px, mt:14, padding-top:14)
-          const SizedBox(height: 14),
+          const SizedBox(height: 18),
           Container(
-            decoration: const BoxDecoration(
-              border: Border(
-                top: BorderSide(color: _C.borderTertiary, width: 0.5),
-              ),
+            decoration: BoxDecoration(
+              color: _C.bgTertiary,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: _C.borderTertiary, width: 0.5),
             ),
-            padding: const EdgeInsets.only(top: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 14),
             child: Row(
               children: [
                 Expanded(
@@ -1023,8 +1036,6 @@ class _UserPageState extends State<UserPage> {
               ],
             ),
           ),
-
-          // Action-Row (Nachricht immer, Planungen nur wenn following)
           const SizedBox(height: 14),
           _buildActionRow(),
         ],
@@ -1100,34 +1111,196 @@ class _UserPageState extends State<UserPage> {
       children: [
         Expanded(
           child: _ActionButton(
-            label: '💬 Nachricht',
+            label: 'Nachricht',
+            icon: Icons.chat_bubble_outline_rounded,
             onTap: () {
               if (widget.onMessageTap != null) {
                 widget.onMessageTap!();
               } else {
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => ContactThreadPage(
-                    contactId: widget.userId,
-                    contactName: _displayName.isEmpty
-                        ? widget.initialName
-                        : _displayName,
-                    phoneNumber: _phoneNumber,
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ContactThreadPage(
+                      contactId: widget.userId,
+                      contactName: _displayName.isEmpty
+                          ? widget.initialName
+                          : _displayName,
+                      phoneNumber: _phoneNumber,
+                    ),
                   ),
-                ));
+                );
               }
             },
           ),
         ),
-        if (_isFollowing) ...[
-          const SizedBox(width: 8),
-          Expanded(
-            child: _ActionButton(
-              label: '📅 Planungen',
-              onTap: () => _setTab('planungen'),
-            ),
-          ),
-        ],
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildFollowActionButton(),
+        ),
       ],
+    );
+  }
+
+  Widget _buildMainContent() {
+    if (!_isProfilePublic && !_isFollowing) {
+      return _PrivateOverlay(
+        firstName: _first(),
+        isPending: _isFollowPending,
+        onFollowTap: _handleFollowTap,
+        onCancel: _cancelRequest,
+      );
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: widget.userId.isEmpty
+          ? null
+          : FirebaseFirestore.instance
+          .collection('events')
+          .where('memberIds', arrayContains: widget.userId)
+          .orderBy('eventDate', descending: true)
+          .limit(4)
+          .snapshots(),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting &&
+            !(snap.hasData && (snap.data?.docs.isNotEmpty ?? false))) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 56),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final docs = snap.data?.docs ?? [];
+
+        if (docs.isEmpty) {
+          return const _ProfileSection(
+            title: 'Aktivitäten',
+            child: _ProfileEmptyState(
+              icon: Icons.auto_awesome_rounded,
+              title: 'Noch keine Aktivitäten',
+              desc: 'Hier erscheinen zukünftige Aktivitäten.',
+            ),
+          );
+        }
+
+        return _ProfileSection(
+          title: 'Aktivitäten',
+          subtitle: 'Neueste Aktivitäten von diesem Profil',
+          child: _ContentCard(
+            children: docs.map((doc) {
+              final d = doc.data();
+              final title = (d['title'] ?? 'Event').toString();
+              final date = d['eventDate'] as Timestamp?;
+              final isOrg = (d['createdBy'] ?? '') == widget.userId;
+              final memberCount =
+                  List<String>.from(d['memberIds'] ?? const []).length;
+              final dateStr = date != null
+                  ? DateFormat('EE, d. MMM', 'de_DE').format(date.toDate())
+                  : '';
+
+              return _ActivityItem(
+                iconEmoji: isOrg ? '🎯' : '📅',
+                iconBg: isOrg ? _C.iconSocialBg : _C.iconEventBg,
+                title: isOrg
+                    ? 'Veranstaltet $title'
+                    : 'Nimmt an $title teil',
+                meta: memberCount > 0
+                    ? '$dateStr · $memberCount Teilnehmer'
+                    : dateStr,
+                badgeLabel: isOrg ? 'Veranstalter' : 'Zugesagt',
+                badgeBg: isOrg ? _C.blueBg : _C.greenBg,
+                badgeColor: isOrg ? _C.blueText : _C.greenText,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => EventDetailPage(
+                      eventId: doc.id,
+                      view: EventDetailView.openEvent,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFollowActionButton() {
+    String label;
+    IconData icon;
+    Color backgroundColor;
+    Color foregroundColor;
+    Color? borderColor;
+
+    if (_isFollowLoading) {
+      return Container(
+        height: 46,
+        decoration: BoxDecoration(
+          color: _C.bgSecondary,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _C.borderSecondary, width: 0.5),
+        ),
+        alignment: Alignment.center,
+        child: const SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.2,
+            color: _C.blue,
+          ),
+        ),
+      );
+    }
+
+    if (_isFollowing) {
+      label = 'Gefolgt';
+      icon = Icons.check_rounded;
+      backgroundColor = const Color(0xFFEDE9FE);
+      foregroundColor = const Color(0xFF5B21B6);
+      borderColor = null;
+    } else if (_isFollowPending) {
+      label = 'Angefragt';
+      icon = Icons.schedule_rounded;
+      backgroundColor = _C.bgSecondary;
+      foregroundColor = _C.textSecondary;
+      borderColor = _C.borderSecondary;
+    } else {
+      label = _isProfilePublic ? 'Folgen' : 'Anfragen';
+      icon = _isProfilePublic
+          ? Icons.person_add_alt_1_rounded
+          : Icons.lock_outline_rounded;
+      backgroundColor = _C.blue;
+      foregroundColor = Colors.white;
+      borderColor = null;
+    }
+
+    return GestureDetector(
+      onTap: _handleFollowTap,
+      child: Container(
+        height: 46,
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(16),
+          border: borderColor != null
+              ? Border.all(color: borderColor, width: 0.5)
+              : null,
+        ),
+        alignment: Alignment.center,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 18, color: foregroundColor),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: foregroundColor,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1290,10 +1463,10 @@ class _UserPageState extends State<UserPage> {
       stream: _currentUserId.isEmpty
           ? null
           : FirebaseFirestore.instance
-              .collection('events')
-              .where('memberIds', arrayContains: _currentUserId)
-              .orderBy('eventDate', descending: false)
-              .snapshots(),
+          .collection('events')
+          .where('memberIds', arrayContains: _currentUserId)
+          .orderBy('eventDate', descending: false)
+          .snapshots(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Padding(
@@ -1321,7 +1494,7 @@ class _UserPageState extends State<UserPage> {
             emoji: '📋',
             title: 'Noch keine gemeinsamen Planungen',
             desc:
-                'Ihr habt noch keine direkten Planungen. Nachrichten und gemeinsame Events bleiben trotzdem jederzeit möglich.',
+            'Ihr habt noch keine direkten Planungen. Nachrichten und gemeinsame Events bleiben trotzdem jederzeit möglich.',
           );
         }
 
@@ -1376,7 +1549,7 @@ class _UserPageState extends State<UserPage> {
               children: [
                 Padding(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1468,10 +1641,10 @@ class _UserPageState extends State<UserPage> {
       stream: widget.userId.isEmpty
           ? null
           : FirebaseFirestore.instance
-              .collection('events')
-              .where('memberIds', arrayContains: widget.userId)
-              .orderBy('eventDate', descending: false)
-              .snapshots(),
+          .collection('events')
+          .where('memberIds', arrayContains: widget.userId)
+          .orderBy('eventDate', descending: false)
+          .snapshots(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Padding(
@@ -1503,9 +1676,9 @@ class _UserPageState extends State<UserPage> {
         }
 
         Widget buildSection(
-          String title,
-          List<QueryDocumentSnapshot<Map<String, dynamic>>> sectionDocs,
-        ) {
+            String title,
+            List<QueryDocumentSnapshot<Map<String, dynamic>>> sectionDocs,
+            ) {
           return _ContentCard(
             children: [
               Padding(
@@ -1803,28 +1976,43 @@ class _StatItem extends StatelessWidget {
 
 class _ActionButton extends StatelessWidget {
   final String label;
+  final IconData? icon;
   final VoidCallback onTap;
-  const _ActionButton({required this.label, required this.onTap});
+
+  const _ActionButton({
+    required this.label,
+    required this.onTap,
+    this.icon,
+  });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 9),
+        height: 46,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: _C.bgSecondary,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: _C.borderSecondary, width: 0.5),
         ),
-        child: Text(
-          label,
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: _C.textPrimary,
-          ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 18, color: _C.textPrimary),
+              const SizedBox(width: 8),
+            ],
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: _C.textPrimary,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -2208,6 +2396,116 @@ class _Status {
   const _Status(this.label, this.bg, this.color);
 }
 
+class _ProfileSection extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final Widget child;
+
+  const _ProfileSection({
+    required this.title,
+    required this.child,
+    this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: _C.textPrimary,
+                ),
+              ),
+              if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  subtitle!,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: _C.textSecondary,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        child,
+      ],
+    );
+  }
+}
+
+class _ProfileEmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String desc;
+
+  const _ProfileEmptyState({
+    required this.icon,
+    required this.title,
+    required this.desc,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 44),
+      decoration: BoxDecoration(
+        color: _C.bgPrimary,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _C.borderTertiary, width: 0.5),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: const BoxDecoration(
+              color: _C.bgSecondary,
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Icon(icon, color: _C.blue, size: 30),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: _C.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 280),
+            child: Text(
+              desc,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 14,
+                color: _C.textSecondary,
+                height: 1.6,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── Empty-State inline ──
 
 class _EmptyStateInline extends StatelessWidget {
@@ -2270,93 +2568,107 @@ class _PrivateOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+      decoration: BoxDecoration(
+        color: _C.bgPrimary,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _C.borderTertiary, width: 0.5),
+      ),
       child: Column(
         children: [
           Container(
-            width: 56,
-            height: 56,
+            width: 72,
+            height: 72,
             decoration: const BoxDecoration(
               color: _C.bgSecondary,
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
-            child: const Text('🔒', style: TextStyle(fontSize: 22)),
+            child: const Icon(
+              Icons.lock_outline_rounded,
+              color: _C.blue,
+              size: 32,
+            ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 18),
           const Text(
             'Dieses Profil ist privat',
+            textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w500,
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
               color: _C.textPrimary,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 10),
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 260),
+            constraints: const BoxConstraints(maxWidth: 290),
             child: Text(
               'Folge $firstName, um Aktivitäten, Bio und weitere Inhalte zu sehen.',
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontSize: 13,
+                fontSize: 14,
                 color: _C.textSecondary,
-                height: 1.6,
+                height: 1.65,
               ),
             ),
           ),
           if (isPending) ...[
             const SizedBox(height: 12),
             ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 260),
+              constraints: const BoxConstraints(maxWidth: 290),
               child: Text(
                 'Deine Anfrage wurde gesendet. Sobald $firstName sie annimmt, siehst du hier mehr.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  fontSize: 12,
+                  fontSize: 13,
                   color: _C.textSecondary,
-                  height: 1.5,
+                  height: 1.6,
                 ),
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 18),
             GestureDetector(
               onTap: onCancel,
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 7),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                 decoration: BoxDecoration(
                   color: _C.bgSecondary,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(18),
                   border: Border.all(
-                      color: _C.borderSecondary, width: 0.5),
+                    color: _C.borderSecondary,
+                    width: 0.5,
+                  ),
                 ),
                 child: const Text(
                   'Anfrage zurückziehen',
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                     color: _C.textSecondary,
                   ),
                 ),
               ),
             ),
           ] else ...[
-            const SizedBox(height: 14),
+            const SizedBox(height: 22),
             GestureDetector(
               onTap: onFollowTap,
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 20, vertical: 8),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
                 decoration: BoxDecoration(
                   color: _C.blue,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(18),
                 ),
                 child: const Text(
                   'Anfrage senden',
                   style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
                     color: Colors.white,
                   ),
                 ),

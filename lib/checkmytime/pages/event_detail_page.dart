@@ -33,6 +33,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
   bool _isCancelling = false;
   bool _isTogglingClosed = false;
   bool _hasMarkedInviteSeen = false;
+  bool _hasLocallyMarkedInviteSeen = false;
   String? _ownerActionUserId;
 
   String get _currentUserId => FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -182,6 +183,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
 
   bool _hasSeenInvite(Map<String, dynamic> data, String userId) {
     if (userId.trim().isEmpty) return false;
+    if (userId == _currentUserId && _hasLocallyMarkedInviteSeen) return true;
+
     final seenMap = _inviteSeenAtMap(data);
     if (seenMap[userId] != null) return true;
 
@@ -204,6 +207,12 @@ class _EventDetailPageState extends State<EventDetailPage> {
     if (_hasSeenInvite(data, _currentUserId)) {
       _hasMarkedInviteSeen = true;
       return;
+    }
+
+    if (!_hasLocallyMarkedInviteSeen && mounted) {
+      setState(() {
+        _hasLocallyMarkedInviteSeen = true;
+      });
     }
 
     try {
@@ -1498,6 +1507,10 @@ class _EventDetailPageState extends State<EventDetailPage> {
             final isCancelled = _isCancelledEvent(data);
             final isClosed = _isClosedEvent(data);
             final inviteProgressCounts = _inviteProgressCounts(data);
+            final effectiveInviteSeenAtMap = _inviteSeenAtMap(data);
+            if (_hasLocallyMarkedInviteSeen && _currentUserId.isNotEmpty) {
+              effectiveInviteSeenAtMap[_currentUserId] = true;
+            }
 
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
@@ -1876,7 +1889,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   currentUserId: _currentUserId,
                   isOwner: isOwner,
                   joinMode: joinMode,
-                  inviteSeenAtMap: _inviteSeenAtMap(data),
+                  inviteSeenAtMap: effectiveInviteSeenAtMap,
                   isUpdatingStatus: _isUpdatingStatus,
                   ownerActionUserId: _ownerActionUserId,
                   eventCancelled: isCancelled,
@@ -2584,17 +2597,22 @@ class _ParticipantGroupsSection extends StatelessWidget {
                     : null,
                 people: pendingIds
                     .map(
-                      (id) => _ParticipantItemData(
-                    userId: id,
-                    name: loadedNames[id] ?? 'Unbekannt',
-                    status: isInviteOnlyOwnerView
-                        ? (inviteSeenAtMap[id] != null ? 'Gesehen' : 'Eingeladen')
-                        : 'Ausstehend',
-                    inviteStage: isInviteOnlyOwnerView
-                        ? _inviteStageForPendingUser(id)
-                        : 'pending',
-                    isCurrentUser: id == currentUserId,
-                  ),
+                      (id) {
+                    final hasSeenInvite =
+                        joinMode == 'invite_only' && inviteSeenAtMap[id] != null;
+
+                    return _ParticipantItemData(
+                      userId: id,
+                      name: loadedNames[id] ?? 'Unbekannt',
+                      status: hasSeenInvite
+                          ? 'Gesehen'
+                          : (isInviteOnlyOwnerView ? 'Eingeladen' : 'Ausstehend'),
+                      inviteStage: joinMode == 'invite_only'
+                          ? _inviteStageForPendingUser(id)
+                          : 'pending',
+                      isCurrentUser: id == currentUserId,
+                    );
+                  },
                 )
                     .toList(),
               ),

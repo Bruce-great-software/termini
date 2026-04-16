@@ -241,14 +241,57 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     return response == 'accepted' || response == 'maybe' || response == 'declined';
   }
 
+  bool _isLegacyUnreadPlanInvite(
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final memberIds = List<String>.from(data['memberIds'] ?? const []);
+
+    if (createdBy.isEmpty || createdBy == currentUserId) return false;
+    if (!memberIds.contains(currentUserId)) return false;
+    return data['isReadByRecipient'] != true;
+  }
+
   bool _isUnseenPendingEventInvite(
       Map<String, dynamic> data,
       String currentUserId,
       ) {
-    return _isPendingEventInvite(data, currentUserId) &&
-        !_hasSeenInvite(data, currentUserId);
+    return (_isPendingEventInvite(data, currentUserId) &&
+        !_hasSeenInvite(data, currentUserId)) ||
+        _isLegacyUnreadPlanInvite(data, currentUserId);
   }
 
+  bool _isInviteNotificationType(String type) {
+    switch (type.trim().toLowerCase()) {
+      case 'event_invite':
+      case 'event_invitation':
+      case 'plan_invite':
+      case 'plan_invitation':
+      case 'planning_invite':
+      case 'invitation':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  bool _isBellCountHandledByEventState(String type) {
+    switch (type.trim().toLowerCase()) {
+      case 'event_invite':
+      case 'event_invitation':
+      case 'event_join_request':
+      case 'event_direct_join':
+      case 'event_response_accepted':
+      case 'event_response_maybe':
+      case 'event_response_declined':
+      case 'event_join_request_accepted':
+      case 'event_join_request_declined':
+        return true;
+      default:
+        return false;
+    }
+  }
 
   Set<String> _pendingRequestKeysForOwner(
       String eventId,
@@ -2564,7 +2607,18 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                       currentUserData['pendingFollowerIds'] ?? const [],
                     );
 
-                    final unreadOtherNotifications = (notifSnapshot.data?.docs ?? const [])
+                    final notificationDocs = notifSnapshot.data?.docs ?? const [];
+
+                    final unreadInviteNotificationFallback = notificationDocs
+                        .where((doc) {
+                      final data = doc.data();
+                      final isRead = data['read'] == true;
+                      final type = (data['type'] ?? '').toString().trim();
+                      return !isRead && _isInviteNotificationType(type);
+                    })
+                        .length;
+
+                    final unreadOtherNotifications = notificationDocs
                         .where((doc) {
                       final data = doc.data();
                       final isRead = data['read'] == true;
@@ -2573,11 +2627,25 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                       (data['status'] ?? 'pending').toString().trim().toLowerCase();
                       final isPendingFollowRequest =
                           type == 'follow_request' && status == 'pending';
-                      return !isRead && !isPendingFollowRequest;
+                      final isHandledByEventState =
+                      _isBellCountHandledByEventState(type);
+                      final isInviteNotification =
+                      _isInviteNotificationType(type);
+                      return !isRead &&
+                          !isPendingFollowRequest &&
+                          !isHandledByEventState &&
+                          !isInviteNotification;
                     })
                         .length;
 
-                    final count = unreadOtherNotifications + pendingFollowerIds.length;
+                    final count = unreadOtherNotifications +
+                        pendingFollowerIds.length +
+                        _knownPendingOwnerRequestKeys.length +
+                        _pendingJoinDecisionKeys.length +
+                        _pendingOwnerResponseKeys.length +
+                        (_knownPendingInviteIds.length > unreadInviteNotificationFallback
+                            ? _knownPendingInviteIds.length
+                            : unreadInviteNotificationFallback);
 
                     return IconButton(
                       tooltip: 'Mitteilungen',

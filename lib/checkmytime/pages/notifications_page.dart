@@ -32,26 +32,76 @@ class _NotificationsPageState extends State<NotificationsPage> {
     return snapshot.data?.docs ?? const [];
   }
 
+  bool _isEventInviteNotificationType(String type) {
+    switch (type.trim().toLowerCase()) {
+      case 'event_invite':
+      case 'event_invitation':
+      case 'plan_invite':
+      case 'plan_invitation':
+      case 'planning_invite':
+      case 'invitation':
+        return true;
+      default:
+        return false;
+    }
+  }
+
   Future<void> _markAllAsRead({bool silent = false}) async {
     final currentUserId = _currentUserId;
     if (currentUserId == null) return;
 
     try {
-      final snapshot = await FirebaseFirestore.instance
+      final batch = FirebaseFirestore.instance.batch();
+      var hasUpdates = false;
+
+      final notificationsSnapshot = await FirebaseFirestore.instance
           .collection('notifications')
           .where('toUserId', isEqualTo: currentUserId)
           .where('read', isEqualTo: false)
           .get();
 
-      if (snapshot.docs.isEmpty) return;
-
-      final batch = FirebaseFirestore.instance.batch();
-      for (final doc in snapshot.docs) {
+      for (final doc in notificationsSnapshot.docs) {
         batch.update(doc.reference, {
           'read': true,
           'readAt': FieldValue.serverTimestamp(),
         });
+        hasUpdates = true;
       }
+
+      final inviteEventSnapshots = await Future.wait([
+        FirebaseFirestore.instance
+            .collection('events')
+            .where('invitedUserIds', arrayContains: currentUserId)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('events')
+            .where('memberIds', arrayContains: currentUserId)
+            .get(),
+      ]);
+
+      final handledEventIds = <String>{};
+      for (final snapshot in inviteEventSnapshots) {
+        for (final doc in snapshot.docs) {
+          if (!handledEventIds.add(doc.id)) continue;
+          final data = doc.data();
+          if (!_isUnseenPendingEventInvite(data, currentUserId)) continue;
+
+          final update = <String, dynamic>{
+            'inviteSeenAtMap.$currentUserId': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          };
+
+          if (_isLegacyUnreadPlanInvite(data, currentUserId)) {
+            update['isReadByRecipient'] = true;
+          }
+
+          batch.set(doc.reference, update, SetOptions(merge: true));
+          hasUpdates = true;
+        }
+      }
+
+      if (!hasUpdates) return;
+
       await batch.commit();
 
       if (!mounted || silent) return;
@@ -394,8 +444,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }) {
     final notifications = <_NotificationItem>[];
     final primary = Theme.of(context).colorScheme.primary;
+    final renderedInviteEventIds = <String>{};
 
-    // Follow-Notifications aus der notifications-Collection
+    // Notifications aus der notifications-Collection
     for (final doc in notifDocs) {
       final data = doc.data();
       if ((data['toUserId'] ?? '') != currentUserId) continue;
@@ -473,6 +524,58 @@ class _NotificationsPageState extends State<NotificationsPage> {
             },
           ),
         );
+        continue;
+      }
+
+      if (_isEventInviteNotificationType(type)) {
+        final eventId = (data['eventId'] ??
+            data['planId'] ??
+            data['planningId'] ??
+            '')
+            .toString()
+            .trim();
+        if (eventId.isNotEmpty) {
+          renderedInviteEventIds.add(eventId);
+        }
+
+        final eventTitle = (data['eventTitle'] ?? data['planTitle'] ?? '')
+            .toString()
+            .trim();
+        final title = (data['title'] ?? 'Einladung erhalten')
+            .toString()
+            .trim();
+        final body = (data['body'] ??
+            (eventTitle.isEmpty
+                ? 'Du hast eine neue Einladung erhalten.'
+                : 'Du wurdest zu „$eventTitle“ eingeladen.'))
+            .toString()
+            .trim();
+
+        notifications.add(
+          _NotificationItem(
+            title: title.isEmpty ? 'Einladung erhalten' : title,
+            subtitle: body.isEmpty
+                ? 'Du hast eine neue Einladung erhalten.'
+                : body,
+            timestamp: timestamp?.toDate() ?? DateTime.now(),
+            icon: Icons.calendar_month_outlined,
+            accentColor: primary,
+            iconBackground: const Color(0xFFEDEBFF),
+            iconColor: primary,
+            onTap: () {
+              if (eventId.isEmpty) return;
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => EventDetailPage(
+                    eventId: eventId,
+                    view: EventDetailView.invitation,
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+        continue;
       }
     }
 
@@ -581,7 +684,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
               data['createdAt'] as Timestamp? ??
               data['eventDate'] as Timestamp?;
 
-      if (_isUnseenPendingEventInvite(data, currentUserId)) {
+      if (_isUnseenPendingEventInvite(data, currentUserId) &&
+          !renderedInviteEventIds.contains(doc.id)) {
         notifications.add(
           _NotificationItem(
             title: 'Event-Einladung erhalten',
@@ -810,12 +914,25 @@ class _NotificationsPageState extends State<NotificationsPage> {
     return response == 'accepted' || response == 'maybe' || response == 'declined';
   }
 
+  static bool _isLegacyUnreadPlanInvite(
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final memberIds = List<String>.from(data['memberIds'] ?? const []);
+
+    if (createdBy.isEmpty || createdBy == currentUserId) return false;
+    if (!memberIds.contains(currentUserId)) return false;
+    return data['isReadByRecipient'] != true;
+  }
+
   static bool _isUnseenPendingEventInvite(
       Map<String, dynamic> data,
       String currentUserId,
       ) {
-    return _isPendingEventInvite(data, currentUserId) &&
-        !_hasSeenInvite(data, currentUserId);
+    return (_isPendingEventInvite(data, currentUserId) &&
+        !_hasSeenInvite(data, currentUserId)) ||
+        _isLegacyUnreadPlanInvite(data, currentUserId);
   }
 
   static String? _joinDecisionStatusForRequester(
