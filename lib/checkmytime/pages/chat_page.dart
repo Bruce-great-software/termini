@@ -497,6 +497,150 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+
+  Widget _buildOnlineFollowingSection(
+      ThemeData theme,
+      ColorScheme colorScheme,
+      String currentUserId,
+      ) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUserId)
+          .snapshots(),
+      builder: (context, currentUserSnapshot) {
+        final currentUserData =
+            currentUserSnapshot.data?.data() ?? const <String, dynamic>{};
+        final followingIds = List<String>.from(
+          currentUserData['followingIds'] ?? const <String>[],
+        ).where((id) => id.trim().isNotEmpty && id != currentUserId).toList();
+
+        if (followingIds.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final visibleFollowingIds = followingIds.take(10).toList();
+
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('users')
+              .where(FieldPath.documentId, whereIn: visibleFollowingIds)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const SizedBox.shrink();
+            }
+
+            final onlineDocs = snapshot.data!.docs.where((doc) {
+              return _isUserOnline(doc.data());
+            }).toList()
+              ..sort((a, b) {
+                final aName =
+                (a.data()['displayName'] ?? a.data()['name'] ?? '')
+                    .toString()
+                    .trim()
+                    .toLowerCase();
+                final bName =
+                (b.data()['displayName'] ?? b.data()['name'] ?? '')
+                    .toString()
+                    .trim()
+                    .toLowerCase();
+                return aName.compareTo(bName);
+              });
+
+            if (onlineDocs.isEmpty) {
+              return const SizedBox.shrink();
+            }
+
+            return Container(
+              margin: const EdgeInsets.only(top: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: colorScheme.outlineVariant),
+                boxShadow: [
+                  BoxShadow(
+                    color: colorScheme.shadow.withValues(alpha: 0.04),
+                    blurRadius: 18,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: SizedBox(
+                height: 86,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: onlineDocs.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) {
+                    final doc = onlineDocs[index];
+                    final data = doc.data();
+                    final preview = _ContactPreviewData(
+                      name: (data['displayName'] ?? data['name'] ?? 'Unbekannt')
+                          .toString()
+                          .trim()
+                          .isEmpty
+                          ? 'Unbekannt'
+                          : (data['displayName'] ?? data['name'] ?? 'Unbekannt')
+                          .toString()
+                          .trim(),
+                      phone: (data['phoneNumber'] ?? '').toString().trim(),
+                      imageUrl: (data['profileImageUrl'] ?? '').toString().trim(),
+                    );
+
+                    return Tooltip(
+                      message: preview.name,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(18),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ContactThreadPage(
+                                contactId: doc.id,
+                                contactName: preview.name,
+                                phoneNumber: preview.phone,
+                              ),
+                            ),
+                          );
+                        },
+                        child: SizedBox(
+                          width: 72,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _buildPresenceAvatar(
+                                preview: preview,
+                                theme: theme,
+                                isOnline: true,
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                preview.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: colorScheme.onSurface,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildEmptyState(ThemeData theme, ColorScheme colorScheme) {
     return Container(
       padding: const EdgeInsets.all(22),
@@ -602,10 +746,13 @@ class _ChatPageState extends State<ChatPage> {
 
         return ListView(
           physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
+            _buildSearchField(theme, colorScheme),
+            _buildOnlineFollowingSection(theme, colorScheme, currentUserId),
+            const SizedBox(height: 18),
             Text(
-              'Chats',
+              'Kontakte',
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w800,
               ),
@@ -618,7 +765,6 @@ class _ChatPageState extends State<ChatPage> {
               ),
             ),
             const SizedBox(height: 14),
-            _buildSearchField(theme, colorScheme),
             if (allDocs.isEmpty)
               _buildEmptyState(theme, colorScheme)
             else

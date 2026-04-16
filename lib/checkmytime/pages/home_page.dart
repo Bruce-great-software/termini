@@ -2664,7 +2664,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CheckMyTime'),
+        title: _selectedIndex == 1 ? null : const Text('CheckMyTime'),
         actions: [
           if (currentUserId != null)
             StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
