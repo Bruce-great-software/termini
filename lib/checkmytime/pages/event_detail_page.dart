@@ -2381,8 +2381,8 @@ class _ParticipantGroupsSection extends StatelessWidget {
     this.onRemoveParticipant,
   });
 
-  Future<Map<String, String>> _loadNames(Set<String> ids) async {
-    final result = <String, String>{};
+  Future<Map<String, _ParticipantUserData>> _loadUserData(Set<String> ids) async {
+    final result = <String, _ParticipantUserData>{};
 
     for (final id in ids) {
       if (id.trim().isEmpty) continue;
@@ -2392,9 +2392,17 @@ class _ParticipantGroupsSection extends StatelessWidget {
         final data = doc.data() ?? <String, dynamic>{};
         final name =
         (data['displayName'] ?? data['name'] ?? '').toString().trim();
-        result[id] = name.isEmpty ? 'Unbekannt' : name;
+        final imageUrl =
+        (data['profileImageUrl'] ?? '').toString().trim();
+        result[id] = _ParticipantUserData(
+          name: name.isEmpty ? 'Unbekannt' : name,
+          imageUrl: imageUrl,
+        );
       } catch (_) {
-        result[id] = 'Unbekannt';
+        result[id] = const _ParticipantUserData(
+          name: 'Unbekannt',
+          imageUrl: '',
+        );
       }
     }
 
@@ -2418,13 +2426,13 @@ class _ParticipantGroupsSection extends StatelessWidget {
 
     final isInviteOnlyOwnerView = isOwner && joinMode == 'invite_only';
 
-    return FutureBuilder<Map<String, String>>(
-      future: _loadNames(idsToLoad),
+    return FutureBuilder<Map<String, _ParticipantUserData>>(
+      future: _loadUserData(idsToLoad),
       builder: (context, snapshot) {
-        final loadedNames = snapshot.data ?? <String, String>{};
+        final loadedUsers = snapshot.data ?? <String, _ParticipantUserData>{};
         final resolvedCreatorName = createdByName.isNotEmpty
             ? createdByName
-            : (loadedNames[createdBy] ?? 'Unbekannt');
+            : (loadedUsers[createdBy]?.name ?? 'Unbekannt');
 
         return _DetailSection(
           title: 'Teilnehmer & Antworten',
@@ -2439,6 +2447,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                   _ParticipantItemData(
                     userId: createdBy,
                     name: resolvedCreatorName,
+                    imageUrl: loadedUsers[createdBy]?.imageUrl ?? '',
                     status: 'Ersteller',
                     inviteStage: 'creator',
                     isCurrentUser: createdBy == currentUserId,
@@ -2486,9 +2495,10 @@ class _ParticipantGroupsSection extends StatelessWidget {
                     .map(
                       (id) => _ParticipantItemData(
                     userId: id,
-                    name: loadedNames[id] ?? 'Unbekannt',
+                    name: loadedUsers[id]?.name ?? 'Unbekannt',
                     status: isInviteOnlyOwnerView ? 'Angenommen' : 'Bestätigt',
                     inviteStage: 'accepted',
+                    imageUrl: loadedUsers[id]?.imageUrl ?? '',
                     isCurrentUser: id == currentUserId,
                   ),
                 )
@@ -2503,9 +2513,10 @@ class _ParticipantGroupsSection extends StatelessWidget {
                     .map(
                       (id) => _ParticipantItemData(
                     userId: id,
-                    name: loadedNames[id] ?? 'Unbekannt',
+                    name: loadedUsers[id]?.name ?? 'Unbekannt',
                     status: 'Vielleicht',
                     inviteStage: 'maybe',
+                    imageUrl: loadedUsers[id]?.imageUrl ?? '',
                     isCurrentUser: id == currentUserId,
                   ),
                 )
@@ -2603,13 +2614,14 @@ class _ParticipantGroupsSection extends StatelessWidget {
 
                     return _ParticipantItemData(
                       userId: id,
-                      name: loadedNames[id] ?? 'Unbekannt',
+                      name: loadedUsers[id]?.name ?? 'Unbekannt',
                       status: hasSeenInvite
                           ? 'Gesehen'
                           : (isInviteOnlyOwnerView ? 'Eingeladen' : 'Ausstehend'),
                       inviteStage: joinMode == 'invite_only'
                           ? _inviteStageForPendingUser(id)
                           : 'pending',
+                      imageUrl: loadedUsers[id]?.imageUrl ?? '',
                       isCurrentUser: id == currentUserId,
                     );
                   },
@@ -2625,9 +2637,10 @@ class _ParticipantGroupsSection extends StatelessWidget {
                     .map(
                       (id) => _ParticipantItemData(
                     userId: id,
-                    name: loadedNames[id] ?? 'Unbekannt',
+                    name: loadedUsers[id]?.name ?? 'Unbekannt',
                     status: 'Abgelehnt',
                     inviteStage: 'declined',
+                    imageUrl: loadedUsers[id]?.imageUrl ?? '',
                     isCurrentUser: id == currentUserId,
                   ),
                 )
@@ -2641,9 +2654,20 @@ class _ParticipantGroupsSection extends StatelessWidget {
   }
 }
 
+class _ParticipantUserData {
+  final String name;
+  final String imageUrl;
+
+  const _ParticipantUserData({
+    required this.name,
+    required this.imageUrl,
+  });
+}
+
 class _ParticipantItemData {
   final String userId;
   final String name;
+  final String imageUrl;
   final String status;
   final String inviteStage;
   final bool isCurrentUser;
@@ -2651,6 +2675,7 @@ class _ParticipantItemData {
   const _ParticipantItemData({
     required this.userId,
     required this.name,
+    required this.imageUrl,
     required this.status,
     required this.inviteStage,
     required this.isCurrentUser,
@@ -2744,7 +2769,12 @@ class _ParticipantGroup extends StatelessWidget {
                             radius: 18,
                             backgroundColor:
                             colorScheme.primary.withValues(alpha: 0.10),
-                            child: Text(
+                            backgroundImage: person.imageUrl.isNotEmpty
+                                ? NetworkImage(person.imageUrl)
+                                : null,
+                            child: person.imageUrl.isNotEmpty
+                                ? null
+                                : Text(
                               person.name.isNotEmpty
                                   ? person.name.characters.first.toUpperCase()
                                   : '?',
@@ -2766,9 +2796,7 @@ class _ParticipantGroup extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 10),
-                          if (person.status == 'Ausstehend')
-                            const _HomeStyleBadge(label: 'Neu')
-                          else if (person.status == 'Gesehen')
+                          if (person.status == 'Gesehen')
                             const _HomeStyleBadge(label: 'Gesehen')
                           else
                             Container(
