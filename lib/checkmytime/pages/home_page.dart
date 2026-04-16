@@ -38,6 +38,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
   bool _hasInitializedInviteState = false;
   Map<String, int> _knownUnreadCountsByThread = {};
   Set<String> _knownPendingInviteIds = <String>{};
+  Set<String> _knownCancelledEventIds = <String>{};
   Set<String> _knownPendingOwnerRequestKeys = <String>{};
   Set<String> _knownJoinDecisionKeys = <String>{};
   Set<String> _pendingJoinDecisionKeys = <String>{};
@@ -262,24 +263,75 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         _isLegacyUnreadPlanInvite(data, currentUserId);
   }
 
-  bool _isInviteNotificationType(String type) {
-    switch (type.trim().toLowerCase()) {
-      case 'event_invite':
-      case 'event_invitation':
-      case 'plan_invite':
-      case 'plan_invitation':
-      case 'planning_invite':
-      case 'invitation':
-        return true;
-      default:
-        return false;
+
+  bool _isCancelledEventStatus(String status) {
+    final normalized = status.trim().toLowerCase();
+    return normalized == 'cancelled' || normalized == 'canceled';
+  }
+
+  Map<String, dynamic> _cancellationSeenAtMap(Map<String, dynamic> data) {
+    return Map<String, dynamic>.from(
+      data['cancellationSeenAtMap'] ?? const <String, dynamic>{},
+    );
+  }
+
+  bool _isUserAffectedByCancelledEvent(
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    if (createdBy.isEmpty || createdBy == currentUserId) return false;
+
+    final invitedUserIds = List<String>.from(
+      data['invitedUserIds'] ?? const [],
+    );
+    final memberIds = List<String>.from(data['memberIds'] ?? const []);
+    final acceptedUserIds = List<String>.from(
+      data['acceptedUserIds'] ?? const [],
+    );
+    final maybeUserIds = List<String>.from(data['maybeUserIds'] ?? const []);
+    final declinedUserIds = List<String>.from(
+      data['declinedUserIds'] ?? const [],
+    );
+    final responseMap = Map<String, dynamic>.from(
+      data['responseMap'] ?? const <String, dynamic>{},
+    );
+    final response =
+    (responseMap[currentUserId] ?? '').toString().trim().toLowerCase();
+
+    if (declinedUserIds.contains(currentUserId) || response == 'declined') {
+      return false;
     }
+
+    return invitedUserIds.contains(currentUserId) ||
+        memberIds.contains(currentUserId) ||
+        acceptedUserIds.contains(currentUserId) ||
+        maybeUserIds.contains(currentUserId) ||
+        responseMap.containsKey(currentUserId);
+  }
+
+  bool _hasSeenCancelledEvent(
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    if (currentUserId.trim().isEmpty) return false;
+    final seenMap = _cancellationSeenAtMap(data);
+    return seenMap[currentUserId] != null;
+  }
+
+  bool _isUnseenCancelledEvent(
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    final eventStatus = (data['status'] ?? '').toString();
+    return _isCancelledEventStatus(eventStatus) &&
+        _isUserAffectedByCancelledEvent(data, currentUserId) &&
+        !_hasSeenCancelledEvent(data, currentUserId);
   }
 
   bool _isBellCountHandledByEventState(String type) {
     switch (type.trim().toLowerCase()) {
       case 'event_invite':
-      case 'event_invitation':
       case 'event_join_request':
       case 'event_direct_join':
       case 'event_response_accepted':
@@ -287,6 +339,10 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       case 'event_response_declined':
       case 'event_join_request_accepted':
       case 'event_join_request_declined':
+      case 'event_cancelled':
+      case 'event_canceled':
+      case 'plan_cancelled':
+      case 'plan_canceled':
         return true;
       default:
         return false;
@@ -502,6 +558,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
 
   int _eventActionBadgeCount() {
     return _knownPendingInviteIds.length +
+        _knownCancelledEventIds.length +
         _knownPendingOwnerRequestKeys.length +
         _pendingJoinDecisionKeys.length +
         _pendingOwnerResponseKeys.length;
@@ -512,7 +569,9 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         _pendingOwnerResponseKeys.isNotEmpty) {
       return 2;
     }
-    if (_pendingJoinDecisionKeys.isNotEmpty || _knownPendingInviteIds.isNotEmpty) {
+    if (_pendingJoinDecisionKeys.isNotEmpty ||
+        _knownPendingInviteIds.isNotEmpty ||
+        _knownCancelledEventIds.isNotEmpty) {
       return 1;
     }
     return 0;
@@ -570,6 +629,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         .snapshots()
         .listen((snapshot) async {
       final pendingInviteIds = <String>{};
+      final currentCancelledEventIds = <String>{};
       final pendingOwnerRequestKeys = <String>{};
       final currentJoinDecisionKeys = <String>{};
       final currentOwnerResponseStatuses = <String, String>{};
@@ -580,11 +640,15 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
-        final eventStatus = (data['status'] ?? '').toString().trim().toLowerCase();
-        final isCancelledEvent = eventStatus == 'cancelled' || eventStatus == 'canceled';
+        final eventStatus = (data['status'] ?? '').toString();
+        final isCancelledEvent = _isCancelledEventStatus(eventStatus);
 
         if (_isUnseenPendingEventInvite(data, currentUserId)) {
           pendingInviteIds.add(doc.id);
+        }
+
+        if (_isUnseenCancelledEvent(data, currentUserId)) {
+          currentCancelledEventIds.add(doc.id);
         }
 
         final pendingKeys =
@@ -633,6 +697,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       if (!_hasInitializedInviteState) {
         _hasInitializedInviteState = true;
         _knownPendingInviteIds = pendingInviteIds;
+        _knownCancelledEventIds = currentCancelledEventIds;
         _knownPendingOwnerRequestKeys = pendingOwnerRequestKeys;
         _knownJoinDecisionKeys = currentJoinDecisionKeys;
         _knownOwnerResponseStatuses = currentOwnerResponseStatuses;
@@ -732,6 +797,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       }
 
       _knownPendingInviteIds = pendingInviteIds;
+      _knownCancelledEventIds = currentCancelledEventIds;
       _knownPendingOwnerRequestKeys = pendingOwnerRequestKeys;
       _knownJoinDecisionKeys = currentJoinDecisionKeys;
       _knownOwnerResponseStatuses = currentOwnerResponseStatuses;
@@ -2607,18 +2673,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                       currentUserData['pendingFollowerIds'] ?? const [],
                     );
 
-                    final notificationDocs = notifSnapshot.data?.docs ?? const [];
-
-                    final unreadInviteNotificationFallback = notificationDocs
-                        .where((doc) {
-                      final data = doc.data();
-                      final isRead = data['read'] == true;
-                      final type = (data['type'] ?? '').toString().trim();
-                      return !isRead && _isInviteNotificationType(type);
-                    })
-                        .length;
-
-                    final unreadOtherNotifications = notificationDocs
+                    final unreadOtherNotifications = (notifSnapshot.data?.docs ?? const [])
                         .where((doc) {
                       final data = doc.data();
                       final isRead = data['read'] == true;
@@ -2629,23 +2684,15 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                           type == 'follow_request' && status == 'pending';
                       final isHandledByEventState =
                       _isBellCountHandledByEventState(type);
-                      final isInviteNotification =
-                      _isInviteNotificationType(type);
                       return !isRead &&
                           !isPendingFollowRequest &&
-                          !isHandledByEventState &&
-                          !isInviteNotification;
+                          !isHandledByEventState;
                     })
                         .length;
 
                     final count = unreadOtherNotifications +
                         pendingFollowerIds.length +
-                        _knownPendingOwnerRequestKeys.length +
-                        _pendingJoinDecisionKeys.length +
-                        _pendingOwnerResponseKeys.length +
-                        (_knownPendingInviteIds.length > unreadInviteNotificationFallback
-                            ? _knownPendingInviteIds.length
-                            : unreadInviteNotificationFallback);
+                        _eventActionBadgeCount();
 
                     return IconButton(
                       tooltip: 'Mitteilungen',

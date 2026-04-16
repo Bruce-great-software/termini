@@ -46,6 +46,20 @@ class _NotificationsPageState extends State<NotificationsPage> {
     }
   }
 
+  bool _isEventCancellationNotificationType(String type) {
+    switch (type.trim().toLowerCase()) {
+      case 'event_cancelled':
+      case 'event_canceled':
+      case 'plan_cancelled':
+      case 'plan_canceled':
+      case 'event_cancel':
+      case 'plan_cancel':
+        return true;
+      default:
+        return false;
+    }
+  }
+
   Future<void> _markAllAsRead({bool silent = false}) async {
     final currentUserId = _currentUserId;
     if (currentUserId == null) return;
@@ -68,7 +82,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
         hasUpdates = true;
       }
 
-      final inviteEventSnapshots = await Future.wait([
+      final eventSnapshots = await Future.wait([
         FirebaseFirestore.instance
             .collection('events')
             .where('invitedUserIds', arrayContains: currentUserId)
@@ -77,26 +91,41 @@ class _NotificationsPageState extends State<NotificationsPage> {
             .collection('events')
             .where('memberIds', arrayContains: currentUserId)
             .get(),
+        FirebaseFirestore.instance
+            .collection('events')
+            .where('acceptedUserIds', arrayContains: currentUserId)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('events')
+            .where('maybeUserIds', arrayContains: currentUserId)
+            .get(),
       ]);
 
       final handledEventIds = <String>{};
-      for (final snapshot in inviteEventSnapshots) {
+      for (final snapshot in eventSnapshots) {
         for (final doc in snapshot.docs) {
           if (!handledEventIds.add(doc.id)) continue;
           final data = doc.data();
-          if (!_isUnseenPendingEventInvite(data, currentUserId)) continue;
+          final update = <String, dynamic>{};
 
-          final update = <String, dynamic>{
-            'inviteSeenAtMap.$currentUserId': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          };
-
-          if (_isLegacyUnreadPlanInvite(data, currentUserId)) {
-            update['isReadByRecipient'] = true;
+          if (_isUnseenPendingEventInvite(data, currentUserId)) {
+            update['inviteSeenAtMap.$currentUserId'] =
+                FieldValue.serverTimestamp();
+            if (_isLegacyUnreadPlanInvite(data, currentUserId)) {
+              update['isReadByRecipient'] = true;
+            }
           }
 
-          batch.set(doc.reference, update, SetOptions(merge: true));
-          hasUpdates = true;
+          if (_isUnseenCancelledEvent(data, currentUserId)) {
+            update['cancellationSeenAtMap.$currentUserId'] =
+                FieldValue.serverTimestamp();
+          }
+
+          if (update.isNotEmpty) {
+            update['updatedAt'] = FieldValue.serverTimestamp();
+            batch.set(doc.reference, update, SetOptions(merge: true));
+            hasUpdates = true;
+          }
         }
       }
 
@@ -445,6 +474,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     final notifications = <_NotificationItem>[];
     final primary = Theme.of(context).colorScheme.primary;
     final renderedInviteEventIds = <String>{};
+    final renderedCancelledEventIds = <String>{};
 
     // Notifications aus der notifications-Collection
     for (final doc in notifDocs) {
@@ -528,40 +558,70 @@ class _NotificationsPageState extends State<NotificationsPage> {
       }
 
       if (_isEventInviteNotificationType(type)) {
-        final eventId = (data['eventId'] ??
-            data['planId'] ??
-            data['planningId'] ??
-            '')
-            .toString()
-            .trim();
+        final eventId = (data['eventId'] ?? '').toString().trim();
         if (eventId.isNotEmpty) {
           renderedInviteEventIds.add(eventId);
         }
 
-        final eventTitle = (data['eventTitle'] ?? data['planTitle'] ?? '')
+        final title = (data['title'] ?? 'Event-Einladung erhalten')
             .toString()
             .trim();
-        final title = (data['title'] ?? 'Einladung erhalten')
-            .toString()
-            .trim();
-        final body = (data['body'] ??
-            (eventTitle.isEmpty
-                ? 'Du hast eine neue Einladung erhalten.'
-                : 'Du wurdest zu „$eventTitle“ eingeladen.'))
+        final body = (data['body'] ?? 'Du hast eine neue Event-Einladung erhalten.')
             .toString()
             .trim();
 
         notifications.add(
           _NotificationItem(
-            title: title.isEmpty ? 'Einladung erhalten' : title,
+            title: title.isEmpty ? 'Event-Einladung erhalten' : title,
             subtitle: body.isEmpty
-                ? 'Du hast eine neue Einladung erhalten.'
+                ? 'Du hast eine neue Event-Einladung erhalten.'
                 : body,
             timestamp: timestamp?.toDate() ?? DateTime.now(),
             icon: Icons.calendar_month_outlined,
             accentColor: primary,
             iconBackground: const Color(0xFFEDEBFF),
             iconColor: primary,
+            onTap: () {
+              if (eventId.isEmpty) return;
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => EventDetailPage(
+                    eventId: eventId,
+                    view: EventDetailView.invitation,
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+        continue;
+      }
+
+      if (_isEventCancellationNotificationType(type)) {
+        final eventId = (data['eventId'] ?? '').toString().trim();
+        if (eventId.isNotEmpty) {
+          renderedCancelledEventIds.add(eventId);
+        }
+
+        final title = (data['title'] ?? 'Event abgesagt')
+            .toString()
+            .trim();
+        final body =
+        (data['body'] ?? 'Ein Event, an dem du beteiligt warst, wurde abgesagt.')
+            .toString()
+            .trim();
+
+        notifications.add(
+          _NotificationItem(
+            title: title.isEmpty ? 'Event abgesagt' : title,
+            subtitle: body.isEmpty
+                ? 'Ein Event, an dem du beteiligt warst, wurde abgesagt.'
+                : body,
+            timestamp: timestamp?.toDate() ?? DateTime.now(),
+            icon: Icons.event_busy_rounded,
+            accentColor: const Color(0xFFE46B46),
+            iconBackground: const Color(0xFFFFECE8),
+            iconColor: const Color(0xFFE46B46),
             onTap: () {
               if (eventId.isEmpty) return;
               Navigator.of(context).push(
@@ -695,6 +755,31 @@ class _NotificationsPageState extends State<NotificationsPage> {
             accentColor: primary,
             iconBackground: const Color(0xFFEDEBFF),
             iconColor: primary,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => EventDetailPage(
+                    eventId: doc.id,
+                    view: EventDetailView.invitation,
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      }
+
+      if (_isUnseenCancelledEvent(data, currentUserId) &&
+          !renderedCancelledEventIds.contains(doc.id)) {
+        notifications.add(
+          _NotificationItem(
+            title: 'Event abgesagt',
+            subtitle: '„$title“ wurde abgesagt.',
+            timestamp: timestamp?.toDate() ?? DateTime.now(),
+            icon: Icons.event_busy_rounded,
+            accentColor: const Color(0xFFE46B46),
+            iconBackground: const Color(0xFFFFECE8),
+            iconColor: const Color(0xFFE46B46),
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
@@ -933,6 +1018,74 @@ class _NotificationsPageState extends State<NotificationsPage> {
     return (_isPendingEventInvite(data, currentUserId) &&
         !_hasSeenInvite(data, currentUserId)) ||
         _isLegacyUnreadPlanInvite(data, currentUserId);
+  }
+
+
+  static bool _isCancelledEventStatus(String status) {
+    final normalized = status.trim().toLowerCase();
+    return normalized == 'cancelled' || normalized == 'canceled';
+  }
+
+  static Map<String, dynamic> _cancellationSeenAtMap(
+      Map<String, dynamic> data,
+      ) {
+    return Map<String, dynamic>.from(
+      data['cancellationSeenAtMap'] ?? const <String, dynamic>{},
+    );
+  }
+
+  static bool _isUserAffectedByCancelledEvent(
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    if (createdBy.isEmpty || createdBy == currentUserId) return false;
+
+    final invitedUserIds = List<String>.from(
+      data['invitedUserIds'] ?? const [],
+    );
+    final memberIds = List<String>.from(data['memberIds'] ?? const []);
+    final acceptedUserIds = List<String>.from(
+      data['acceptedUserIds'] ?? const [],
+    );
+    final maybeUserIds = List<String>.from(data['maybeUserIds'] ?? const []);
+    final declinedUserIds = List<String>.from(
+      data['declinedUserIds'] ?? const [],
+    );
+    final responseMap = Map<String, dynamic>.from(
+      data['responseMap'] ?? const <String, dynamic>{},
+    );
+    final response =
+    (responseMap[currentUserId] ?? '').toString().trim().toLowerCase();
+
+    if (declinedUserIds.contains(currentUserId) || response == 'declined') {
+      return false;
+    }
+
+    return invitedUserIds.contains(currentUserId) ||
+        memberIds.contains(currentUserId) ||
+        acceptedUserIds.contains(currentUserId) ||
+        maybeUserIds.contains(currentUserId) ||
+        responseMap.containsKey(currentUserId);
+  }
+
+  static bool _hasSeenCancelledEvent(
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    if (currentUserId.trim().isEmpty) return false;
+    final seenMap = _cancellationSeenAtMap(data);
+    return seenMap[currentUserId] != null;
+  }
+
+  static bool _isUnseenCancelledEvent(
+      Map<String, dynamic> data,
+      String currentUserId,
+      ) {
+    final eventStatus = (data['status'] ?? '').toString();
+    return _isCancelledEventStatus(eventStatus) &&
+        _isUserAffectedByCancelledEvent(data, currentUserId) &&
+        !_hasSeenCancelledEvent(data, currentUserId);
   }
 
   static String? _joinDecisionStatusForRequester(
