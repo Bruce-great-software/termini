@@ -334,6 +334,51 @@ class NotificationDispatchService {
     }
   }
 
+
+  Future<void> queueFollowRequestNotification({
+    required String recipientUserId,
+    required String senderId,
+    required String senderName,
+  }) async {
+    final safeName = _fallback(senderName, 'Jemand');
+
+    await _queueNotification(
+      recipientUserId: recipientUserId,
+      channelId: 'incoming_follow_v2',
+      title: 'Neue Follow-Anfrage',
+      body: '$safeName möchte dir auf CheckMyTime folgen.',
+      data: {
+        'type': 'follow_request',
+        'route': 'user_page',
+        'userId': senderId,
+        'senderId': senderId,
+        'senderName': safeName,
+      },
+    );
+  }
+
+  Future<void> queueFollowAcceptedNotification({
+    required String recipientUserId,
+    required String accepterId,
+    required String accepterName,
+  }) async {
+    final safeName = _fallback(accepterName, 'Jemand');
+
+    await _queueNotification(
+      recipientUserId: recipientUserId,
+      channelId: 'incoming_follow_v2',
+      title: 'Anfrage angenommen',
+      body: '$safeName hat deine Follow-Anfrage angenommen.',
+      data: {
+        'type': 'follow_request_accepted',
+        'route': 'user_page',
+        'userId': accepterId,
+        'senderId': accepterId,
+        'senderName': safeName,
+      },
+    );
+  }
+
   Future<void> _queueNotification({
     required String recipientUserId,
     required String channelId,

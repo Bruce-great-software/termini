@@ -7,6 +7,7 @@ import 'package:termini/checkmytime/pages/contact_thread_page.dart';
 import 'package:termini/checkmytime/pages/event_detail_page.dart';
 import 'package:termini/checkmytime/pages/events_page.dart';
 import 'package:termini/checkmytime/pages/profile_page.dart';
+import 'package:termini/checkmytime/pages/user_page.dart';
 import 'package:termini/checkmytime/services/notification_service.dart';
 
 class PushAuthUser {
@@ -165,12 +166,13 @@ class FirestorePushTokenRepository implements PushTokenRepository {
   }
 }
 
-enum PushOpenTargetType { appointments, events, eventDetail, profile, chat }
+enum PushOpenTargetType { appointments, events, eventDetail, profile, userPage, chat }
 
 class PushOpenTarget {
   PushOpenTarget({
     required this.type,
     this.eventId,
+    this.userId,
     this.contactId,
     this.contactName,
     this.phoneNumber,
@@ -178,6 +180,7 @@ class PushOpenTarget {
 
   final PushOpenTargetType type;
   final String? eventId;
+  final String? userId;
   final String? contactId;
   final String? contactName;
   final String? phoneNumber;
@@ -351,6 +354,18 @@ class PushNotificationService {
       case PushOpenTargetType.profile:
         navigator.push(MaterialPageRoute(builder: (_) => const ProfilePage()));
         return;
+      case PushOpenTargetType.userPage:
+        final userId = target.userId ?? '';
+        if (userId.isNotEmpty) {
+          navigator.push(
+            MaterialPageRoute(
+              builder: (_) => UserPage(userId: userId),
+            ),
+          );
+          return;
+        }
+        navigator.push(MaterialPageRoute(builder: (_) => const ProfilePage()));
+        return;
       case PushOpenTargetType.chat:
         final contactId = target.contactId ?? '';
         final contactName = target.contactName ?? 'Unbekannt';
@@ -391,6 +406,11 @@ class PushNotificationService {
         );
       case 'profile':
         return PushOpenTarget(type: PushOpenTargetType.profile);
+      case 'user_page':
+        return PushOpenTarget(
+          type: PushOpenTargetType.userPage,
+          userId: (data['userId'] ?? data['senderId'] ?? '').toString().trim(),
+        );
       case 'chat':
         return PushOpenTarget(
           type: PushOpenTargetType.chat,

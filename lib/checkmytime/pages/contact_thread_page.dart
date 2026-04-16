@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:termini/checkmytime/pages/create_event_page.dart';
 import 'package:termini/checkmytime/pages/event_detail_page.dart';
+import 'package:termini/checkmytime/pages/user_page.dart';
 import 'package:termini/checkmytime/services/notification_dispatch_service.dart';
 
 class ContactThreadPage extends StatefulWidget {
@@ -53,6 +54,12 @@ class _ContactThreadPageState extends State<ContactThreadPage>
   bool _isUploadingAudio = false;
   bool _isRecordingAudio = false;
   bool _isMarkingIncomingMessagesAsRead = false;
+
+  // Badge state
+  bool _hasUnreadChat = false;
+  bool _hasUnreadPlan = false;
+  StreamSubscription<DocumentSnapshot>? _chatBadgeSubscription;
+  StreamSubscription<QuerySnapshot>? _planBadgeSubscription;
   int _lastRenderedMessageCount = -1;
   double _lastKeyboardHeight = 0;
   String? _recordingPath;
@@ -70,7 +77,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
   void didChangeMetrics() {
     final keyboardHeight =
         WidgetsBinding.instance.platformDispatcher.views.first.viewInsets.bottom;
-    if (keyboardHeight > _lastKeyboardHeight && _tabController.index == 0) {
+    if (keyboardHeight > _lastKeyboardHeight && _tabController.index == 1) {
       _scheduleScrollToBottom();
     }
     _lastKeyboardHeight = keyboardHeight;
@@ -80,7 +87,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _tabController = TabController(length: 2, vsync: this, initialIndex: 0)
+    _tabController = TabController(length: 3, vsync: this, initialIndex: 0)
       ..addListener(_handleTabChanged);
     _resolvedContactName = widget.contactName.trim();
     _resolvedPhoneNumber = widget.phoneNumber.trim();
@@ -104,6 +111,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     _markThreadAsRead();
     _markIncomingMessagesAsRead();
     _markIncomingEventsAsRead();
+    _startBadgeListeners();
   }
 
   @override
@@ -118,6 +126,8 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     _messagesScrollController.dispose();
     _recordingTimer?.cancel();
     _playerStateSubscription?.cancel();
+    _chatBadgeSubscription?.cancel();
+    _planBadgeSubscription?.cancel();
     unawaited(_audioRecorder.dispose());
     unawaited(_audioPlayer.dispose());
     super.dispose();
@@ -126,13 +136,17 @@ class _ContactThreadPageState extends State<ContactThreadPage>
   void _handleTabChanged() {
     if (_tabController.indexIsChanging) return;
 
-    if (_tabController.index == 0) {
+    if (_tabController.index == 1) {
       _markIncomingMessagesAsRead();
       _scheduleScrollToBottom();
+      if (_hasUnreadChat) setState(() => _hasUnreadChat = false);
     } else {
       _typingClearTimer?.cancel();
       unawaited(_setTypingState(false, force: true));
-      _markIncomingEventsAsRead();
+      if (_tabController.index == 2) {
+        _markIncomingEventsAsRead();
+        if (_hasUnreadPlan) setState(() => _hasUnreadPlan = false);
+      }
     }
   }
 
@@ -278,6 +292,64 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     }
   }
 
+  void _startBadgeListeners() {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+
+    // Chat-Badge: unreadCountFor_<uid> im Thread-Dokument beobachten
+    _chatBadgeSubscription = FirebaseFirestore.instance
+        .collection('contact_threads')
+        .doc(_threadId)
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      final data = snap.data();
+      final count =
+          (data?['unreadCountFor_$currentUserId'] as num?)?.toInt() ?? 0;
+      final isOnChatTab = _tabController.index == 1;
+      final hasUnread = count > 0 && !isOnChatTab;
+      if (hasUnread != _hasUnreadChat) {
+        setState(() => _hasUnreadChat = hasUnread);
+      }
+    });
+
+    // Planungen-Badge: Einladungen (isReadByRecipient=false) ODER
+    // Reaktionen die der Ersteller noch nicht gesehen hat (seenResponseBy_<uid>=false)
+    _planBadgeSubscription = FirebaseFirestore.instance
+        .collection('events')
+        .where('memberIds', arrayContains: currentUserId)
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      final hasUnread = snap.docs.any((doc) {
+        final data = doc.data();
+        final memberIds =
+        List<String>.from(data['memberIds'] ?? const []);
+        final createdBy = (data['createdBy'] ?? '').toString();
+        if (!memberIds.contains(widget.contactId)) return false;
+
+        // Einladung noch nicht gelesen (ich bin Empfänger)
+        if (createdBy == widget.contactId &&
+            data['isReadByRecipient'] != true) {
+          return true;
+        }
+
+        // Reaktion des Kontakts noch nicht gesehen (ich bin Ersteller)
+        if (createdBy == currentUserId &&
+            data['seenResponseBy_$currentUserId'] == false) {
+          return true;
+        }
+
+        return false;
+      });
+      final isOnPlanTab = _tabController.index == 2;
+      final showBadge = hasUnread && !isOnPlanTab;
+      if (showBadge != _hasUnreadPlan) {
+        setState(() => _hasUnreadPlan = showBadge);
+      }
+    });
+  }
+
   Future<void> _markIncomingEventsAsRead() async {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
     if (currentUserId == null) return;
@@ -296,16 +368,30 @@ class _ContactThreadPageState extends State<ContactThreadPage>
         final memberIds = List<String>.from(data['memberIds'] ?? const []);
         final createdBy = (data['createdBy'] ?? '').toString();
         final isReadByRecipient = data['isReadByRecipient'] == true;
+        final seenResponseKey = 'seenResponseBy_$currentUserId';
+        final seenResponse = data[seenResponseKey] != false; // null = gesehen
 
         if (!memberIds.contains(widget.contactId)) continue;
-        if (createdBy != widget.contactId) continue;
-        if (isReadByRecipient) continue;
 
-        batch.update(doc.reference, {
-          'isReadByRecipient': true,
+        final Map<String, dynamic> updates = {
           'updatedAt': FieldValue.serverTimestamp(),
-        });
-        hasUpdates = true;
+        };
+
+        // Einladung als gelesen markieren (ich bin Empfänger)
+        if (createdBy == widget.contactId && !isReadByRecipient) {
+          updates['isReadByRecipient'] = true;
+          hasUpdates = true;
+        }
+
+        // Reaktion des Kontakts als gesehen markieren (ich bin Ersteller)
+        if (createdBy == currentUserId && !seenResponse) {
+          updates[seenResponseKey] = true;
+          hasUpdates = true;
+        }
+
+        if (updates.length > 1) {
+          batch.update(doc.reference, updates);
+        }
       }
 
       if (hasUpdates) {
@@ -577,6 +663,8 @@ class _ContactThreadPageState extends State<ContactThreadPage>
         'maybeUserIds': maybeUserIds.toList(),
         'declinedUserIds': declinedUserIds.toList(),
         'isReadByRecipient': true,
+        // Ersteller soll sehen, dass jemand reagiert hat
+        'seenResponseBy_${data['createdBy']}': false,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
@@ -1478,6 +1566,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     required DateTime? scheduledAt,
     required bool isCreatedByMe,
     required bool isUpdating,
+    required bool isUnread,
     required VoidCallback? onTap,
     required VoidCallback? onAccept,
     required VoidCallback? onDecline,
@@ -1490,9 +1579,16 @@ class _ContactThreadPageState extends State<ContactThreadPage>
         child: Container(
           margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
-            color: colorScheme.surface,
+            color: isUnread
+                ? colorScheme.primaryContainer.withValues(alpha: 0.18)
+                : colorScheme.surface,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: colorScheme.outlineVariant),
+            border: Border.all(
+              color: isUnread
+                  ? colorScheme.primary.withValues(alpha: 0.45)
+                  : colorScheme.outlineVariant,
+              width: isUnread ? 1.5 : 1.0,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1540,6 +1636,17 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                         fontWeight: FontWeight.w700,
                       ),
                     ),
+                    if (isUnread) ...[
+                      const SizedBox(width: 10),
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1675,20 +1782,21 @@ class _ContactThreadPageState extends State<ContactThreadPage>
 
         final docs = [...snapshot.data?.docs ?? []]
             .where((doc) {
-          final data = doc.data();
-          final memberIds = List<String>.from(data['memberIds'] ?? const []);
-          return memberIds.contains(widget.contactId);
-        })
-            .toList()
-          ..sort((a, b) {
-            final aDate = _eventDateFromData(a.data()) ??
-                (a.data()['createdAt'] as Timestamp?)?.toDate() ??
-                DateTime.fromMillisecondsSinceEpoch(0);
-            final bDate = _eventDateFromData(b.data()) ??
-                (b.data()['createdAt'] as Timestamp?)?.toDate() ??
-                DateTime.fromMillisecondsSinceEpoch(0);
-            return bDate.compareTo(aDate);
-          });
+              final data = doc.data();
+              final memberIds = List<String>.from(data['memberIds'] ?? const []);
+              return memberIds.contains(widget.contactId);
+            })
+            .toList();
+
+        docs.sort((a, b) {
+          final aDate = _eventDateFromData(a.data()) ??
+              (a.data()['createdAt'] as Timestamp?)?.toDate() ??
+              DateTime.fromMillisecondsSinceEpoch(0);
+          final bDate = _eventDateFromData(b.data()) ??
+              (b.data()['createdAt'] as Timestamp?)?.toDate() ??
+              DateTime.fromMillisecondsSinceEpoch(0);
+          return aDate.compareTo(bDate);
+        });
 
         if (docs.isEmpty) {
           return _buildPlansEmptyState(
@@ -1698,61 +1806,133 @@ class _ContactThreadPageState extends State<ContactThreadPage>
           );
         }
 
+        final now = DateTime.now();
+        final invitations = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        final active = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        final past = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+        for (final doc in docs) {
+          final data = doc.data();
+          final createdBy = (data['createdBy'] ?? '').toString();
+          final status = _personalStatus(data, currentUserId, createdBy == currentUserId);
+          final scheduledAt = _eventDateFromData(data);
+
+          if (createdBy != currentUserId &&
+              (status == 'pending' || status == 'open')) {
+            invitations.add(doc);
+            continue;
+          }
+
+          if (scheduledAt != null && scheduledAt.isBefore(now)) {
+            past.add(doc);
+          } else {
+            active.add(doc);
+          }
+        }
+
+        List<Widget> buildSection(
+          String title,
+          List<QueryDocumentSnapshot<Map<String, dynamic>>> sectionDocs,
+        ) {
+          if (sectionDocs.isEmpty) return const <Widget>[];
+
+          return [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+              child: Text(
+                title,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            ...sectionDocs.map((doc) {
+              final data = doc.data();
+              final createdBy = (data['createdBy'] ?? '').toString();
+              final title = (data['title'] ?? 'Event').toString().trim();
+              final description =
+                  (data['description'] ?? '').toString().trim();
+              final kind = (data['kind'] ?? data['type'] ?? 'open').toString();
+              final isCreatedByMe = createdBy == currentUserId;
+              final status = _personalStatus(data, currentUserId, isCreatedByMe);
+              final scheduledAt = _eventDateFromData(data);
+              final isUpdating = _updatingEventIds.contains(doc.id);
+
+              final isUnread =
+                  (!isCreatedByMe && data['isReadByRecipient'] != true) ||
+                      (isCreatedByMe &&
+                          data['seenResponseBy_$currentUserId'] == false);
+
+              return _buildPlanCard(
+                theme: theme,
+                colorScheme: colorScheme,
+                safeName: safeName,
+                title: title.isEmpty ? 'Event' : title,
+                description: description,
+                kind: kind,
+                status: status,
+                scheduledAt: scheduledAt,
+                isCreatedByMe: isCreatedByMe,
+                isUpdating: isUpdating,
+                isUnread: isUnread,
+                onTap: () async {
+                  if (isUnread) {
+                    final updates = <String, dynamic>{
+                      'updatedAt': FieldValue.serverTimestamp(),
+                    };
+                    if (!isCreatedByMe) updates['isReadByRecipient'] = true;
+                    if (isCreatedByMe) {
+                      updates['seenResponseBy_$currentUserId'] = true;
+                    }
+                    FirebaseFirestore.instance
+                        .collection('events')
+                        .doc(doc.id)
+                        .update(updates)
+                        .catchError((_) {});
+                  }
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => EventDetailPage(
+                        eventId: doc.id,
+                        view: isCreatedByMe
+                            ? EventDetailView.myEvent
+                            : EventDetailView.invitation,
+                      ),
+                    ),
+                  );
+                },
+                onAccept: (!isCreatedByMe &&
+                        (status == 'pending' || status == 'open'))
+                    ? () => _updateEventStatus(
+                          eventId: doc.id,
+                          newStatus: 'accepted',
+                          title: title.isEmpty ? 'Event' : title,
+                        )
+                    : null,
+                onDecline: (!isCreatedByMe &&
+                        (status == 'pending' || status == 'open'))
+                    ? () => _updateEventStatus(
+                          eventId: doc.id,
+                          newStatus: 'declined',
+                          title: title.isEmpty ? 'Event' : title,
+                        )
+                    : null,
+              );
+            }),
+          ];
+        }
+
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-          children: docs.map((doc) {
-            final data = doc.data();
-            final createdBy = (data['createdBy'] ?? '').toString();
-            final title = (data['title'] ?? 'Event').toString().trim();
-            final description =
-            (data['description'] ?? '').toString().trim();
-            final kind = (data['kind'] ?? data['type'] ?? 'open').toString();
-            final isCreatedByMe = createdBy == currentUserId;
-            final status = _personalStatus(data, currentUserId, isCreatedByMe);
-            final scheduledAt = _eventDateFromData(data);
-            final isUpdating = _updatingEventIds.contains(doc.id);
-
-            return _buildPlanCard(
-              theme: theme,
-              colorScheme: colorScheme,
-              safeName: safeName,
-              title: title.isEmpty ? 'Event' : title,
-              description: description,
-              kind: kind,
-              status: status,
-              scheduledAt: scheduledAt,
-              isCreatedByMe: isCreatedByMe,
-              isUpdating: isUpdating,
-              onTap: () async {
-                await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => EventDetailPage(
-                      eventId: doc.id,
-                      view: isCreatedByMe
-                          ? EventDetailView.myEvent
-                          : EventDetailView.invitation,
-                    ),
-                  ),
-                );
-              },
-              onAccept: (!isCreatedByMe &&
-                  (status == 'pending' || status == 'open'))
-                  ? () => _updateEventStatus(
-                eventId: doc.id,
-                newStatus: 'accepted',
-                title: title.isEmpty ? 'Event' : title,
-              )
-                  : null,
-              onDecline: (!isCreatedByMe &&
-                  (status == 'pending' || status == 'open'))
-                  ? () => _updateEventStatus(
-                eventId: doc.id,
-                newStatus: 'declined',
-                title: title.isEmpty ? 'Event' : title,
-              )
-                  : null,
-            );
-          }).toList(),
+          children: [
+            ...buildSection('Einladungen', invitations),
+            if (invitations.isNotEmpty && (active.isNotEmpty || past.isNotEmpty))
+              const SizedBox(height: 6),
+            ...buildSection('Aktiv & offen', active),
+            if (active.isNotEmpty && past.isNotEmpty) const SizedBox(height: 6),
+            ...buildSection('Vergangen', past),
+          ],
         );
       },
     );
@@ -2069,7 +2249,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                   return aTs.compareTo(bTs);
                 });
 
-              if (_tabController.index == 0) {
+              if (_tabController.index == 1) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   _markIncomingMessagesAsRead();
                 });
@@ -2470,9 +2650,46 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                       labelStyle: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
-                      tabs: const [
-                        Tab(text: 'Chat'),
-                        Tab(text: 'Planungen'),
+                      tabs: [
+                        const Tab(text: 'Profil'),
+                        Tab(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text('Chat'),
+                              if (_hasUnreadChat) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        Tab(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text('Planungen'),
+                              if (_hasUnreadPlan) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -2482,6 +2699,14 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                   child: TabBarView(
                     controller: _tabController,
                     children: [
+                      UserPage(
+                        userId: widget.contactId,
+                        initialName: safeName,
+                        initialImageUrl: _profileImageUrl,
+                        embedded: true,
+                        hideTopIdentitySection: true,
+                        onMessageTap: () => _tabController.animateTo(1),
+                      ),
                       _buildMessagesTab(
                         theme: theme,
                         colorScheme: colorScheme,

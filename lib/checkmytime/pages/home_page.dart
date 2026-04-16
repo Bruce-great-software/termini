@@ -7,6 +7,7 @@ import 'package:termini/checkmytime/pages/contact_thread_page.dart';
 import 'package:termini/checkmytime/pages/event_detail_page.dart';
 import 'package:termini/checkmytime/pages/profile_page.dart';
 import 'package:termini/checkmytime/pages/chat_page.dart';
+import 'package:termini/checkmytime/pages/user_page.dart';
 import 'package:termini/checkmytime/services/notification_service.dart';
 import 'package:termini/checkmytime/pages/events_page.dart';
 import 'package:termini/checkmytime/pages/notifications_page.dart';
@@ -435,6 +436,25 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     } catch (_) {
       return 'Jemand';
     }
+  }
+
+
+  Stream<int> _unreadNotificationsStream(String uid) {
+    return FirebaseFirestore.instance
+        .collection('notifications')
+        .where('toUserId', isEqualTo: uid)
+        .where('read', isEqualTo: false)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.length);
+  }
+
+  String _relativeTime(DateTime value) {
+    final diff = DateTime.now().difference(value);
+    if (diff.inMinutes < 1) return 'Gerade eben';
+    if (diff.inHours < 1) return 'vor ${diff.inMinutes} Min';
+    if (diff.inDays < 1) return 'vor ${diff.inHours} Std';
+    if (diff.inDays < 7) return 'vor ${diff.inDays} Tag${diff.inDays == 1 ? '' : 'en'}';
+    return '${value.day.toString().padLeft(2, '0')}.${value.month.toString().padLeft(2, '0')}.${value.year}';
   }
 
   int _eventActionBadgeCount() {
@@ -1131,7 +1151,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     });
   }
 
-  Future<void> _openContact({
+  Future<void> _openChatThread({
     required String contactId,
     required String contactName,
     required String phoneNumber,
@@ -1140,8 +1160,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     contactName.trim().isEmpty ? 'Unbekannt' : contactName.trim();
     final safePhone = phoneNumber.trim();
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-
-    _resetSearch();
 
     if (currentUserId != null && contactId.isNotEmpty) {
       final threadId = _buildThreadId(currentUserId, contactId);
@@ -1164,11 +1182,39 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder:
-            (_) => ContactThreadPage(
+        builder: (_) => ContactThreadPage(
           contactId: contactId,
           contactName: safeName,
           phoneNumber: safePhone,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openContact({
+    required String contactId,
+    required String contactName,
+    required String phoneNumber,
+  }) async {
+    final safeName =
+    contactName.trim().isEmpty ? 'Unbekannt' : contactName.trim();
+    final safePhone = phoneNumber.trim();
+
+    _resetSearch();
+
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => UserPage(
+          userId: contactId,
+          initialName: safeName,
+          onMessageTap: () {
+            _openChatThread(
+              contactId: contactId,
+              contactName: safeName,
+              phoneNumber: safePhone,
+            );
+          },
         ),
       ),
     );
@@ -1282,6 +1328,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                 .toString()
                 .trim();
             final fallbackPhone = (data['phoneNumber'] ?? '').toString().trim();
+            final isProfilePublic = data['isProfilePublic'] as bool? ?? true;
 
             return FutureBuilder<_ContactPreviewData>(
               future: _loadContactPreview(
@@ -1331,6 +1378,28 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                                       : 'Keine Nummer vorhanden',
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isProfilePublic
+                                        ? const Color(0xFFEAF8EF)
+                                        : const Color(0xFFFFF4E6),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    isProfilePublic ? 'Öffentliches Profil' : 'Privates Profil',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                      color: isProfilePublic
+                                          ? const Color(0xFF19B35E)
+                                          : const Color(0xFFE39B2E),
+                                    ),
                                   ),
                                 ),
                               ],
@@ -1550,7 +1619,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
             ],
           ),
           child: SizedBox(
-            height: 58,
+            height: 86,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
@@ -1581,13 +1650,27 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                       );
                     },
                     child: SizedBox(
-                      width: 54,
-                      child: Center(
-                        child: _buildPresenceAvatar(
-                          preview: preview,
-                          theme: theme,
-                          isOnline: true,
-                        ),
+                      width: 72,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _buildPresenceAvatar(
+                            preview: preview,
+                            theme: theme,
+                            isOnline: true,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            preview.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: colorScheme.onSurface,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -1599,6 +1682,252 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       },
     );
   }
+
+
+  Widget _buildFollowingActivitiesSection(
+    ThemeData theme,
+    ColorScheme colorScheme,
+    String? currentUserId,
+  ) {
+    if (currentUserId == null) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUserId)
+          .snapshots(),
+      builder: (context, userSnapshot) {
+        final userData = userSnapshot.data?.data() ?? <String, dynamic>{};
+        final followingIds =
+            List<String>.from(userData['followingIds'] ?? const <String>[]);
+
+        Widget emptyCard({
+          required String title,
+          required String subtitle,
+          required IconData icon,
+        }) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: colorScheme.outlineVariant),
+              boxShadow: [
+                BoxShadow(
+                  color: colorScheme.shadow.withValues(alpha: 0.05),
+                  blurRadius: 18,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(icon, color: colorScheme.primary),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  subtitle,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        if (followingIds.isEmpty) {
+          return emptyCard(
+            title: 'Aktivitäten deiner Kontakte',
+            subtitle:
+                'Folge Leuten, um hier ihre Aktivitäten zu sehen. Private Profile bleiben in der Suche sichtbar, Inhalte öffnen sich dann nach Zusage.',
+            icon: Icons.dynamic_feed_outlined,
+          );
+        }
+
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('activities')
+              .orderBy('createdAt', descending: true)
+              .limit(40)
+              .snapshots(),
+          builder: (context, activitySnapshot) {
+            if (!activitySnapshot.hasData) {
+              return const SizedBox.shrink();
+            }
+
+            final docs = activitySnapshot.data!.docs.where((doc) {
+              final data = doc.data();
+              final actorUserId = (data['actorUserId'] ?? '').toString().trim();
+              return actorUserId.isNotEmpty &&
+                  actorUserId != currentUserId &&
+                  followingIds.contains(actorUserId);
+            }).take(10).toList();
+
+            if (docs.isEmpty) {
+              return emptyCard(
+                title: 'Aktivitäten deiner Kontakte',
+                subtitle:
+                    'Noch ruhig – sobald deine Kontakte etwas planen oder ihr Profil aktualisieren, erscheint es hier.',
+                icon: Icons.schedule_outlined,
+              );
+            }
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Aktivitäten deiner Kontakte',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Hier siehst du, was Menschen planen, denen du bereits folgst.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...docs.map((doc) {
+                  final data = doc.data();
+                  final actorUserId =
+                      (data['actorUserId'] ?? '').toString().trim();
+                  final actorName =
+                      (data['actorName'] ?? 'Jemand').toString().trim();
+                  final actorImageUrl =
+                      (data['actorImageUrl'] ?? '').toString().trim();
+                  final type = (data['type'] ?? '').toString().trim();
+                  final eventTitle =
+                      (data['eventTitle'] ?? 'Event').toString().trim();
+                  final eventId = (data['eventId'] ?? '').toString().trim();
+                  final createdAt =
+                      (data['createdAt'] as Timestamp?)?.toDate() ??
+                          DateTime.now();
+
+                  String title;
+                  String subtitle;
+
+                  switch (type) {
+                    case 'profile_updated':
+                      title = '$actorName hat sein Profil aktualisiert';
+                      subtitle = _relativeTime(createdAt);
+                      break;
+                    case 'event_created':
+                    default:
+                      title = '$actorName hat „$eventTitle“ erstellt';
+                      subtitle = _relativeTime(createdAt);
+                      break;
+                  }
+
+                  final preview = _ContactPreviewData(
+                    name: actorName.isEmpty ? 'Jemand' : actorName,
+                    phone: '',
+                    imageUrl: actorImageUrl,
+                  );
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(20),
+                      onTap: () {
+                        if (eventId.isNotEmpty) {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => EventDetailPage(
+                                eventId: eventId,
+                                view: EventDetailView.openEvent,
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+
+                        if (actorUserId.isNotEmpty) {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => UserPage(
+                                userId: actorUserId,
+                                initialName: actorName,
+                                initialImageUrl: actorImageUrl,
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildContactAvatar(preview: preview, theme: theme),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    title,
+                                    style: theme.textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    subtitle,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Icon(
+                              Icons.arrow_forward_rounded,
+                              color: colorScheme.primary,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
 
   Widget _buildSearchPanel(ThemeData theme, ColorScheme colorScheme) {
     return Container(
@@ -2129,6 +2458,15 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                 if (currentUserId != null) _buildThreadsSection(currentUserId),
                 if (currentUserId != null)
                   _buildEventInvitesSection(currentUserId),
+                if (currentUserId != null) ...[
+                  const SizedBox(height: 20),
+                  _buildFollowingActivitiesSection(
+                    theme,
+                    colorScheme,
+                    currentUserId,
+                  ),
+                  const SizedBox(height: 20),
+                ],
                 Text(
                   'Schnellaktionen',
                   style: theme.textTheme.titleLarge?.copyWith(
@@ -2199,22 +2537,53 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('CheckMyTime'),
         actions: [
-          IconButton(
-            tooltip: 'Mitteilungen',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const NotificationsPage(),
-                ),
-              );
-            },
-            icon: const Icon(Icons.notifications_none_rounded),
-          ),
+          if (currentUserId != null)
+            StreamBuilder<int>(
+              stream: _unreadNotificationsStream(currentUserId),
+              builder: (context, snapshot) {
+                final count = snapshot.data ?? 0;
+                return IconButton(
+                  tooltip: 'Mitteilungen',
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const NotificationsPage(),
+                      ),
+                    );
+                  },
+                  icon: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      const Icon(Icons.notifications_none_rounded),
+                      if (count > 0)
+                        Positioned(
+                          right: -6,
+                          top: -6,
+                          child: _ThreadUnreadBadge(count: count),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            )
+          else
+            IconButton(
+              tooltip: 'Mitteilungen',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const NotificationsPage(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.notifications_none_rounded),
+            ),
           IconButton(
             tooltip: 'Kontakte',
             onPressed:

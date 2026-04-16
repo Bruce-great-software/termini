@@ -4,6 +4,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:termini/checkmytime/pages/login_register_page.dart';
+import 'package:termini/checkmytime/services/activity_service.dart';
 import 'package:termini/checkmytime/widgets/checkmytime_ui.dart';
 
 class ProfilePage extends StatelessWidget {
@@ -114,10 +115,14 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
   bool _isSaving = false;
   bool _isUploadingImage = false;
   bool _isSigningOut = false;
+  bool _isProfilePublic = true;
+  bool _isUpdatingPrivacy = false;
 
   String _phoneNumber = '';
   String _profileImageUrl = '';
   String _profileImagePath = '';
+  String _initialDisplayName = '';
+  String _initialProfileImageUrl = '';
 
   @override
   void initState() {
@@ -149,6 +154,9 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
               .trim();
       _profileImageUrl = (data['profileImageUrl'] ?? '').toString().trim();
       _profileImagePath = (data['profileImagePath'] ?? '').toString().trim();
+      _isProfilePublic = data['isProfilePublic'] as bool? ?? true;
+      _initialDisplayName = _nameController.text.trim();
+      _initialProfileImageUrl = _profileImageUrl;
     } catch (_) {
       if (!mounted) return;
       _showMessage('Profil konnte nicht geladen werden.');
@@ -274,9 +282,28 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
             'phoneNumber': _phoneNumber,
             'profileImageUrl': _profileImageUrl,
             'profileImagePath': _profileImagePath,
+            'isProfilePublic': _isProfilePublic,
             'profileCompleted': true,
             'updatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
+
+      final hasRelevantProfileChange =
+          displayName != _initialDisplayName ||
+          _profileImageUrl != _initialProfileImageUrl;
+
+      if (hasRelevantProfileChange) {
+        try {
+          await ActivityService.instance.recordProfileUpdated(
+            actorUserId: widget.user.uid,
+            actorName: displayName,
+            actorImageUrl: _profileImageUrl,
+            isProfilePublic: _isProfilePublic,
+          );
+        } catch (_) {}
+      }
+
+      _initialDisplayName = displayName;
+      _initialProfileImageUrl = _profileImageUrl;
 
       if (!mounted) return;
       _showMessage('Profil wurde gespeichert.');
@@ -287,6 +314,46 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
       if (mounted) {
         setState(() {
           _isSaving = false;
+        });
+      }
+    }
+  }
+
+
+  Future<void> _toggleProfilePrivacy(bool value) async {
+    if (_isUpdatingPrivacy) return;
+
+    final previousValue = _isProfilePublic;
+    setState(() {
+      _isProfilePublic = value;
+      _isUpdatingPrivacy = true;
+    });
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.user.uid)
+          .set({
+            'isProfilePublic': value,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+      if (!mounted) return;
+      _showMessage(
+        value
+            ? 'Dein Profil ist jetzt öffentlich.'
+            : 'Dein Profil ist jetzt privat. Neue Follower müssen zuerst anfragen.',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isProfilePublic = previousValue;
+      });
+      _showMessage('Sichtbarkeit konnte nicht aktualisiert werden.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdatingPrivacy = false;
         });
       }
     }
@@ -423,6 +490,61 @@ class _LoggedInProfileViewState extends State<_LoggedInProfileView> {
               icon: Icons.phone_outlined,
               label: 'Telefonnummer',
               value: _phoneNumber.isEmpty ? 'Keine Angabe' : _phoneNumber,
+            ),
+          ),
+          const SizedBox(height: 16),
+          CheckMyTimeSectionCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      _isProfilePublic ? Icons.public : Icons.lock_outline,
+                      color: colorScheme.primary,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Profilsichtbarkeit',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _isProfilePublic
+                                ? 'Öffentlich · Jede:r kann dein Profil finden und dir direkt folgen.'
+                                : 'Privat · Neue Follower senden zuerst eine Anfrage. Bestehende Follower bleiben erhalten.',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Switch(
+                      value: _isProfilePublic,
+                      onChanged: (_isSaving || _isUploadingImage || _isSigningOut || _isUpdatingPrivacy)
+                          ? null
+                          : _toggleProfilePrivacy,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Tipp: Wenn dein Profil privat ist, bleiben Nachrichten und gemeinsame Planungen weiterhin möglich.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    height: 1.35,
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 16),

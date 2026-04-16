@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:termini/checkmytime/services/activity_service.dart';
 import 'package:termini/checkmytime/services/google_places_service.dart';
 import 'package:termini/checkmytime/services/notification_dispatch_service.dart';
 import 'package:termini/checkmytime/widgets/checkmytime_ui.dart';
@@ -1664,6 +1665,10 @@ class _CreateEventPageState extends State<CreateEventPage> {
       (userData['displayName'] ?? userData['name'] ?? 'Unbekannt')
           .toString()
           .trim();
+      final creatorImageUrl =
+          (userData['profileImageUrl'] ?? '').toString().trim();
+      final isCreatorProfilePublic =
+          userData['isProfilePublic'] as bool? ?? true;
 
       final responseMap = <String, String>{currentUser.uid: 'accepted'};
       for (final userId in invitedUserIds) {
@@ -1832,6 +1837,18 @@ class _CreateEventPageState extends State<CreateEventPage> {
         });
 
         // Event invite push is sent server-side by onEventWritten Cloud Function.
+
+        try {
+          await ActivityService.instance.recordEventCreated(
+            actorUserId: currentUser.uid,
+            actorName: creatorName.isEmpty ? 'Unbekannt' : creatorName,
+            actorImageUrl: creatorImageUrl,
+            eventId: eventRef.id,
+            eventTitle: title,
+            eventDate: startAt,
+            isProfilePublic: isCreatorProfilePublic,
+          );
+        } catch (_) {}
 
         if (topic.isNotEmpty) {
           await _upsertEventTopic(

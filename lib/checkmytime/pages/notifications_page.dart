@@ -4,13 +4,191 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:termini/checkmytime/pages/contact_thread_page.dart';
 import 'package:termini/checkmytime/pages/event_detail_page.dart';
+import 'package:termini/checkmytime/pages/user_page.dart';
+import 'package:termini/checkmytime/services/notification_dispatch_service.dart';
 
-class NotificationsPage extends StatelessWidget {
+class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key});
 
   @override
+  State<NotificationsPage> createState() => _NotificationsPageState();
+}
+
+class _NotificationsPageState extends State<NotificationsPage> {
+  String? get _currentUserId => FirebaseAuth.instance.currentUser?.uid;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _markAllAsRead(silent: true);
+    });
+  }
+
+  Future<void> _markAllAsRead({bool silent = false}) async {
+    final currentUserId = _currentUserId;
+    if (currentUserId == null) return;
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('notifications')
+          .where('toUserId', isEqualTo: currentUserId)
+          .where('read', isEqualTo: false)
+          .get();
+
+      if (snapshot.docs.isEmpty) return;
+
+      final batch = FirebaseFirestore.instance.batch();
+      for (final doc in snapshot.docs) {
+        batch.update(doc.reference, {
+          'read': true,
+          'readAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+
+      if (!mounted || silent) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Alle Mitteilungen wurden als gelesen markiert.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted || silent) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Mitteilungen konnten nicht aktualisiert werden.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<String> _loadCurrentUserDisplayName() async {
+    final currentUserId = _currentUserId;
+    if (currentUserId == null) return 'Jemand';
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUserId)
+          .get();
+      final data = doc.data() ?? <String, dynamic>{};
+      final name = (data['displayName'] ?? data['name'] ?? '').toString().trim();
+      return name.isEmpty ? 'Jemand' : name;
+    } catch (_) {
+      return 'Jemand';
+    }
+  }
+
+  Future<void> _respondToFollowRequest({
+    required String requesterUserId,
+    required String notificationId,
+    required bool accept,
+  }) async {
+    final currentUserId = _currentUserId;
+    if (currentUserId == null || requesterUserId.trim().isEmpty) return;
+
+    try {
+      if (accept) {
+        final myName = await _loadCurrentUserDisplayName();
+        final batch = FirebaseFirestore.instance.batch();
+        final currentUserRef =
+            FirebaseFirestore.instance.collection('users').doc(currentUserId);
+        final requesterRef =
+            FirebaseFirestore.instance.collection('users').doc(requesterUserId);
+        final notificationRef =
+            FirebaseFirestore.instance.collection('notifications').doc(notificationId);
+
+        batch.set(
+          currentUserRef,
+          {
+            'pendingFollowerIds': FieldValue.arrayRemove([requesterUserId]),
+            'followerIds': FieldValue.arrayUnion([requesterUserId]),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+        batch.set(
+          requesterRef,
+          {
+            'followingIds': FieldValue.arrayUnion([currentUserId]),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+        batch.update(notificationRef, {
+          'status': 'accepted',
+          'read': true,
+          'readAt': FieldValue.serverTimestamp(),
+          'handledAt': FieldValue.serverTimestamp(),
+        });
+        await batch.commit();
+
+        await FirebaseFirestore.instance.collection('notifications').add({
+          'type': 'follow_request_accepted',
+          'toUserId': requesterUserId,
+          'fromUserId': currentUserId,
+          'fromUserName': myName,
+          'createdAt': FieldValue.serverTimestamp(),
+          'read': false,
+        });
+
+        try {
+          await NotificationDispatchService.instance.queueFollowAcceptedNotification(
+            recipientUserId: requesterUserId,
+            accepterId: currentUserId,
+            accepterName: myName,
+          );
+        } catch (_) {}
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Follow-Anfrage angenommen.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      await FirebaseFirestore.instance.collection('users').doc(currentUserId).set({
+        'pendingFollowerIds': FieldValue.arrayRemove([requesterUserId]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      await FirebaseFirestore.instance
+          .collection('notifications')
+          .doc(notificationId)
+          .update({
+        'status': 'declined',
+        'read': true,
+        'readAt': FieldValue.serverTimestamp(),
+        'handledAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Follow-Anfrage abgelehnt.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Follow-Anfrage konnte nicht bearbeitet werden.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    final currentUserId = _currentUserId;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
@@ -25,7 +203,7 @@ class NotificationsPage extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: null,
+            onPressed: currentUserId == null ? null : () => _markAllAsRead(),
             child: Text(
               'Alle gelesen',
               style: theme.textTheme.labelLarge?.copyWith(
@@ -40,74 +218,94 @@ class NotificationsPage extends StatelessWidget {
       body: SafeArea(
         child: currentUserId == null
             ? Center(
-          child: Text(
-            'Du bist aktuell nicht eingeloggt.',
-            style: theme.textTheme.bodyLarge,
-          ),
-        )
+                child: Text(
+                  'Du bist aktuell nicht eingeloggt.',
+                  style: theme.textTheme.bodyLarge,
+                ),
+              )
             : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('contact_threads')
-              .where('participantMap.$currentUserId', isEqualTo: true)
-              .snapshots(),
-          builder: (context, threadSnapshot) {
-            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('events')
-                  .orderBy('createdAt', descending: true)
-                  .snapshots(),
-              builder: (context, eventSnapshot) {
-                if (threadSnapshot.connectionState == ConnectionState.waiting ||
-                    eventSnapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+                stream: FirebaseFirestore.instance
+                    .collection('contact_threads')
+                    .where('participantMap.$currentUserId', isEqualTo: true)
+                    .snapshots(),
+                builder: (context, threadSnapshot) {
+                  return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: FirebaseFirestore.instance
+                        .collection('events')
+                        .orderBy('createdAt', descending: true)
+                        .snapshots(),
+                    builder: (context, eventSnapshot) {
+                      return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        stream: FirebaseFirestore.instance
+                            .collection('notifications')
+                            .where('toUserId', isEqualTo: currentUserId)
+                            .orderBy('createdAt', descending: true)
+                            .limit(50)
+                            .snapshots(),
+                        builder: (context, notifSnapshot) {
+                          if (threadSnapshot.connectionState ==
+                                  ConnectionState.waiting ||
+                              eventSnapshot.connectionState ==
+                                  ConnectionState.waiting ||
+                              notifSnapshot.connectionState ==
+                                  ConnectionState.waiting) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
 
-                if (threadSnapshot.hasError || eventSnapshot.hasError) {
-                  return Center(
-                    child: Text(
-                      'Mitteilungen konnten nicht geladen werden.',
-                      style: theme.textTheme.bodyLarge,
-                    ),
+                          if (threadSnapshot.hasError || eventSnapshot.hasError) {
+                            return Center(
+                              child: Text(
+                                'Mitteilungen konnten nicht geladen werden.',
+                                style: theme.textTheme.bodyLarge,
+                              ),
+                            );
+                          }
+
+                          final notifications = _buildNotifications(
+                            context: context,
+                            currentUserId: currentUserId,
+                            threadDocs: threadSnapshot.data?.docs ?? const [],
+                            eventDocs: eventSnapshot.data?.docs ?? const [],
+                            notifDocs: notifSnapshot.data?.docs ?? const [],
+                          );
+
+                          if (notifications.isEmpty) {
+                            return _NotificationsEmptyState(
+                              theme: theme,
+                              colorScheme: colorScheme,
+                            );
+                          }
+
+                          final grouped = <String, List<_NotificationItem>>{};
+                          for (final item in notifications) {
+                            final key = _sectionLabel(item.timestamp);
+                            grouped.putIfAbsent(
+                              key,
+                              () => <_NotificationItem>[],
+                            ).add(item);
+                          }
+
+                          return ListView(
+                            physics: const BouncingScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                            children: grouped.entries.map((entry) {
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 22),
+                                child: _NotificationSection(
+                                  title: entry.key,
+                                  items: entry.value,
+                                ),
+                              );
+                            }).toList(),
+                          );
+                        },
+                      );
+                    },
                   );
-                }
-
-                final notifications = _buildNotifications(
-                  context: context,
-                  currentUserId: currentUserId,
-                  threadDocs: threadSnapshot.data?.docs ?? const [],
-                  eventDocs: eventSnapshot.data?.docs ?? const [],
-                );
-
-                if (notifications.isEmpty) {
-                  return _NotificationsEmptyState(
-                    theme: theme,
-                    colorScheme: colorScheme,
-                  );
-                }
-
-                final grouped = <String, List<_NotificationItem>>{};
-                for (final item in notifications) {
-                  final key = _sectionLabel(item.timestamp);
-                  grouped.putIfAbsent(key, () => <_NotificationItem>[]).add(item);
-                }
-
-                return ListView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  children: grouped.entries.map((entry) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 22),
-                      child: _NotificationSection(
-                        title: entry.key,
-                        items: entry.value,
-                      ),
-                    );
-                  }).toList(),
-                );
-              },
-            );
-          },
-        ),
+                },
+              ),
       ),
     );
   }
@@ -117,9 +315,91 @@ class NotificationsPage extends StatelessWidget {
     required String currentUserId,
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> threadDocs,
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> eventDocs,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> notifDocs = const [],
   }) {
     final notifications = <_NotificationItem>[];
     final primary = Theme.of(context).colorScheme.primary;
+
+    // Follow-Notifications aus der notifications-Collection
+    for (final doc in notifDocs) {
+      final data = doc.data();
+      if ((data['toUserId'] ?? '') != currentUserId) continue;
+
+      final type = (data['type'] ?? '').toString().trim();
+      final fromUserId = (data['fromUserId'] ?? '').toString().trim();
+      final fromUserName =
+          (data['fromUserName'] ?? 'Jemand').toString().trim();
+      final timestamp = data['createdAt'] as Timestamp?;
+      final notificationStatus =
+          (data['status'] ?? 'pending').toString().trim().toLowerCase();
+
+      if (type == 'follow_request') {
+        notifications.add(
+          _NotificationItem(
+            title: 'Neue Follow-Anfrage',
+            subtitle: '$fromUserName möchte dir auf CheckMyTime folgen.',
+            timestamp: timestamp?.toDate() ?? DateTime.now(),
+            icon: Icons.person_add_outlined,
+            accentColor: primary,
+            iconBackground: const Color(0xFFEDEBFF),
+            iconColor: primary,
+            onTap: () {
+              if (fromUserId.isEmpty) return;
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => UserPage(userId: fromUserId),
+                ),
+              );
+            },
+            actions: notificationStatus == 'pending'
+                ? [
+                    _NotificationAction(
+                      label: 'Ablehnen',
+                      isPrimary: false,
+                      onTap: () => _respondToFollowRequest(
+                        requesterUserId: fromUserId,
+                        notificationId: doc.id,
+                        accept: false,
+                      ),
+                    ),
+                    _NotificationAction(
+                      label: 'Annehmen',
+                      isPrimary: true,
+                      onTap: () => _respondToFollowRequest(
+                        requesterUserId: fromUserId,
+                        notificationId: doc.id,
+                        accept: true,
+                      ),
+                    ),
+                  ]
+                : const [],
+          ),
+        );
+        continue;
+      }
+
+      if (type == 'follow_request_accepted') {
+        notifications.add(
+          _NotificationItem(
+            title: 'Anfrage angenommen',
+            subtitle: '$fromUserName hat deine Follow-Anfrage angenommen.',
+            timestamp: timestamp?.toDate() ?? DateTime.now(),
+            icon: Icons.favorite_outline_rounded,
+            accentColor: const Color(0xFF19B35E),
+            iconBackground: const Color(0xFFEAF8EF),
+            iconColor: const Color(0xFF19B35E),
+            onTap: () {
+              if (fromUserId.isEmpty) return;
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => UserPage(userId: fromUserId),
+                ),
+              );
+            },
+          ),
+        );
+      }
+    }
 
     for (final doc in threadDocs) {
       final data = doc.data();
@@ -563,6 +843,7 @@ class _NotificationItem {
   final Color iconBackground;
   final Color iconColor;
   final VoidCallback onTap;
+  final List<_NotificationAction> actions;
 
   const _NotificationItem({
     required this.title,
@@ -572,6 +853,19 @@ class _NotificationItem {
     required this.accentColor,
     required this.iconBackground,
     required this.iconColor,
+    required this.onTap,
+    this.actions = const [],
+  });
+}
+
+class _NotificationAction {
+  final String label;
+  final bool isPrimary;
+  final VoidCallback onTap;
+
+  const _NotificationAction({
+    required this.label,
+    required this.isPrimary,
     required this.onTap,
   });
 }
@@ -654,13 +948,45 @@ class _NotificationRow extends StatelessWidget {
                         const SizedBox(height: 5),
                         Text(
                           item.subtitle,
-                          maxLines: 2,
+                          maxLines: item.actions.isEmpty ? 2 : 3,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                             height: 1.3,
                           ),
                         ),
+                        if (item.actions.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: item.actions.map((action) {
+                              if (action.isPrimary) {
+                                return FilledButton(
+                                  onPressed: action.onTap,
+                                  style: FilledButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 10,
+                                    ),
+                                  ),
+                                  child: Text(action.label),
+                                );
+                              }
+
+                              return OutlinedButton(
+                                onPressed: action.onTap,
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 10,
+                                  ),
+                                ),
+                                child: Text(action.label),
+                              );
+                            }).toList(),
+                          ),
+                        ],
                       ],
                     ),
                   ),

@@ -88,6 +88,13 @@ class NotificationService {
         showBadge: true,
       ),
       AndroidNotificationChannel(
+        'incoming_follow_v2',
+        'Follow-Aktivitäten',
+        description: 'Benachrichtigungen fuer Follow-Anfragen und Zusagen',
+        importance: Importance.high,
+        showBadge: true,
+      ),
+      AndroidNotificationChannel(
         'incoming_event_invites_v2',
         'Event-Einladungen',
         description: 'Benachrichtigungen fuer neue Event-Einladungen',
@@ -305,6 +312,16 @@ class NotificationService {
       id: 'incoming_messages_v2',
       name: 'Eingehende Nachrichten',
       description: 'Benachrichtigungen fuer neue Chat-Nachrichten',
+      ),
+      'follow_request' => (
+      id: 'incoming_follow_v2',
+      name: 'Follow-Aktivitäten',
+      description: 'Benachrichtigungen fuer Follow-Anfragen und Zusagen',
+      ),
+      'follow_request_accepted' => (
+      id: 'incoming_follow_v2',
+      name: 'Follow-Aktivitäten',
+      description: 'Benachrichtigungen fuer Follow-Anfragen und Zusagen',
       ),
       'event_invite' => (
       id: 'incoming_event_invites_v2',
