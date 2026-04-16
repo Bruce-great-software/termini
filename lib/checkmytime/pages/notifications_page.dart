@@ -25,6 +25,13 @@ class _NotificationsPageState extends State<NotificationsPage> {
     });
   }
 
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _safeDocs(
+      AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
+      ) {
+    if (snapshot.hasError) return const [];
+    return snapshot.data?.docs ?? const [];
+  }
+
   Future<void> _markAllAsRead({bool silent = false}) async {
     final currentUserId = _currentUserId;
     if (currentUserId == null) return;
@@ -82,24 +89,62 @@ class _NotificationsPageState extends State<NotificationsPage> {
     }
   }
 
+
+  Future<Map<String, String>> _loadUserNamesByIds(List<String> userIds) async {
+    final ids = userIds.map((id) => id.trim()).where((id) => id.isNotEmpty).toSet().toList();
+    if (ids.isEmpty) return const <String, String>{};
+
+    final result = <String, String>{};
+    for (var i = 0; i < ids.length; i += 10) {
+      final chunk = ids.sublist(i, (i + 10).clamp(0, ids.length));
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get();
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final name = (data['displayName'] ?? data['name'] ?? '').toString().trim();
+        result[doc.id] = name.isEmpty ? 'Jemand' : name;
+      }
+    }
+    return result;
+  }
+
   Future<void> _respondToFollowRequest({
     required String requesterUserId,
-    required String notificationId,
+    String? notificationId,
     required bool accept,
   }) async {
     final currentUserId = _currentUserId;
     if (currentUserId == null || requesterUserId.trim().isEmpty) return;
 
     try {
+      final notificationsRef = FirebaseFirestore.instance.collection('notifications');
+      Future<List<DocumentReference<Map<String, dynamic>>>> matchingFollowRequestRefs() async {
+        if (notificationId != null && notificationId.trim().isNotEmpty) {
+          return [notificationsRef.doc(notificationId)];
+        }
+
+        final snapshot = await notificationsRef
+            .where('toUserId', isEqualTo: currentUserId)
+            .where('fromUserId', isEqualTo: requesterUserId)
+            .where('type', isEqualTo: 'follow_request')
+            .limit(10)
+            .get();
+
+        return snapshot.docs
+            .where((doc) => ((doc.data()['status'] ?? 'pending').toString().trim().toLowerCase() == 'pending'))
+            .map((doc) => doc.reference)
+            .toList();
+      }
+
       if (accept) {
         final myName = await _loadCurrentUserDisplayName();
         final batch = FirebaseFirestore.instance.batch();
         final currentUserRef =
-            FirebaseFirestore.instance.collection('users').doc(currentUserId);
+        FirebaseFirestore.instance.collection('users').doc(currentUserId);
         final requesterRef =
-            FirebaseFirestore.instance.collection('users').doc(requesterUserId);
-        final notificationRef =
-            FirebaseFirestore.instance.collection('notifications').doc(notificationId);
+        FirebaseFirestore.instance.collection('users').doc(requesterUserId);
 
         batch.set(
           currentUserRef,
@@ -118,12 +163,16 @@ class _NotificationsPageState extends State<NotificationsPage> {
           },
           SetOptions(merge: true),
         );
-        batch.update(notificationRef, {
-          'status': 'accepted',
-          'read': true,
-          'readAt': FieldValue.serverTimestamp(),
-          'handledAt': FieldValue.serverTimestamp(),
-        });
+
+        for (final ref in await matchingFollowRequestRefs()) {
+          batch.update(ref, {
+            'status': 'accepted',
+            'read': true,
+            'readAt': FieldValue.serverTimestamp(),
+            'handledAt': FieldValue.serverTimestamp(),
+          });
+        }
+
         await batch.commit();
 
         await FirebaseFirestore.instance.collection('notifications').add({
@@ -158,15 +207,14 @@ class _NotificationsPageState extends State<NotificationsPage> {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      await FirebaseFirestore.instance
-          .collection('notifications')
-          .doc(notificationId)
-          .update({
-        'status': 'declined',
-        'read': true,
-        'readAt': FieldValue.serverTimestamp(),
-        'handledAt': FieldValue.serverTimestamp(),
-      });
+      for (final ref in await matchingFollowRequestRefs()) {
+        await ref.update({
+          'status': 'declined',
+          'read': true,
+          'readAt': FieldValue.serverTimestamp(),
+          'handledAt': FieldValue.serverTimestamp(),
+        });
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -218,94 +266,119 @@ class _NotificationsPageState extends State<NotificationsPage> {
       body: SafeArea(
         child: currentUserId == null
             ? Center(
-                child: Text(
-                  'Du bist aktuell nicht eingeloggt.',
-                  style: theme.textTheme.bodyLarge,
-                ),
-              )
+          child: Text(
+            'Du bist aktuell nicht eingeloggt.',
+            style: theme.textTheme.bodyLarge,
+          ),
+        )
             : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance
-                    .collection('contact_threads')
-                    .where('participantMap.$currentUserId', isEqualTo: true)
-                    .snapshots(),
-                builder: (context, threadSnapshot) {
-                  return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: FirebaseFirestore.instance
-                        .collection('events')
-                        .orderBy('createdAt', descending: true)
-                        .snapshots(),
-                    builder: (context, eventSnapshot) {
-                      return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                        stream: FirebaseFirestore.instance
-                            .collection('notifications')
-                            .where('toUserId', isEqualTo: currentUserId)
-                            .orderBy('createdAt', descending: true)
-                            .limit(50)
-                            .snapshots(),
-                        builder: (context, notifSnapshot) {
-                          if (threadSnapshot.connectionState ==
-                                  ConnectionState.waiting ||
-                              eventSnapshot.connectionState ==
-                                  ConnectionState.waiting ||
-                              notifSnapshot.connectionState ==
-                                  ConnectionState.waiting) {
-                            return const Center(
-                              child: CircularProgressIndicator(),
-                            );
-                          }
+          stream: FirebaseFirestore.instance
+              .collection('contact_threads')
+              .where('participantMap.$currentUserId', isEqualTo: true)
+              .snapshots(),
+          builder: (context, threadSnapshot) {
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('events')
+                  .orderBy('createdAt', descending: true)
+                  .snapshots(),
+              builder: (context, eventSnapshot) {
+                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('notifications')
+                      .where('toUserId', isEqualTo: currentUserId)
+                      .limit(100)
+                      .snapshots(),
+                  builder: (context, notifSnapshot) {
+                    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                      stream: FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(currentUserId)
+                          .snapshots(),
+                      builder: (context, userSnapshot) {
+                        final isInitialLoading =
+                            !threadSnapshot.hasData &&
+                                !eventSnapshot.hasData &&
+                                !notifSnapshot.hasData &&
+                                !userSnapshot.hasData;
 
-                          if (threadSnapshot.hasError || eventSnapshot.hasError) {
-                            return Center(
-                              child: Text(
-                                'Mitteilungen konnten nicht geladen werden.',
-                                style: theme.textTheme.bodyLarge,
-                              ),
-                            );
-                          }
-
-                          final notifications = _buildNotifications(
-                            context: context,
-                            currentUserId: currentUserId,
-                            threadDocs: threadSnapshot.data?.docs ?? const [],
-                            eventDocs: eventSnapshot.data?.docs ?? const [],
-                            notifDocs: notifSnapshot.data?.docs ?? const [],
+                        if (isInitialLoading &&
+                            (threadSnapshot.connectionState == ConnectionState.waiting ||
+                                eventSnapshot.connectionState == ConnectionState.waiting ||
+                                notifSnapshot.connectionState == ConnectionState.waiting ||
+                                userSnapshot.connectionState == ConnectionState.waiting)) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
                           );
+                        }
 
-                          if (notifications.isEmpty) {
-                            return _NotificationsEmptyState(
-                              theme: theme,
-                              colorScheme: colorScheme,
+                        if (userSnapshot.hasError && !userSnapshot.hasData) {
+                          return Center(
+                            child: Text(
+                              'Mitteilungen konnten nicht geladen werden.',
+                              style: theme.textTheme.bodyLarge,
+                            ),
+                          );
+                        }
+
+                        final currentUserData =
+                            userSnapshot.data?.data() ?? const <String, dynamic>{};
+                        final pendingFollowerIds = List<String>.from(
+                          currentUserData['pendingFollowerIds'] ?? const [],
+                        );
+
+                        return FutureBuilder<Map<String, String>>(
+                          future: _loadUserNamesByIds(pendingFollowerIds),
+                          builder: (context, pendingNamesSnapshot) {
+                            final notifications = _buildNotifications(
+                              context: context,
+                              currentUserId: currentUserId,
+                              threadDocs: _safeDocs(threadSnapshot),
+                              eventDocs: _safeDocs(eventSnapshot),
+                              notifDocs: _safeDocs(notifSnapshot),
+                              currentUserData: currentUserData,
+                              pendingFollowerNames: pendingNamesSnapshot.data ?? const <String, String>{},
                             );
-                          }
 
-                          final grouped = <String, List<_NotificationItem>>{};
-                          for (final item in notifications) {
-                            final key = _sectionLabel(item.timestamp);
-                            grouped.putIfAbsent(
-                              key,
-                              () => <_NotificationItem>[],
-                            ).add(item);
-                          }
-
-                          return ListView(
-                            physics: const BouncingScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                            children: grouped.entries.map((entry) {
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 22),
-                                child: _NotificationSection(
-                                  title: entry.key,
-                                  items: entry.value,
-                                ),
+                            if (notifications.isEmpty) {
+                              return _NotificationsEmptyState(
+                                theme: theme,
+                                colorScheme: colorScheme,
                               );
-                            }).toList(),
-                          );
-                        },
-                      );
-                    },
-                  );
-                },
-              ),
+                            }
+
+                            final grouped = <String, List<_NotificationItem>>{};
+                            for (final item in notifications) {
+                              final key = _sectionLabel(item.timestamp);
+                              grouped.putIfAbsent(
+                                key,
+                                    () => <_NotificationItem>[],
+                              ).add(item);
+                            }
+
+                            return ListView(
+                              physics: const BouncingScrollPhysics(),
+                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                              children: grouped.entries.map((entry) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 22),
+                                  child: _NotificationSection(
+                                    title: entry.key,
+                                    items: entry.value,
+                                  ),
+                                );
+                              }).toList(),
+                            );
+                          },
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }
@@ -316,6 +389,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> threadDocs,
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> eventDocs,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> notifDocs = const [],
+    Map<String, dynamic> currentUserData = const <String, dynamic>{},
+    Map<String, String> pendingFollowerNames = const <String, String>{},
   }) {
     final notifications = <_NotificationItem>[];
     final primary = Theme.of(context).colorScheme.primary;
@@ -328,10 +403,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
       final type = (data['type'] ?? '').toString().trim();
       final fromUserId = (data['fromUserId'] ?? '').toString().trim();
       final fromUserName =
-          (data['fromUserName'] ?? 'Jemand').toString().trim();
+      (data['fromUserName'] ?? 'Jemand').toString().trim();
       final timestamp = data['createdAt'] as Timestamp?;
       final notificationStatus =
-          (data['status'] ?? 'pending').toString().trim().toLowerCase();
+      (data['status'] ?? 'pending').toString().trim().toLowerCase();
 
       if (type == 'follow_request') {
         notifications.add(
@@ -353,25 +428,25 @@ class _NotificationsPageState extends State<NotificationsPage> {
             },
             actions: notificationStatus == 'pending'
                 ? [
-                    _NotificationAction(
-                      label: 'Ablehnen',
-                      isPrimary: false,
-                      onTap: () => _respondToFollowRequest(
-                        requesterUserId: fromUserId,
-                        notificationId: doc.id,
-                        accept: false,
-                      ),
-                    ),
-                    _NotificationAction(
-                      label: 'Annehmen',
-                      isPrimary: true,
-                      onTap: () => _respondToFollowRequest(
-                        requesterUserId: fromUserId,
-                        notificationId: doc.id,
-                        accept: true,
-                      ),
-                    ),
-                  ]
+              _NotificationAction(
+                label: 'Ablehnen',
+                isPrimary: false,
+                onTap: () => _respondToFollowRequest(
+                  requesterUserId: fromUserId,
+                  notificationId: doc.id,
+                  accept: false,
+                ),
+              ),
+              _NotificationAction(
+                label: 'Annehmen',
+                isPrimary: true,
+                onTap: () => _respondToFollowRequest(
+                  requesterUserId: fromUserId,
+                  notificationId: doc.id,
+                  accept: true,
+                ),
+              ),
+            ]
                 : const [],
           ),
         );
@@ -399,6 +474,61 @@ class _NotificationsPageState extends State<NotificationsPage> {
           ),
         );
       }
+    }
+
+    final pendingFollowerIds = List<String>.from(
+      currentUserData['pendingFollowerIds'] ?? const [],
+    );
+    final renderedPendingFollowUserIds = notifDocs
+        .where((doc) {
+      final data = doc.data();
+      return (data['type'] ?? '').toString().trim() == 'follow_request' &&
+          (data['toUserId'] ?? '').toString().trim() == currentUserId &&
+          ((data['status'] ?? 'pending').toString().trim().toLowerCase() == 'pending');
+    })
+        .map((doc) => (doc.data()['fromUserId'] ?? '').toString().trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    for (final requesterUserId in pendingFollowerIds) {
+      if (renderedPendingFollowUserIds.contains(requesterUserId)) continue;
+      final requesterName = pendingFollowerNames[requesterUserId] ?? 'Jemand';
+      notifications.add(
+        _NotificationItem(
+          title: 'Neue Follow-Anfrage',
+          subtitle: '$requesterName möchte dir auf CheckMyTime folgen.',
+          timestamp: DateTime.now(),
+          icon: Icons.person_add_outlined,
+          accentColor: primary,
+          iconBackground: const Color(0xFFEDEBFF),
+          iconColor: primary,
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => UserPage(userId: requesterUserId),
+              ),
+            );
+          },
+          actions: [
+            _NotificationAction(
+              label: 'Ablehnen',
+              isPrimary: false,
+              onTap: () => _respondToFollowRequest(
+                requesterUserId: requesterUserId,
+                accept: false,
+              ),
+            ),
+            _NotificationAction(
+              label: 'Annehmen',
+              isPrimary: true,
+              onTap: () => _respondToFollowRequest(
+                requesterUserId: requesterUserId,
+                accept: true,
+              ),
+            ),
+          ],
+        ),
+      );
     }
 
     for (final doc in threadDocs) {

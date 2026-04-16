@@ -1685,10 +1685,10 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
 
 
   Widget _buildFollowingActivitiesSection(
-    ThemeData theme,
-    ColorScheme colorScheme,
-    String? currentUserId,
-  ) {
+      ThemeData theme,
+      ColorScheme colorScheme,
+      String? currentUserId,
+      ) {
     if (currentUserId == null) {
       return const SizedBox.shrink();
     }
@@ -1701,7 +1701,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       builder: (context, userSnapshot) {
         final userData = userSnapshot.data?.data() ?? <String, dynamic>{};
         final followingIds =
-            List<String>.from(userData['followingIds'] ?? const <String>[]);
+        List<String>.from(userData['followingIds'] ?? const <String>[]);
 
         Widget emptyCard({
           required String title,
@@ -1766,7 +1766,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
           return emptyCard(
             title: 'Aktivitäten deiner Kontakte',
             subtitle:
-                'Folge Leuten, um hier ihre Aktivitäten zu sehen. Private Profile bleiben in der Suche sichtbar, Inhalte öffnen sich dann nach Zusage.',
+            'Folge Leuten, um hier ihre Aktivitäten zu sehen. Private Profile bleiben in der Suche sichtbar, Inhalte öffnen sich dann nach Zusage.',
             icon: Icons.dynamic_feed_outlined,
           );
         }
@@ -1794,7 +1794,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
               return emptyCard(
                 title: 'Aktivitäten deiner Kontakte',
                 subtitle:
-                    'Noch ruhig – sobald deine Kontakte etwas planen oder ihr Profil aktualisieren, erscheint es hier.',
+                'Noch ruhig – sobald deine Kontakte etwas planen oder ihr Profil aktualisieren, erscheint es hier.',
                 icon: Icons.schedule_outlined,
               );
             }
@@ -1819,14 +1819,14 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                 ...docs.map((doc) {
                   final data = doc.data();
                   final actorUserId =
-                      (data['actorUserId'] ?? '').toString().trim();
+                  (data['actorUserId'] ?? '').toString().trim();
                   final actorName =
-                      (data['actorName'] ?? 'Jemand').toString().trim();
+                  (data['actorName'] ?? 'Jemand').toString().trim();
                   final actorImageUrl =
-                      (data['actorImageUrl'] ?? '').toString().trim();
+                  (data['actorImageUrl'] ?? '').toString().trim();
                   final type = (data['type'] ?? '').toString().trim();
                   final eventTitle =
-                      (data['eventTitle'] ?? 'Event').toString().trim();
+                  (data['eventTitle'] ?? 'Event').toString().trim();
                   final eventId = (data['eventId'] ?? '').toString().trim();
                   final createdAt =
                       (data['createdAt'] as Timestamp?)?.toDate() ??
@@ -2544,31 +2544,64 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         title: const Text('CheckMyTime'),
         actions: [
           if (currentUserId != null)
-            StreamBuilder<int>(
-              stream: _unreadNotificationsStream(currentUserId),
-              builder: (context, snapshot) {
-                final count = snapshot.data ?? 0;
-                return IconButton(
-                  tooltip: 'Mitteilungen',
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const NotificationsPage(),
+            StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(currentUserId)
+                  .snapshots(),
+              builder: (context, userSnapshot) {
+                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('notifications')
+                      .where('toUserId', isEqualTo: currentUserId)
+                      .orderBy('createdAt', descending: true)
+                      .limit(100)
+                      .snapshots(),
+                  builder: (context, notifSnapshot) {
+                    final currentUserData =
+                        userSnapshot.data?.data() ?? const <String, dynamic>{};
+                    final pendingFollowerIds = List<String>.from(
+                      currentUserData['pendingFollowerIds'] ?? const [],
+                    );
+
+                    final unreadOtherNotifications = (notifSnapshot.data?.docs ?? const [])
+                        .where((doc) {
+                      final data = doc.data();
+                      final isRead = data['read'] == true;
+                      final type = (data['type'] ?? '').toString().trim();
+                      final status =
+                      (data['status'] ?? 'pending').toString().trim().toLowerCase();
+                      final isPendingFollowRequest =
+                          type == 'follow_request' && status == 'pending';
+                      return !isRead && !isPendingFollowRequest;
+                    })
+                        .length;
+
+                    final count = unreadOtherNotifications + pendingFollowerIds.length;
+
+                    return IconButton(
+                      tooltip: 'Mitteilungen',
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const NotificationsPage(),
+                          ),
+                        );
+                      },
+                      icon: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          const Icon(Icons.notifications_none_rounded),
+                          if (count > 0)
+                            Positioned(
+                              right: -6,
+                              top: -6,
+                              child: _ThreadUnreadBadge(count: count),
+                            ),
+                        ],
                       ),
                     );
                   },
-                  icon: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      const Icon(Icons.notifications_none_rounded),
-                      if (count > 0)
-                        Positioned(
-                          right: -6,
-                          top: -6,
-                          child: _ThreadUnreadBadge(count: count),
-                        ),
-                    ],
-                  ),
                 );
               },
             )
