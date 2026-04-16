@@ -16,6 +16,7 @@ class NotificationsPage extends StatefulWidget {
 
 class _NotificationsPageState extends State<NotificationsPage> {
   String? get _currentUserId => FirebaseAuth.instance.currentUser?.uid;
+  final Set<String> _dismissedNotificationKeys = <String>{};
 
   @override
   void initState() {
@@ -32,31 +33,54 @@ class _NotificationsPageState extends State<NotificationsPage> {
     return snapshot.data?.docs ?? const [];
   }
 
-  bool _isEventInviteNotificationType(String type) {
-    switch (type.trim().toLowerCase()) {
-      case 'event_invite':
-      case 'event_invitation':
-      case 'plan_invite':
-      case 'plan_invitation':
-      case 'planning_invite':
-      case 'invitation':
-        return true;
-      default:
-        return false;
-    }
+  int _timestampKey(Timestamp? value) => value?.millisecondsSinceEpoch ?? 0;
+
+  bool _isNotificationDismissed({
+    required String persistKey,
+    required Map<String, dynamic> currentUserData,
+  }) {
+    final persistedKeys = List<String>.from(
+      currentUserData['dismissedNotificationKeys'] ?? const <String>[],
+    );
+    return _dismissedNotificationKeys.contains(persistKey) ||
+        persistedKeys.contains(persistKey);
   }
 
-  bool _isEventCancellationNotificationType(String type) {
-    switch (type.trim().toLowerCase()) {
-      case 'event_cancelled':
-      case 'event_canceled':
-      case 'plan_cancelled':
-      case 'plan_canceled':
-      case 'event_cancel':
-      case 'plan_cancel':
-        return true;
-      default:
-        return false;
+  Future<void> _dismissNotification(String persistKey) async {
+    final currentUserId = _currentUserId;
+    if (currentUserId == null || persistKey.trim().isEmpty) return;
+
+    setState(() {
+      _dismissedNotificationKeys.add(persistKey);
+    });
+
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(currentUserId).set(
+        {
+          'dismissedNotificationKeys': FieldValue.arrayUnion([persistKey]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Mitteilung entfernt.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _dismissedNotificationKeys.remove(persistKey);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Mitteilung konnte nicht entfernt werden.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -65,72 +89,21 @@ class _NotificationsPageState extends State<NotificationsPage> {
     if (currentUserId == null) return;
 
     try {
-      final batch = FirebaseFirestore.instance.batch();
-      var hasUpdates = false;
-
-      final notificationsSnapshot = await FirebaseFirestore.instance
+      final snapshot = await FirebaseFirestore.instance
           .collection('notifications')
           .where('toUserId', isEqualTo: currentUserId)
           .where('read', isEqualTo: false)
           .get();
 
-      for (final doc in notificationsSnapshot.docs) {
+      if (snapshot.docs.isEmpty) return;
+
+      final batch = FirebaseFirestore.instance.batch();
+      for (final doc in snapshot.docs) {
         batch.update(doc.reference, {
           'read': true,
           'readAt': FieldValue.serverTimestamp(),
         });
-        hasUpdates = true;
       }
-
-      final eventSnapshots = await Future.wait([
-        FirebaseFirestore.instance
-            .collection('events')
-            .where('invitedUserIds', arrayContains: currentUserId)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('events')
-            .where('memberIds', arrayContains: currentUserId)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('events')
-            .where('acceptedUserIds', arrayContains: currentUserId)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('events')
-            .where('maybeUserIds', arrayContains: currentUserId)
-            .get(),
-      ]);
-
-      final handledEventIds = <String>{};
-      for (final snapshot in eventSnapshots) {
-        for (final doc in snapshot.docs) {
-          if (!handledEventIds.add(doc.id)) continue;
-          final data = doc.data();
-          final update = <String, dynamic>{};
-
-          if (_isUnseenPendingEventInvite(data, currentUserId)) {
-            update['inviteSeenAtMap.$currentUserId'] =
-                FieldValue.serverTimestamp();
-            if (_isLegacyUnreadPlanInvite(data, currentUserId)) {
-              update['isReadByRecipient'] = true;
-            }
-          }
-
-          if (_isUnseenCancelledEvent(data, currentUserId)) {
-            update['cancellationSeenAtMap.$currentUserId'] =
-                FieldValue.serverTimestamp();
-          }
-
-          if (update.isNotEmpty) {
-            update['updatedAt'] = FieldValue.serverTimestamp();
-            batch.set(doc.reference, update, SetOptions(merge: true));
-            hasUpdates = true;
-          }
-        }
-      }
-
-      if (!hasUpdates) return;
-
       await batch.commit();
 
       if (!mounted || silent) return;
@@ -444,6 +417,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                   child: _NotificationSection(
                                     title: entry.key,
                                     items: entry.value,
+                                    onDismissed: (item) => _dismissNotification(item.persistKey),
                                   ),
                                 );
                               }).toList(),
@@ -473,10 +447,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }) {
     final notifications = <_NotificationItem>[];
     final primary = Theme.of(context).colorScheme.primary;
-    final renderedInviteEventIds = <String>{};
-    final renderedCancelledEventIds = <String>{};
 
-    // Notifications aus der notifications-Collection
+    // Follow-Notifications aus der notifications-Collection
     for (final doc in notifDocs) {
       final data = doc.data();
       if ((data['toUserId'] ?? '') != currentUserId) continue;
@@ -492,6 +464,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       if (type == 'follow_request') {
         notifications.add(
           _NotificationItem(
+            persistKey: 'notif:${doc.id}',
             title: 'Neue Follow-Anfrage',
             subtitle: '$fromUserName möchte dir auf CheckMyTime folgen.',
             timestamp: timestamp?.toDate() ?? DateTime.now(),
@@ -537,6 +510,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       if (type == 'follow_request_accepted') {
         notifications.add(
           _NotificationItem(
+            persistKey: 'notif:${doc.id}',
             title: 'Anfrage angenommen',
             subtitle: '$fromUserName hat deine Follow-Anfrage angenommen.',
             timestamp: timestamp?.toDate() ?? DateTime.now(),
@@ -554,88 +528,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
             },
           ),
         );
-        continue;
-      }
-
-      if (_isEventInviteNotificationType(type)) {
-        final eventId = (data['eventId'] ?? '').toString().trim();
-        if (eventId.isNotEmpty) {
-          renderedInviteEventIds.add(eventId);
-        }
-
-        final title = (data['title'] ?? 'Event-Einladung erhalten')
-            .toString()
-            .trim();
-        final body = (data['body'] ?? 'Du hast eine neue Event-Einladung erhalten.')
-            .toString()
-            .trim();
-
-        notifications.add(
-          _NotificationItem(
-            title: title.isEmpty ? 'Event-Einladung erhalten' : title,
-            subtitle: body.isEmpty
-                ? 'Du hast eine neue Event-Einladung erhalten.'
-                : body,
-            timestamp: timestamp?.toDate() ?? DateTime.now(),
-            icon: Icons.calendar_month_outlined,
-            accentColor: primary,
-            iconBackground: const Color(0xFFEDEBFF),
-            iconColor: primary,
-            onTap: () {
-              if (eventId.isEmpty) return;
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => EventDetailPage(
-                    eventId: eventId,
-                    view: EventDetailView.invitation,
-                  ),
-                ),
-              );
-            },
-          ),
-        );
-        continue;
-      }
-
-      if (_isEventCancellationNotificationType(type)) {
-        final eventId = (data['eventId'] ?? '').toString().trim();
-        if (eventId.isNotEmpty) {
-          renderedCancelledEventIds.add(eventId);
-        }
-
-        final title = (data['title'] ?? 'Event abgesagt')
-            .toString()
-            .trim();
-        final body =
-        (data['body'] ?? 'Ein Event, an dem du beteiligt warst, wurde abgesagt.')
-            .toString()
-            .trim();
-
-        notifications.add(
-          _NotificationItem(
-            title: title.isEmpty ? 'Event abgesagt' : title,
-            subtitle: body.isEmpty
-                ? 'Ein Event, an dem du beteiligt warst, wurde abgesagt.'
-                : body,
-            timestamp: timestamp?.toDate() ?? DateTime.now(),
-            icon: Icons.event_busy_rounded,
-            accentColor: const Color(0xFFE46B46),
-            iconBackground: const Color(0xFFFFECE8),
-            iconColor: const Color(0xFFE46B46),
-            onTap: () {
-              if (eventId.isEmpty) return;
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => EventDetailPage(
-                    eventId: eventId,
-                    view: EventDetailView.invitation,
-                  ),
-                ),
-              );
-            },
-          ),
-        );
-        continue;
       }
     }
 
@@ -658,6 +550,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       final requesterName = pendingFollowerNames[requesterUserId] ?? 'Jemand';
       notifications.add(
         _NotificationItem(
+          persistKey: 'pending_follow:$requesterUserId',
           title: 'Neue Follow-Anfrage',
           subtitle: '$requesterName möchte dir auf CheckMyTime folgen.',
           timestamp: DateTime.now(),
@@ -714,6 +607,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
       notifications.add(
         _NotificationItem(
+          persistKey: 'thread_unread:${doc.id}:${_timestampKey(timestamp)}:$unreadCount',
           title: unreadCount == 1 ? 'Neue Nachricht' : '$unreadCount neue Nachrichten',
           subtitle: '$contactName: $previewText',
           timestamp: timestamp?.toDate() ?? DateTime.now(),
@@ -744,10 +638,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
               data['createdAt'] as Timestamp? ??
               data['eventDate'] as Timestamp?;
 
-      if (_isUnseenPendingEventInvite(data, currentUserId) &&
-          !renderedInviteEventIds.contains(doc.id)) {
+      if (_isUnseenPendingEventInvite(data, currentUserId)) {
         notifications.add(
           _NotificationItem(
+            persistKey: 'event_invite:${doc.id}:${_timestampKey(timestamp)}',
             title: 'Event-Einladung erhalten',
             subtitle: 'Du wurdest zu „$title“ eingeladen.',
             timestamp: timestamp?.toDate() ?? DateTime.now(),
@@ -769,36 +663,12 @@ class _NotificationsPageState extends State<NotificationsPage> {
         );
       }
 
-      if (_isUnseenCancelledEvent(data, currentUserId) &&
-          !renderedCancelledEventIds.contains(doc.id)) {
-        notifications.add(
-          _NotificationItem(
-            title: 'Event abgesagt',
-            subtitle: '„$title“ wurde abgesagt.',
-            timestamp: timestamp?.toDate() ?? DateTime.now(),
-            icon: Icons.event_busy_rounded,
-            accentColor: const Color(0xFFE46B46),
-            iconBackground: const Color(0xFFFFECE8),
-            iconColor: const Color(0xFFE46B46),
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => EventDetailPage(
-                    eventId: doc.id,
-                    view: EventDetailView.invitation,
-                  ),
-                ),
-              );
-            },
-          ),
-        );
-      }
-
       final joinDecision = _joinDecisionStatusForRequester(data, currentUserId);
       if (joinDecision != null) {
         final isAccepted = joinDecision == 'accepted';
         notifications.add(
           _NotificationItem(
+            persistKey: 'event_join_decision:${doc.id}:$joinDecision:${_timestampKey(timestamp)}',
             title: isAccepted ? 'Anfrage angenommen' : 'Anfrage abgelehnt',
             subtitle:
             'Deine Anfrage für „$title“ wurde ${isAccepted ? 'angenommen' : 'abgelehnt'}.',
@@ -830,6 +700,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       if (pendingOwnerCount > 0) {
         notifications.add(
           _NotificationItem(
+            persistKey: 'event_owner_request:${doc.id}:$pendingOwnerCount:${_timestampKey(timestamp)}',
             title: pendingOwnerCount == 1
                 ? 'Neue Teilnahme-Anfrage'
                 : '$pendingOwnerCount neue Teilnahme-Anfragen',
@@ -871,6 +742,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
         notifications.add(
           _NotificationItem(
+            persistKey: 'event_owner_response:${doc.id}:$ownerResponseStatus:${_timestampKey(timestamp)}',
             title: isAccepted
                 ? 'Teilnahme bestätigt'
                 : isDeclined
@@ -901,8 +773,15 @@ class _NotificationsPageState extends State<NotificationsPage> {
       }
     }
 
-    notifications.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return notifications;
+    final visibleNotifications = notifications.where((item) {
+      return !_isNotificationDismissed(
+        persistKey: item.persistKey,
+        currentUserData: currentUserData,
+      );
+    }).toList();
+
+    visibleNotifications.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return visibleNotifications;
   }
 
   static String _otherParticipantId(List<String> participants, String currentUserId) {
@@ -999,93 +878,12 @@ class _NotificationsPageState extends State<NotificationsPage> {
     return response == 'accepted' || response == 'maybe' || response == 'declined';
   }
 
-  static bool _isLegacyUnreadPlanInvite(
-      Map<String, dynamic> data,
-      String currentUserId,
-      ) {
-    final createdBy = (data['createdBy'] ?? '').toString().trim();
-    final memberIds = List<String>.from(data['memberIds'] ?? const []);
-
-    if (createdBy.isEmpty || createdBy == currentUserId) return false;
-    if (!memberIds.contains(currentUserId)) return false;
-    return data['isReadByRecipient'] != true;
-  }
-
   static bool _isUnseenPendingEventInvite(
       Map<String, dynamic> data,
       String currentUserId,
       ) {
-    return (_isPendingEventInvite(data, currentUserId) &&
-        !_hasSeenInvite(data, currentUserId)) ||
-        _isLegacyUnreadPlanInvite(data, currentUserId);
-  }
-
-
-  static bool _isCancelledEventStatus(String status) {
-    final normalized = status.trim().toLowerCase();
-    return normalized == 'cancelled' || normalized == 'canceled';
-  }
-
-  static Map<String, dynamic> _cancellationSeenAtMap(
-      Map<String, dynamic> data,
-      ) {
-    return Map<String, dynamic>.from(
-      data['cancellationSeenAtMap'] ?? const <String, dynamic>{},
-    );
-  }
-
-  static bool _isUserAffectedByCancelledEvent(
-      Map<String, dynamic> data,
-      String currentUserId,
-      ) {
-    final createdBy = (data['createdBy'] ?? '').toString().trim();
-    if (createdBy.isEmpty || createdBy == currentUserId) return false;
-
-    final invitedUserIds = List<String>.from(
-      data['invitedUserIds'] ?? const [],
-    );
-    final memberIds = List<String>.from(data['memberIds'] ?? const []);
-    final acceptedUserIds = List<String>.from(
-      data['acceptedUserIds'] ?? const [],
-    );
-    final maybeUserIds = List<String>.from(data['maybeUserIds'] ?? const []);
-    final declinedUserIds = List<String>.from(
-      data['declinedUserIds'] ?? const [],
-    );
-    final responseMap = Map<String, dynamic>.from(
-      data['responseMap'] ?? const <String, dynamic>{},
-    );
-    final response =
-    (responseMap[currentUserId] ?? '').toString().trim().toLowerCase();
-
-    if (declinedUserIds.contains(currentUserId) || response == 'declined') {
-      return false;
-    }
-
-    return invitedUserIds.contains(currentUserId) ||
-        memberIds.contains(currentUserId) ||
-        acceptedUserIds.contains(currentUserId) ||
-        maybeUserIds.contains(currentUserId) ||
-        responseMap.containsKey(currentUserId);
-  }
-
-  static bool _hasSeenCancelledEvent(
-      Map<String, dynamic> data,
-      String currentUserId,
-      ) {
-    if (currentUserId.trim().isEmpty) return false;
-    final seenMap = _cancellationSeenAtMap(data);
-    return seenMap[currentUserId] != null;
-  }
-
-  static bool _isUnseenCancelledEvent(
-      Map<String, dynamic> data,
-      String currentUserId,
-      ) {
-    final eventStatus = (data['status'] ?? '').toString();
-    return _isCancelledEventStatus(eventStatus) &&
-        _isUserAffectedByCancelledEvent(data, currentUserId) &&
-        !_hasSeenCancelledEvent(data, currentUserId);
+    return _isPendingEventInvite(data, currentUserId) &&
+        !_hasSeenInvite(data, currentUserId);
   }
 
   static String? _joinDecisionStatusForRequester(
@@ -1182,10 +980,12 @@ class _NotificationsPageState extends State<NotificationsPage> {
 class _NotificationSection extends StatelessWidget {
   final String title;
   final List<_NotificationItem> items;
+  final ValueChanged<_NotificationItem> onDismissed;
 
   const _NotificationSection({
     required this.title,
     required this.items,
+    required this.onDismissed,
   });
 
   @override
@@ -1222,9 +1022,32 @@ class _NotificationSection extends StatelessWidget {
             children: List.generate(items.length, (index) {
               final item = items[index];
               final isLast = index == items.length - 1;
-              return _NotificationRow(
-                item: item,
-                showDivider: !isLast,
+              final radius = BorderRadius.only(
+                topLeft: index == 0 ? const Radius.circular(24) : Radius.zero,
+                topRight: index == 0 ? const Radius.circular(24) : Radius.zero,
+                bottomLeft: isLast ? const Radius.circular(24) : Radius.zero,
+                bottomRight: isLast ? const Radius.circular(24) : Radius.zero,
+              );
+              return Dismissible(
+                key: ValueKey(item.persistKey),
+                direction: DismissDirection.endToStart,
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  decoration: BoxDecoration(
+                    color: colorScheme.error.withValues(alpha: 0.12),
+                    borderRadius: radius,
+                  ),
+                  child: Icon(
+                    Icons.delete_outline,
+                    color: colorScheme.error,
+                  ),
+                ),
+                onDismissed: (_) => onDismissed(item),
+                child: _NotificationRow(
+                  item: item,
+                  showDivider: !isLast,
+                ),
               );
             }),
           ),
@@ -1235,6 +1058,7 @@ class _NotificationSection extends StatelessWidget {
 }
 
 class _NotificationItem {
+  final String persistKey;
   final String title;
   final String subtitle;
   final DateTime timestamp;
@@ -1246,6 +1070,7 @@ class _NotificationItem {
   final List<_NotificationAction> actions;
 
   const _NotificationItem({
+    required this.persistKey,
     required this.title,
     required this.subtitle,
     required this.timestamp,

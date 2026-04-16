@@ -31,6 +31,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
   String? _searchError;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _searchResults = [];
   final Map<String, _ContactPreviewData> _contactPreviewCache = {};
+  final Set<String> _dismissedActivityIds = <String>{};
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _threadsSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _eventsSubscription;
@@ -38,7 +39,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
   bool _hasInitializedInviteState = false;
   Map<String, int> _knownUnreadCountsByThread = {};
   Set<String> _knownPendingInviteIds = <String>{};
-  Set<String> _knownCancelledEventIds = <String>{};
   Set<String> _knownPendingOwnerRequestKeys = <String>{};
   Set<String> _knownJoinDecisionKeys = <String>{};
   Set<String> _pendingJoinDecisionKeys = <String>{};
@@ -242,91 +242,12 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     return response == 'accepted' || response == 'maybe' || response == 'declined';
   }
 
-  bool _isLegacyUnreadPlanInvite(
-      Map<String, dynamic> data,
-      String currentUserId,
-      ) {
-    final createdBy = (data['createdBy'] ?? '').toString().trim();
-    final memberIds = List<String>.from(data['memberIds'] ?? const []);
-
-    if (createdBy.isEmpty || createdBy == currentUserId) return false;
-    if (!memberIds.contains(currentUserId)) return false;
-    return data['isReadByRecipient'] != true;
-  }
-
   bool _isUnseenPendingEventInvite(
       Map<String, dynamic> data,
       String currentUserId,
       ) {
-    return (_isPendingEventInvite(data, currentUserId) &&
-        !_hasSeenInvite(data, currentUserId)) ||
-        _isLegacyUnreadPlanInvite(data, currentUserId);
-  }
-
-
-  bool _isCancelledEventStatus(String status) {
-    final normalized = status.trim().toLowerCase();
-    return normalized == 'cancelled' || normalized == 'canceled';
-  }
-
-  Map<String, dynamic> _cancellationSeenAtMap(Map<String, dynamic> data) {
-    return Map<String, dynamic>.from(
-      data['cancellationSeenAtMap'] ?? const <String, dynamic>{},
-    );
-  }
-
-  bool _isUserAffectedByCancelledEvent(
-      Map<String, dynamic> data,
-      String currentUserId,
-      ) {
-    final createdBy = (data['createdBy'] ?? '').toString().trim();
-    if (createdBy.isEmpty || createdBy == currentUserId) return false;
-
-    final invitedUserIds = List<String>.from(
-      data['invitedUserIds'] ?? const [],
-    );
-    final memberIds = List<String>.from(data['memberIds'] ?? const []);
-    final acceptedUserIds = List<String>.from(
-      data['acceptedUserIds'] ?? const [],
-    );
-    final maybeUserIds = List<String>.from(data['maybeUserIds'] ?? const []);
-    final declinedUserIds = List<String>.from(
-      data['declinedUserIds'] ?? const [],
-    );
-    final responseMap = Map<String, dynamic>.from(
-      data['responseMap'] ?? const <String, dynamic>{},
-    );
-    final response =
-    (responseMap[currentUserId] ?? '').toString().trim().toLowerCase();
-
-    if (declinedUserIds.contains(currentUserId) || response == 'declined') {
-      return false;
-    }
-
-    return invitedUserIds.contains(currentUserId) ||
-        memberIds.contains(currentUserId) ||
-        acceptedUserIds.contains(currentUserId) ||
-        maybeUserIds.contains(currentUserId) ||
-        responseMap.containsKey(currentUserId);
-  }
-
-  bool _hasSeenCancelledEvent(
-      Map<String, dynamic> data,
-      String currentUserId,
-      ) {
-    if (currentUserId.trim().isEmpty) return false;
-    final seenMap = _cancellationSeenAtMap(data);
-    return seenMap[currentUserId] != null;
-  }
-
-  bool _isUnseenCancelledEvent(
-      Map<String, dynamic> data,
-      String currentUserId,
-      ) {
-    final eventStatus = (data['status'] ?? '').toString();
-    return _isCancelledEventStatus(eventStatus) &&
-        _isUserAffectedByCancelledEvent(data, currentUserId) &&
-        !_hasSeenCancelledEvent(data, currentUserId);
+    return _isPendingEventInvite(data, currentUserId) &&
+        !_hasSeenInvite(data, currentUserId);
   }
 
   bool _isBellCountHandledByEventState(String type) {
@@ -339,15 +260,12 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       case 'event_response_declined':
       case 'event_join_request_accepted':
       case 'event_join_request_declined':
-      case 'event_cancelled':
-      case 'event_canceled':
-      case 'plan_cancelled':
-      case 'plan_canceled':
         return true;
       default:
         return false;
     }
   }
+
 
   Set<String> _pendingRequestKeysForOwner(
       String eventId,
@@ -538,6 +456,55 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
   }
 
 
+  int _timestampKey(Timestamp? value) => value?.millisecondsSinceEpoch ?? 0;
+
+  bool _hasDismissedNotificationPrefix(
+      Set<String> dismissedKeys,
+      String prefix,
+      ) {
+    return dismissedKeys.any((key) => key.startsWith(prefix));
+  }
+
+  Future<void> _dismissActivityForCurrentUser(
+      String currentUserId,
+      String activityId,
+      ) async {
+    if (currentUserId.trim().isEmpty || activityId.trim().isEmpty) return;
+
+    setState(() {
+      _dismissedActivityIds.add(activityId);
+    });
+
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(currentUserId).set(
+        {
+          'dismissedActivityIds': FieldValue.arrayUnion([activityId]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Aktivität entfernt.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _dismissedActivityIds.remove(activityId);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Aktivität konnte nicht entfernt werden.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   Stream<int> _unreadNotificationsStream(String uid) {
     return FirebaseFirestore.instance
         .collection('notifications')
@@ -556,12 +523,45 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     return '${value.day.toString().padLeft(2, '0')}.${value.month.toString().padLeft(2, '0')}.${value.year}';
   }
 
-  int _eventActionBadgeCount() {
-    return _knownPendingInviteIds.length +
-        _knownCancelledEventIds.length +
-        _knownPendingOwnerRequestKeys.length +
-        _pendingJoinDecisionKeys.length +
-        _pendingOwnerResponseKeys.length;
+  int _eventActionBadgeCount({
+    Set<String> dismissedKeys = const <String>{},
+  }) {
+    final inviteCount = _knownPendingInviteIds.where((eventId) {
+      return !_hasDismissedNotificationPrefix(
+        dismissedKeys,
+        'event_invite:$eventId:',
+      );
+    }).length;
+
+    final ownerRequestCount = _knownPendingOwnerRequestKeys.where((requestKey) {
+      final eventId = requestKey.split(':').first;
+      return !_hasDismissedNotificationPrefix(
+        dismissedKeys,
+        'event_owner_request:$eventId:',
+      );
+    }).length;
+
+    final joinDecisionCount = _pendingJoinDecisionKeys.where((decisionKey) {
+      final parts = decisionKey.split(':');
+      if (parts.length < 2) return true;
+      return !_hasDismissedNotificationPrefix(
+        dismissedKeys,
+        'event_join_decision:${parts[0]}:${parts[1]}:',
+      );
+    }).length;
+
+    final ownerResponseCount = _pendingOwnerResponseKeys.where((fullKey) {
+      final eventId = _ownerResponseBaseKey(fullKey).split(':').first;
+      return !_hasDismissedNotificationPrefix(
+        dismissedKeys,
+        'event_owner_response:$eventId:',
+      );
+    }).length;
+
+    return inviteCount +
+        ownerRequestCount +
+        joinDecisionCount +
+        ownerResponseCount;
   }
 
   int _preferredEventsTabIndex() {
@@ -569,9 +569,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         _pendingOwnerResponseKeys.isNotEmpty) {
       return 2;
     }
-    if (_pendingJoinDecisionKeys.isNotEmpty ||
-        _knownPendingInviteIds.isNotEmpty ||
-        _knownCancelledEventIds.isNotEmpty) {
+    if (_pendingJoinDecisionKeys.isNotEmpty || _knownPendingInviteIds.isNotEmpty) {
       return 1;
     }
     return 0;
@@ -629,7 +627,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         .snapshots()
         .listen((snapshot) async {
       final pendingInviteIds = <String>{};
-      final currentCancelledEventIds = <String>{};
       final pendingOwnerRequestKeys = <String>{};
       final currentJoinDecisionKeys = <String>{};
       final currentOwnerResponseStatuses = <String, String>{};
@@ -640,15 +637,11 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
-        final eventStatus = (data['status'] ?? '').toString();
-        final isCancelledEvent = _isCancelledEventStatus(eventStatus);
+        final eventStatus = (data['status'] ?? '').toString().trim().toLowerCase();
+        final isCancelledEvent = eventStatus == 'cancelled' || eventStatus == 'canceled';
 
         if (_isUnseenPendingEventInvite(data, currentUserId)) {
           pendingInviteIds.add(doc.id);
-        }
-
-        if (_isUnseenCancelledEvent(data, currentUserId)) {
-          currentCancelledEventIds.add(doc.id);
         }
 
         final pendingKeys =
@@ -697,7 +690,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       if (!_hasInitializedInviteState) {
         _hasInitializedInviteState = true;
         _knownPendingInviteIds = pendingInviteIds;
-        _knownCancelledEventIds = currentCancelledEventIds;
         _knownPendingOwnerRequestKeys = pendingOwnerRequestKeys;
         _knownJoinDecisionKeys = currentJoinDecisionKeys;
         _knownOwnerResponseStatuses = currentOwnerResponseStatuses;
@@ -797,7 +789,6 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       }
 
       _knownPendingInviteIds = pendingInviteIds;
-      _knownCancelledEventIds = currentCancelledEventIds;
       _knownPendingOwnerRequestKeys = pendingOwnerRequestKeys;
       _knownJoinDecisionKeys = currentJoinDecisionKeys;
       _knownOwnerResponseStatuses = currentOwnerResponseStatuses;
@@ -1811,6 +1802,10 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         final userData = userSnapshot.data?.data() ?? <String, dynamic>{};
         final followingIds =
         List<String>.from(userData['followingIds'] ?? const <String>[]);
+        final dismissedActivityIds = <String>{
+          ...List<String>.from(userData['dismissedActivityIds'] ?? const <String>[]),
+          ..._dismissedActivityIds,
+        };
 
         Widget emptyCard({
           required String title,
@@ -1896,7 +1891,8 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
               final actorUserId = (data['actorUserId'] ?? '').toString().trim();
               return actorUserId.isNotEmpty &&
                   actorUserId != currentUserId &&
-                  followingIds.contains(actorUserId);
+                  followingIds.contains(actorUserId) &&
+                  !dismissedActivityIds.contains(doc.id);
             }).take(10).toList();
 
             if (docs.isEmpty) {
@@ -1962,68 +1958,86 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                     imageUrl: actorImageUrl,
                   );
 
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(20),
-                      onTap: () {
-                        if (eventId.isNotEmpty) {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => EventDetailPage(
-                                eventId: eventId,
-                                view: EventDetailView.openEvent,
+                  return Dismissible(
+                    key: ValueKey('activity_${doc.id}'),
+                    direction: DismissDirection.endToStart,
+                    background: Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: colorScheme.error.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Icon(
+                        Icons.delete_outline,
+                        color: colorScheme.error,
+                      ),
+                    ),
+                    onDismissed: (_) => _dismissActivityForCurrentUser(currentUserId, doc.id),
+                    child: Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(20),
+                        onTap: () {
+                          if (eventId.isNotEmpty) {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => EventDetailPage(
+                                  eventId: eventId,
+                                  view: EventDetailView.openEvent,
+                                ),
                               ),
-                            ),
-                          );
-                          return;
-                        }
+                            );
+                            return;
+                          }
 
-                        if (actorUserId.isNotEmpty) {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => UserPage(
-                                userId: actorUserId,
-                                initialName: actorName,
-                                initialImageUrl: actorImageUrl,
+                          if (actorUserId.isNotEmpty) {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => UserPage(
+                                  userId: actorUserId,
+                                  initialName: actorName,
+                                  initialImageUrl: actorImageUrl,
+                                ),
                               ),
-                            ),
-                          );
-                        }
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildContactAvatar(preview: preview, theme: theme),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    title,
-                                    style: theme.textTheme.titleSmall?.copyWith(
-                                      fontWeight: FontWeight.w800,
+                            );
+                          }
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildContactAvatar(preview: preview, theme: theme),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      title,
+                                      style: theme.textTheme.titleSmall?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    subtitle,
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: colorScheme.onSurfaceVariant,
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      subtitle,
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: colorScheme.onSurfaceVariant,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 10),
-                            Icon(
-                              Icons.arrow_forward_rounded,
-                              color: colorScheme.primary,
-                            ),
-                          ],
+                              const SizedBox(width: 10),
+                              Icon(
+                                Icons.arrow_forward_rounded,
+                                color: colorScheme.primary,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -2663,12 +2677,14 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                   stream: FirebaseFirestore.instance
                       .collection('notifications')
                       .where('toUserId', isEqualTo: currentUserId)
-                      .orderBy('createdAt', descending: true)
                       .limit(100)
                       .snapshots(),
                   builder: (context, notifSnapshot) {
                     final currentUserData =
                         userSnapshot.data?.data() ?? const <String, dynamic>{};
+                    final dismissedNotificationKeys = Set<String>.from(
+                      currentUserData['dismissedNotificationKeys'] ?? const <String>[],
+                    );
                     final pendingFollowerIds = List<String>.from(
                       currentUserData['pendingFollowerIds'] ?? const [],
                     );
@@ -2684,15 +2700,24 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
                           type == 'follow_request' && status == 'pending';
                       final isHandledByEventState =
                       _isBellCountHandledByEventState(type);
+                      final isDismissed =
+                      dismissedNotificationKeys.contains('notif:${doc.id}');
                       return !isRead &&
                           !isPendingFollowRequest &&
-                          !isHandledByEventState;
+                          !isHandledByEventState &&
+                          !isDismissed;
                     })
                         .length;
 
+                    final visiblePendingFollowerCount = pendingFollowerIds.where((requesterId) {
+                      return !dismissedNotificationKeys.contains('pending_follow:$requesterId');
+                    }).length;
+
                     final count = unreadOtherNotifications +
-                        pendingFollowerIds.length +
-                        _eventActionBadgeCount();
+                        visiblePendingFollowerCount +
+                        _eventActionBadgeCount(
+                          dismissedKeys: dismissedNotificationKeys,
+                        );
 
                     return IconButton(
                       tooltip: 'Mitteilungen',
