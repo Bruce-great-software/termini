@@ -167,15 +167,7 @@ class _EventsPageState extends State<EventsPage>
   String _groupHeaderLabel(Timestamp? timestamp) {
     final normalizedDay = _normalizedDayFromTimestamp(timestamp);
     if (normalizedDay == null) return 'Kein Datum';
-
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final tomorrow = today.add(const Duration(days: 1));
-
-    if (normalizedDay == today) return 'Heute';
-    if (normalizedDay == tomorrow) return 'Morgen';
-
-    return DateFormat('EEEE, d. MMMM', 'de_DE').format(normalizedDay);
+    return DateFormat('EEEE, dd.MM.yyyy', 'de_DE').format(normalizedDay);
   }
 
   String _formatTime(Map<String, dynamic> data) {
@@ -305,20 +297,14 @@ class _EventsPageState extends State<EventsPage>
         return 0;
       }
 
-      if (_selectedOpenEventsSort == 'date_distance') {
-        final byDate = compareChronologically();
-        if (byDate != 0) return byDate;
+      final byDay = compareChronologically();
+      if (byDay != 0) return byDay;
 
+      if (_selectedOpenEventsSort == 'distance_date') {
         final byDistance = compareDistance();
         if (byDistance != 0) return byDistance;
-        return 0;
       }
 
-      final byDistance = compareDistance();
-      if (byDistance != 0) return byDistance;
-
-      final byDate = compareChronologically();
-      if (byDate != 0) return byDate;
       return 0;
     });
   }
@@ -1256,6 +1242,7 @@ class _EventsPageState extends State<EventsPage>
         locationInfo: _locationInfo(data),
         distanceText: _distanceText(data),
         scheduledAt: _scheduledTimestamp(data),
+        showDateInHeader: !groupByDay,
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute(
@@ -1280,36 +1267,50 @@ class _EventsPageState extends State<EventsPage>
       );
     }
 
-    final children = <Widget>[];
-    final dayCounts = <DateTime?, int>{};
+    final groupedDocs = <_EventDayGroup>[];
+    DateTime? currentDay;
+    Timestamp? currentTimestamp;
+    var currentDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
     for (final doc in docs) {
       final scheduledAt = _scheduledTimestamp(doc.data());
-      final currentDay = _normalizedDayFromTimestamp(scheduledAt);
-      dayCounts[currentDay] = (dayCounts[currentDay] ?? 0) + 1;
-    }
+      final normalizedDay = _normalizedDayFromTimestamp(scheduledAt);
 
-    DateTime? previousDay;
-    for (final doc in docs) {
-      final scheduledAt = _scheduledTimestamp(doc.data());
-      final currentDay = _normalizedDayFromTimestamp(scheduledAt);
-
-      if (previousDay != currentDay) {
-        children.add(
-          _DayGroupHeader(
-            label: _groupHeaderLabel(scheduledAt),
-            count: dayCounts[currentDay] ?? 0,
-          ),
-        );
-        previousDay = currentDay;
+      if (currentDocs.isEmpty || currentDay == normalizedDay) {
+        currentDay = normalizedDay;
+        currentTimestamp ??= scheduledAt;
+        currentDocs.add(doc);
+        continue;
       }
 
-      children.add(buildEventCard(doc));
+      groupedDocs.add(
+        _EventDayGroup(
+          timestamp: currentTimestamp,
+          docs: currentDocs,
+        ),
+      );
+
+      currentDay = normalizedDay;
+      currentTimestamp = scheduledAt;
+      currentDocs = [doc];
     }
 
-    return ListView(
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-      children: children,
+    if (currentDocs.isNotEmpty) {
+      groupedDocs.add(
+        _EventDayGroup(
+          timestamp: currentTimestamp,
+          docs: currentDocs,
+        ),
+      );
+    }
+
+    return _GroupedEventsScrollView(
+      groups: groupedDocs,
+      theme: theme,
+      backgroundColor: theme.scaffoldBackgroundColor,
+      horizontalPadding: 16,
+      headerLabelBuilder: _groupHeaderLabel,
+      itemBuilder: buildEventCard,
     );
   }
 
@@ -1691,7 +1692,7 @@ class _EventsPageState extends State<EventsPage>
                               },
                             ),
                         ],
-                        groupByDay: _selectedOpenEventsSort == 'date_distance',
+                        groupByDay: true,
                         emptyState: const _EventEmptyState(
                           icon: Icons.public_off_outlined,
                           title: 'Keine offenen Events',
@@ -1709,6 +1710,7 @@ class _EventsPageState extends State<EventsPage>
                         statusResolver: (data) =>
                             _responseForUser(data, currentUserId),
                         activeChips: _buildCommonActiveChips(),
+                        groupByDay: true,
                         emptyState: const _EventEmptyState(
                           icon: Icons.mail_outline_rounded,
                           title: 'Keine Einladungen vorhanden',
@@ -1725,6 +1727,7 @@ class _EventsPageState extends State<EventsPage>
                         currentUserId: currentUserId,
                         statusResolver: (data) => _overallStatus(data),
                         activeChips: _buildCommonActiveChips(),
+                        groupByDay: true,
                         emptyState: const _EventEmptyState(
                           icon: Icons.event_busy_outlined,
                           title: 'Noch keine eigenen Events',
@@ -1825,6 +1828,281 @@ class _TabLabelWithBadge extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+
+class _EventDayGroup {
+  final Timestamp? timestamp;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
+
+  const _EventDayGroup({
+    required this.timestamp,
+    required this.docs,
+  });
+}
+
+typedef _GroupedEventCardBuilder = Widget Function(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    );
+
+class _GroupedEventsScrollView extends StatefulWidget {
+  final List<_EventDayGroup> groups;
+  final ThemeData theme;
+  final Color backgroundColor;
+  final double horizontalPadding;
+  final String Function(Timestamp? timestamp) headerLabelBuilder;
+  final _GroupedEventCardBuilder itemBuilder;
+
+  const _GroupedEventsScrollView({
+    required this.groups,
+    required this.theme,
+    required this.backgroundColor,
+    required this.horizontalPadding,
+    required this.headerLabelBuilder,
+    required this.itemBuilder,
+  });
+
+  @override
+  State<_GroupedEventsScrollView> createState() =>
+      _GroupedEventsScrollViewState();
+}
+
+class _GroupedEventsScrollViewState extends State<_GroupedEventsScrollView> {
+  static const double _stickyHeaderHeight = _DayGroupHeaderDelegate._headerExtent;
+
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _stackKey = GlobalKey();
+  late List<GlobalKey> _headerKeys;
+
+  int _activeIndex = 0;
+  double _stickyOpacity = 1;
+  double _stickyTranslateY = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _headerKeys = _createHeaderKeys();
+    _scrollController.addListener(_handleScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _updateStickyHeader());
+  }
+
+  @override
+  void didUpdateWidget(covariant _GroupedEventsScrollView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.groups.length != widget.groups.length) {
+      _headerKeys = _createHeaderKeys();
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _updateStickyHeader());
+  }
+
+  @override
+  void dispose() {
+    _scrollController
+      ..removeListener(_handleScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  List<GlobalKey> _createHeaderKeys() {
+    return List<GlobalKey>.generate(widget.groups.length, (_) => GlobalKey());
+  }
+
+  void _handleScroll() {
+    if (!mounted) return;
+    _updateStickyHeader();
+  }
+
+  void _updateStickyHeader() {
+    if (!mounted || widget.groups.isEmpty) return;
+
+    final stackContext = _stackKey.currentContext;
+    if (stackContext == null) return;
+
+    final stackBox = stackContext.findRenderObject() as RenderBox?;
+    if (stackBox == null || !stackBox.hasSize) return;
+
+    final topPositions = <double>[];
+    for (final key in _headerKeys) {
+      final headerContext = key.currentContext;
+      if (headerContext == null) return;
+
+      final box = headerContext.findRenderObject() as RenderBox?;
+      if (box == null || !box.hasSize) return;
+
+      final offset = box.localToGlobal(Offset.zero, ancestor: stackBox);
+      topPositions.add(offset.dy);
+    }
+
+    var activeIndex = 0;
+    for (var i = 0; i < topPositions.length; i++) {
+      if (topPositions[i] <= 0) {
+        activeIndex = i;
+      } else {
+        break;
+      }
+    }
+
+    final nextTop = activeIndex + 1 < topPositions.length
+        ? topPositions[activeIndex + 1]
+        : double.infinity;
+    final pushOffset = (_stickyHeaderHeight - nextTop)
+        .clamp(0.0, _stickyHeaderHeight)
+        .toDouble();
+    final shouldShowOverlay = topPositions.first < 0;
+    final opacity = shouldShowOverlay
+        ? (1 - (pushOffset / _stickyHeaderHeight)).clamp(0.0, 1.0)
+        : 0.0;
+
+    if (_activeIndex != activeIndex ||
+        (_stickyOpacity - opacity).abs() > 0.001 ||
+        (_stickyTranslateY + pushOffset).abs() > 0.001) {
+      setState(() {
+        _activeIndex = activeIndex;
+        _stickyOpacity = opacity;
+        _stickyTranslateY = -pushOffset;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.groups.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final activeGroup = widget.groups[_activeIndex.clamp(0, widget.groups.length - 1)];
+
+    return Stack(
+      key: _stackKey,
+      children: [
+        NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            WidgetsBinding.instance
+                .addPostFrameCallback((_) => _updateStickyHeader());
+            return false;
+          },
+          child: CustomScrollView(
+            controller: _scrollController,
+            physics: const BouncingScrollPhysics(),
+            slivers: [
+              for (var groupIndex = 0; groupIndex < widget.groups.length; groupIndex++) ...[
+                SliverToBoxAdapter(
+                  child: KeyedSubtree(
+                    key: _headerKeys[groupIndex],
+                    child: Container(
+                      color: widget.backgroundColor,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: widget.horizontalPadding,
+                      ),
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: _DayGroupHeader(
+                          label: widget.headerLabelBuilder(
+                            widget.groups[groupIndex].timestamp,
+                          ),
+                          count: widget.groups[groupIndex].docs.length,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: EdgeInsets.symmetric(horizontal: widget.horizontalPadding),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                          (context, index) =>
+                          widget.itemBuilder(widget.groups[groupIndex].docs[index]),
+                      childCount: widget.groups[groupIndex].docs.length,
+                    ),
+                  ),
+                ),
+              ],
+              const SliverToBoxAdapter(
+                child: SizedBox(height: 24),
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: IgnorePointer(
+            child: Transform.translate(
+              offset: Offset(0, _stickyTranslateY),
+              child: Opacity(
+                opacity: _stickyOpacity,
+                child: Container(
+                  color: widget.backgroundColor,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: widget.horizontalPadding,
+                  ),
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: _DayGroupHeader(
+                      label: widget.headerLabelBuilder(activeGroup.timestamp),
+                      count: activeGroup.docs.length,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DayGroupHeaderDelegate extends SliverPersistentHeaderDelegate {
+  static const double _headerExtent = 50;
+
+  final String label;
+  final int count;
+  final Color backgroundColor;
+  final double horizontalPadding;
+
+  const _DayGroupHeaderDelegate({
+    required this.label,
+    required this.count,
+    required this.backgroundColor,
+    required this.horizontalPadding,
+  });
+
+  @override
+  double get minExtent => _headerExtent;
+
+  @override
+  double get maxExtent => _headerExtent;
+
+  @override
+  Widget build(
+      BuildContext context,
+      double shrinkOffset,
+      bool overlapsContent,
+      ) {
+    return ColoredBox(
+      color: backgroundColor,
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: _DayGroupHeader(
+            label: label,
+            count: count,
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _DayGroupHeaderDelegate oldDelegate) {
+    return label != oldDelegate.label ||
+        count != oldDelegate.count ||
+        backgroundColor != oldDelegate.backgroundColor ||
+        horizontalPadding != oldDelegate.horizontalPadding;
   }
 }
 
@@ -2120,6 +2398,7 @@ class _EventCard extends StatelessWidget {
   final _LocationInfo locationInfo;
   final String? distanceText;
   final Timestamp? scheduledAt;
+  final bool showDateInHeader;
   final VoidCallback onTap;
   final bool isHighlighted;
   final bool showActionRequiredDot;
@@ -2149,6 +2428,7 @@ class _EventCard extends StatelessWidget {
     required this.locationInfo,
     required this.distanceText,
     required this.scheduledAt,
+    this.showDateInHeader = true,
     required this.onTap,
   });
 
@@ -2237,24 +2517,27 @@ class _EventCard extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      const Icon(
-                        Icons.calendar_today_outlined,
-                        size: 16,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          formatHeaderDate(scheduledAt),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
+                      if (showDateInHeader) ...[
+                        const Icon(
+                          Icons.calendar_today_outlined,
+                          size: 16,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            formatHeaderDate(scheduledAt),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
+                        const SizedBox(width: 12),
+                      ] else
+                        const Spacer(),
                       const Icon(
                         Icons.access_time,
                         size: 16,
