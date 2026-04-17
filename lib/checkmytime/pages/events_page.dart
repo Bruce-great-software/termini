@@ -1321,7 +1321,7 @@ class _EventsPageState extends State<EventsPage>
 
     if (currentUserId == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Events')),
+        appBar: AppBar(title: const Text('Eventss')),
         body: const Center(
           child: Text('Du bist aktuell nicht eingeloggt.'),
         ),
@@ -1329,7 +1329,6 @@ class _EventsPageState extends State<EventsPage>
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Events')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
           await Navigator.of(context).push(
@@ -1564,9 +1563,10 @@ class _EventsPageState extends State<EventsPage>
                 : null;
 
             return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                   child: _SearchBarCard(
                     controller: _searchController,
                     onFilterTap: _openFilterSheet,
@@ -1620,19 +1620,7 @@ class _EventsPageState extends State<EventsPage>
                     ),
                   ),
                 ),
-                const SizedBox(height: 14),
-                if (currentTabIndex == 0)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                    child: _OpenEventsQuickFilterBar(
-                      selectedValue: _selectedOpenQuickFilter,
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedOpenQuickFilter = value;
-                        });
-                      },
-                    ),
-                  ),
+                const SizedBox(height: 12),
                 if (_hasActiveEventFilters)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -1840,44 +1828,8 @@ class _TabLabelWithBadge extends StatelessWidget {
   }
 }
 
-class _OpenEventsQuickFilterBar extends StatelessWidget {
-  final String selectedValue;
-  final ValueChanged<String> onChanged;
-
-  const _OpenEventsQuickFilterBar({
-    required this.selectedValue,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    Widget buildChip(String value, String label) {
-      return ChoiceChip(
-        selected: selectedValue == value,
-        onSelected: (_) => onChanged(value),
-        label: Text(label),
-        showCheckmark: false,
-      );
-    }
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          buildChip('all', 'Alle'),
-          const SizedBox(width: 8),
-          buildChip('today', 'Heute'),
-          const SizedBox(width: 8),
-          buildChip('tomorrow', 'Morgen'),
-          const SizedBox(width: 8),
-          buildChip('thisWeek', 'Diese Woche'),
-        ],
-      ),
-    );
-  }
-}
-
 class _ActiveFilterChipData {
+
   final String label;
   final VoidCallback? onRemove;
 
