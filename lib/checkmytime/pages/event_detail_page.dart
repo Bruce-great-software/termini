@@ -241,6 +241,12 @@ class _EventDetailPageState extends State<EventDetailPage> {
     return '$count interessiert';
   }
 
+  String _viewCountText(Map<String, dynamic> data) {
+    final count = _eventViewerUserIds(data).length;
+    if (count == 1) return '1 Besucher';
+    return '$count Besucher';
+  }
+
   Future<void> _toggleInterest(Map<String, dynamic> data) async {
     if (_currentUserId.isEmpty || _isTogglingInterest) return;
 
@@ -492,10 +498,14 @@ class _EventDetailPageState extends State<EventDetailPage> {
     return 'Aktion derzeit nicht möglich.';
   }
 
-  void _removeInterestFromUpdates(Map<String, dynamic> updates, String userId) {
-    if (userId.trim().isEmpty) return;
-    updates['interestedUserIds'] = FieldValue.arrayRemove([userId]);
-    updates['interestedAtMap.$userId'] = FieldValue.delete();
+  Map<String, dynamic> _buildInterestRemovalUpdate(String userId) {
+    final trimmedUserId = userId.trim();
+    if (trimmedUserId.isEmpty) return const <String, dynamic>{};
+
+    return <String, dynamic>{
+      'interestedUserIds': FieldValue.arrayRemove([trimmedUserId]),
+      'interestedAtMap.$trimmedUserId': FieldValue.delete(),
+    };
   }
 
   Set<String> _eventRecipientUserIds(Map<String, dynamic> data) {
@@ -558,18 +568,16 @@ class _EventDetailPageState extends State<EventDetailPage> {
         ...List<String>.from(data['participantIds'] ?? const []),
       }..remove(_currentUserId);
 
-      final updates = <String, dynamic>{
+      await docRef.update({
         'memberIds': memberIds.toList(),
         'responseMap': responseMap,
         'acceptedUserIds': accepted.toList(),
         'maybeUserIds': maybe.toList(),
         'declinedUserIds': declined.toList(),
         'participantIds': participantIds.toList(),
+        ..._buildInterestRemovalUpdate(_currentUserId),
         'updatedAt': FieldValue.serverTimestamp(),
-      };
-      _removeInterestFromUpdates(updates, _currentUserId);
-
-      await docRef.update(updates);
+      });
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -655,18 +663,16 @@ class _EventDetailPageState extends State<EventDetailPage> {
         _currentUserId,
       }..removeWhere((id) => id.trim().isEmpty);
 
-      final updates = <String, dynamic>{
+      await docRef.update({
         'memberIds': memberIds.toList(),
         'acceptedUserIds': accepted.toList(),
         'maybeUserIds': maybe.toList(),
         'declinedUserIds': declined.toList(),
         'participantIds': participantIds.toList(),
         'responseMap': responseMap,
+        ..._buildInterestRemovalUpdate(_currentUserId),
         'updatedAt': FieldValue.serverTimestamp(),
-      };
-      _removeInterestFromUpdates(updates, _currentUserId);
-
-      await docRef.update(updates);
+      });
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1014,19 +1020,15 @@ class _EventDetailPageState extends State<EventDetailPage> {
       final participantIds = <String>{createdBy, ...accepted}
         ..removeWhere((id) => id.trim().isEmpty);
 
-      final updates = <String, dynamic>{
+      await docRef.update({
         'acceptedUserIds': accepted.toList(),
         'maybeUserIds': maybe.toList(),
         'declinedUserIds': declined.toList(),
         'participantIds': participantIds.toList(),
         'responseMap': responseMap,
+        ..._buildInterestRemovalUpdate(_currentUserId),
         'updatedAt': FieldValue.serverTimestamp(),
-      };
-      if (statusKey != 'clear') {
-        _removeInterestFromUpdates(updates, _currentUserId);
-      }
-
-      await docRef.update(updates);
+      });
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1120,18 +1122,16 @@ class _EventDetailPageState extends State<EventDetailPage> {
         responseMap[requestUserId] = 'declined';
       }
 
-      final updates = <String, dynamic>{
+      await docRef.update({
         'memberIds': memberIds.toList(),
         'acceptedUserIds': acceptedIds.toList(),
         'maybeUserIds': maybeIds.toList(),
         'declinedUserIds': declinedIds.toList(),
         'participantIds': participantIds.toList(),
         'responseMap': responseMap,
+        ..._buildInterestRemovalUpdate(requestUserId),
         'updatedAt': FieldValue.serverTimestamp(),
-      };
-      _removeInterestFromUpdates(updates, requestUserId);
-
-      await docRef.update(updates);
+      });
 
       await NotificationDispatchService.instance.queueEventJoinDecisionNotification(
         recipientUserId: requestUserId,
@@ -1908,14 +1908,23 @@ class _EventDetailPageState extends State<EventDetailPage> {
                                     onTap: () => _openNavigation(data),
                                   ),
                                 _DetailChip(
+                                  icon: isInterested
+                                      ? Icons.favorite_rounded
+                                      : Icons.favorite_border_rounded,
+                                  label: _interestCountText(data),
+                                  onTap: canToggleInterest && !_isTogglingInterest
+                                      ? () => _toggleInterest(data)
+                                      : null,
+                                ),
+                                _DetailChip(
+                                  icon: Icons.visibility_outlined,
+                                  label: _viewCountText(data),
+                                ),
+                                _DetailChip(
                                   icon: Icons.group_outlined,
                                   label: maxParticipants != null && maxParticipants > 0
                                       ? '$participantCount/$maxParticipants Teilnehmer'
                                       : '$participantCount Teilnehmer',
-                                ),
-                                _DetailChip(
-                                  icon: Icons.favorite_border_rounded,
-                                  label: _interestCountText(data),
                                 ),
                                 _DetailChip(
                                   icon: Icons.person_outline,
@@ -2132,97 +2141,6 @@ class _EventDetailPageState extends State<EventDetailPage> {
                         participantName: userName,
                       ),
                 ),
-                if (canToggleInterest) ...[
-                  const SizedBox(height: 14),
-                  _DetailSection(
-                    title: 'Interessiert',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          isInterested
-                              ? 'Du hast dieses Event als interessant markiert. Du kannst den Status jederzeit wieder entfernen.'
-                              : 'Merke dir dieses Event, ohne direkt beizutreten oder eine Anfrage zu senden.',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 180),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: isInterested
-                                ? colorScheme.primary.withValues(alpha: 0.10)
-                                : colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: isInterested
-                                  ? colorScheme.primary.withValues(alpha: 0.22)
-                                  : colorScheme.outlineVariant,
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                isInterested
-                                    ? Icons.favorite_rounded
-                                    : Icons.favorite_border_rounded,
-                                color: isInterested
-                                    ? colorScheme.primary
-                                    : colorScheme.onSurfaceVariant,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  isInterested
-                                      ? 'Du bist interessiert'
-                                      : 'Noch nicht interessiert',
-                                  style: theme.textTheme.labelLarge?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                    color: isInterested
-                                        ? colorScheme.primary
-                                        : colorScheme.onSurface,
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                _interestCountText(data),
-                                style: theme.textTheme.labelMedium?.copyWith(
-                                  color: colorScheme.onSurfaceVariant,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        FilledButton.icon(
-                          onPressed: _isTogglingInterest ? null : () => _toggleInterest(data),
-                          icon: _isTogglingInterest
-                              ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                              : Icon(
-                            isInterested
-                                ? Icons.favorite_rounded
-                                : Icons.favorite_border_rounded,
-                          ),
-                          label: Text(
-                            isInterested
-                                ? 'Nicht mehr interessiert'
-                                : 'Als interessiert markieren',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 14),
                 _buildActionSection(
                   context: context,

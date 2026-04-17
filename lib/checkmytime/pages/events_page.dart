@@ -600,36 +600,90 @@ class _EventsPageState extends State<EventsPage>
     return '$count Besucher';
   }
 
-  Set<String> _interestedUserIds(Map<String, dynamic> data) {
-    final createdBy = (data['createdBy'] ?? '').toString().trim();
-    final eventRelatedIds = <String>{
-      ...List<String>.from(data['memberIds'] ?? const []),
+  Set<String> _engagedUserIds(Map<String, dynamic> data) {
+    final engaged = <String>{
       ...List<String>.from(data['invitedUserIds'] ?? const []),
+      ...List<String>.from(data['memberIds'] ?? const []),
       ...List<String>.from(data['participantIds'] ?? const []),
       ...List<String>.from(data['acceptedUserIds'] ?? const []),
       ...List<String>.from(data['maybeUserIds'] ?? const []),
       ...List<String>.from(data['declinedUserIds'] ?? const []),
-      ...Map<String, dynamic>.from(
-        data['responseMap'] ?? const <String, dynamic>{},
-      ).keys.map((id) => id.trim()),
     };
 
-    final interestedIds = <String>{
-      ...List<String>.from(data['interestedUserIds'] ?? const []),
-      ...Map<String, dynamic>.from(
-        data['interestedAtMap'] ?? const <String, dynamic>{},
-      ).keys.map((id) => id.trim()),
-    }..removeWhere(
-          (id) => id.trim().isEmpty || id == createdBy || eventRelatedIds.contains(id),
+    final responseMap = Map<String, dynamic>.from(
+      data['responseMap'] ?? const <String, dynamic>{},
     );
+    for (final entry in responseMap.entries) {
+      final userId = entry.key.trim();
+      final status = entry.value.toString().trim().toLowerCase();
+      if (userId.isEmpty) continue;
+      if ({'pending', 'accepted', 'confirmed', 'maybe', 'declined', 'cancelled'}.contains(status)) {
+        engaged.add(userId);
+      }
+    }
 
-    return interestedIds;
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    if (createdBy.isNotEmpty) {
+      engaged.add(createdBy);
+    }
+
+    return engaged;
+  }
+
+  Set<String> _eventInterestedUserIds(Map<String, dynamic> data) {
+    final rawInterested = List<String>.from(data['interestedUserIds'] ?? const [])
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    rawInterested.removeWhere(_engagedUserIds(data).contains);
+    return rawInterested;
+  }
+
+  bool _isInterestActiveForUser(Map<String, dynamic> data, String currentUserId) {
+    return _eventInterestedUserIds(data).contains(currentUserId.trim());
+  }
+
+  bool _canToggleInterest(Map<String, dynamic> data, String currentUserId) {
+    final userId = currentUserId.trim();
+    if (userId.isEmpty) return false;
+    return !_engagedUserIds(data).contains(userId);
   }
 
   String _interestCountText(Map<String, dynamic> data) {
-    final count = _interestedUserIds(data).length;
+    final count = _eventInterestedUserIds(data).length;
     if (count == 1) return '1 interessiert';
     return '$count interessiert';
+  }
+
+  Future<void> _toggleInterest({
+    required String eventId,
+    required Map<String, dynamic> data,
+    required String currentUserId,
+  }) async {
+    if (!_canToggleInterest(data, currentUserId)) return;
+
+    final userId = currentUserId.trim();
+    final isActive = _isInterestActiveForUser(data, userId);
+
+    try {
+      await FirebaseFirestore.instance.collection('events').doc(eventId).update({
+        'interestedUserIds': isActive
+            ? FieldValue.arrayRemove([userId])
+            : FieldValue.arrayUnion([userId]),
+        if (isActive)
+          'interestedAtMap.$userId': FieldValue.delete()
+        else
+          'interestedAtMap.$userId': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Interesse konnte gerade nicht aktualisiert werden.'),
+        ),
+      );
+    }
   }
 
   String? _distanceText(Map<String, dynamic> data) {
@@ -1188,13 +1242,17 @@ class _EventsPageState extends State<EventsPage>
         isHighlighted: isHighlighted,
         showActionRequiredDot: hasOpenInviteAction,
         metaText: _metaText(data, currentUserId),
+        interestText: _interestCountText(data),
+        isInterestActive: _isInterestActiveForUser(data, currentUserId),
+        onInterestTap: _canToggleInterest(data, currentUserId)
+            ? () => _toggleInterest(
+          eventId: doc.id,
+          data: data,
+          currentUserId: currentUserId,
+        )
+            : null,
         participantsText: _participantsText(data),
-        visitorsText: view == EventDetailView.myEvent
-            ? _viewCountText(data)
-            : null,
-        interestedText: view == EventDetailView.myEvent
-            ? _interestCountText(data)
-            : null,
+        visitorsText: _viewCountText(data),
         locationInfo: _locationInfo(data),
         distanceText: _distanceText(data),
         scheduledAt: _scheduledTimestamp(data),
@@ -2102,9 +2160,11 @@ class _EventCard extends StatelessWidget {
   final Color statusColor;
   final String? interactionBadgeLabel;
   final String metaText;
+  final String interestText;
+  final bool isInterestActive;
+  final VoidCallback? onInterestTap;
   final String participantsText;
   final String? visitorsText;
-  final String? interestedText;
   final _LocationInfo locationInfo;
   final String? distanceText;
   final Timestamp? scheduledAt;
@@ -2129,9 +2189,11 @@ class _EventCard extends StatelessWidget {
     this.isHighlighted = false,
     this.showActionRequiredDot = false,
     required this.metaText,
+    required this.interestText,
+    required this.isInterestActive,
+    required this.onInterestTap,
     required this.participantsText,
     required this.visitorsText,
-    required this.interestedText,
     required this.locationInfo,
     required this.distanceText,
     required this.scheduledAt,
@@ -2407,8 +2469,11 @@ class _EventCard extends StatelessWidget {
                         runSpacing: 8,
                         children: [
                           _EventInfoChip(
-                            icon: Icons.group_outlined,
-                            label: participantsText,
+                            icon: Icons.favorite_border_rounded,
+                            activeIcon: Icons.favorite_rounded,
+                            isActive: isInterestActive,
+                            onTap: onInterestTap,
+                            label: interestText,
                             theme: theme,
                             colorScheme: colorScheme,
                           ),
@@ -2420,14 +2485,12 @@ class _EventCard extends StatelessWidget {
                               theme: theme,
                               colorScheme: colorScheme,
                             ),
-                          if (interestedText != null &&
-                              interestedText!.trim().isNotEmpty)
-                            _EventInfoChip(
-                              icon: Icons.favorite_border_rounded,
-                              label: interestedText!,
-                              theme: theme,
-                              colorScheme: colorScheme,
-                            ),
+                          _EventInfoChip(
+                            icon: Icons.group_outlined,
+                            label: participantsText,
+                            theme: theme,
+                            colorScheme: colorScheme,
+                          ),
                           if (!locationInfo.isEmpty)
                             _EventInfoChip(
                               icon: locationInfo.icon,
@@ -2476,6 +2539,9 @@ class _EventCard extends StatelessWidget {
 
 class _EventInfoChip extends StatelessWidget {
   final IconData icon;
+  final IconData? activeIcon;
+  final bool isActive;
+  final VoidCallback? onTap;
   final String label;
   final ThemeData theme;
   final ColorScheme colorScheme;
@@ -2483,6 +2549,9 @@ class _EventInfoChip extends StatelessWidget {
 
   const _EventInfoChip({
     required this.icon,
+    this.activeIcon,
+    this.isActive = false,
+    this.onTap,
     required this.label,
     required this.theme,
     required this.colorScheme,
@@ -2494,38 +2563,46 @@ class _EventInfoChip extends StatelessWidget {
     final chipColor = useSubtleColor
         ? colorScheme.onSurfaceVariant
         : colorScheme.primary;
+    final effectiveIcon = isActive ? (activeIcon ?? icon) : icon;
 
     return ConstrainedBox(
       constraints: BoxConstraints(
         maxWidth: MediaQuery.of(context).size.width * 0.58,
       ),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: chipColor.withValues(alpha: 0.08),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
           borderRadius: BorderRadius.circular(999),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 14,
-              color: chipColor,
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: chipColor.withValues(alpha: isActive ? 0.14 : 0.08),
+              borderRadius: BorderRadius.circular(999),
             ),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelMedium?.copyWith(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  effectiveIcon,
+                  size: 14,
                   color: chipColor,
-                  fontWeight: FontWeight.w700,
                 ),
-              ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: chipColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
