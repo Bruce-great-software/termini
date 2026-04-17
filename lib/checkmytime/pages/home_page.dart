@@ -839,8 +839,18 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
     required String fallbackName,
     required String fallbackPhone,
   }) async {
-    if (_contactPreviewCache.containsKey(contactId)) {
-      return _contactPreviewCache[contactId]!;
+    final normalizedContactId = contactId.trim();
+
+    if (normalizedContactId.isEmpty) {
+      return _ContactPreviewData(
+        name: fallbackName.trim().isEmpty ? 'Unbekannt' : fallbackName.trim(),
+        phone: fallbackPhone.trim(),
+        imageUrl: '',
+      );
+    }
+
+    if (_contactPreviewCache.containsKey(normalizedContactId)) {
+      return _contactPreviewCache[normalizedContactId]!;
     }
 
     var resolvedName = fallbackName.trim();
@@ -851,7 +861,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       final doc =
       await FirebaseFirestore.instance
           .collection('users')
-          .doc(contactId)
+          .doc(normalizedContactId)
           .get();
       final data = doc.data();
 
@@ -883,7 +893,7 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
       phone: resolvedPhone,
       imageUrl: resolvedImageUrl,
     );
-    _contactPreviewCache[contactId] = preview;
+    _contactPreviewCache[normalizedContactId] = preview;
     return preview;
   }
 
@@ -1879,422 +1889,176 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
           stream: FirebaseFirestore.instance
               .collection('activities')
               .orderBy('createdAt', descending: true)
-              .limit(60)
+              .limit(40)
               .snapshots(),
           builder: (context, activitySnapshot) {
-            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('events')
-                  .orderBy('updatedAt', descending: true)
-                  .limit(60)
-                  .snapshots(),
-              builder: (context, eventSnapshot) {
-                if (!activitySnapshot.hasData && !eventSnapshot.hasData) {
-                  return const SizedBox.shrink();
-                }
+            if (!activitySnapshot.hasData) {
+              return const SizedBox.shrink();
+            }
 
-                final feedItems = _buildFollowingFeedItems(
-                  currentUserId: currentUserId,
-                  followingIds: followingIds,
-                  dismissedActivityIds: dismissedActivityIds,
-                  activityDocs: activitySnapshot.data?.docs ?? const [],
-                  eventDocs: eventSnapshot.data?.docs ?? const [],
-                );
+            final docs = activitySnapshot.data!.docs.where((doc) {
+              final data = doc.data();
+              final actorUserId = (data['actorUserId'] ?? '').toString().trim();
+              return actorUserId.isNotEmpty &&
+                  actorUserId != currentUserId &&
+                  followingIds.contains(actorUserId) &&
+                  !dismissedActivityIds.contains(doc.id);
+            }).take(10).toList();
 
-                if (feedItems.isEmpty) {
-                  return emptyCard(
-                    title: 'Aktivitäten deiner Kontakte',
-                    subtitle:
-                    'Noch ruhig – sobald deine Kontakte etwas planen, an einem Event teilnehmen oder ihr Profil aktualisieren, erscheint es hier.',
-                    icon: Icons.schedule_outlined,
+            if (docs.isEmpty) {
+              return emptyCard(
+                title: 'Aktivitäten deiner Kontakte',
+                subtitle:
+                'Noch ruhig – sobald deine Kontakte etwas planen oder ihr Profil aktualisieren, erscheint es hier.',
+                icon: Icons.schedule_outlined,
+              );
+            }
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Aktivitäten deiner Kontakte',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Hier siehst du, was Menschen planen, denen du bereits folgst.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...docs.map((doc) {
+                  final data = doc.data();
+                  final actorUserId =
+                  (data['actorUserId'] ?? '').toString().trim();
+                  final actorName =
+                  (data['actorName'] ?? 'Jemand').toString().trim();
+                  final actorImageUrl =
+                  (data['actorImageUrl'] ?? '').toString().trim();
+                  final type = (data['type'] ?? '').toString().trim();
+                  final eventTitle =
+                  (data['eventTitle'] ?? 'Event').toString().trim();
+                  final eventId = (data['eventId'] ?? '').toString().trim();
+                  final createdAt =
+                      (data['createdAt'] as Timestamp?)?.toDate() ??
+                          DateTime.now();
+
+                  String title;
+                  String subtitle;
+
+                  switch (type) {
+                    case 'profile_updated':
+                      title = '$actorName hat sein Profil aktualisiert';
+                      subtitle = _relativeTime(createdAt);
+                      break;
+                    case 'event_created':
+                    default:
+                      title = '$actorName hat „$eventTitle“ erstellt';
+                      subtitle = _relativeTime(createdAt);
+                      break;
+                  }
+
+                  final preview = _ContactPreviewData(
+                    name: actorName.isEmpty ? 'Jemand' : actorName,
+                    phone: '',
+                    imageUrl: actorImageUrl,
                   );
-                }
 
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Aktivitäten deiner Kontakte',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
+                  return Dismissible(
+                    key: ValueKey('activity_${doc.id}'),
+                    direction: DismissDirection.endToStart,
+                    background: Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: colorScheme.error.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Icon(
+                        Icons.delete_outline,
+                        color: colorScheme.error,
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Hier siehst du, was Menschen planen, denen du bereits folgst.',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ...feedItems.map((item) {
-                      final preview = _ContactPreviewData(
-                        name: item.actorName.isEmpty ? 'Jemand' : item.actorName,
-                        phone: '',
-                        imageUrl: item.actorImageUrl,
-                      );
-
-                      final dismissibleChild = Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(20),
-                          onTap: () {
-                            if (item.eventId.isNotEmpty) {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => EventDetailPage(
-                                    eventId: item.eventId,
-                                    view: EventDetailView.openEvent,
-                                  ),
+                    onDismissed: (_) => _dismissActivityForCurrentUser(currentUserId, doc.id),
+                    child: Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(20),
+                        onTap: () {
+                          if (eventId.isNotEmpty) {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => EventDetailPage(
+                                  eventId: eventId,
+                                  view: EventDetailView.openEvent,
                                 ),
-                              );
-                              return;
-                            }
+                              ),
+                            );
+                            return;
+                          }
 
-                            if (item.actorUserId.isNotEmpty) {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => UserPage(
-                                    userId: item.actorUserId,
-                                    initialName: item.actorName,
-                                    initialImageUrl: item.actorImageUrl,
-                                  ),
+                          if (actorUserId.isNotEmpty) {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => UserPage(
+                                  userId: actorUserId,
+                                  initialName: actorName,
+                                  initialImageUrl: actorImageUrl,
                                 ),
-                              );
-                            }
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Stack(
-                                  clipBehavior: Clip.none,
+                              ),
+                            );
+                          }
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildContactAvatar(preview: preview, theme: theme),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    _buildContactAvatar(
-                                      preview: preview,
-                                      theme: theme,
+                                    Text(
+                                      title,
+                                      style: theme.textTheme.titleSmall?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                      ),
                                     ),
-                                    Positioned(
-                                      right: -2,
-                                      bottom: -2,
-                                      child: Container(
-                                        width: 22,
-                                        height: 22,
-                                        decoration: BoxDecoration(
-                                          color: item.accentColor(colorScheme),
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: Colors.white,
-                                            width: 2,
-                                          ),
-                                        ),
-                                        alignment: Alignment.center,
-                                        child: Icon(
-                                          item.icon,
-                                          size: 12,
-                                          color: Colors.white,
-                                        ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      subtitle,
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: colorScheme.onSurfaceVariant,
                                       ),
                                     ),
                                   ],
                                 ),
-                                const SizedBox(width: 14),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                    CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        item.title,
-                                        style: theme.textTheme.titleSmall
-                                            ?.copyWith(
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        item.subtitle,
-                                        style: theme.textTheme.bodyMedium
-                                            ?.copyWith(
-                                          color: colorScheme.onSurfaceVariant,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Icon(
-                                  Icons.arrow_forward_rounded,
-                                  color: colorScheme.primary,
-                                ),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(width: 10),
+                              Icon(
+                                Icons.arrow_forward_rounded,
+                                color: colorScheme.primary,
+                              ),
+                            ],
                           ),
                         ),
-                      );
-
-                      // Nur persistierte Activity-Einträge können per Swipe
-                      // dauerhaft ausgeblendet werden. Abgeleitete Teilnahme-
-                      // Einträge haben keine eigene activity-Doc-ID und
-                      // werden deshalb ohne Dismissible gerendert.
-                      if (!item.isDismissible) {
-                        return Padding(
-                          key: ValueKey(item.feedKey),
-                          padding: EdgeInsets.zero,
-                          child: dismissibleChild,
-                        );
-                      }
-
-                      return Dismissible(
-                        key: ValueKey('activity_${item.activityId}'),
-                        direction: DismissDirection.endToStart,
-                        background: Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          decoration: BoxDecoration(
-                            color: colorScheme.error.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Icon(
-                            Icons.delete_outline,
-                            color: colorScheme.error,
-                          ),
-                        ),
-                        onDismissed: (_) => _dismissActivityForCurrentUser(
-                          currentUserId,
-                          item.activityId!,
-                        ),
-                        child: dismissibleChild,
-                      );
-                    }),
-                  ],
-                );
-              },
+                      ),
+                    ),
+                  );
+                }),
+              ],
             );
           },
         );
       },
     );
-  }
-
-  /// Baut die kombinierte Feed-Liste aus `activities`-Dokumenten (erstellte
-  /// Events, Profiländerungen) und abgeleiteten Teilnahme-Aktivitäten aus der
-  /// `events`-Collection. Teilnahmen werden direkt aus `acceptedUserIds` /
-  /// `participantIds` abgeleitet, damit kein zusätzlicher Schreibpfad nötig
-  /// ist und bestehende Teilnahmen rückwirkend auftauchen.
-  List<_FollowingFeedItem> _buildFollowingFeedItems({
-    required String currentUserId,
-    required List<String> followingIds,
-    required Set<String> dismissedActivityIds,
-    required List<QueryDocumentSnapshot<Map<String, dynamic>>> activityDocs,
-    required List<QueryDocumentSnapshot<Map<String, dynamic>>> eventDocs,
-  }) {
-    final followingSet = followingIds.toSet();
-    final items = <_FollowingFeedItem>[];
-    final seenKeys = <String>{};
-
-    // 1) Klassische Activity-Einträge (event_created, profile_updated ...).
-    for (final doc in activityDocs) {
-      final data = doc.data();
-      final actorUserId = (data['actorUserId'] ?? '').toString().trim();
-      if (actorUserId.isEmpty ||
-          actorUserId == currentUserId ||
-          !followingSet.contains(actorUserId) ||
-          dismissedActivityIds.contains(doc.id)) {
-        continue;
-      }
-
-      final type = (data['type'] ?? '').toString().trim();
-      final actorName =
-      (data['actorName'] ?? 'Jemand').toString().trim();
-      final actorImageUrl =
-      (data['actorImageUrl'] ?? '').toString().trim();
-      final eventTitle =
-      (data['eventTitle'] ?? 'Event').toString().trim();
-      final eventId = (data['eventId'] ?? '').toString().trim();
-      final createdAt = (data['createdAt'] as Timestamp?)?.toDate() ??
-          DateTime.now();
-
-      late final String title;
-      late final IconData icon;
-      Color Function(ColorScheme) accent =
-          (scheme) => scheme.primary;
-
-      switch (type) {
-        case 'profile_updated':
-          title = '$actorName hat sein Profil aktualisiert';
-          icon = Icons.person_outline;
-          accent = (scheme) => scheme.secondary;
-          break;
-        case 'event_joined':
-        case 'event_participated':
-          title = '$actorName nimmt an „$eventTitle“ teil';
-          icon = Icons.event_available_outlined;
-          accent = (scheme) => scheme.tertiary;
-          break;
-        case 'event_created':
-          title = '$actorName hat „$eventTitle“ erstellt';
-          icon = Icons.event_outlined;
-          break;
-        default:
-          title = '$actorName hat eine Aktivität geteilt';
-          icon = Icons.dynamic_feed_outlined;
-          break;
-      }
-
-      final key = 'activity:${doc.id}';
-      if (seenKeys.add(key)) {
-        items.add(
-          _FollowingFeedItem(
-            feedKey: key,
-            activityId: doc.id,
-            actorUserId: actorUserId,
-            actorName: actorName,
-            actorImageUrl: actorImageUrl,
-            eventId: eventId,
-            title: title,
-            subtitle: _relativeTime(createdAt),
-            sortTimestamp: createdAt,
-            icon: icon,
-            accentColor: accent,
-            isDismissible: true,
-          ),
-        );
-      }
-    }
-
-    // 2) Abgeleitete Teilnahme-Einträge: für jedes Event prüfen wir, ob
-    // einer unserer Followings dem Event beigetreten ist. Der Ersteller
-    // wird hier nicht als "Teilnehmer" gelistet — dafür gibt es den
-    // event_created-Eintrag aus activities.
-    for (final doc in eventDocs) {
-      final data = doc.data();
-      final eventStatus =
-      (data['status'] ?? '').toString().trim().toLowerCase();
-      if (eventStatus == 'cancelled' || eventStatus == 'canceled') {
-        continue;
-      }
-
-      final eventId = doc.id;
-      final eventTitle = (data['title'] ?? 'Event').toString().trim();
-      final createdBy = (data['createdBy'] ?? '').toString().trim();
-      final acceptedUserIds =
-      List<String>.from(data['acceptedUserIds'] ?? const <String>[])
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toSet();
-      final participantIds =
-      List<String>.from(data['participantIds'] ?? const <String>[])
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toSet();
-      final joinedIds = <String>{...acceptedUserIds, ...participantIds};
-
-      // Zeitpunkt der Teilnahme ist nicht pro User gespeichert – wir nehmen
-      // das letzte Update des Events als Annäherung.
-      final updatedAt = (data['updatedAt'] as Timestamp?)?.toDate() ??
-          (data['createdAt'] as Timestamp?)?.toDate() ??
-          DateTime.now();
-
-      for (final joinedUserId in joinedIds) {
-        if (joinedUserId == currentUserId) continue;
-        if (joinedUserId == createdBy) continue; // Ersteller wird separat getrackt
-        if (!followingSet.contains(joinedUserId)) continue;
-
-        final key = 'join:$eventId:$joinedUserId';
-        if (!seenKeys.add(key)) continue;
-
-        items.add(
-          _FollowingFeedItem(
-            feedKey: key,
-            activityId: null, // Nicht dismissbar – kein activities-Dokument
-            actorUserId: joinedUserId,
-            actorName: '',
-            actorImageUrl: '',
-            eventId: eventId,
-            title: 'Neue Teilnahme an „${eventTitle.isEmpty ? 'Event' : eventTitle}“',
-            subtitle: _relativeTime(updatedAt),
-            sortTimestamp: updatedAt,
-            icon: Icons.event_available_outlined,
-            accentColor: (scheme) => scheme.tertiary,
-            isDismissible: false,
-            needsActorLookup: true,
-          ),
-        );
-      }
-    }
-
-    // Sortieren (neueste zuerst) und auf 10 Einträge begrenzen.
-    items.sort((a, b) => b.sortTimestamp.compareTo(a.sortTimestamp));
-    final limited = items.take(10).toList();
-
-    // Für abgeleitete Teilnahme-Einträge müssen wir Name/Bild des Actors
-    // aus dem zuletzt bekannten Kontakt-Cache nachladen. Wenn er noch
-    // nicht im Cache liegt, stoßen wir das Laden an und zeigen vorerst
-    // einen neutralen Text. Beim nächsten Rebuild sind die Daten da.
-    for (var i = 0; i < limited.length; i++) {
-      final item = limited[i];
-      if (!item.needsActorLookup) continue;
-      final cached = _contactPreviewCache[item.actorUserId];
-      if (cached != null) {
-        limited[i] = item.copyWith(
-          actorName: cached.name,
-          actorImageUrl: cached.imageUrl,
-          title: item.title.replaceFirst(
-            'Neue Teilnahme',
-            '${cached.name.isEmpty ? 'Jemand' : cached.name} nimmt teil',
-          ),
-        );
-      } else {
-        // Lazy-Load anstoßen – Ergebnis landet via setState im nächsten Build.
-        unawaited(_ensureContactPreview(item.actorUserId));
-      }
-    }
-
-    return limited;
-  }
-
-  Future<void> _ensureContactPreview(String userId) async {
-    if (userId.trim().isEmpty) return;
-    if (_contactPreviewCache.containsKey(userId)) return;
-
-    try {
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .get();
-      if (!mounted) return;
-      final data = snap.data();
-      if (data == null) return;
-
-      final name = (data['displayName'] ??
-          data['name'] ??
-          data['fullName'] ??
-          '')
-          .toString()
-          .trim();
-      final phone =
-      (data['phoneNumber'] ?? data['phone'] ?? '').toString().trim();
-      final imageUrl = (data['photoURL'] ??
-          data['imageUrl'] ??
-          data['avatarUrl'] ??
-          '')
-          .toString()
-          .trim();
-
-      setState(() {
-        _contactPreviewCache[userId] = _ContactPreviewData(
-          name: name,
-          phone: phone,
-          imageUrl: imageUrl,
-        );
-      });
-    } catch (_) {
-      // Lookup-Fehler werden still ignoriert – der Eintrag bleibt dann mit
-      // dem neutralen Fallback-Text sichtbar.
-    }
   }
 
 
@@ -2403,6 +2167,12 @@ class _CheckMyTimeHomePageState extends State<CheckMyTimeHomePage>
         final docs =
         [...snapshot.data?.docs ?? []]
             .where((doc) => doc.data()['hiddenFor_$currentUserId'] != true)
+            .where((doc) {
+          final participants = List<String>.from(
+            doc.data()['participants'] ?? const [],
+          );
+          return _otherParticipantId(participants, currentUserId).isNotEmpty;
+        })
             .toList()
           ..sort((a, b) {
             final aData = a.data();
@@ -3313,58 +3083,4 @@ class _ContactPreviewData {
     required this.phone,
     required this.imageUrl,
   });
-}
-
-class _FollowingFeedItem {
-  final String feedKey;
-  final String? activityId;
-  final String actorUserId;
-  final String actorName;
-  final String actorImageUrl;
-  final String eventId;
-  final String title;
-  final String subtitle;
-  final DateTime sortTimestamp;
-  final IconData icon;
-  final Color Function(ColorScheme) accentColor;
-  final bool isDismissible;
-  final bool needsActorLookup;
-
-  const _FollowingFeedItem({
-    required this.feedKey,
-    required this.activityId,
-    required this.actorUserId,
-    required this.actorName,
-    required this.actorImageUrl,
-    required this.eventId,
-    required this.title,
-    required this.subtitle,
-    required this.sortTimestamp,
-    required this.icon,
-    required this.accentColor,
-    required this.isDismissible,
-    this.needsActorLookup = false,
-  });
-
-  _FollowingFeedItem copyWith({
-    String? actorName,
-    String? actorImageUrl,
-    String? title,
-  }) {
-    return _FollowingFeedItem(
-      feedKey: feedKey,
-      activityId: activityId,
-      actorUserId: actorUserId,
-      actorName: actorName ?? this.actorName,
-      actorImageUrl: actorImageUrl ?? this.actorImageUrl,
-      eventId: eventId,
-      title: title ?? this.title,
-      subtitle: subtitle,
-      sortTimestamp: sortTimestamp,
-      icon: icon,
-      accentColor: accentColor,
-      isDismissible: isDismissible,
-      needsActorLookup: needsActorLookup,
-    );
-  }
 }

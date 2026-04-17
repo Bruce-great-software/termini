@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:termini/checkmytime/pages/create_event_page.dart';
+import 'package:termini/checkmytime/pages/participate_page.dart';
+import 'package:termini/checkmytime/pages/user_page.dart';
 import 'package:termini/checkmytime/services/notification_dispatch_service.dart';
 
 /// Legt fest, aus welchem Tab die Detailseite geöffnet wurde.
@@ -46,6 +48,81 @@ class _EventDetailPageState extends State<EventDetailPage> {
       SnackBar(
         content: Text(text),
         behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Future<void> _pushFromBottom(Widget page) {
+    return Navigator.of(context).push(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => page,
+        transitionDuration: const Duration(milliseconds: 280),
+        reverseTransitionDuration: const Duration(milliseconds: 220),
+        transitionsBuilder: (
+            context,
+            animation,
+            secondaryAnimation,
+            child,
+            ) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 1),
+              end: Offset.zero,
+            ).animate(curved),
+            child: child,
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _openUserProfile({
+    required String userId,
+    required String initialName,
+    required String initialImageUrl,
+  }) async {
+    if (userId.trim().isEmpty) return;
+
+    await _pushFromBottom(
+      UserPage(
+        userId: userId,
+        initialName: initialName,
+        initialImageUrl: initialImageUrl,
+      ),
+    );
+  }
+
+  Future<void> _openParticipatePage({
+    required Map<String, dynamic> data,
+    required _ParticipantBuckets participantBuckets,
+    required String createdBy,
+    required String createdByName,
+    required String joinMode,
+    required Map<String, dynamic> inviteSeenAtMap,
+    required bool isOwner,
+  }) async {
+    await _pushFromBottom(
+      ParticipatePage(
+        eventId: widget.eventId,
+        eventTitle: (data['title'] ?? '').toString().trim(),
+        createdBy: createdBy,
+        createdByName: createdByName,
+        acceptedIds: participantBuckets.accepted,
+        maybeIds: participantBuckets.maybe,
+        invitedPendingIds: participantBuckets.invitedPending,
+        requestPendingIds: participantBuckets.requestPending,
+        declinedIds: participantBuckets.declined,
+        invitedUserIds: _invitedUserIds(data),
+        currentUserId: _currentUserId,
+        joinMode: joinMode,
+        inviteSeenAtMap: inviteSeenAtMap,
+        isOwner: isOwner,
       ),
     );
   }
@@ -1925,6 +2002,15 @@ class _EventDetailPageState extends State<EventDetailPage> {
                                   label: maxParticipants != null && maxParticipants > 0
                                       ? '$participantCount/$maxParticipants Teilnehmer'
                                       : '$participantCount Teilnehmer',
+                                  onTap: () => _openParticipatePage(
+                                    data: data,
+                                    participantBuckets: participantBuckets,
+                                    createdBy: createdBy,
+                                    createdByName: createdByName,
+                                    joinMode: joinMode,
+                                    inviteSeenAtMap: effectiveInviteSeenAtMap,
+                                    isOwner: isOwner,
+                                  ),
                                 ),
                                 _DetailChip(
                                   icon: Icons.person_outline,
@@ -2110,6 +2196,35 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   ),
                 ),
                 const SizedBox(height: 14),
+                _DetailSection(
+                  title: 'Teilnehmer ansehen',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Öffne die vollständige Teilnehmerliste, um alle Antworten zu sehen und direkt auf Profile zu wechseln.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      OutlinedButton.icon(
+                        onPressed: () => _openParticipatePage(
+                          data: data,
+                          participantBuckets: participantBuckets,
+                          createdBy: createdBy,
+                          createdByName: createdByName,
+                          joinMode: joinMode,
+                          inviteSeenAtMap: effectiveInviteSeenAtMap,
+                          isOwner: isOwner,
+                        ),
+                        icon: const Icon(Icons.group_outlined),
+                        label: const Text('Teilnehmerliste öffnen'),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
                 _ParticipantGroupsSection(
                   createdBy: createdBy,
                   createdByName: createdByName,
@@ -2127,6 +2242,11 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   ownerActionUserId: _ownerActionUserId,
                   eventCancelled: isCancelled,
                   eventClosed: isClosed,
+                  onUserTap: (person) => _openUserProfile(
+                    userId: person.userId,
+                    initialName: person.name,
+                    initialImageUrl: person.imageUrl,
+                  ),
                   onOwnerDecision: ({required userId, required accepted}) =>
                       _handleOwnerRequestDecision(
                         requestUserId: userId,
@@ -2677,6 +2797,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
   final String? ownerActionUserId;
   final bool eventCancelled;
   final bool eventClosed;
+  final ValueChanged<_ParticipantItemData>? onUserTap;
   final Future<void> Function({required String userId, required bool accepted})? onOwnerDecision;
   final Future<void> Function({
   required String userId,
@@ -2700,6 +2821,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
     required this.ownerActionUserId,
     required this.eventCancelled,
     required this.eventClosed,
+    this.onUserTap,
     this.onOwnerDecision,
     this.onRemoveParticipant,
   });
@@ -2769,6 +2891,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                 title: 'Erstellt von',
                 emptyLabel: 'Kein Ersteller hinterlegt.',
                 joinMode: joinMode,
+                onUserTap: onUserTap,
                 people: [
                   _ParticipantItemData(
                     userId: createdBy,
@@ -2787,6 +2910,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                     ? 'Noch keine angenommenen Einladungen.'
                     : 'Noch keine Bestätigungen.',
                 joinMode: joinMode,
+                onUserTap: onUserTap,
                 actionBuilder: !eventCancelled &&
                     isOwner &&
                     onRemoveParticipant != null
@@ -2835,6 +2959,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                 title: 'Vielleicht',
                 emptyLabel: 'Noch keine Vielleicht-Antworten.',
                 joinMode: joinMode,
+                onUserTap: onUserTap,
                 people: maybeIds
                     .map(
                       (id) => _ParticipantItemData(
@@ -2854,6 +2979,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                   title: 'Eingeladen',
                   emptyLabel: 'Keine offenen Einladungen.',
                   joinMode: joinMode,
+                  onUserTap: onUserTap,
                   actionBuilder: !eventCancelled && isOwner && onRemoveParticipant != null
                       ? (person) {
                     if (person.isCurrentUser) return null;
@@ -2906,6 +3032,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                   title: 'Ausstehend',
                   emptyLabel: 'Keine offenen Antworten.',
                   joinMode: joinMode,
+                  onUserTap: onUserTap,
                   actionBuilder: !eventCancelled && isOwner && joinMode == 'request' && onOwnerDecision != null
                       ? (person) {
                     if (person.isCurrentUser) return null;
@@ -2974,6 +3101,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                 title: 'Abgelehnt',
                 emptyLabel: 'Bisher keine Ablehnungen.',
                 joinMode: joinMode,
+                onUserTap: onUserTap,
                 people: declinedIds
                     .map(
                       (id) => _ParticipantItemData(
@@ -3028,6 +3156,7 @@ class _ParticipantGroup extends StatelessWidget {
   final String emptyLabel;
   final String joinMode;
   final List<_ParticipantItemData> people;
+  final ValueChanged<_ParticipantItemData>? onUserTap;
   final Widget? Function(_ParticipantItemData person)? actionBuilder;
 
   const _ParticipantGroup({
@@ -3035,6 +3164,7 @@ class _ParticipantGroup extends StatelessWidget {
     required this.emptyLabel,
     required this.joinMode,
     required this.people,
+    this.onUserTap,
     this.actionBuilder,
   });
 
@@ -3091,81 +3221,98 @@ class _ParticipantGroup extends StatelessWidget {
               final extraAction = actionBuilder?.call(person);
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 0.04),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: onUserTap == null ? null : () => onUserTap!(person),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: colorScheme.outlineVariant),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withValues(alpha: 0.04),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: colorScheme.outlineVariant),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          CircleAvatar(
-                            radius: 18,
-                            backgroundColor:
-                            colorScheme.primary.withValues(alpha: 0.10),
-                            backgroundImage: person.imageUrl.isNotEmpty
-                                ? NetworkImage(person.imageUrl)
-                                : null,
-                            child: person.imageUrl.isNotEmpty
-                                ? null
-                                : Text(
-                              person.name.isNotEmpty
-                                  ? person.name.characters.first.toUpperCase()
-                                  : '?',
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                color: colorScheme.primary,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              person.isCurrentUser
-                                  ? '${person.name} (Du)'
-                                  : person.name,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          if (person.status == 'Gesehen')
-                            const _HomeStyleBadge(label: 'Gesehen')
-                          else
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: _badgeColor(context, person.status)
-                                    .withValues(alpha: 0.10),
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Text(
-                                person.status,
-                                style: theme.textTheme.labelMedium?.copyWith(
-                                  color: _badgeColor(context, person.status),
-                                  fontWeight: FontWeight.w700,
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 18,
+                                backgroundColor:
+                                colorScheme.primary.withValues(alpha: 0.10),
+                                backgroundImage: person.imageUrl.isNotEmpty
+                                    ? NetworkImage(person.imageUrl)
+                                    : null,
+                                child: person.imageUrl.isNotEmpty
+                                    ? null
+                                    : Text(
+                                  person.name.isNotEmpty
+                                      ? person.name.characters.first
+                                      .toUpperCase()
+                                      : '?',
+                                  style: theme.textTheme.titleSmall
+                                      ?.copyWith(
+                                    color: colorScheme.primary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
-                            ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  person.isCurrentUser
+                                      ? '${person.name} (Du)'
+                                      : person.name,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              if (person.status == 'Gesehen')
+                                const _HomeStyleBadge(label: 'Gesehen')
+                              else
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _badgeColor(context, person.status)
+                                        .withValues(alpha: 0.10),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    person.status,
+                                    style: theme.textTheme.labelMedium
+                                        ?.copyWith(
+                                      color: _badgeColor(context, person.status),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              if (onUserTap != null) ...[
+                                const SizedBox(width: 6),
+                                Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ],
+                            ],
+                          ),
+                          if (_showInviteTimeline(person)) ...[
+                            const SizedBox(height: 12),
+                            _InviteProgressTimeline(stage: person.inviteStage),
+                          ],
+                          if (extraAction != null) extraAction,
                         ],
                       ),
-                      if (_showInviteTimeline(person)) ...[
-                        const SizedBox(height: 12),
-                        _InviteProgressTimeline(stage: person.inviteStage),
-                      ],
-                      if (extraAction != null) extraAction,
-                    ],
+                    ),
                   ),
                 ),
               );
