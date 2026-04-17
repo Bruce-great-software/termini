@@ -582,6 +582,56 @@ class _EventsPageState extends State<EventsPage>
     return '$acceptedCount Teilnehmer';
   }
 
+  Set<String> _eventViewerUserIds(Map<String, dynamic> data) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final viewerIds = <String>{
+      ...List<String>.from(data['eventViewerUserIds'] ?? const []),
+      ...Map<String, dynamic>.from(
+        data['eventViewAtMap'] ?? const <String, dynamic>{},
+      ).keys.map((id) => id.trim()),
+    }..removeWhere((id) => id.trim().isEmpty || id == createdBy);
+
+    return viewerIds;
+  }
+
+  String _viewCountText(Map<String, dynamic> data) {
+    final count = _eventViewerUserIds(data).length;
+    if (count == 1) return '1 Besucher';
+    return '$count Besucher';
+  }
+
+  Set<String> _interestedUserIds(Map<String, dynamic> data) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final eventRelatedIds = <String>{
+      ...List<String>.from(data['memberIds'] ?? const []),
+      ...List<String>.from(data['invitedUserIds'] ?? const []),
+      ...List<String>.from(data['participantIds'] ?? const []),
+      ...List<String>.from(data['acceptedUserIds'] ?? const []),
+      ...List<String>.from(data['maybeUserIds'] ?? const []),
+      ...List<String>.from(data['declinedUserIds'] ?? const []),
+      ...Map<String, dynamic>.from(
+        data['responseMap'] ?? const <String, dynamic>{},
+      ).keys.map((id) => id.trim()),
+    };
+
+    final interestedIds = <String>{
+      ...List<String>.from(data['interestedUserIds'] ?? const []),
+      ...Map<String, dynamic>.from(
+        data['interestedAtMap'] ?? const <String, dynamic>{},
+      ).keys.map((id) => id.trim()),
+    }..removeWhere(
+          (id) => id.trim().isEmpty || id == createdBy || eventRelatedIds.contains(id),
+    );
+
+    return interestedIds;
+  }
+
+  String _interestCountText(Map<String, dynamic> data) {
+    final count = _interestedUserIds(data).length;
+    if (count == 1) return '1 interessiert';
+    return '$count interessiert';
+  }
+
   String? _distanceText(Map<String, dynamic> data) {
     final distanceInMeters = _distanceInMeters(data);
     if (distanceInMeters == null) return null;
@@ -1139,6 +1189,12 @@ class _EventsPageState extends State<EventsPage>
         showActionRequiredDot: hasOpenInviteAction,
         metaText: _metaText(data, currentUserId),
         participantsText: _participantsText(data),
+        visitorsText: view == EventDetailView.myEvent
+            ? _viewCountText(data)
+            : null,
+        interestedText: view == EventDetailView.myEvent
+            ? _interestCountText(data)
+            : null,
         locationInfo: _locationInfo(data),
         distanceText: _distanceText(data),
         scheduledAt: _scheduledTimestamp(data),
@@ -2047,6 +2103,8 @@ class _EventCard extends StatelessWidget {
   final String? interactionBadgeLabel;
   final String metaText;
   final String participantsText;
+  final String? visitorsText;
+  final String? interestedText;
   final _LocationInfo locationInfo;
   final String? distanceText;
   final Timestamp? scheduledAt;
@@ -2072,6 +2130,8 @@ class _EventCard extends StatelessWidget {
     this.showActionRequiredDot = false,
     required this.metaText,
     required this.participantsText,
+    required this.visitorsText,
+    required this.interestedText,
     required this.locationInfo,
     required this.distanceText,
     required this.scheduledAt,
@@ -2352,6 +2412,22 @@ class _EventCard extends StatelessWidget {
                             theme: theme,
                             colorScheme: colorScheme,
                           ),
+                          if (visitorsText != null &&
+                              visitorsText!.trim().isNotEmpty)
+                            _EventInfoChip(
+                              icon: Icons.visibility_outlined,
+                              label: visitorsText!,
+                              theme: theme,
+                              colorScheme: colorScheme,
+                            ),
+                          if (interestedText != null &&
+                              interestedText!.trim().isNotEmpty)
+                            _EventInfoChip(
+                              icon: Icons.favorite_border_rounded,
+                              label: interestedText!,
+                              theme: theme,
+                              colorScheme: colorScheme,
+                            ),
                           if (!locationInfo.isEmpty)
                             _EventInfoChip(
                               icon: locationInfo.icon,

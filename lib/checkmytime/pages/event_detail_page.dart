@@ -34,6 +34,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
   bool _isTogglingClosed = false;
   bool _hasMarkedInviteSeen = false;
   bool _hasLocallyMarkedInviteSeen = false;
+  bool _hasMarkedEventViewed = false;
+  bool _isTogglingInterest = false;
   String? _ownerActionUserId;
 
   String get _currentUserId => FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -181,6 +183,172 @@ class _EventDetailPageState extends State<EventDetailPage> {
     );
   }
 
+  Map<String, dynamic> _eventViewAtMap(Map<String, dynamic> data) {
+    return Map<String, dynamic>.from(
+      data['eventViewAtMap'] ?? const <String, dynamic>{},
+    );
+  }
+
+  Set<String> _eventViewerUserIds(Map<String, dynamic> data) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final viewerIds = <String>{
+      ...List<String>.from(data['eventViewerUserIds'] ?? const []),
+      ..._eventViewAtMap(data).keys.map((id) => id.trim()),
+    }..removeWhere((id) => id.trim().isEmpty || id == createdBy);
+
+    return viewerIds;
+  }
+
+  bool _hasViewedEvent(Map<String, dynamic> data, String userId) {
+    if (userId.trim().isEmpty) return false;
+    return _eventViewerUserIds(data).contains(userId);
+  }
+
+  Set<String> _interestedUserIds(Map<String, dynamic> data) {
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final eventRelatedIds = <String>{
+      ...List<String>.from(data['memberIds'] ?? const []),
+      ...List<String>.from(data['invitedUserIds'] ?? const []),
+      ...List<String>.from(data['participantIds'] ?? const []),
+      ...List<String>.from(data['acceptedUserIds'] ?? const []),
+      ...List<String>.from(data['maybeUserIds'] ?? const []),
+      ...List<String>.from(data['declinedUserIds'] ?? const []),
+      ...Map<String, dynamic>.from(
+        data['responseMap'] ?? const <String, dynamic>{},
+      ).keys.map((id) => id.trim()),
+    };
+
+    final interestedIds = <String>{
+      ...List<String>.from(data['interestedUserIds'] ?? const []),
+      ...Map<String, dynamic>.from(
+        data['interestedAtMap'] ?? const <String, dynamic>{},
+      ).keys.map((id) => id.trim()),
+    }..removeWhere(
+          (id) => id.trim().isEmpty || id == createdBy || eventRelatedIds.contains(id),
+    );
+
+    return interestedIds;
+  }
+
+  bool _isInterestedInEvent(Map<String, dynamic> data, String userId) {
+    if (userId.trim().isEmpty) return false;
+    return _interestedUserIds(data).contains(userId);
+  }
+
+  String _interestCountText(Map<String, dynamic> data) {
+    final count = _interestedUserIds(data).length;
+    if (count == 1) return '1 interessiert';
+    return '$count interessiert';
+  }
+
+  Future<void> _toggleInterest(Map<String, dynamic> data) async {
+    if (_currentUserId.isEmpty || _isTogglingInterest) return;
+
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    if (createdBy == _currentUserId) return;
+
+    setState(() {
+      _isTogglingInterest = true;
+    });
+
+    final isInterested = _isInterestedInEvent(data, _currentUserId);
+
+    try {
+      final docRef = FirebaseFirestore.instance
+          .collection('events')
+          .doc(widget.eventId);
+
+      final updates = <String, dynamic>{
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (isInterested) {
+        updates['interestedUserIds'] = FieldValue.arrayRemove([_currentUserId]);
+        updates['interestedAtMap.$_currentUserId'] = FieldValue.delete();
+      } else {
+        updates['interestedUserIds'] = FieldValue.arrayUnion([_currentUserId]);
+        updates['interestedAtMap.$_currentUserId'] = FieldValue.serverTimestamp();
+      }
+
+      await docRef.update(updates);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isInterested
+                ? 'Das Event wurde aus „Interessiert“ entfernt.'
+                : 'Das Event wurde zu „Interessiert“ hinzugefügt.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Der Interessiert-Status konnte nicht aktualisiert werden.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isTogglingInterest = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _markEventViewedIfNeeded(Map<String, dynamic> data) async {
+    if (_hasMarkedEventViewed || _currentUserId.isEmpty) return;
+
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    if (createdBy == _currentUserId) {
+      _hasMarkedEventViewed = true;
+      return;
+    }
+
+    if (_hasViewedEvent(data, _currentUserId)) {
+      _hasMarkedEventViewed = true;
+      return;
+    }
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('events')
+          .doc(widget.eventId)
+          .update({
+        'eventViewerUserIds': FieldValue.arrayUnion([_currentUserId]),
+        'eventViewAtMap.$_currentUserId': FieldValue.serverTimestamp(),
+      });
+      _hasMarkedEventViewed = true;
+    } catch (_) {}
+  }
+
+  Set<String> _invitedUserIds(Map<String, dynamic> data) {
+    return <String>{
+      ...List<String>.from(data['invitedUserIds'] ?? const []),
+    }..removeWhere((id) => id.trim().isEmpty);
+  }
+
+  bool _isInvitedUser(Map<String, dynamic> data, String userId) {
+    if (userId.trim().isEmpty) return false;
+    return _invitedUserIds(data).contains(userId);
+  }
+
+  bool _isPendingInviteForUser(Map<String, dynamic> data, String userId) {
+    if (!_isInvitedUser(data, userId)) return false;
+    final response = _responseForUser(data, userId);
+    return response != 'accepted' && response != 'maybe' && response != 'declined';
+  }
+
+  bool _isPendingJoinRequestForUser(Map<String, dynamic> data, String userId) {
+    if (userId.trim().isEmpty) return false;
+    if (_isPendingInviteForUser(data, userId)) return false;
+    return _responseForUser(data, userId) == 'pending';
+  }
+
   bool _hasSeenInvite(Map<String, dynamic> data, String userId) {
     if (userId.trim().isEmpty) return false;
     if (userId == _currentUserId && _hasLocallyMarkedInviteSeen) return true;
@@ -194,14 +362,11 @@ class _EventDetailPageState extends State<EventDetailPage> {
 
   Future<void> _markInviteAsSeenIfNeeded(Map<String, dynamic> data) async {
     if (_hasMarkedInviteSeen || _currentUserId.isEmpty) return;
-    if (_normalizeJoinMode(data) != 'invite_only') return;
 
     final createdBy = (data['createdBy'] ?? '').toString().trim();
     if (createdBy == _currentUserId) return;
 
-    final invitedUserIds = List<String>.from(
-      data['invitedUserIds'] ?? const [],
-    );
+    final invitedUserIds = _invitedUserIds(data);
     if (!invitedUserIds.contains(_currentUserId)) return;
 
     if (_hasSeenInvite(data, _currentUserId)) {
@@ -327,6 +492,12 @@ class _EventDetailPageState extends State<EventDetailPage> {
     return 'Aktion derzeit nicht möglich.';
   }
 
+  void _removeInterestFromUpdates(Map<String, dynamic> updates, String userId) {
+    if (userId.trim().isEmpty) return;
+    updates['interestedUserIds'] = FieldValue.arrayRemove([userId]);
+    updates['interestedAtMap.$userId'] = FieldValue.delete();
+  }
+
   Set<String> _eventRecipientUserIds(Map<String, dynamic> data) {
     final createdBy = (data['createdBy'] ?? '').toString().trim();
     final recipientIds = <String>{
@@ -387,7 +558,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
         ...List<String>.from(data['participantIds'] ?? const []),
       }..remove(_currentUserId);
 
-      await docRef.update({
+      final updates = <String, dynamic>{
         'memberIds': memberIds.toList(),
         'responseMap': responseMap,
         'acceptedUserIds': accepted.toList(),
@@ -395,7 +566,10 @@ class _EventDetailPageState extends State<EventDetailPage> {
         'declinedUserIds': declined.toList(),
         'participantIds': participantIds.toList(),
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      };
+      _removeInterestFromUpdates(updates, _currentUserId);
+
+      await docRef.update(updates);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -481,7 +655,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
         _currentUserId,
       }..removeWhere((id) => id.trim().isEmpty);
 
-      await docRef.update({
+      final updates = <String, dynamic>{
         'memberIds': memberIds.toList(),
         'acceptedUserIds': accepted.toList(),
         'maybeUserIds': maybe.toList(),
@@ -489,7 +663,10 @@ class _EventDetailPageState extends State<EventDetailPage> {
         'participantIds': participantIds.toList(),
         'responseMap': responseMap,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      };
+      _removeInterestFromUpdates(updates, _currentUserId);
+
+      await docRef.update(updates);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -653,6 +830,10 @@ class _EventDetailPageState extends State<EventDetailPage> {
         return 'Vielleicht';
       case 'declined':
         return 'Abgelehnt';
+      case 'invited':
+        return 'Eingeladen';
+      case 'seen':
+        return 'Gesehen';
       case 'cancelled':
         return 'Abgesagt';
       case 'closed':
@@ -683,6 +864,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
         return colorScheme.primary;
       case 'done':
         return Colors.teal;
+      case 'invited':
+      case 'seen':
       case 'pending':
       default:
         return colorScheme.primary;
@@ -691,9 +874,10 @@ class _EventDetailPageState extends State<EventDetailPage> {
 
   _ParticipantBuckets _participantBuckets(Map<String, dynamic> data) {
     final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final invitedUserIds = _invitedUserIds(data);
     final memberIds = <String>{
       ...List<String>.from(data['memberIds'] ?? const []),
-      ...List<String>.from(data['invitedUserIds'] ?? const []),
+      ...invitedUserIds,
       ...List<String>.from(data['participantIds'] ?? const []),
       ...List<String>.from(data['acceptedUserIds'] ?? const []),
       ...List<String>.from(data['maybeUserIds'] ?? const []),
@@ -711,7 +895,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
     final accepted = <String>{};
     final maybe = <String>{};
     final declined = <String>{};
-    final pending = <String>{};
+    final invitedPending = <String>{};
+    final requestPending = <String>{};
 
     for (final userId in memberIds) {
       if (userId == createdBy) continue;
@@ -728,19 +913,27 @@ class _EventDetailPageState extends State<EventDetailPage> {
           break;
         case 'pending':
         default:
-          pending.add(userId);
+          if (invitedUserIds.contains(userId)) {
+            invitedPending.add(userId);
+          } else {
+            requestPending.add(userId);
+          }
           break;
       }
     }
 
-    pending.removeAll(accepted);
-    pending.removeAll(maybe);
-    pending.removeAll(declined);
+    invitedPending.removeAll(accepted);
+    invitedPending.removeAll(maybe);
+    invitedPending.removeAll(declined);
+    requestPending.removeAll(accepted);
+    requestPending.removeAll(maybe);
+    requestPending.removeAll(declined);
 
     return _ParticipantBuckets(
       accepted: accepted.toList()..sort(),
       maybe: maybe.toList()..sort(),
-      pending: pending.toList()..sort(),
+      invitedPending: invitedPending.toList()..sort(),
+      requestPending: requestPending.toList()..sort(),
       declined: declined.toList()..sort(),
     );
   }
@@ -754,6 +947,11 @@ class _EventDetailPageState extends State<EventDetailPage> {
     if (createdBy == _currentUserId) {
       return overallStatus;
     }
+
+    if (_isPendingInviteForUser(data, _currentUserId)) {
+      return _hasSeenInvite(data, _currentUserId) ? 'seen' : 'invited';
+    }
+
     return _responseForUser(data, _currentUserId);
   }
 
@@ -816,14 +1014,19 @@ class _EventDetailPageState extends State<EventDetailPage> {
       final participantIds = <String>{createdBy, ...accepted}
         ..removeWhere((id) => id.trim().isEmpty);
 
-      await docRef.update({
+      final updates = <String, dynamic>{
         'acceptedUserIds': accepted.toList(),
         'maybeUserIds': maybe.toList(),
         'declinedUserIds': declined.toList(),
         'participantIds': participantIds.toList(),
         'responseMap': responseMap,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      };
+      if (statusKey != 'clear') {
+        _removeInterestFromUpdates(updates, _currentUserId);
+      }
+
+      await docRef.update(updates);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -917,7 +1120,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
         responseMap[requestUserId] = 'declined';
       }
 
-      await docRef.update({
+      final updates = <String, dynamic>{
         'memberIds': memberIds.toList(),
         'acceptedUserIds': acceptedIds.toList(),
         'maybeUserIds': maybeIds.toList(),
@@ -925,7 +1128,10 @@ class _EventDetailPageState extends State<EventDetailPage> {
         'participantIds': participantIds.toList(),
         'responseMap': responseMap,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      };
+      _removeInterestFromUpdates(updates, requestUserId);
+
+      await docRef.update(updates);
 
       await NotificationDispatchService.instance.queueEventJoinDecisionNotification(
         recipientUserId: requestUserId,
@@ -1504,6 +1710,11 @@ class _EventDetailPageState extends State<EventDetailPage> {
             final participantCount = _acceptedCount(data);
             final maxParticipants = _maxParticipants(data);
             final isOwner = createdBy == _currentUserId;
+            final isInterested = _isInterestedInEvent(data, _currentUserId);
+            final canToggleInterest = !isOwner &&
+                !hasExistingResponse &&
+                !_isPendingInviteForUser(data, _currentUserId) &&
+                !_isCancelledEvent(data);
             final isCancelled = _isCancelledEvent(data);
             final isClosed = _isClosedEvent(data);
             final inviteProgressCounts = _inviteProgressCounts(data);
@@ -1514,6 +1725,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
 
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
+              _markEventViewedIfNeeded(data);
               _markInviteAsSeenIfNeeded(data);
             });
 
@@ -1702,6 +1914,10 @@ class _EventDetailPageState extends State<EventDetailPage> {
                                       : '$participantCount Teilnehmer',
                                 ),
                                 _DetailChip(
+                                  icon: Icons.favorite_border_rounded,
+                                  label: _interestCountText(data),
+                                ),
+                                _DetailChip(
                                   icon: Icons.person_outline,
                                   label: createdByName.isEmpty
                                       ? 'Unbekannt'
@@ -1864,10 +2080,16 @@ class _EventDetailPageState extends State<EventDetailPage> {
                         count: participantBuckets.maybe.length,
                         color: Colors.orange,
                       ),
+                      if (participantBuckets.invitedPending.isNotEmpty)
+                        _StatusCounterChip(
+                          icon: Icons.mark_email_unread_outlined,
+                          label: 'Eingeladen',
+                          count: participantBuckets.invitedPending.length,
+                        ),
                       _StatusCounterChip(
                         icon: Icons.mail_outline,
                         label: 'Ausstehend',
-                        count: participantBuckets.pending.length,
+                        count: participantBuckets.requestPending.length,
                       ),
                       _StatusCounterChip(
                         icon: Icons.cancel_outlined,
@@ -1884,8 +2106,10 @@ class _EventDetailPageState extends State<EventDetailPage> {
                   createdByName: createdByName,
                   acceptedIds: participantBuckets.accepted,
                   maybeIds: participantBuckets.maybe,
-                  pendingIds: participantBuckets.pending,
+                  invitedPendingIds: participantBuckets.invitedPending,
+                  requestPendingIds: participantBuckets.requestPending,
                   declinedIds: participantBuckets.declined,
+                  invitedUserIds: _invitedUserIds(data),
                   currentUserId: _currentUserId,
                   isOwner: isOwner,
                   joinMode: joinMode,
@@ -1908,6 +2132,97 @@ class _EventDetailPageState extends State<EventDetailPage> {
                         participantName: userName,
                       ),
                 ),
+                if (canToggleInterest) ...[
+                  const SizedBox(height: 14),
+                  _DetailSection(
+                    title: 'Interessiert',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          isInterested
+                              ? 'Du hast dieses Event als interessant markiert. Du kannst den Status jederzeit wieder entfernen.'
+                              : 'Merke dir dieses Event, ohne direkt beizutreten oder eine Anfrage zu senden.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: isInterested
+                                ? colorScheme.primary.withValues(alpha: 0.10)
+                                : colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: isInterested
+                                  ? colorScheme.primary.withValues(alpha: 0.22)
+                                  : colorScheme.outlineVariant,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                isInterested
+                                    ? Icons.favorite_rounded
+                                    : Icons.favorite_border_rounded,
+                                color: isInterested
+                                    ? colorScheme.primary
+                                    : colorScheme.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  isInterested
+                                      ? 'Du bist interessiert'
+                                      : 'Noch nicht interessiert',
+                                  style: theme.textTheme.labelLarge?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: isInterested
+                                        ? colorScheme.primary
+                                        : colorScheme.onSurface,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                _interestCountText(data),
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        FilledButton.icon(
+                          onPressed: _isTogglingInterest ? null : () => _toggleInterest(data),
+                          icon: _isTogglingInterest
+                              ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                              : Icon(
+                            isInterested
+                                ? Icons.favorite_rounded
+                                : Icons.favorite_border_rounded,
+                          ),
+                          label: Text(
+                            isInterested
+                                ? 'Nicht mehr interessiert'
+                                : 'Als interessiert markieren',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 14),
                 _buildActionSection(
                   context: context,
@@ -2037,6 +2352,9 @@ class _EventDetailPageState extends State<EventDetailPage> {
       );
     }
 
+    final isInvitedCurrentUser = _isInvitedUser(data, _currentUserId);
+    final hasPendingInvite = _isPendingInviteForUser(data, _currentUserId);
+
     if (joinMode == 'invite_only' && !hasExistingResponse) {
       return _DetailSection(
         title: 'Teilnahme',
@@ -2045,6 +2363,87 @@ class _EventDetailPageState extends State<EventDetailPage> {
           style: theme.textTheme.bodyMedium?.copyWith(
             color: colorScheme.onSurfaceVariant,
           ),
+        ),
+      );
+    }
+
+    if (isInvitedCurrentUser) {
+      return _DetailSection(
+        title: 'Deine Einladung',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              hasPendingInvite
+                  ? 'Du wurdest vom Ersteller eingeladen. Antworte hier direkt auf die Einladung.'
+                  : 'Du wurdest vom Ersteller eingeladen. Deine Antwort wird sofort in den Übersichten aktualisiert.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 14),
+            if (hasPendingInvite) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.mail_outline, color: colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      _hasSeenInvite(data, _currentUserId) ? 'Einladung geöffnet' : 'Einladung erhalten',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: colorScheme.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _ResponseButton(
+                  label: 'Zusagen',
+                  icon: Icons.check_circle_outline,
+                  isSelected: currentUserResponse == 'accepted',
+                  color: Colors.green,
+                  isLoading: _isUpdatingStatus,
+                  onPressed: () => _setResponseStatus('accepted'),
+                ),
+                _ResponseButton(
+                  label: 'Vielleicht',
+                  icon: Icons.help_outline,
+                  isSelected: currentUserResponse == 'maybe',
+                  color: Colors.orange,
+                  isLoading: _isUpdatingStatus,
+                  onPressed: () => _setResponseStatus('maybe'),
+                ),
+                _ResponseButton(
+                  label: 'Absagen',
+                  icon: Icons.cancel_outlined,
+                  isSelected: currentUserResponse == 'declined',
+                  color: colorScheme.error,
+                  isLoading: _isUpdatingStatus,
+                  onPressed: () => _setResponseStatus('declined'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _isUpdatingStatus
+                      ? null
+                      : () => _setResponseStatus('clear'),
+                  icon: const Icon(Icons.refresh_outlined),
+                  label: const Text('Zurücksetzen'),
+                ),
+              ],
+            ),
+          ],
         ),
       );
     }
@@ -2330,13 +2729,15 @@ class _HomeStyleBadge extends StatelessWidget {
 class _ParticipantBuckets {
   final List<String> accepted;
   final List<String> maybe;
-  final List<String> pending;
+  final List<String> invitedPending;
+  final List<String> requestPending;
   final List<String> declined;
 
   const _ParticipantBuckets({
     required this.accepted,
     required this.maybe,
-    required this.pending,
+    required this.invitedPending,
+    required this.requestPending,
     required this.declined,
   });
 }
@@ -2346,8 +2747,10 @@ class _ParticipantGroupsSection extends StatelessWidget {
   final String createdByName;
   final List<String> acceptedIds;
   final List<String> maybeIds;
-  final List<String> pendingIds;
+  final List<String> invitedPendingIds;
+  final List<String> requestPendingIds;
   final List<String> declinedIds;
+  final Set<String> invitedUserIds;
   final String currentUserId;
   final bool isOwner;
   final String joinMode;
@@ -2367,8 +2770,10 @@ class _ParticipantGroupsSection extends StatelessWidget {
     required this.createdByName,
     required this.acceptedIds,
     required this.maybeIds,
-    required this.pendingIds,
+    required this.invitedPendingIds,
+    required this.requestPendingIds,
     required this.declinedIds,
+    required this.invitedUserIds,
     required this.currentUserId,
     required this.isOwner,
     required this.joinMode,
@@ -2420,11 +2825,14 @@ class _ParticipantGroupsSection extends StatelessWidget {
       createdBy,
       ...acceptedIds,
       ...maybeIds,
-      ...pendingIds,
+      ...invitedPendingIds,
+      ...requestPendingIds,
       ...declinedIds,
     }..removeWhere((id) => id.trim().isEmpty);
 
     final isInviteOnlyOwnerView = isOwner && joinMode == 'invite_only';
+    final showInvitedGroup = invitedPendingIds.isNotEmpty || joinMode == 'invite_only';
+    final showRequestPendingGroup = requestPendingIds.isNotEmpty || joinMode == 'request';
 
     return FutureBuilder<Map<String, _ParticipantUserData>>(
       future: _loadUserData(idsToLoad),
@@ -2497,7 +2905,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                     userId: id,
                     name: loadedUsers[id]?.name ?? 'Unbekannt',
                     status: isInviteOnlyOwnerView ? 'Angenommen' : 'Bestätigt',
-                    inviteStage: 'accepted',
+                    inviteStage: invitedUserIds.contains(id) ? 'accepted' : 'pending',
                     imageUrl: loadedUsers[id]?.imageUrl ?? '',
                     isCurrentUser: id == currentUserId,
                   ),
@@ -2515,27 +2923,77 @@ class _ParticipantGroupsSection extends StatelessWidget {
                     userId: id,
                     name: loadedUsers[id]?.name ?? 'Unbekannt',
                     status: 'Vielleicht',
-                    inviteStage: 'maybe',
+                    inviteStage: invitedUserIds.contains(id) ? 'maybe' : 'pending',
                     imageUrl: loadedUsers[id]?.imageUrl ?? '',
                     isCurrentUser: id == currentUserId,
                   ),
                 )
                     .toList(),
               ),
-              const SizedBox(height: 12),
-              _ParticipantGroup(
-                title: isInviteOnlyOwnerView ? 'Eingeladen' : 'Ausstehend',
-                emptyLabel: isInviteOnlyOwnerView
-                    ? 'Keine offenen Einladungen.'
-                    : 'Keine offenen Antworten.',
-                joinMode: joinMode,
-                actionBuilder: !eventCancelled && isOwner
-                    ? (person) {
-                  if (person.isCurrentUser) return null;
-                  final isBusy = isUpdatingStatus &&
-                      ownerActionUserId == person.userId;
+              if (showInvitedGroup) ...[
+                const SizedBox(height: 12),
+                _ParticipantGroup(
+                  title: 'Eingeladen',
+                  emptyLabel: 'Keine offenen Einladungen.',
+                  joinMode: joinMode,
+                  actionBuilder: !eventCancelled && isOwner && onRemoveParticipant != null
+                      ? (person) {
+                    if (person.isCurrentUser) return null;
+                    final isBusy = isUpdatingStatus &&
+                        ownerActionUserId == person.userId;
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: OutlinedButton.icon(
+                        onPressed: isUpdatingStatus
+                            ? null
+                            : () => onRemoveParticipant!(
+                          userId: person.userId,
+                          userName: person.name,
+                        ),
+                        icon: isBusy
+                            ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                          ),
+                        )
+                            : const Icon(Icons.person_remove_outlined),
+                        label: const Text('Einladung zurückziehen'),
+                      ),
+                    );
+                  }
+                      : null,
+                  people: invitedPendingIds
+                      .map(
+                        (id) {
+                      final hasSeenInvite = inviteSeenAtMap[id] != null;
 
-                  if (joinMode == 'request' && onOwnerDecision != null) {
+                      return _ParticipantItemData(
+                        userId: id,
+                        name: loadedUsers[id]?.name ?? 'Unbekannt',
+                        status: hasSeenInvite ? 'Gesehen' : 'Eingeladen',
+                        inviteStage: _inviteStageForPendingUser(id),
+                        imageUrl: loadedUsers[id]?.imageUrl ?? '',
+                        isCurrentUser: id == currentUserId,
+                      );
+                    },
+                  )
+                      .toList(),
+                ),
+              ],
+              if (showRequestPendingGroup) ...[
+                const SizedBox(height: 12),
+                _ParticipantGroup(
+                  title: 'Ausstehend',
+                  emptyLabel: 'Keine offenen Antworten.',
+                  joinMode: joinMode,
+                  actionBuilder: !eventCancelled && isOwner && joinMode == 'request' && onOwnerDecision != null
+                      ? (person) {
+                    if (person.isCurrentUser) return null;
+                    final isBusy = isUpdatingStatus &&
+                        ownerActionUserId == person.userId;
+
                     return Padding(
                       padding: const EdgeInsets.only(top: 10),
                       child: Row(
@@ -2578,56 +3036,21 @@ class _ParticipantGroupsSection extends StatelessWidget {
                       ),
                     );
                   }
-
-                  if (isInviteOnlyOwnerView && onRemoveParticipant != null) {
-                    return Padding(
-                      padding: const EdgeInsets.only(top: 10),
-                      child: OutlinedButton.icon(
-                        onPressed: isUpdatingStatus
-                            ? null
-                            : () => onRemoveParticipant!(
-                          userId: person.userId,
-                          userName: person.name,
-                        ),
-                        icon: isBusy
-                            ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                          ),
-                        )
-                            : const Icon(Icons.person_remove_outlined),
-                        label: const Text('Einladung entfernen'),
-                      ),
-                    );
-                  }
-
-                  return null;
-                }
-                    : null,
-                people: pendingIds
-                    .map(
-                      (id) {
-                    final hasSeenInvite =
-                        joinMode == 'invite_only' && inviteSeenAtMap[id] != null;
-
-                    return _ParticipantItemData(
+                      : null,
+                  people: requestPendingIds
+                      .map(
+                        (id) => _ParticipantItemData(
                       userId: id,
                       name: loadedUsers[id]?.name ?? 'Unbekannt',
-                      status: hasSeenInvite
-                          ? 'Gesehen'
-                          : (isInviteOnlyOwnerView ? 'Eingeladen' : 'Ausstehend'),
-                      inviteStage: joinMode == 'invite_only'
-                          ? _inviteStageForPendingUser(id)
-                          : 'pending',
+                      status: 'Ausstehend',
+                      inviteStage: 'pending',
                       imageUrl: loadedUsers[id]?.imageUrl ?? '',
                       isCurrentUser: id == currentUserId,
-                    );
-                  },
-                )
-                    .toList(),
-              ),
+                    ),
+                  )
+                      .toList(),
+                ),
+              ],
               const SizedBox(height: 12),
               _ParticipantGroup(
                 title: 'Abgelehnt',
@@ -2639,7 +3062,7 @@ class _ParticipantGroupsSection extends StatelessWidget {
                     userId: id,
                     name: loadedUsers[id]?.name ?? 'Unbekannt',
                     status: 'Abgelehnt',
-                    inviteStage: 'declined',
+                    inviteStage: invitedUserIds.contains(id) ? 'declined' : 'pending',
                     imageUrl: loadedUsers[id]?.imageUrl ?? '',
                     isCurrentUser: id == currentUserId,
                   ),
@@ -2719,7 +3142,7 @@ class _ParticipantGroup extends StatelessWidget {
   }
 
   bool _showInviteTimeline(_ParticipantItemData person) {
-    return joinMode == 'invite_only' && person.inviteStage != 'creator';
+    return person.inviteStage != 'creator' && person.inviteStage != 'pending';
   }
 
   @override
