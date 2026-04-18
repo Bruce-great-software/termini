@@ -7,6 +7,41 @@ import 'package:termini/checkmytime/pages/event_detail_page.dart';
 import 'package:termini/checkmytime/pages/user_page.dart';
 import 'package:termini/checkmytime/services/notification_dispatch_service.dart';
 
+
+class _Neon {
+  static const bg = Color(0xFF0A0A0F);
+  static const bgElevated = Color(0xFF15151C);
+  static const surface = Color(0xFF1E1E28);
+  static const surfaceHigh = Color(0xFF262633);
+  static const stroke = Color(0xFF2E2E3D);
+  static const strokeStrong = Color(0xFF3A3A4D);
+
+  static const textPrimary = Color(0xFFF5F5FA);
+  static const textSecondary = Color(0xFFA0A0B8);
+  static const textMuted = Color(0xFF6B6B80);
+
+  static const cyan = Color(0xFF00E5FF);
+  static const pink = Color(0xFFFF2E93);
+  static const lime = Color(0xFFC6FF4A);
+  static const purple = Color(0xFF8B5CF6);
+
+  static const online = Color(0xFF00FFA3);
+  static const danger = Color(0xFFFF3B6B);
+
+  static List<BoxShadow> glow(
+      Color c, {
+        double blur = 18,
+        double alpha = 0.30,
+      }) => [
+    BoxShadow(
+      color: c.withValues(alpha: alpha),
+      blurRadius: blur,
+      spreadRadius: 0,
+    ),
+  ];
+}
+
+
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key});
 
@@ -290,147 +325,213 @@ class _NotificationsPageState extends State<NotificationsPage> {
   Widget build(BuildContext context) {
     final currentUserId = _currentUserId;
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
 
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 16,
-        title: Text(
-          'Mitteilungen',
-          style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w800,
+    return Container(
+      decoration: const BoxDecoration(color: _Neon.bg),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: _Neon.bg.withValues(alpha: 0.92),
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          centerTitle: false,
+          titleSpacing: 16,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+            color: _Neon.textPrimary,
+            onPressed: () => Navigator.of(context).maybePop(),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: currentUserId == null ? null : () => _markAllAsRead(),
-            child: Text(
-              'Alle gelesen',
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
-              ),
+          title: Text(
+            'Mitteilungen',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w900,
+              color: _Neon.textPrimary,
+              letterSpacing: -0.3,
             ),
           ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: SafeArea(
-        child: currentUserId == null
-            ? Center(
-          child: Text(
-            'Du bist aktuell nicht eingeloggt.',
-            style: theme.textTheme.bodyLarge,
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: TextButton(
+                onPressed: currentUserId == null ? null : () => _markAllAsRead(),
+                style: TextButton.styleFrom(
+                  foregroundColor: _Neon.textPrimary,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    side: const BorderSide(color: _Neon.strokeStrong),
+                  ),
+                  backgroundColor: _Neon.surface,
+                ),
+                child: Text(
+                  'Alle gelesen',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: _Neon.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        body: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                _Neon.bg,
+                _Neon.bgElevated,
+              ],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
           ),
-        )
-            : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('contact_threads')
-              .where('participantMap.$currentUserId', isEqualTo: true)
-              .snapshots(),
-          builder: (context, threadSnapshot) {
-            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('events')
-                  .orderBy('createdAt', descending: true)
-                  .snapshots(),
-              builder: (context, eventSnapshot) {
-                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          child: Stack(
+            children: [
+              Positioned(
+                top: -80,
+                right: -70,
+                child: IgnorePointer(
+                  child: Container(
+                    width: 220,
+                    height: 220,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      boxShadow: _Neon.glow(_Neon.cyan, blur: 140, alpha: 0.12),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: -90,
+                top: 160,
+                child: IgnorePointer(
+                  child: Container(
+                    width: 240,
+                    height: 240,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      boxShadow: _Neon.glow(_Neon.purple, blur: 150, alpha: 0.10),
+                    ),
+                  ),
+                ),
+              ),
+              SafeArea(
+                child: currentUserId == null
+                    ? Center(
+                  child: Text(
+                    'Du bist aktuell nicht eingeloggt.',
+                    style: theme.textTheme.bodyLarge?.copyWith(color: _Neon.textPrimary),
+                  ),
+                )
+                    : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: FirebaseFirestore.instance
-                      .collection('notifications')
-                      .where('toUserId', isEqualTo: currentUserId)
-                      .limit(100)
+                      .collection('contact_threads')
+                      .where('participantMap.$currentUserId', isEqualTo: true)
                       .snapshots(),
-                  builder: (context, notifSnapshot) {
-                    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  builder: (context, threadSnapshot) {
+                    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                       stream: FirebaseFirestore.instance
-                          .collection('users')
-                          .doc(currentUserId)
+                          .collection('events')
+                          .orderBy('createdAt', descending: true)
                           .snapshots(),
-                      builder: (context, userSnapshot) {
-                        final isInitialLoading =
-                            !threadSnapshot.hasData &&
-                                !eventSnapshot.hasData &&
-                                !notifSnapshot.hasData &&
-                                !userSnapshot.hasData;
+                      builder: (context, eventSnapshot) {
+                        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                          stream: FirebaseFirestore.instance
+                              .collection('notifications')
+                              .where('toUserId', isEqualTo: currentUserId)
+                              .limit(100)
+                              .snapshots(),
+                          builder: (context, notifSnapshot) {
+                            return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                              stream: FirebaseFirestore.instance
+                                  .collection('users')
+                                  .doc(currentUserId)
+                                  .snapshots(),
+                              builder: (context, userSnapshot) {
+                                final isInitialLoading =
+                                    !threadSnapshot.hasData &&
+                                        !eventSnapshot.hasData &&
+                                        !notifSnapshot.hasData &&
+                                        !userSnapshot.hasData;
 
-                        if (isInitialLoading &&
-                            (threadSnapshot.connectionState == ConnectionState.waiting ||
-                                eventSnapshot.connectionState == ConnectionState.waiting ||
-                                notifSnapshot.connectionState == ConnectionState.waiting ||
-                                userSnapshot.connectionState == ConnectionState.waiting)) {
-                          return const Center(
-                            child: CircularProgressIndicator(),
-                          );
-                        }
+                                if (isInitialLoading &&
+                                    (threadSnapshot.connectionState == ConnectionState.waiting ||
+                                        eventSnapshot.connectionState == ConnectionState.waiting ||
+                                        notifSnapshot.connectionState == ConnectionState.waiting ||
+                                        userSnapshot.connectionState == ConnectionState.waiting)) {
+                                  return const Center(
+                                    child: CircularProgressIndicator(color: _Neon.cyan),
+                                  );
+                                }
 
-                        if (userSnapshot.hasError && !userSnapshot.hasData) {
-                          return Center(
-                            child: Text(
-                              'Mitteilungen konnten nicht geladen werden.',
-                              style: theme.textTheme.bodyLarge,
-                            ),
-                          );
-                        }
+                                if (userSnapshot.hasError && !userSnapshot.hasData) {
+                                  return Center(
+                                    child: Text(
+                                      'Mitteilungen konnten nicht geladen werden.',
+                                      style: theme.textTheme.bodyLarge?.copyWith(color: _Neon.textPrimary),
+                                    ),
+                                  );
+                                }
 
-                        final currentUserData =
-                            userSnapshot.data?.data() ?? const <String, dynamic>{};
-                        final pendingFollowerIds = List<String>.from(
-                          currentUserData['pendingFollowerIds'] ?? const [],
-                        );
-
-                        return FutureBuilder<Map<String, String>>(
-                          future: _loadUserNamesByIds(pendingFollowerIds),
-                          builder: (context, pendingNamesSnapshot) {
-                            final notifications = _buildNotifications(
-                              context: context,
-                              currentUserId: currentUserId,
-                              threadDocs: _safeDocs(threadSnapshot),
-                              eventDocs: _safeDocs(eventSnapshot),
-                              notifDocs: _safeDocs(notifSnapshot),
-                              currentUserData: currentUserData,
-                              pendingFollowerNames: pendingNamesSnapshot.data ?? const <String, String>{},
-                            );
-
-                            if (notifications.isEmpty) {
-                              return _NotificationsEmptyState(
-                                theme: theme,
-                                colorScheme: colorScheme,
-                              );
-                            }
-
-                            final grouped = <String, List<_NotificationItem>>{};
-                            for (final item in notifications) {
-                              final key = _sectionLabel(item.timestamp);
-                              grouped.putIfAbsent(
-                                key,
-                                    () => <_NotificationItem>[],
-                              ).add(item);
-                            }
-
-                            return ListView(
-                              physics: const BouncingScrollPhysics(),
-                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                              children: grouped.entries.map((entry) {
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 22),
-                                  child: _NotificationSection(
-                                    title: entry.key,
-                                    items: entry.value,
-                                    onDismissed: (item) => _dismissNotification(item.persistKey),
-                                  ),
+                                final currentUserData =
+                                    userSnapshot.data?.data() ?? const <String, dynamic>{};
+                                final pendingFollowerIds = List<String>.from(
+                                  currentUserData['pendingFollowerIds'] ?? const [],
                                 );
-                              }).toList(),
+
+                                return FutureBuilder<Map<String, String>>(
+                                  future: _loadUserNamesByIds(pendingFollowerIds),
+                                  builder: (context, pendingNamesSnapshot) {
+                                    final notifications = _buildNotifications(
+                                      context: context,
+                                      currentUserId: currentUserId,
+                                      threadDocs: _safeDocs(threadSnapshot),
+                                      eventDocs: _safeDocs(eventSnapshot),
+                                      notifDocs: _safeDocs(notifSnapshot),
+                                      currentUserData: currentUserData,
+                                      pendingFollowerNames: pendingNamesSnapshot.data ?? const <String, String>{},
+                                    );
+
+                                    if (notifications.isEmpty) {
+                                      return const _NotificationsEmptyState();
+                                    }
+
+                                    final grouped = <String, List<_NotificationItem>>{};
+                                    for (final item in notifications) {
+                                      final key = _sectionLabel(item.timestamp);
+                                      grouped.putIfAbsent(
+                                        key,
+                                            () => <_NotificationItem>[],
+                                      ).add(item);
+                                    }
+
+                                    return ListView(
+                                      physics: const BouncingScrollPhysics(),
+                                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
+                                      children: grouped.entries.map((entry) {
+                                        return Padding(
+                                          padding: const EdgeInsets.only(bottom: 22),
+                                          child: _NotificationSection(
+                                            title: entry.key,
+                                            items: entry.value,
+                                            onDismissed: (item) => _dismissNotification(item.persistKey),
+                                          ),
+                                        );
+                                      }).toList(),
+                                    );
+                                  },
+                                );
+                              },
                             );
                           },
                         );
                       },
                     );
                   },
-                );
-              },
-            );
-          },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -446,7 +547,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     Map<String, String> pendingFollowerNames = const <String, String>{},
   }) {
     final notifications = <_NotificationItem>[];
-    final primary = Theme.of(context).colorScheme.primary;
+    const primary = _Neon.cyan;
 
     // Follow-Notifications aus der notifications-Collection
     for (final doc in notifDocs) {
@@ -470,7 +571,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             timestamp: timestamp?.toDate() ?? DateTime.now(),
             icon: Icons.person_add_outlined,
             accentColor: primary,
-            iconBackground: const Color(0xFFEDEBFF),
+            iconBackground: _Neon.cyan.withValues(alpha: 0.12),
             iconColor: primary,
             onTap: () {
               if (fromUserId.isEmpty) return;
@@ -515,9 +616,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
             subtitle: '$fromUserName hat deine Follow-Anfrage angenommen.',
             timestamp: timestamp?.toDate() ?? DateTime.now(),
             icon: Icons.favorite_outline_rounded,
-            accentColor: const Color(0xFF19B35E),
-            iconBackground: const Color(0xFFEAF8EF),
-            iconColor: const Color(0xFF19B35E),
+            accentColor: _Neon.online,
+            iconBackground: _Neon.online.withValues(alpha: 0.12),
+            iconColor: _Neon.online,
             onTap: () {
               if (fromUserId.isEmpty) return;
               Navigator.of(context).push(
@@ -556,7 +657,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
           timestamp: DateTime.now(),
           icon: Icons.person_add_outlined,
           accentColor: primary,
-          iconBackground: const Color(0xFFEDEBFF),
+          iconBackground: _Neon.cyan.withValues(alpha: 0.12),
           iconColor: primary,
           onTap: () {
             Navigator.of(context).push(
@@ -613,7 +714,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
           timestamp: timestamp?.toDate() ?? DateTime.now(),
           icon: Icons.chat_bubble_outline_rounded,
           accentColor: primary,
-          iconBackground: const Color(0xFFEDEBFF),
+          iconBackground: _Neon.cyan.withValues(alpha: 0.12),
           iconColor: primary,
           onTap: () {
             Navigator.of(context).push(
@@ -647,7 +748,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             timestamp: timestamp?.toDate() ?? DateTime.now(),
             icon: Icons.calendar_month_outlined,
             accentColor: primary,
-            iconBackground: const Color(0xFFEDEBFF),
+            iconBackground: _Neon.cyan.withValues(alpha: 0.12),
             iconColor: primary,
             onTap: () {
               Navigator.of(context).push(
@@ -677,11 +778,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 ? Icons.check_circle_outline_rounded
                 : Icons.cancel_outlined,
             accentColor:
-            isAccepted ? const Color(0xFF19B35E) : const Color(0xFFE46B46),
+            isAccepted ? _Neon.online : _Neon.danger,
             iconBackground:
-            isAccepted ? const Color(0xFFEAF8EF) : const Color(0xFFFFECE8),
+            isAccepted ? _Neon.online.withValues(alpha: 0.12) : _Neon.danger.withValues(alpha: 0.12),
             iconColor:
-            isAccepted ? const Color(0xFF19B35E) : const Color(0xFFE46B46),
+            isAccepted ? _Neon.online : _Neon.danger,
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
@@ -709,7 +810,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             timestamp: timestamp?.toDate() ?? DateTime.now(),
             icon: Icons.group_add_outlined,
             accentColor: primary,
-            iconBackground: const Color(0xFFEDEBFF),
+            iconBackground: _Neon.cyan.withValues(alpha: 0.12),
             iconColor: primary,
             onTap: () {
               Navigator.of(context).push(
@@ -730,15 +831,15 @@ class _NotificationsPageState extends State<NotificationsPage> {
         final isAccepted = ownerResponseStatus == 'accepted';
         final isDeclined = ownerResponseStatus == 'declined';
         final accent = isAccepted
-            ? const Color(0xFF19B35E)
+            ? _Neon.online
             : isDeclined
-            ? const Color(0xFFE46B46)
-            : const Color(0xFFE39B2E);
+            ? _Neon.danger
+            : _Neon.lime;
         final background = isAccepted
-            ? const Color(0xFFEAF8EF)
+            ? _Neon.online.withValues(alpha: 0.12)
             : isDeclined
-            ? const Color(0xFFFFECE8)
-            : const Color(0xFFFFF4E6);
+            ? _Neon.danger.withValues(alpha: 0.12)
+            : _Neon.lime.withValues(alpha: 0.12);
 
         notifications.add(
           _NotificationItem(
@@ -991,65 +1092,71 @@ class _NotificationSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: theme.textTheme.labelLarge?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.3,
+        Padding(
+          padding: const EdgeInsets.only(left: 4),
+          child: Text(
+            title,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: _Neon.textSecondary,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.0,
+            ),
           ),
         ),
         const SizedBox(height: 10),
         Container(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: _Neon.surface.withValues(alpha: 0.92),
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: colorScheme.outlineVariant),
+            border: Border.all(color: _Neon.stroke),
             boxShadow: [
-              BoxShadow(
-                color: colorScheme.shadow.withValues(alpha: 0.05),
-                blurRadius: 18,
-                offset: const Offset(0, 10),
+              const BoxShadow(
+                color: Colors.black45,
+                blurRadius: 24,
+                offset: Offset(0, 12),
               ),
+              ..._Neon.glow(_Neon.cyan, blur: 28, alpha: 0.05),
             ],
           ),
-          child: Column(
-            children: List.generate(items.length, (index) {
-              final item = items[index];
-              final isLast = index == items.length - 1;
-              final radius = BorderRadius.only(
-                topLeft: index == 0 ? const Radius.circular(24) : Radius.zero,
-                topRight: index == 0 ? const Radius.circular(24) : Radius.zero,
-                bottomLeft: isLast ? const Radius.circular(24) : Radius.zero,
-                bottomRight: isLast ? const Radius.circular(24) : Radius.zero,
-              );
-              return Dismissible(
-                key: ValueKey(item.persistKey),
-                direction: DismissDirection.endToStart,
-                background: Container(
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  decoration: BoxDecoration(
-                    color: colorScheme.error.withValues(alpha: 0.12),
-                    borderRadius: radius,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: Column(
+              children: List.generate(items.length, (index) {
+                final item = items[index];
+                final isLast = index == items.length - 1;
+                final radius = BorderRadius.only(
+                  topLeft: index == 0 ? const Radius.circular(24) : Radius.zero,
+                  topRight: index == 0 ? const Radius.circular(24) : Radius.zero,
+                  bottomLeft: isLast ? const Radius.circular(24) : Radius.zero,
+                  bottomRight: isLast ? const Radius.circular(24) : Radius.zero,
+                );
+                return Dismissible(
+                  key: ValueKey(item.persistKey),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    decoration: BoxDecoration(
+                      color: _Neon.danger.withValues(alpha: 0.16),
+                      borderRadius: radius,
+                    ),
+                    child: const Icon(
+                      Icons.delete_outline_rounded,
+                      color: _Neon.danger,
+                    ),
                   ),
-                  child: Icon(
-                    Icons.delete_outline,
-                    color: colorScheme.error,
+                  onDismissed: (_) => onDismissed(item),
+                  child: _NotificationRow(
+                    item: item,
+                    showDivider: !isLast,
                   ),
-                ),
-                onDismissed: (_) => onDismissed(item),
-                child: _NotificationRow(
-                  item: item,
-                  showDivider: !isLast,
-                ),
-              );
-            }),
+                );
+              }),
+            ),
           ),
         ),
       ],
@@ -1107,35 +1214,41 @@ class _NotificationRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: item.onTap,
+        splashColor: item.accentColor.withValues(alpha: 0.12),
+        highlightColor: Colors.transparent,
         borderRadius: BorderRadius.circular(24),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
           child: Column(
             children: [
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    width: 3,
-                    height: 48,
+                    width: 4,
+                    height: 52,
                     decoration: BoxDecoration(
                       color: item.accentColor,
                       borderRadius: BorderRadius.circular(999),
+                      boxShadow: _Neon.glow(item.accentColor, blur: 18, alpha: 0.28),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Container(
-                    width: 48,
-                    height: 48,
+                    width: 52,
+                    height: 52,
                     decoration: BoxDecoration(
                       color: item.iconBackground,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: item.accentColor.withValues(alpha: 0.28),
+                      ),
+                      boxShadow: _Neon.glow(item.accentColor, blur: 18, alpha: 0.12),
                     ),
                     alignment: Alignment.center,
                     child: Icon(
@@ -1156,6 +1269,7 @@ class _NotificationRow extends StatelessWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.titleMedium?.copyWith(
+                                  color: _Neon.textPrimary,
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
@@ -1164,8 +1278,8 @@ class _NotificationRow extends StatelessWidget {
                             Text(
                               DateFormat('HH:mm', 'de_DE').format(item.timestamp),
                               style: theme.textTheme.labelMedium?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                                fontWeight: FontWeight.w600,
+                                color: _Neon.textSecondary,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ],
@@ -1176,8 +1290,8 @@ class _NotificationRow extends StatelessWidget {
                           maxLines: item.actions.isEmpty ? 2 : 3,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                            height: 1.3,
+                            color: _Neon.textSecondary,
+                            height: 1.35,
                           ),
                         ),
                         if (item.actions.isNotEmpty) ...[
@@ -1190,9 +1304,15 @@ class _NotificationRow extends StatelessWidget {
                                 return FilledButton(
                                   onPressed: action.onTap,
                                   style: FilledButton.styleFrom(
+                                    backgroundColor: _Neon.cyan,
+                                    foregroundColor: _Neon.bg,
+                                    elevation: 0,
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 14,
                                       vertical: 10,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
                                     ),
                                   ),
                                   child: Text(action.label),
@@ -1202,9 +1322,15 @@ class _NotificationRow extends StatelessWidget {
                               return OutlinedButton(
                                 onPressed: action.onTap,
                                 style: OutlinedButton.styleFrom(
+                                  foregroundColor: _Neon.textPrimary,
+                                  side: const BorderSide(color: _Neon.strokeStrong),
+                                  backgroundColor: _Neon.bgElevated,
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 14,
                                     vertical: 10,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
                                   ),
                                 ),
                                 child: Text(action.label),
@@ -1219,10 +1345,9 @@ class _NotificationRow extends StatelessWidget {
               ),
               if (showDivider) ...[
                 const SizedBox(height: 14),
-                Divider(
+                Container(
                   height: 1,
-                  thickness: 1,
-                  color: colorScheme.outlineVariant.withValues(alpha: 0.65),
+                  color: _Neon.stroke,
                 ),
               ],
             ],
@@ -1234,46 +1359,46 @@ class _NotificationRow extends StatelessWidget {
 }
 
 class _NotificationsEmptyState extends StatelessWidget {
-  final ThemeData theme;
-  final ColorScheme colorScheme;
-
-  const _NotificationsEmptyState({
-    required this.theme,
-    required this.colorScheme,
-  });
+  const _NotificationsEmptyState();
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 36, 24, 24),
+      padding: const EdgeInsets.fromLTRB(24, 42, 24, 24),
+      physics: const BouncingScrollPhysics(),
       children: [
         Container(
-          width: 78,
-          height: 78,
+          width: 82,
+          height: 82,
           decoration: BoxDecoration(
-            color: colorScheme.primary.withValues(alpha: 0.10),
+            color: _Neon.surface,
             borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: _Neon.strokeStrong),
+            boxShadow: _Neon.glow(_Neon.cyan, blur: 28, alpha: 0.10),
           ),
           alignment: Alignment.center,
-          child: Icon(
+          child: const Icon(
             Icons.notifications_none_rounded,
-            size: 36,
-            color: colorScheme.primary,
+            size: 38,
+            color: _Neon.cyan,
           ),
         ),
         const SizedBox(height: 18),
         Text(
           'Keine Mitteilungen',
           style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w800,
+            color: _Neon.textPrimary,
+            fontWeight: FontWeight.w900,
           ),
         ),
         const SizedBox(height: 8),
         Text(
           'Neue Nachrichten, Einladungen und Reaktionen auf deine Events erscheinen später hier.',
           style: theme.textTheme.bodyMedium?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-            height: 1.4,
+            color: _Neon.textSecondary,
+            height: 1.45,
           ),
         ),
       ],

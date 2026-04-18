@@ -15,6 +15,28 @@ enum EventDetailView {
   openEvent,
 }
 
+
+class _Neon {
+  static const bg = Color(0xFF0A0A0F);
+  static const bgElevated = Color(0xFF15151C);
+  static const surface = Color(0xFF1E1E28);
+  static const surfaceHigh = Color(0xFF262633);
+  static const stroke = Color(0xFF2E2E3D);
+  static const strokeStrong = Color(0xFF3A3A4D);
+
+  static const textPrimary = Color(0xFFF5F5FA);
+  static const textSecondary = Color(0xFFA0A0B8);
+  static const textMuted = Color(0xFF6B6B80);
+
+  static const cyan = Color(0xFF00E5FF);
+  static const pink = Color(0xFFFF2E93);
+  static const lime = Color(0xFFC6FF4A);
+  static const purple = Color(0xFF8B5CF6);
+
+  static const online = Color(0xFF00FFA3);
+  static const danger = Color(0xFFFF3B6B);
+}
+
 class EventDetailPage extends StatefulWidget {
   final String eventId;
   final EventDetailView view;
@@ -869,14 +891,14 @@ class _EventDetailPageState extends State<EventDetailPage> {
   Color _kindColor(ColorScheme colorScheme, Map<String, dynamic> data) {
     switch (_normalizeKind(data)) {
       case 'appointment':
-        return Colors.indigo;
+        return _Neon.purple;
       case 'activity':
-        return Colors.teal;
+        return _Neon.cyan;
       case 'service':
-        return Colors.deepOrange;
+        return _Neon.lime;
       case 'open':
       default:
-        return colorScheme.primary;
+        return _Neon.pink;
     }
   }
 
@@ -1731,554 +1753,637 @@ class _EventDetailPageState extends State<EventDetailPage> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+  ThemeData _buildNeonTheme(ThemeData base) {
+    const scheme = ColorScheme.dark(
+      primary: _Neon.cyan,
+      secondary: _Neon.pink,
+      surface: _Neon.surface,
+      error: _Neon.danger,
+      onPrimary: Colors.black,
+      onSecondary: Colors.white,
+      onSurface: _Neon.textPrimary,
+      onError: Colors.white,
+      outline: _Neon.strokeStrong,
+      outlineVariant: _Neon.stroke,
+    );
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Event-Details'),
+    return base.copyWith(
+      brightness: Brightness.dark,
+      scaffoldBackgroundColor: _Neon.bg,
+      colorScheme: scheme,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: _Neon.bg,
+        foregroundColor: _Neon.textPrimary,
+        elevation: 0,
+        centerTitle: false,
       ),
-      body: SafeArea(
-        child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('events')
-              .doc(widget.eventId)
-              .snapshots(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            if (snapshot.hasError) {
-              return const Center(
-                child: Text('Fehler beim Laden des Events.'),
-              );
-            }
-
-            final data = snapshot.data?.data();
-            if (data == null) {
-              return const Center(
-                child: Text('Dieses Event wurde nicht gefunden.'),
-              );
-            }
-
-            final title = (data['title'] ?? 'Event').toString().trim();
-            final description = (data['description'] ?? '').toString().trim();
-            final location = _resolvedLocationText(data);
-            final exactLat = _parseDouble(data['exactLocationLat']);
-            final exactLng = _parseDouble(data['exactLocationLng']);
-            final hasNavigableLocation =
-                location.isNotEmpty || (exactLat != null && exactLng != null);
-            final createdBy = (data['createdBy'] ?? '').toString().trim();
-            final createdByName =
-            (data['createdByName'] ?? 'Unbekannt').toString().trim();
-            final scheduledAt = _scheduledTimestamp(data);
-            final kindLabel = _kindLabel(data);
-            final kindColor = _kindColor(colorScheme, data);
-            final rawHeaderStatus = _currentHeaderStatus(data);
-            final statusLabel = _statusLabel(rawHeaderStatus);
-            final statusColor = _statusColor(colorScheme, rawHeaderStatus);
-            final participantBuckets = _participantBuckets(data);
-            final currentUserResponse = _responseForUser(data, _currentUserId);
-            final joinMode = _normalizeJoinMode(data);
-            final hasExistingResponse = _hasExistingResponseEntry(data, _currentUserId);
-            final participantCount = _acceptedCount(data);
-            final maxParticipants = _maxParticipants(data);
-            final isOwner = createdBy == _currentUserId;
-            final isInterested = _isInterestedInEvent(data, _currentUserId);
-            final canToggleInterest = !isOwner &&
-                !hasExistingResponse &&
-                !_isPendingInviteForUser(data, _currentUserId) &&
-                !_isCancelledEvent(data);
-            final isCancelled = _isCancelledEvent(data);
-            final isClosed = _isClosedEvent(data);
-            final inviteProgressCounts = _inviteProgressCounts(data);
-            final effectiveInviteSeenAtMap = _inviteSeenAtMap(data);
-            if (_hasLocallyMarkedInviteSeen && _currentUserId.isNotEmpty) {
-              effectiveInviteSeenAtMap[_currentUserId] = true;
-            }
-
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted) return;
-              _markEventViewedIfNeeded(data);
-              _markInviteAsSeenIfNeeded(data);
-            });
-
-            return ListView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    color: colorScheme.surface,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: colorScheme.outlineVariant),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: colorScheme.primary.withValues(alpha: 0.95),
-                          borderRadius: const BorderRadius.only(
-                            topLeft: Radius.circular(24),
-                            topRight: Radius.circular(24),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.calendar_today_outlined,
-                              size: 16,
-                              color: Colors.white,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _formatHeaderDate(scheduledAt),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.labelLarge?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            const Icon(
-                              Icons.access_time,
-                              size: 16,
-                              color: Colors.white,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              _formatTime(data),
-                              style: theme.textTheme.labelLarge?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                CircleAvatar(
-                                  radius: 24,
-                                  backgroundColor:
-                                  kindColor.withValues(alpha: 0.10),
-                                  child: Icon(
-                                    Icons.celebration_outlined,
-                                    color: kindColor,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                    CrossAxisAlignment.start,
-                                    children: [
-                                      Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        crossAxisAlignment:
-                                        WrapCrossAlignment.center,
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 10,
-                                              vertical: 6,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: kindColor.withValues(
-                                                alpha: 0.10,
-                                              ),
-                                              borderRadius:
-                                              BorderRadius.circular(999),
-                                            ),
-                                            child: Text(
-                                              kindLabel,
-                                              style: theme.textTheme.labelMedium
-                                                  ?.copyWith(
-                                                color: kindColor,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                          ),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 10,
-                                              vertical: 6,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: statusColor.withValues(
-                                                alpha: 0.10,
-                                              ),
-                                              borderRadius:
-                                              BorderRadius.circular(999),
-                                            ),
-                                            child: Text(
-                                              statusLabel,
-                                              style: theme.textTheme.labelMedium
-                                                  ?.copyWith(
-                                                color: statusColor,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 10),
-                                      Text(
-                                        title,
-                                        style: theme.textTheme.headlineSmall
-                                            ?.copyWith(
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      if (description.isNotEmpty) ...[
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          description,
-                                          style: theme.textTheme.bodyMedium
-                                              ?.copyWith(
-                                            color:
-                                            colorScheme.onSurfaceVariant,
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                _DetailChip(
-                                  icon: Icons.event_outlined,
-                                  label: _formatShortDate(scheduledAt),
-                                ),
-                                _DetailChip(
-                                  icon: Icons.schedule_outlined,
-                                  label: _formatTime(data),
-                                ),
-                                if (location.isNotEmpty)
-                                  _DetailChip(
-                                    icon: Icons.place_outlined,
-                                    label: location,
-                                    onTap: () => _openNavigation(data),
-                                  ),
-                                _DetailChip(
-                                  icon: isInterested
-                                      ? Icons.favorite_rounded
-                                      : Icons.favorite_border_rounded,
-                                  label: _interestCountText(data),
-                                  onTap: canToggleInterest && !_isTogglingInterest
-                                      ? () => _toggleInterest(data)
-                                      : null,
-                                ),
-                                _DetailChip(
-                                  icon: Icons.visibility_outlined,
-                                  label: _viewCountText(data),
-                                ),
-                                _DetailChip(
-                                  icon: Icons.group_outlined,
-                                  label: maxParticipants != null && maxParticipants > 0
-                                      ? '$participantCount/$maxParticipants Teilnehmer'
-                                      : '$participantCount Teilnehmer',
-                                  onTap: () => _openParticipatePage(
-                                    data: data,
-                                    participantBuckets: participantBuckets,
-                                    createdBy: createdBy,
-                                    createdByName: createdByName,
-                                    joinMode: joinMode,
-                                    inviteSeenAtMap: effectiveInviteSeenAtMap,
-                                    isOwner: isOwner,
-                                  ),
-                                ),
-                                _DetailChip(
-                                  icon: Icons.person_outline,
-                                  label: createdByName.isEmpty
-                                      ? 'Unbekannt'
-                                      : createdByName,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (hasNavigableLocation) ...[
-                  const SizedBox(height: 14),
-                  _DetailSection(
-                    title: 'Ort & Navigation',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                              Icons.place_outlined,
-                              color: colorScheme.primary,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    location.isNotEmpty
-                                        ? location
-                                        : '${exactLat?.toStringAsFixed(6)}, ${exactLng?.toStringAsFixed(6)}',
-                                    style: theme.textTheme.bodyLarge?.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  if (exactLat != null && exactLng != null) ...[
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      '${exactLat.toStringAsFixed(6)}, ${exactLng.toStringAsFixed(6)}',
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: colorScheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        FilledButton.icon(
-                          onPressed: () => _openNavigation(data),
-                          icon: const Icon(Icons.navigation_outlined),
-                          label: const Text('Navigation starten'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                if (isCancelled) ...[
-                  const SizedBox(height: 14),
-                  _DetailSection(
-                    title: 'Status',
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: colorScheme.error.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: colorScheme.error.withValues(alpha: 0.18),
-                        ),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            Icons.event_busy_outlined,
-                            color: colorScheme.error,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              isOwner
-                                  ? 'Du hast dieses Event abgesagt. Es bleibt sichtbar, aber neue Teilnahmen und Antworten sind deaktiviert.'
-                                  : 'Dieses Event wurde vom Ersteller abgesagt. Neue Teilnahmen und Antworten sind nicht mehr möglich.',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: colorScheme.onSurface,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ] else if (isClosed) ...[
-                  const SizedBox(height: 14),
-                  _DetailSection(
-                    title: 'Status',
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: Colors.blueGrey.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: Colors.blueGrey.withValues(alpha: 0.18),
-                        ),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(
-                            Icons.lock_outline,
-                            color: Colors.blueGrey,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              isOwner
-                                  ? 'Du hast dieses Event geschlossen. Es bleibt sichtbar, aber neue Teilnahmen und Antworten sind bis zum Wiederöffnen pausiert.'
-                                  : 'Dieses Event ist aktuell geschlossen. Neue Teilnahmen und Antworten sind momentan nicht möglich.',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: colorScheme.onSurface,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 14),
-                _DetailSection(
-                  title: joinMode == 'invite_only' && isOwner
-                      ? 'Einladungsstatus'
-                      : 'Teilnehmerstatus',
-                  child: joinMode == 'invite_only' && isOwner
-                      ? _InviteProgressOverview(counts: inviteProgressCounts)
-                      : Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _StatusCounterChip(
-                        icon: Icons.check_circle_outline,
-                        label: 'Bestätigt',
-                        count: participantBuckets.accepted.length,
-                        color: Colors.green,
-                      ),
-                      _StatusCounterChip(
-                        icon: Icons.help_outline,
-                        label: 'Vielleicht',
-                        count: participantBuckets.maybe.length,
-                        color: Colors.orange,
-                      ),
-                      if (participantBuckets.invitedPending.isNotEmpty)
-                        _StatusCounterChip(
-                          icon: Icons.mark_email_unread_outlined,
-                          label: 'Eingeladen',
-                          count: participantBuckets.invitedPending.length,
-                        ),
-                      _StatusCounterChip(
-                        icon: Icons.mail_outline,
-                        label: 'Ausstehend',
-                        count: participantBuckets.requestPending.length,
-                      ),
-                      _StatusCounterChip(
-                        icon: Icons.cancel_outlined,
-                        label: 'Abgelehnt',
-                        count: participantBuckets.declined.length,
-                        color: colorScheme.error,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _DetailSection(
-                  title: 'Teilnehmer ansehen',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        'Öffne die vollständige Teilnehmerliste, um alle Antworten zu sehen und direkt auf Profile zu wechseln.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      OutlinedButton.icon(
-                        onPressed: () => _openParticipatePage(
-                          data: data,
-                          participantBuckets: participantBuckets,
-                          createdBy: createdBy,
-                          createdByName: createdByName,
-                          joinMode: joinMode,
-                          inviteSeenAtMap: effectiveInviteSeenAtMap,
-                          isOwner: isOwner,
-                        ),
-                        icon: const Icon(Icons.group_outlined),
-                        label: const Text('Teilnehmerliste öffnen'),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _ParticipantGroupsSection(
-                  createdBy: createdBy,
-                  createdByName: createdByName,
-                  acceptedIds: participantBuckets.accepted,
-                  maybeIds: participantBuckets.maybe,
-                  invitedPendingIds: participantBuckets.invitedPending,
-                  requestPendingIds: participantBuckets.requestPending,
-                  declinedIds: participantBuckets.declined,
-                  invitedUserIds: _invitedUserIds(data),
-                  currentUserId: _currentUserId,
-                  isOwner: isOwner,
-                  joinMode: joinMode,
-                  inviteSeenAtMap: effectiveInviteSeenAtMap,
-                  isUpdatingStatus: _isUpdatingStatus,
-                  ownerActionUserId: _ownerActionUserId,
-                  eventCancelled: isCancelled,
-                  eventClosed: isClosed,
-                  onUserTap: (person) => _openUserProfile(
-                    userId: person.userId,
-                    initialName: person.name,
-                    initialImageUrl: person.imageUrl,
-                  ),
-                  onOwnerDecision: ({required userId, required accepted}) =>
-                      _handleOwnerRequestDecision(
-                        requestUserId: userId,
-                        accepted: accepted,
-                      ),
-                  onRemoveParticipant: ({
-                    required userId,
-                    required userName,
-                  }) =>
-                      _removeParticipant(
-                        participantUserId: userId,
-                        participantName: userName,
-                      ),
-                ),
-                const SizedBox(height: 14),
-                _buildActionSection(
-                  context: context,
-                  theme: theme,
-                  colorScheme: colorScheme,
-                  data: data,
-                  currentUserResponse: currentUserResponse,
-                  joinMode: joinMode,
-                  hasExistingResponse: hasExistingResponse,
-                  isOwner: isOwner,
-                  isCancelled: isCancelled,
-                  isClosed: isClosed,
-                ),
-              ],
-            );
-          },
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: _Neon.surfaceHigh,
+        contentTextStyle: base.textTheme.bodyMedium?.copyWith(color: _Neon.textPrimary),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      ),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(color: _Neon.cyan),
+      dividerColor: _Neon.stroke,
+      textTheme: base.textTheme.apply(
+        bodyColor: _Neon.textPrimary,
+        displayColor: _Neon.textPrimary,
+      ).copyWith(
+        bodyMedium: base.textTheme.bodyMedium?.copyWith(color: _Neon.textSecondary),
+        bodySmall: base.textTheme.bodySmall?.copyWith(color: _Neon.textMuted),
+        titleMedium: base.textTheme.titleMedium?.copyWith(color: _Neon.textPrimary, fontWeight: FontWeight.w700),
+        titleLarge: base.textTheme.titleLarge?.copyWith(color: _Neon.textPrimary, fontWeight: FontWeight.w800),
+        labelLarge: base.textTheme.labelLarge?.copyWith(color: _Neon.textPrimary, fontWeight: FontWeight.w700),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: _Neon.cyan,
+          foregroundColor: Colors.black,
+          minimumSize: const Size.fromHeight(52),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
       ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: _Neon.textPrimary,
+          side: const BorderSide(color: _Neon.strokeStrong),
+          minimumSize: const Size.fromHeight(52),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+      ),
+      cardTheme: CardThemeData(
+        color: _Neon.surface,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: const BorderSide(color: _Neon.stroke),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final neonTheme = _buildNeonTheme(Theme.of(context));
+    final theme = neonTheme;
+    final colorScheme = theme.colorScheme;
+
+    return Theme(
+        data: neonTheme,
+        child: Scaffold(
+        backgroundColor: _Neon.bg,
+        appBar: AppBar(
+        title: const Text('Event-Details'),
+    ),
+    body: Container(
+    decoration: const BoxDecoration(
+    gradient: LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [_Neon.bg, _Neon.bgElevated],
+    ),
+    ),
+    child: SafeArea(
+    child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+    stream: FirebaseFirestore.instance
+    .collection('events')
+        .doc(widget.eventId)
+        .snapshots(),
+    builder: (context, snapshot) {
+    if (snapshot.connectionState == ConnectionState.waiting) {
+    return const Center(child: CircularProgressIndicator());
+    }
+
+    if (snapshot.hasError) {
+    return const Center(
+    child: Text('Fehler beim Laden des Events.'),
+    );
+    }
+
+    final data = snapshot.data?.data();
+    if (data == null) {
+    return const Center(
+    child: Text('Dieses Event wurde nicht gefunden.'),
+    );
+    }
+
+    final title = (data['title'] ?? 'Event').toString().trim();
+    final description = (data['description'] ?? '').toString().trim();
+    final location = _resolvedLocationText(data);
+    final exactLat = _parseDouble(data['exactLocationLat']);
+    final exactLng = _parseDouble(data['exactLocationLng']);
+    final hasNavigableLocation =
+    location.isNotEmpty || (exactLat != null && exactLng != null);
+    final createdBy = (data['createdBy'] ?? '').toString().trim();
+    final createdByName =
+    (data['createdByName'] ?? 'Unbekannt').toString().trim();
+    final scheduledAt = _scheduledTimestamp(data);
+    final kindLabel = _kindLabel(data);
+    final kindColor = _kindColor(colorScheme, data);
+    final rawHeaderStatus = _currentHeaderStatus(data);
+    final statusLabel = _statusLabel(rawHeaderStatus);
+    final statusColor = _statusColor(colorScheme, rawHeaderStatus);
+    final participantBuckets = _participantBuckets(data);
+    final currentUserResponse = _responseForUser(data, _currentUserId);
+    final joinMode = _normalizeJoinMode(data);
+    final hasExistingResponse = _hasExistingResponseEntry(data, _currentUserId);
+    final participantCount = _acceptedCount(data);
+    final maxParticipants = _maxParticipants(data);
+    final isOwner = createdBy == _currentUserId;
+    final isInterested = _isInterestedInEvent(data, _currentUserId);
+    final canToggleInterest = !isOwner &&
+    !hasExistingResponse &&
+    !_isPendingInviteForUser(data, _currentUserId) &&
+    !_isCancelledEvent(data);
+    final isCancelled = _isCancelledEvent(data);
+    final isClosed = _isClosedEvent(data);
+    final inviteProgressCounts = _inviteProgressCounts(data);
+    final effectiveInviteSeenAtMap = _inviteSeenAtMap(data);
+    if (_hasLocallyMarkedInviteSeen && _currentUserId.isNotEmpty) {
+    effectiveInviteSeenAtMap[_currentUserId] = true;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted) return;
+    _markEventViewedIfNeeded(data);
+    _markInviteAsSeenIfNeeded(data);
+    });
+
+    return ListView(
+    physics: const BouncingScrollPhysics(),
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+    children: [
+    Container(
+    decoration: BoxDecoration(
+    color: _Neon.surface,
+    borderRadius: BorderRadius.circular(24),
+    border: Border.all(color: colorScheme.outlineVariant),
+    ),
+    child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+    Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(
+    horizontal: 16,
+    vertical: 12,
+    ),
+    decoration: BoxDecoration(
+    color: _Neon.cyan.withValues(alpha: 0.95),
+    borderRadius: const BorderRadius.only(
+    topLeft: Radius.circular(24),
+    topRight: Radius.circular(24),
+    ),
+    ),
+    child: Row(
+    children: [
+    const Icon(
+    Icons.calendar_today_outlined,
+    size: 16,
+    color: Colors.white,
+    ),
+    const SizedBox(width: 8),
+    Expanded(
+    child: Text(
+    _formatHeaderDate(scheduledAt),
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    style: theme.textTheme.labelLarge?.copyWith(
+    color: Colors.white,
+    fontWeight: FontWeight.w700,
+    ),
+    ),
+    ),
+    const SizedBox(width: 12),
+    const Icon(
+    Icons.access_time,
+    size: 16,
+    color: Colors.white,
+    ),
+    const SizedBox(width: 6),
+    Text(
+    _formatTime(data),
+    style: theme.textTheme.labelLarge?.copyWith(
+    color: Colors.white,
+    fontWeight: FontWeight.w700,
+    ),
+    ),
+    ],
+    ),
+    ),
+    Padding(
+    padding: const EdgeInsets.all(16),
+    child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+    Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+    CircleAvatar(
+    radius: 24,
+    backgroundColor:
+    kindColor.withValues(alpha: 0.10),
+    child: Icon(
+    Icons.celebration_outlined,
+    color: kindColor,
+    ),
+    ),
+    const SizedBox(width: 12),
+    Expanded(
+    child: Column(
+    crossAxisAlignment:
+    CrossAxisAlignment.start,
+    children: [
+    Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    crossAxisAlignment:
+    WrapCrossAlignment.center,
+    children: [
+    Container(
+    padding: const EdgeInsets.symmetric(
+    horizontal: 10,
+    vertical: 6,
+    ),
+    decoration: BoxDecoration(
+    color: kindColor.withValues(
+    alpha: 0.10,
+    ),
+    borderRadius:
+    BorderRadius.circular(999),
+    ),
+    child: Text(
+    kindLabel,
+    style: theme.textTheme.labelMedium
+        ?.copyWith(
+    color: kindColor,
+    fontWeight: FontWeight.w700,
+    ),
+    ),
+    ),
+    Container(
+    padding: const EdgeInsets.symmetric(
+    horizontal: 10,
+    vertical: 6,
+    ),
+    decoration: BoxDecoration(
+    color: statusColor.withValues(
+    alpha: 0.10,
+    ),
+    borderRadius:
+    BorderRadius.circular(999),
+    ),
+    child: Text(
+    statusLabel,
+    style: theme.textTheme.labelMedium
+        ?.copyWith(
+    color: statusColor,
+    fontWeight: FontWeight.w700,
+    ),
+    ),
+    ),
+    ],
+    ),
+    const SizedBox(height: 10),
+    Text(
+    title,
+    style: theme.textTheme.headlineSmall
+        ?.copyWith(
+    fontWeight: FontWeight.w700,
+    ),
+    ),
+    if (description.isNotEmpty) ...[
+    const SizedBox(height: 8),
+    Text(
+    description,
+    style: theme.textTheme.bodyMedium
+        ?.copyWith(
+    color:
+    colorScheme.onSurfaceVariant,
+    ),
+    ),
+    ],
+    ],
+    ),
+    ),
+    ],
+    ),
+    const SizedBox(height: 16),
+    Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    children: [
+    _DetailChip(
+    icon: Icons.event_outlined,
+    label: _formatShortDate(scheduledAt),
+    ),
+    _DetailChip(
+    icon: Icons.schedule_outlined,
+    label: _formatTime(data),
+    ),
+    if (location.isNotEmpty)
+    _DetailChip(
+    icon: Icons.place_outlined,
+    label: location,
+    onTap: () => _openNavigation(data),
+    ),
+    _DetailChip(
+    icon: isInterested
+    ? Icons.favorite_rounded
+        : Icons.favorite_border_rounded,
+    label: _interestCountText(data),
+    onTap: canToggleInterest && !_isTogglingInterest
+    ? () => _toggleInterest(data)
+        : null,
+    ),
+    _DetailChip(
+    icon: Icons.visibility_outlined,
+    label: _viewCountText(data),
+    ),
+    _DetailChip(
+    icon: Icons.group_outlined,
+    label: maxParticipants != null && maxParticipants > 0
+    ? '$participantCount/$maxParticipants Teilnehmer'
+        : '$participantCount Teilnehmer',
+    onTap: () => _openParticipatePage(
+    data: data,
+    participantBuckets: participantBuckets,
+    createdBy: createdBy,
+    createdByName: createdByName,
+    joinMode: joinMode,
+    inviteSeenAtMap: effectiveInviteSeenAtMap,
+    isOwner: isOwner,
+    ),
+    ),
+    _DetailChip(
+    icon: Icons.person_outline,
+    label: createdByName.isEmpty
+    ? 'Unbekannt'
+        : createdByName,
+    ),
+    ],
+    ),
+    ],
+    ),
+    ),
+    ],
+    ),
+    ),
+    if (hasNavigableLocation) ...[
+    const SizedBox(height: 14),
+    _DetailSection(
+    title: 'Ort & Navigation',
+    child: Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+    Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+    Icon(
+    Icons.place_outlined,
+    color: colorScheme.primary,
+    ),
+    const SizedBox(width: 10),
+    Expanded(
+    child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+    Text(
+    location.isNotEmpty
+    ? location
+        : '${exactLat?.toStringAsFixed(6)}, ${exactLng?.toStringAsFixed(6)}',
+    style: theme.textTheme.bodyLarge?.copyWith(
+    fontWeight: FontWeight.w600,
+    ),
+    ),
+    if (exactLat != null && exactLng != null) ...[
+    const SizedBox(height: 6),
+    Text(
+    '${exactLat.toStringAsFixed(6)}, ${exactLng.toStringAsFixed(6)}',
+    style: theme.textTheme.bodySmall?.copyWith(
+    color: colorScheme.onSurfaceVariant,
+    ),
+    ),
+    ],
+    ],
+    ),
+    ),
+    ],
+    ),
+    const SizedBox(height: 14),
+    FilledButton.icon(
+    onPressed: () => _openNavigation(data),
+    icon: const Icon(Icons.navigation_outlined),
+    label: const Text('Navigation starten'),
+    ),
+    ],
+    ),
+    ),
+    ],
+    if (isCancelled) ...[
+    const SizedBox(height: 14),
+    _DetailSection(
+    title: 'Status',
+    child: Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+    color: colorScheme.error.withValues(alpha: 0.08),
+    borderRadius: BorderRadius.circular(16),
+    border: Border.all(
+    color: colorScheme.error.withValues(alpha: 0.18),
+    ),
+    ),
+    child: Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+    Icon(
+    Icons.event_busy_outlined,
+    color: colorScheme.error,
+    ),
+    const SizedBox(width: 10),
+    Expanded(
+    child: Text(
+    isOwner
+    ? 'Du hast dieses Event abgesagt. Es bleibt sichtbar, aber neue Teilnahmen und Antworten sind deaktiviert.'
+        : 'Dieses Event wurde vom Ersteller abgesagt. Neue Teilnahmen und Antworten sind nicht mehr möglich.',
+    style: theme.textTheme.bodyMedium?.copyWith(
+    color: colorScheme.onSurface,
+    fontWeight: FontWeight.w600,
+    ),
+    ),
+    ),
+    ],
+    ),
+    ),
+    ),
+    ] else if (isClosed) ...[
+    const SizedBox(height: 14),
+    _DetailSection(
+    title: 'Status',
+    child: Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+    color: Colors.blueGrey.withValues(alpha: 0.08),
+    borderRadius: BorderRadius.circular(16),
+    border: Border.all(
+    color: Colors.blueGrey.withValues(alpha: 0.18),
+    ),
+    ),
+    child: Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+    const Icon(
+    Icons.lock_outline,
+    color: Colors.blueGrey,
+    ),
+    const SizedBox(width: 10),
+    Expanded(
+    child: Text(
+    isOwner
+    ? 'Du hast dieses Event geschlossen. Es bleibt sichtbar, aber neue Teilnahmen und Antworten sind bis zum Wiederöffnen pausiert.'
+        : 'Dieses Event ist aktuell geschlossen. Neue Teilnahmen und Antworten sind momentan nicht möglich.',
+    style: theme.textTheme.bodyMedium?.copyWith(
+    color: colorScheme.onSurface,
+    fontWeight: FontWeight.w600,
+    ),
+    ),
+    ),
+    ],
+    ),
+    ),
+    ),
+    ],
+    const SizedBox(height: 14),
+    _DetailSection(
+    title: joinMode == 'invite_only' && isOwner
+    ? 'Einladungsstatus'
+        : 'Teilnehmerstatus',
+    child: joinMode == 'invite_only' && isOwner
+    ? _InviteProgressOverview(counts: inviteProgressCounts)
+        : Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    children: [
+    _StatusCounterChip(
+    icon: Icons.check_circle_outline,
+    label: 'Bestätigt',
+    count: participantBuckets.accepted.length,
+    color: Colors.green,
+    ),
+    _StatusCounterChip(
+    icon: Icons.help_outline,
+    label: 'Vielleicht',
+    count: participantBuckets.maybe.length,
+    color: Colors.orange,
+    ),
+    if (participantBuckets.invitedPending.isNotEmpty)
+    _StatusCounterChip(
+    icon: Icons.mark_email_unread_outlined,
+    label: 'Eingeladen',
+    count: participantBuckets.invitedPending.length,
+    ),
+    _StatusCounterChip(
+    icon: Icons.mail_outline,
+    label: 'Ausstehend',
+    count: participantBuckets.requestPending.length,
+    ),
+    _StatusCounterChip(
+    icon: Icons.cancel_outlined,
+    label: 'Abgelehnt',
+    count: participantBuckets.declined.length,
+    color: colorScheme.error,
+    ),
+    ],
+    ),
+    ),
+    const SizedBox(height: 14),
+    _DetailSection(
+    title: 'Teilnehmer ansehen',
+    child: Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+    Text(
+    'Öffne die vollständige Teilnehmerliste, um alle Antworten zu sehen und direkt auf Profile zu wechseln.',
+    style: theme.textTheme.bodyMedium?.copyWith(
+    color: colorScheme.onSurfaceVariant,
+    ),
+    ),
+    const SizedBox(height: 14),
+    OutlinedButton.icon(
+    onPressed: () => _openParticipatePage(
+    data: data,
+    participantBuckets: participantBuckets,
+    createdBy: createdBy,
+    createdByName: createdByName,
+    joinMode: joinMode,
+    inviteSeenAtMap: effectiveInviteSeenAtMap,
+    isOwner: isOwner,
+    ),
+    icon: const Icon(Icons.group_outlined),
+    label: const Text('Teilnehmerliste öffnen'),
+    ),
+    ],
+    ),
+    ),
+    const SizedBox(height: 14),
+    _ParticipantGroupsSection(
+    createdBy: createdBy,
+    createdByName: createdByName,
+    acceptedIds: participantBuckets.accepted,
+    maybeIds: participantBuckets.maybe,
+    invitedPendingIds: participantBuckets.invitedPending,
+    requestPendingIds: participantBuckets.requestPending,
+    declinedIds: participantBuckets.declined,
+    invitedUserIds: _invitedUserIds(data),
+    currentUserId: _currentUserId,
+    isOwner: isOwner,
+    joinMode: joinMode,
+    inviteSeenAtMap: effectiveInviteSeenAtMap,
+    isUpdatingStatus: _isUpdatingStatus,
+    ownerActionUserId: _ownerActionUserId,
+    eventCancelled: isCancelled,
+    eventClosed: isClosed,
+    onUserTap: (person) => _openUserProfile(
+    userId: person.userId,
+    initialName: person.name,
+    initialImageUrl: person.imageUrl,
+    ),
+    onOwnerDecision: ({required userId, required accepted}) =>
+    _handleOwnerRequestDecision(
+    requestUserId: userId,
+    accepted: accepted,
+    ),
+    onRemoveParticipant: ({
+    required userId,
+    required userName,
+    }) =>
+    _removeParticipant(
+    participantUserId: userId,
+    participantName: userName,
+    ),
+    ),
+    const SizedBox(height: 14),
+    _buildActionSection(
+    context: context,
+    theme: theme,
+    colorScheme: colorScheme,
+    data: data,
+    currentUserResponse: currentUserResponse,
+    joinMode: joinMode,
+    hasExistingResponse: hasExistingResponse,
+    isOwner: isOwner,
+    isCancelled: isCancelled,
+    isClosed: isClosed,
+    ),
+    ],
+    );
+    },
+    ),
+    ),
+    ),
+        ),
     );
   }
 

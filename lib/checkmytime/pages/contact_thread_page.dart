@@ -404,10 +404,8 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => CreateEventPage(
-          initialContactId
-              : widget.contactId,
+          initialContactId: widget.contactId,
           initialContactName: safeName,
-
         ),
       ),
     );
@@ -457,17 +455,9 @@ class _ContactThreadPageState extends State<ContactThreadPage>
   }
 
   String _normalizeKind(String raw) {
-    switch (raw.trim()) {
-      case 'appointment':
-        return 'appointment';
-      case 'activity':
-        return 'activity';
-      case 'service':
-        return 'service';
-      case 'open':
-      default:
-        return 'open';
-    }
+    const valid = {'appointment', 'activity', 'service'};
+    final t = raw.trim();
+    return valid.contains(t) ? t : 'open';
   }
 
   String _kindLabel(String? raw) {
@@ -1374,18 +1364,11 @@ class _ContactThreadPageState extends State<ContactThreadPage>
   }
 
   String _buildPresenceText({
+    required bool isTyping,
     required Map<String, dynamic>? userData,
-    required Map<String, dynamic>? threadData,
-    required String currentUserId,
   }) {
-    if (_isContactTyping(threadData, currentUserId)) {
-      return 'Schreibt gerade…';
-    }
-
-    if (_isContactOnline(userData)) {
-      return 'Online';
-    }
-
+    if (isTyping) return 'Schreibt gerade…';
+    if (_isContactOnline(userData)) return 'Online';
     final lastSeen = userData?['lastSeenAt'];
     return _formatLastSeenLabel(lastSeen is Timestamp ? lastSeen : null);
   }
@@ -1459,12 +1442,11 @@ class _ContactThreadPageState extends State<ContactThreadPage>
     );
   }
 
-  Widget _buildPlanTypeBadge({
+  Widget _buildBadge({
     required ThemeData theme,
-    required ColorScheme colorScheme,
-    required String kind,
+    required Color color,
+    required String label,
   }) {
-    final color = _kindColor(colorScheme, kind);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -1472,29 +1454,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        _kindLabel(kind),
-        style: theme.textTheme.labelMedium?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusBadge({
-    required ThemeData theme,
-    required ColorScheme colorScheme,
-    required String status,
-  }) {
-    final color = _statusColor(colorScheme, status);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        _statusLabel(status),
+        label,
         style: theme.textTheme.labelMedium?.copyWith(
           color: color,
           fontWeight: FontWeight.w700,
@@ -1703,16 +1663,16 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            _buildPlanTypeBadge(
+                            _buildBadge(
                               theme: theme,
-                              colorScheme: colorScheme,
-                              kind: kind,
+                              color: _kindColor(colorScheme, kind),
+                              label: _kindLabel(kind),
                             ),
                             const SizedBox(height: 8),
-                            _buildStatusBadge(
+                            _buildBadge(
                               theme: theme,
-                              colorScheme: colorScheme,
-                              status: status,
+                              color: _statusColor(colorScheme, status),
+                              label: _statusLabel(status),
                             ),
                           ],
                         ),
@@ -1831,7 +1791,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
         }
 
         List<Widget> buildSection(
-          String title,
+          String sectionTitle,
           List<QueryDocumentSnapshot<Map<String, dynamic>>> sectionDocs,
         ) {
           if (sectionDocs.isEmpty) return const <Widget>[];
@@ -1840,7 +1800,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
               child: Text(
-                title,
+                sectionTitle,
                 style: theme.textTheme.labelLarge?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w800,
@@ -1850,7 +1810,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
             ...sectionDocs.map((doc) {
               final data = doc.data();
               final createdBy = (data['createdBy'] ?? '').toString();
-              final title = (data['title'] ?? 'Event').toString().trim();
+              final eventTitle = (data['title'] ?? 'Event').toString().trim();
               final description =
                   (data['description'] ?? '').toString().trim();
               final kind = (data['kind'] ?? data['type'] ?? 'open').toString();
@@ -1858,6 +1818,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
               final status = _personalStatus(data, currentUserId, isCreatedByMe);
               final scheduledAt = _eventDateFromData(data);
               final isUpdating = _updatingEventIds.contains(doc.id);
+              final resolvedTitle = eventTitle.isEmpty ? 'Event' : eventTitle;
 
               final isUnread =
                   (!isCreatedByMe && data['isReadByRecipient'] != true) ||
@@ -1868,7 +1829,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                 theme: theme,
                 colorScheme: colorScheme,
                 safeName: safeName,
-                title: title.isEmpty ? 'Event' : title,
+                title: resolvedTitle,
                 description: description,
                 kind: kind,
                 status: status,
@@ -1907,7 +1868,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                     ? () => _updateEventStatus(
                           eventId: doc.id,
                           newStatus: 'accepted',
-                          title: title.isEmpty ? 'Event' : title,
+                          title: resolvedTitle,
                         )
                     : null,
                 onDecline: (!isCreatedByMe &&
@@ -1915,7 +1876,7 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                     ? () => _updateEventStatus(
                           eventId: doc.id,
                           newStatus: 'declined',
-                          title: title.isEmpty ? 'Event' : title,
+                          title: resolvedTitle,
                         )
                     : null,
               );
@@ -1935,6 +1896,27 @@ class _ContactThreadPageState extends State<ContactThreadPage>
           ],
         );
       },
+    );
+  }
+
+  Widget _buildTabLabel(
+      String text, bool hasUnread, ColorScheme colorScheme) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(text),
+        if (hasUnread) ...[
+          const SizedBox(width: 6),
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: colorScheme.primary,
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -2544,10 +2526,11 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                       .snapshots(),
                   builder: (context, threadSnapshot) {
                     final threadData = threadSnapshot.data?.data();
+                    final isTyping =
+                        _isContactTyping(threadData, currentUserId ?? '');
                     final presenceText = _buildPresenceText(
+                      isTyping: isTyping,
                       userData: contactUserData,
-                      threadData: threadSnapshot.data?.data(),
-                      currentUserId: currentUserId ?? '',
                     );
 
                     return Row(
@@ -2577,14 +2560,12 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodySmall?.copyWith(
-                                  color: _isContactTyping(threadData, currentUserId ?? '')
+                                  color: isTyping
                                       ? colorScheme.primary
                                       : isOnline
                                       ? const Color(0xFF19B35E)
                                       : colorScheme.onSurfaceVariant,
-                                  fontWeight:
-                                  (_isContactTyping(threadData, currentUserId ?? '') ||
-                                      isOnline)
+                                  fontWeight: (isTyping || isOnline)
                                       ? FontWeight.w600
                                       : FontWeight.w500,
                                 ),
@@ -2653,42 +2634,12 @@ class _ContactThreadPageState extends State<ContactThreadPage>
                       tabs: [
                         const Tab(text: 'Profil'),
                         Tab(
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Text('Chat'),
-                              if (_hasUnreadChat) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Theme.of(context).colorScheme.primary,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
+                          child: _buildTabLabel(
+                              'Chat', _hasUnreadChat, colorScheme),
                         ),
                         Tab(
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Text('Planungen'),
-                              if (_hasUnreadPlan) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Theme.of(context).colorScheme.primary,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
+                          child: _buildTabLabel(
+                              'Planungen', _hasUnreadPlan, colorScheme),
                         ),
                       ],
                     ),

@@ -18,61 +18,61 @@ import 'package:termini/checkmytime/services/notification_dispatch_service.dart'
 //   --color-text-secondary       → #6B7280
 // ─────────────────────────────────────────────────────────────────────────────
 class _C {
-  // Surfaces
-  static const bgPrimary = Color(0xFFFFFFFF);
-  static const bgSecondary = Color(0xFFF3F4F6);
-  static const bgTertiary = Color(0xFFF9FAFB);
+  // Surfaces — angeglichen an home_page.dart
+  static const bgPrimary = Color(0xFF15151C);
+  static const bgSecondary = Color(0xFF1E1E28);
+  static const bgTertiary = Color(0xFF0A0A0F);
 
   // Borders
-  static const borderSecondary = Color(0xFFE5E7EB);
-  static const borderTertiary = Color(0xFFF1F5F9);
+  static const borderSecondary = Color(0xFF2E2E3D);
+  static const borderTertiary = Color(0xFF3A3A4D);
 
   // Text
-  static const textPrimary = Color(0xFF111827);
-  static const textSecondary = Color(0xFF6B7280);
+  static const textPrimary = Color(0xFFF5F5FA);
+  static const textSecondary = Color(0xFFA0A0B8);
 
-  // Cover (linear-gradient 135°)
-  static const coverBg1 = Color(0xFF1C1C40);
-  static const coverBg2 = Color(0xFF2D2D6E);
-  static const coverBg3 = Color(0xFF1A3A5C);
+  // Cover / ambient neon
+  static const coverBg1 = Color(0xFF0F1020);
+  static const coverBg2 = Color(0xFF171A35);
+  static const coverBg3 = Color(0xFF11192C);
 
-  // Primary accent (Follow-Button, Tab-Indicator)
-  static const blue = Color(0xFF2563EB);
+  // Primary accent (wie home_page.dart)
+  static const blue = Color(0xFF00E5FF);
 
   // Online / Follow
-  static const onlineGreen = Color(0xFF22C55E);
-  static const notifAccept = Color(0xFF22C55E);
+  static const onlineGreen = Color(0xFF00FFA3);
+  static const notifAccept = Color(0xFF00FFA3);
 
   // Status-Badges
-  static const greenBg = Color(0xFFDCFCE7);
-  static const greenText = Color(0xFF166534);
-  static const blueBg = Color(0xFFDBEAFE);
-  static const blueText = Color(0xFF1E40AF);
-  static const amberBg = Color(0xFFFEF3C7);
-  static const amberText = Color(0xFF92400E);
-  static const redBg = Color(0xFFFEE2E2);
-  static const redText = Color(0xFF991B1B);
+  static const greenBg = Color(0x1822C55E);
+  static const greenText = Color(0xFF86EFAC);
+  static const blueBg = Color(0x1800E5FF);
+  static const blueText = Color(0xFF7DEBFF);
+  static const amberBg = Color(0x18F59E0B);
+  static const amberText = Color(0xFFFCD34D);
+  static const redBg = Color(0x18FF3B6B);
+  static const redText = Color(0xFFFF8AA6);
 
   // Activity-Icon Hintergründe
-  static const iconEventBg = Color(0xFFEEF2FF);
-  static const iconPhotoBg = Color(0xFFF0FDF4);
-  static const iconSocialBg = Color(0xFFFFF7ED);
+  static const iconEventBg = Color(0x1800E5FF);
+  static const iconPhotoBg = Color(0x1800FFA3);
+  static const iconSocialBg = Color(0x18FF2E93);
 
   // Notif-Banner (follow_request)
-  static const bannerBg = Color(0xFFFFF7ED);
-  static const bannerBorder = Color(0xFFFCD34D);
-  static const bannerText = Color(0xFF92400E);
+  static const bannerBg = Color(0x141E1E28);
+  static const bannerBorder = Color(0xFF3A3A4D);
+  static const bannerText = Color(0xFFF5F5FA);
 
-  // Avatar-Farben (wie Konzept)
+  // Avatar-Farben
   static const List<Color> avatarColors = [
-    Color(0xFF3B82F6),
+    Color(0xFF00E5FF),
     Color(0xFF8B5CF6),
-    Color(0xFFEC4899),
-    Color(0xFFF59E0B),
-    Color(0xFF10B981),
+    Color(0xFFFF2E93),
+    Color(0xFFC6FF4A),
+    Color(0xFF00FFA3),
   ];
 
-  static const danger = Color(0xFFEF4444);
+  static const danger = Color(0xFFFF3B6B);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -616,7 +616,7 @@ class _UserPageState extends State<UserPage> {
           textAlign: TextAlign.center,
           style: const TextStyle(color: Colors.white, fontSize: 13),
         ),
-        backgroundColor: const Color(0xFF1C1C1E),
+        backgroundColor: _C.bgSecondary,
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.only(bottom: 24, left: 40, right: 40),
         shape: RoundedRectangleBorder(
@@ -939,7 +939,7 @@ class _UserPageState extends State<UserPage> {
         border: Border.all(color: _C.borderTertiary, width: 0.5),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x120F172A),
+            color: Color(0x40000000),
             blurRadius: 24,
             offset: Offset(0, 10),
           ),
@@ -1254,8 +1254,8 @@ class _UserPageState extends State<UserPage> {
     if (_isFollowing) {
       label = 'Gefolgt';
       icon = Icons.check_rounded;
-      backgroundColor = const Color(0xFFEDE9FE);
-      foregroundColor = const Color(0xFF5B21B6);
+      backgroundColor = const Color(0x188B5CF6);
+      foregroundColor = const Color(0xFFD8B4FE);
       borderColor = null;
     } else if (_isFollowPending) {
       label = 'Angefragt';

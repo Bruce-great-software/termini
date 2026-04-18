@@ -1316,433 +1316,538 @@ class _EventsPageState extends State<EventsPage>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final baseTheme = Theme.of(context);
+    const neon = Color(0xFFB7E61D);
+    const bg = Color(0xFF0F1115);
+    const surface = Color(0xFF171A21);
+    const surfaceSoft = Color(0xFF1E232D);
+    const border = Color(0xFF2B3340);
+    const textPrimary = Color(0xFFF4F7FB);
+    const textSecondary = Color(0xFF9AA4B2);
+
+    final eventTheme = baseTheme.copyWith(
+      scaffoldBackgroundColor: bg,
+      canvasColor: bg,
+      cardColor: surface,
+      dividerColor: Colors.transparent,
+      colorScheme: baseTheme.colorScheme.copyWith(
+        brightness: Brightness.dark,
+        primary: neon,
+        secondary: neon,
+        surface: surface,
+        surfaceContainerHighest: surfaceSoft,
+        onSurface: textPrimary,
+        onSurfaceVariant: textSecondary,
+        outlineVariant: border,
+      ),
+      appBarTheme: baseTheme.appBarTheme.copyWith(
+        backgroundColor: Colors.transparent,
+        foregroundColor: textPrimary,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: surfaceSoft,
+        hintStyle: baseTheme.textTheme.bodyMedium?.copyWith(color: textSecondary),
+        prefixIconColor: textSecondary,
+        suffixIconColor: textSecondary,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: neon, width: 1.4),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: textPrimary,
+          side: const BorderSide(color: border),
+          backgroundColor: surfaceSoft,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: neon,
+          foregroundColor: Colors.black,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        ),
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: neon,
+        foregroundColor: Colors.black,
+      ),
+      chipTheme: baseTheme.chipTheme.copyWith(
+        backgroundColor: surfaceSoft,
+        selectedColor: neon.withValues(alpha: 0.18),
+        disabledColor: surfaceSoft,
+        side: const BorderSide(color: border),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+        labelStyle: baseTheme.textTheme.labelLarge?.copyWith(color: textPrimary, fontWeight: FontWeight.w700),
+        secondaryLabelStyle: baseTheme.textTheme.labelLarge?.copyWith(color: neon, fontWeight: FontWeight.w800),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      ),
+      textTheme: baseTheme.textTheme.apply(
+        bodyColor: textPrimary,
+        displayColor: textPrimary,
+      ).copyWith(
+        bodySmall: baseTheme.textTheme.bodySmall?.copyWith(color: textSecondary),
+        bodyMedium: baseTheme.textTheme.bodyMedium?.copyWith(color: textPrimary),
+        titleSmall: baseTheme.textTheme.titleSmall?.copyWith(color: textPrimary),
+        titleMedium: baseTheme.textTheme.titleMedium?.copyWith(color: textPrimary),
+        titleLarge: baseTheme.textTheme.titleLarge?.copyWith(color: textPrimary),
+      ),
+    );
+
+    final theme = eventTheme;
     final colorScheme = theme.colorScheme;
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
 
     if (currentUserId == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Eventss')),
-        body: const Center(
-          child: Text('Du bist aktuell nicht eingeloggt.'),
+      return Theme(
+        data: eventTheme,
+        child: Scaffold(
+          appBar: AppBar(title: const Text('Events')),
+          body: const Center(
+            child: Text('Du bist aktuell nicht eingeloggt.'),
+          ),
         ),
       );
     }
 
-    return Scaffold(
-      floatingActionButton: FloatingActionButton.extended(
+    return Theme(
+        data: eventTheme,
+        child: Scaffold(
+        floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          await Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => const CreateEventPage(),
-            ),
-          );
-        },
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Erstellen'),
-      ),
-      body: SafeArea(
-        child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: _eventsStream,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            if (snapshot.hasError) {
-              return const Center(
-                child: Text('Fehler beim Laden der Events.'),
-              );
-            }
-
-            final docs = snapshot.data?.docs ?? [];
-
-            final myEvents = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-            final invitedEvents = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-            final openEvents = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-
-            final query = _searchController.text.trim().toLowerCase();
-            final hasQuery = query.isNotEmpty;
-            final now = DateTime.now();
-            final todayStart = DateTime(now.year, now.month, now.day);
-            final nextWeekEnd = todayStart.add(const Duration(days: 7));
-            final monthEnd = DateTime(now.year, now.month + 1, 1);
-
-            for (final doc in docs) {
-              final data = doc.data();
-
-              final matchesKind = _selectedKindFilter == 'all' ||
-                  _normalizeKind(data) == _selectedKindFilter;
-              if (!matchesKind) continue;
-
-              bool matchesDate = true;
-              if (_selectedDateFilter != 'all') {
-                final scheduledAt = _scheduledTimestamp(data)?.toDate();
-                if (scheduledAt == null) {
-                  matchesDate = false;
-                } else {
-                  switch (_selectedDateFilter) {
-                    case 'today':
-                      matchesDate =
-                          !scheduledAt.isBefore(todayStart) &&
-                              scheduledAt.isBefore(
-                                todayStart.add(const Duration(days: 1)),
-                              );
-                      break;
-                    case 'next7days':
-                      matchesDate =
-                          !scheduledAt.isBefore(todayStart) &&
-                              scheduledAt.isBefore(nextWeekEnd);
-                      break;
-                    case 'thisMonth':
-                      matchesDate =
-                          !scheduledAt.isBefore(todayStart) &&
-                              scheduledAt.isBefore(monthEnd);
-                      break;
-                  }
-                }
-              }
-              if (!matchesDate) continue;
-
-              if (hasQuery) {
-                final locationInfo = _locationInfo(data);
-                final haystack = [
-                  (data['title'] ?? '').toString(),
-                  (data['description'] ?? '').toString(),
-                  (data['createdByName'] ?? '').toString(),
-                  locationInfo.label,
-                  locationInfo.typeLabel,
-                  _kindLabel(data),
-                ].join(' ').toLowerCase();
-
-                if (!haystack.contains(query)) continue;
-              }
-
-              final createdBy = (data['createdBy'] ?? '').toString();
-              if (createdBy == currentUserId) {
-                myEvents.add(doc);
-                continue;
-              }
-
-              if (_belongsToInvitationsTab(data, currentUserId)) {
-                invitedEvents.add(doc);
-                continue;
-              }
-
-              final kind = _normalizeKind(data);
-              final visibility =
-              (data['visibility'] ?? '').toString().trim().toLowerCase();
-
-              final isOpenKind = kind == 'open';
-              final isOpenVisibility =
-                  visibility == 'open' || visibility == 'public';
-
-              if (isOpenKind || isOpenVisibility) {
-                if (_isPastOpenEvent(data, now)) {
-                  continue;
-                }
-
-                final scheduledAt = _scheduledTimestamp(data)?.toDate();
-                final currentDay = DateTime(now.year, now.month, now.day);
-                final tomorrow = currentDay.add(const Duration(days: 1));
-                final weekEnd = currentDay.add(const Duration(days: 7));
-
-                if (_selectedOpenQuickFilter != 'all') {
-                  if (scheduledAt == null) {
-                    continue;
-                  }
-
-                  final scheduledDay = DateTime(
-                    scheduledAt.year,
-                    scheduledAt.month,
-                    scheduledAt.day,
-                  );
-
-                  if (_selectedOpenQuickFilter == 'today' &&
-                      scheduledDay != currentDay) {
-                    continue;
-                  }
-
-                  if (_selectedOpenQuickFilter == 'tomorrow' &&
-                      scheduledDay != tomorrow) {
-                    continue;
-                  }
-
-                  if (_selectedOpenQuickFilter == 'thisWeek' &&
-                      (scheduledDay.isBefore(currentDay) ||
-                          scheduledDay.isAfter(weekEnd))) {
-                    continue;
-                  }
-                }
-
-                final maxDistanceKm = _effectiveRadiusKm;
-                if (maxDistanceKm != null) {
-                  final distanceInMeters = _distanceInMeters(data);
-                  if (distanceInMeters == null ||
-                      distanceInMeters > maxDistanceKm * 1000) {
-                    continue;
-                  }
-                }
-
-                openEvents.add(doc);
-              }
-            }
-
-            _sortEventsInPlace(myEvents);
-            _sortEventsInPlace(invitedEvents);
-            _sortOpenEventsInPlace(openEvents);
-
-            final myPendingRequestCount = myEvents.fold<int>(0, (sum, doc) {
-              return sum + _pendingOwnerRequestCount(doc.data(), currentUserId);
-            });
-
-            final invitationAttentionCount = invitedEvents.where((doc) {
-              final data = doc.data();
-              return _isUnseenPendingEventInvite(data, currentUserId) ||
-                  _isJoinDecisionForRequester(data, currentUserId);
-            }).length;
-
-            if (invitationAttentionCount > 0 &&
-                !_didAutoJumpToMyEvents &&
-                _tabController.index == 0) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted || _didAutoJumpToMyEvents) return;
-                _didAutoJumpToMyEvents = true;
-                _tabController.animateTo(1);
-              });
-            } else if (myPendingRequestCount > 0 &&
-                !_didAutoJumpToMyEvents &&
-                _tabController.index == 0) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted || _didAutoJumpToMyEvents) return;
-                _didAutoJumpToMyEvents = true;
-                _tabController.animateTo(2);
-              });
-            }
-
-            final currentTabIndex = _tabController.index;
-            final openActiveChips = <_ActiveFilterChipData>[
-              ..._buildCommonActiveChips(),
-              if (_selectedOpenQuickFilterLabel != null)
-                _ActiveFilterChipData(
-                  label: _selectedOpenQuickFilterLabel!,
-                  onRemove: () {
-                    setState(() {
-                      _selectedOpenQuickFilter = 'all';
-                    });
-                  },
-                ),
-              if (_selectedOpenEventsSortLabel != null)
-                _ActiveFilterChipData(
-                  label: _selectedOpenEventsSortLabel!,
-                  onRemove: () {
-                    setState(() {
-                      _selectedOpenEventsSort = 'distance_date';
-                    });
-                  },
-                ),
-              if (_selectedRadiusLabel != null)
-                _ActiveFilterChipData(
-                  label: _selectedRadiusLabel!,
-                  onRemove: () {
-                    setState(() {
-                      _selectedRadiusFilter = 'all';
-                    });
-                  },
-                ),
-            ];
-
-            final currentActiveChips =
-            currentTabIndex == 0 ? openActiveChips : _buildCommonActiveChips();
-            final currentResultCount = currentTabIndex == 0
-                ? openEvents.length
-                : currentTabIndex == 1
-                ? invitedEvents.length
-                : myEvents.length;
-            final currentSummary = currentTabIndex == 0
-                ? _buildResultsSummary(openEvents.length)
-                : null;
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                  child: _SearchBarCard(
-                    controller: _searchController,
-                    onFilterTap: _openFilterSheet,
-                    activeFilterCount: _activeFilterCount,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: colorScheme.surface,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: colorScheme.outlineVariant),
-                    ),
-                    child: MediaQuery(
-                      data: MediaQuery.of(
-                        context,
-                      ).copyWith(textScaler: const TextScaler.linear(1.0)),
-                      child: TabBar(
-                        controller: _tabController,
-                        dividerColor: Colors.transparent,
-                        indicatorSize: TabBarIndicatorSize.tab,
-                        indicator: BoxDecoration(
-                          color: colorScheme.primary.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        labelColor: colorScheme.primary,
-                        unselectedLabelColor: colorScheme.onSurfaceVariant,
-                        labelStyle: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                        labelPadding: const EdgeInsets.symmetric(horizontal: 8),
-                        tabs: [
-                          const Tab(
-                            child: _ResponsiveTabLabel(label: 'Offene Events'),
-                          ),
-                          Tab(
-                            child: _TabLabelWithBadge(
-                              label: 'Einladungen',
-                              badgeCount: invitationAttentionCount,
-                            ),
-                          ),
-                          Tab(
-                            child: _TabLabelWithBadge(
-                              label: 'Meine Events',
-                              badgeCount: myPendingRequestCount,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (_hasActiveEventFilters)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                    child: _ActiveSearchInfo(
-                      searchText: _searchController.text.trim(),
-                      activeFilterCount: _activeFilterCount,
-                      resultCount: currentResultCount,
-                      summaryText: currentSummary,
-                      activeChips: currentActiveChips,
-                    ),
-                  ),
-                Expanded(
-                  child: TabBarView(
-                    controller: _tabController,
-                    physics: const BouncingScrollPhysics(),
-                    children: [
-                      _buildTabContent(
-                        context: context,
-                        theme: theme,
-                        colorScheme: colorScheme,
-                        docs: openEvents,
-                        view: EventDetailView.openEvent,
-                        currentUserId: currentUserId,
-                        statusResolver: (_) => 'open',
-                        resultsSummary: _buildResultsSummary(openEvents.length),
-                        filteredEmptyState: _effectiveRadiusKm != null
-                            ? _RadiusEmptyState(
-                          radiusKm: _effectiveRadiusKm!.round(),
-                          onExpand: () {
-                            setState(() {
-                              final currentRadius =
-                                  _effectiveRadiusKm?.round() ?? 100;
-                              _selectedRadiusFilter =
-                                  _nextRadiusStep(currentRadius)
-                                      .toString();
-                            });
-                          },
-                          onReset: _resetAllEventFilters,
-                        )
-                            : null,
-                        activeChips: [
-                          ..._buildCommonActiveChips(),
-                          if (_selectedOpenQuickFilterLabel != null)
-                            _ActiveFilterChipData(
-                              label: _selectedOpenQuickFilterLabel!,
-                              onRemove: () {
-                                setState(() {
-                                  _selectedOpenQuickFilter = 'all';
-                                });
-                              },
-                            ),
-                          if (_selectedOpenEventsSortLabel != null)
-                            _ActiveFilterChipData(
-                              label: _selectedOpenEventsSortLabel!,
-                              onRemove: () {
-                                setState(() {
-                                  _selectedOpenEventsSort = 'distance_date';
-                                });
-                              },
-                            ),
-                          if (_selectedRadiusLabel != null)
-                            _ActiveFilterChipData(
-                              label: _selectedRadiusLabel!,
-                              onRemove: () {
-                                setState(() {
-                                  _selectedRadiusFilter = 'all';
-                                });
-                              },
-                            ),
-                        ],
-                        groupByDay: true,
-                        emptyState: const _EventEmptyState(
-                          icon: Icons.public_off_outlined,
-                          title: 'Keine offenen Events',
-                          subtitle:
-                          'Aktuell gibt es keine offenen Events für dich. Neue öffentliche Aktivitäten erscheinen später hier.',
-                        ),
-                      ),
-                      _buildTabContent(
-                        context: context,
-                        theme: theme,
-                        colorScheme: colorScheme,
-                        docs: invitedEvents,
-                        view: EventDetailView.invitation,
-                        currentUserId: currentUserId,
-                        statusResolver: (data) =>
-                            _responseForUser(data, currentUserId),
-                        activeChips: _buildCommonActiveChips(),
-                        groupByDay: true,
-                        emptyState: const _EventEmptyState(
-                          icon: Icons.mail_outline_rounded,
-                          title: 'Keine Einladungen vorhanden',
-                          subtitle:
-                          'Sobald dich jemand zu einem Event einlädt, erscheint es hier in deiner Übersicht.',
-                        ),
-                      ),
-                      _buildTabContent(
-                        context: context,
-                        theme: theme,
-                        colorScheme: colorScheme,
-                        docs: myEvents,
-                        view: EventDetailView.myEvent,
-                        currentUserId: currentUserId,
-                        statusResolver: (data) => _overallStatus(data),
-                        activeChips: _buildCommonActiveChips(),
-                        groupByDay: true,
-                        emptyState: const _EventEmptyState(
-                          icon: Icons.event_busy_outlined,
-                          title: 'Noch keine eigenen Events',
-                          subtitle:
-                          'Du hast noch keine Events erstellt. Über den Plus-Button kannst du direkt dein erstes Event planen.',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          },
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => const CreateEventPage(),
         ),
-      ),
+      );
+    },
+    icon: const Icon(Icons.add_rounded),
+    label: const Text('Erstellen'),
+    ),
+    body: SafeArea(
+    child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+    stream: _eventsStream,
+    builder: (context, snapshot) {
+    if (snapshot.connectionState == ConnectionState.waiting) {
+    return const Center(child: CircularProgressIndicator());
+    }
+
+    if (snapshot.hasError) {
+    return const Center(
+    child: Text('Fehler beim Laden der Events.'),
+    );
+    }
+
+    final docs = snapshot.data?.docs ?? [];
+
+    final myEvents = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final invitedEvents = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final openEvents = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+    final query = _searchController.text.trim().toLowerCase();
+    final hasQuery = query.isNotEmpty;
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final nextWeekEnd = todayStart.add(const Duration(days: 7));
+    final monthEnd = DateTime(now.year, now.month + 1, 1);
+
+    for (final doc in docs) {
+    final data = doc.data();
+
+    final matchesKind = _selectedKindFilter == 'all' ||
+    _normalizeKind(data) == _selectedKindFilter;
+    if (!matchesKind) continue;
+
+    bool matchesDate = true;
+    if (_selectedDateFilter != 'all') {
+    final scheduledAt = _scheduledTimestamp(data)?.toDate();
+    if (scheduledAt == null) {
+    matchesDate = false;
+    } else {
+    switch (_selectedDateFilter) {
+    case 'today':
+    matchesDate =
+    !scheduledAt.isBefore(todayStart) &&
+    scheduledAt.isBefore(
+    todayStart.add(const Duration(days: 1)),
+    );
+    break;
+    case 'next7days':
+    matchesDate =
+    !scheduledAt.isBefore(todayStart) &&
+    scheduledAt.isBefore(nextWeekEnd);
+    break;
+    case 'thisMonth':
+    matchesDate =
+    !scheduledAt.isBefore(todayStart) &&
+    scheduledAt.isBefore(monthEnd);
+    break;
+    }
+    }
+    }
+    if (!matchesDate) continue;
+
+    if (hasQuery) {
+    final locationInfo = _locationInfo(data);
+    final haystack = [
+    (data['title'] ?? '').toString(),
+    (data['description'] ?? '').toString(),
+    (data['createdByName'] ?? '').toString(),
+    locationInfo.label,
+    locationInfo.typeLabel,
+    _kindLabel(data),
+    ].join(' ').toLowerCase();
+
+    if (!haystack.contains(query)) continue;
+    }
+
+    final createdBy = (data['createdBy'] ?? '').toString();
+    if (createdBy == currentUserId) {
+    myEvents.add(doc);
+    continue;
+    }
+
+    if (_belongsToInvitationsTab(data, currentUserId)) {
+    invitedEvents.add(doc);
+    continue;
+    }
+
+    final kind = _normalizeKind(data);
+    final visibility =
+    (data['visibility'] ?? '').toString().trim().toLowerCase();
+
+    final isOpenKind = kind == 'open';
+    final isOpenVisibility =
+    visibility == 'open' || visibility == 'public';
+
+    if (isOpenKind || isOpenVisibility) {
+    if (_isPastOpenEvent(data, now)) {
+    continue;
+    }
+
+    final scheduledAt = _scheduledTimestamp(data)?.toDate();
+    final currentDay = DateTime(now.year, now.month, now.day);
+    final tomorrow = currentDay.add(const Duration(days: 1));
+    final weekEnd = currentDay.add(const Duration(days: 7));
+
+    if (_selectedOpenQuickFilter != 'all') {
+    if (scheduledAt == null) {
+    continue;
+    }
+
+    final scheduledDay = DateTime(
+    scheduledAt.year,
+    scheduledAt.month,
+    scheduledAt.day,
+    );
+
+    if (_selectedOpenQuickFilter == 'today' &&
+    scheduledDay != currentDay) {
+    continue;
+    }
+
+    if (_selectedOpenQuickFilter == 'tomorrow' &&
+    scheduledDay != tomorrow) {
+    continue;
+    }
+
+    if (_selectedOpenQuickFilter == 'thisWeek' &&
+    (scheduledDay.isBefore(currentDay) ||
+    scheduledDay.isAfter(weekEnd))) {
+    continue;
+    }
+    }
+
+    final maxDistanceKm = _effectiveRadiusKm;
+    if (maxDistanceKm != null) {
+    final distanceInMeters = _distanceInMeters(data);
+    if (distanceInMeters == null ||
+    distanceInMeters > maxDistanceKm * 1000) {
+    continue;
+    }
+    }
+
+    openEvents.add(doc);
+    }
+    }
+
+    _sortEventsInPlace(myEvents);
+    _sortEventsInPlace(invitedEvents);
+    _sortOpenEventsInPlace(openEvents);
+
+    final myPendingRequestCount = myEvents.fold<int>(0, (sum, doc) {
+    return sum + _pendingOwnerRequestCount(doc.data(), currentUserId);
+    });
+
+    final invitationAttentionCount = invitedEvents.where((doc) {
+    final data = doc.data();
+    return _isUnseenPendingEventInvite(data, currentUserId) ||
+    _isJoinDecisionForRequester(data, currentUserId);
+    }).length;
+
+    if (invitationAttentionCount > 0 &&
+    !_didAutoJumpToMyEvents &&
+    _tabController.index == 0) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted || _didAutoJumpToMyEvents) return;
+    _didAutoJumpToMyEvents = true;
+    _tabController.animateTo(1);
+    });
+    } else if (myPendingRequestCount > 0 &&
+    !_didAutoJumpToMyEvents &&
+    _tabController.index == 0) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted || _didAutoJumpToMyEvents) return;
+    _didAutoJumpToMyEvents = true;
+    _tabController.animateTo(2);
+    });
+    }
+
+    final currentTabIndex = _tabController.index;
+    final openActiveChips = <_ActiveFilterChipData>[
+    ..._buildCommonActiveChips(),
+    if (_selectedOpenQuickFilterLabel != null)
+    _ActiveFilterChipData(
+    label: _selectedOpenQuickFilterLabel!,
+    onRemove: () {
+    setState(() {
+    _selectedOpenQuickFilter = 'all';
+    });
+    },
+    ),
+    if (_selectedOpenEventsSortLabel != null)
+    _ActiveFilterChipData(
+    label: _selectedOpenEventsSortLabel!,
+    onRemove: () {
+    setState(() {
+    _selectedOpenEventsSort = 'distance_date';
+    });
+    },
+    ),
+    if (_selectedRadiusLabel != null)
+    _ActiveFilterChipData(
+    label: _selectedRadiusLabel!,
+    onRemove: () {
+    setState(() {
+    _selectedRadiusFilter = 'all';
+    });
+    },
+    ),
+    ];
+
+    final currentActiveChips =
+    currentTabIndex == 0 ? openActiveChips : _buildCommonActiveChips();
+    final currentResultCount = currentTabIndex == 0
+    ? openEvents.length
+        : currentTabIndex == 1
+    ? invitedEvents.length
+        : myEvents.length;
+    final currentSummary = currentTabIndex == 0
+    ? _buildResultsSummary(openEvents.length)
+        : null;
+
+    return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+    Padding(
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+    child: _SearchBarCard(
+    controller: _searchController,
+    onFilterTap: _openFilterSheet,
+    activeFilterCount: _activeFilterCount,
+    ),
+    ),
+    Padding(
+    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+    child: Container(
+    decoration: BoxDecoration(
+    color: colorScheme.surface,
+    borderRadius: BorderRadius.circular(18),
+    border: Border.all(color: colorScheme.outlineVariant),
+    ),
+    child: MediaQuery(
+    data: MediaQuery.of(
+    context,
+    ).copyWith(textScaler: const TextScaler.linear(1.0)),
+    child: TabBar(
+    controller: _tabController,
+    dividerColor: Colors.transparent,
+    indicatorSize: TabBarIndicatorSize.tab,
+    indicator: BoxDecoration(
+    color: colorScheme.primary.withValues(alpha: 0.10),
+    borderRadius: BorderRadius.circular(14),
+    ),
+    labelColor: colorScheme.primary,
+    unselectedLabelColor: colorScheme.onSurfaceVariant,
+    labelStyle: theme.textTheme.titleSmall?.copyWith(
+    fontWeight: FontWeight.w700,
+    ),
+    labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+    tabs: [
+    const Tab(
+    child: _ResponsiveTabLabel(label: 'Offene Events'),
+    ),
+    Tab(
+    child: _TabLabelWithBadge(
+    label: 'Einladungen',
+    badgeCount: invitationAttentionCount,
+    ),
+    ),
+    Tab(
+    child: _TabLabelWithBadge(
+    label: 'Meine Events',
+    badgeCount: myPendingRequestCount,
+    ),
+    ),
+    ],
+    ),
+    ),
+    ),
+    ),
+    const SizedBox(height: 12),
+    if (_hasActiveEventFilters)
+    Padding(
+    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+    child: _ActiveSearchInfo(
+    searchText: _searchController.text.trim(),
+    activeFilterCount: _activeFilterCount,
+    resultCount: currentResultCount,
+    summaryText: currentSummary,
+    activeChips: currentActiveChips,
+    ),
+    ),
+    Expanded(
+    child: TabBarView(
+    controller: _tabController,
+    physics: const BouncingScrollPhysics(),
+    children: [
+    _buildTabContent(
+    context: context,
+    theme: theme,
+    colorScheme: colorScheme,
+    docs: openEvents,
+    view: EventDetailView.openEvent,
+    currentUserId: currentUserId,
+    statusResolver: (_) => 'open',
+    resultsSummary: _buildResultsSummary(openEvents.length),
+    filteredEmptyState: _effectiveRadiusKm != null
+    ? _RadiusEmptyState(
+    radiusKm: _effectiveRadiusKm!.round(),
+    onExpand: () {
+    setState(() {
+    final currentRadius =
+    _effectiveRadiusKm?.round() ?? 100;
+    _selectedRadiusFilter =
+    _nextRadiusStep(currentRadius)
+        .toString();
+    });
+    },
+    onReset: _resetAllEventFilters,
+    )
+        : null,
+    activeChips: [
+    ..._buildCommonActiveChips(),
+    if (_selectedOpenQuickFilterLabel != null)
+    _ActiveFilterChipData(
+    label: _selectedOpenQuickFilterLabel!,
+    onRemove: () {
+    setState(() {
+    _selectedOpenQuickFilter = 'all';
+    });
+    },
+    ),
+    if (_selectedOpenEventsSortLabel != null)
+    _ActiveFilterChipData(
+    label: _selectedOpenEventsSortLabel!,
+    onRemove: () {
+    setState(() {
+    _selectedOpenEventsSort = 'distance_date';
+    });
+    },
+    ),
+    if (_selectedRadiusLabel != null)
+    _ActiveFilterChipData(
+    label: _selectedRadiusLabel!,
+    onRemove: () {
+    setState(() {
+    _selectedRadiusFilter = 'all';
+    });
+    },
+    ),
+    ],
+    groupByDay: true,
+    emptyState: const _EventEmptyState(
+    icon: Icons.public_off_outlined,
+    title: 'Keine offenen Events',
+    subtitle:
+    'Aktuell gibt es keine offenen Events für dich. Neue öffentliche Aktivitäten erscheinen später hier.',
+    ),
+    ),
+    _buildTabContent(
+    context: context,
+    theme: theme,
+    colorScheme: colorScheme,
+    docs: invitedEvents,
+    view: EventDetailView.invitation,
+    currentUserId: currentUserId,
+    statusResolver: (data) =>
+    _responseForUser(data, currentUserId),
+    activeChips: _buildCommonActiveChips(),
+    groupByDay: true,
+    emptyState: const _EventEmptyState(
+    icon: Icons.mail_outline_rounded,
+    title: 'Keine Einladungen vorhanden',
+    subtitle:
+    'Sobald dich jemand zu einem Event einlädt, erscheint es hier in deiner Übersicht.',
+    ),
+    ),
+    _buildTabContent(
+    context: context,
+    theme: theme,
+    colorScheme: colorScheme,
+    docs: myEvents,
+    view: EventDetailView.myEvent,
+    currentUserId: currentUserId,
+    statusResolver: (data) => _overallStatus(data),
+    activeChips: _buildCommonActiveChips(),
+    groupByDay: true,
+    emptyState: const _EventEmptyState(
+    icon: Icons.event_busy_outlined,
+    title: 'Noch keine eigenen Events',
+    subtitle:
+    'Du hast noch keine Events erstellt. Über den Plus-Button kannst du direkt dein erstes Event planen.',
+    ),
+    ),
+    ],
+    ),
+    ),
+    ],
+    );
+    },
+    ),
+    ),
+        ),
     );
   }
 }
